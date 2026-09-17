@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": ["../in.js"],
+  "mappings": "AAEO,IAAMA,EAAO,EACdC,EAAK,mDACX,QAAQ,IAAIA,EAAI,CAAI",
+  "names": ["file", "re"]
+}

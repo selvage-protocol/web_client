@@ -1,0 +1,32 @@
+{
+  "name": "selvage-web-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser editor client for the Selvage session protocol (Monaco + shared sync engine)",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs",
+    "sync-engine": "scripts/sync-engine.sh",
+    "test": "node --test test/",
+    "prove": "node scripts/prove-m1.mjs",
+    "prove:fb2": "node scripts/prove-fb2.mjs",
+    "prove:tls": "node scripts/prove-tls.mjs",
+    "prove:flow2": "node scripts/prove-flow2.mjs",
+    "check:cors": "node scripts/check-cors.mjs",
+    "check:types": "node scripts/check-content-types.mjs",
+    "serve": "python3 -m http.server 8081 --directory dist"
+  },
+  "dependencies": {
+    "lib0": "0.2.117",
+    "monaco-editor": "0.52.2",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.32"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "5.9.3",
+    "ws": "^8.21.3"
+  }
+}

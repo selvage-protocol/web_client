@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Selvage — shared editing in the browser</title>
+    <meta name="description" content="This page joins a live editing session as a guest. The host's working copy stays the source of truth; what you type here goes to the room." />
+    <meta name="theme-color" content="#1e1e2e" />
+    <meta property="og:title" content="Selvage — shared editing in the browser" />
+    <meta property="og:description" content="This page joins a live editing session as a guest. The host's working copy stays the source of truth; what you type here goes to the room." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="mark-opaque.png" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon-32x32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="manifest" href="site.webmanifest" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #1e1e2e;
+        --foreground: #cdd6f4;
+        --card: #181825;
+        --muted: #313244;
+        --muted-hover: #383a52;
+        --muted-foreground: #a6adc8;
+        --border: #45475a;
+        --input: #11111b;
+        --primary: #cba6f7;
+        --primary-hover: #d5b4fa;
+        --primary-foreground: #181825;
+        --ring: #cba6f7;
+        --radius: 0.5rem;
+      }
+      [hidden] { display: none !important; }
+      html, body { height: 100%; margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--background); color: var(--foreground); }
+      #app { display: flex; flex-direction: column; height: 100%; }
+      .icon { display: inline-flex; flex: none; }
+      .icon svg { width: 1em; height: 1em; }
+      button { font: inherit; color: var(--foreground); background: var(--muted);
+        border: 1px solid var(--border); border-radius: 6px; padding: 0.3em 0.7em;
+        cursor: pointer; display: inline-flex; align-items: center; gap: 0.45em; }
+      button:hover:not(:disabled) { border-color: var(--primary); background: var(--muted-hover); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.primary { background: var(--primary); border-color: var(--primary);
+        color: var(--primary-foreground); font-weight: 600; }
+      button.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+      button:focus-visible, input:focus-visible, summary:focus-visible {
+        outline: 2px solid var(--ring); outline-offset: 1px; }
+      input { font: inherit; color: var(--foreground); background: var(--input);
+        border: 1px solid var(--border); border-radius: 6px; padding: 0.4em 0.6em; }
+      input:focus { border-color: var(--primary); outline: none; }
+      #session { display: flex; gap: 0.8em; align-items: center; padding: 0.5em 1em;
+        background: var(--card); border-bottom: 1px solid var(--border); }
+      #brand { display: inline-flex; align-items: center; gap: 0.45em; flex: none;
+        font-weight: 650; white-space: nowrap; }
+      #brand img { width: 1.5em; height: 1.5em; border-radius: 4px; }
+      #room-label { font-weight: 650; white-space: nowrap; }
+      #join .mark { display: block; width: 3rem; height: 3rem; border-radius: 8px;
+        margin-bottom: 0.8em; }
+      #share-group { display: flex; align-items: center; gap: 0.45em; flex: 1 1 auto;
+        min-width: 0; max-width: 34em; color: var(--muted-foreground); }
+      #share { flex: 1 1 auto; min-width: 0; font-size: 0.85em; color: var(--muted-foreground); }
+      #status { margin-left: auto; color: var(--muted-foreground); font-size: 0.9em;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38%; flex: none; }
+      #follow-banner { display: flex; gap: 0.8em; align-items: center;
+        padding: 0.4em 1em; font-weight: 600; border-bottom: 3px solid;
+        color: var(--foreground); }
+      #follow-banner button { font-weight: normal; font-size: 0.9em; }
+      #workspace { display: flex; flex: 1; min-height: 0; }
+      #side { width: 19rem; flex: none; overflow-y: auto; border-right: 1px solid var(--border);
+        background: var(--card); padding: 0.7em 0.8em 1em; }
+      #side h2 { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted-foreground); margin: 0.9em 0 0.4em; }
+      #side h2:first-child { margin-top: 0; }
+      #roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2em; }
+      #roster li { display: flex; gap: 0.5em; align-items: center; padding: 0.4em 0.5em; border-radius: 6px; }
+      #roster li:hover { background: var(--muted); }
+      #roster li.following { background: var(--muted); outline: 1px solid var(--border); }
+      #roster .swatch { flex: none; width: 0.75em; height: 0.75em; border-radius: 50%; align-self: center; }
+      #roster .who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+      #roster .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #roster .where { color: var(--muted-foreground); font-size: 0.8em;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #roster .actions { display: flex; gap: 0.25em; flex: none; }
+      #roster .actions button { font-size: 0.78em; padding: 0.2em 0.45em; }
+      .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.4em 0.2em; margin: 0; }
+      #tree { margin: 0; padding: 0; }
+      #tree ul { list-style: none; margin: 0; padding-left: 1em; }
+      #tree > ul { padding-left: 0; }
+      #tree li { margin: 1px 0; }
+      #tree summary { display: flex; align-items: center; gap: 0.4em; padding: 0.3em 0.4em;
+        border-radius: 6px; cursor: pointer; list-style: none; font-weight: 600; }
+      #tree summary::-webkit-details-marker { display: none; }
+      #tree summary:hover { background: var(--muted); }
+      #tree summary .chev { color: var(--muted-foreground); transition: transform 0.12s ease; }
+      #tree details[open] > summary .chev { transform: rotate(90deg); }
+      #tree button.row { display: flex; align-items: center; gap: 0.45em; width: 100%;
+        box-sizing: border-box; background: none; border: 1px solid transparent;
+        text-align: left; color: var(--foreground); padding: 0.3em 0.4em; border-radius: 6px; }
+      #tree button.row:hover { background: var(--muted); }
+      #tree button.row.open { background: var(--muted); border-color: var(--border); font-weight: 600; }
+      #tree button.row .icon { color: var(--muted-foreground); }
+      #editor { flex: 1; min-height: 0; min-width: 0; }
+      #preview { position: fixed; inset: 0; display: flex; min-height: 0; }
+      #preview .fake-side { width: 19rem; flex: none; background: var(--card);
+        border-right: 1px solid var(--border); padding: 0.7em 0.8em 1em; }
+      #preview .fake-bar { border-radius: 6px; background: var(--muted); margin: 0.45em 0;
+        height: 0.9em; }
+      #preview .fake-side .fake-bar:nth-child(odd) { width: 82%; }
+      #preview .fake-side .fake-bar:nth-child(even) { width: 64%; }
+      #preview .fake-main { flex: 1; min-width: 0; padding: 1.2em 1.6em; }
+      #preview .fake-main .fake-bar:nth-child(3n) { width: 68%; }
+      #preview .fake-main .fake-bar:nth-child(3n+1) { width: 92%; }
+      #preview .fake-main .fake-bar:nth-child(3n+2) { width: 79%; }
+      #veil { position: fixed; inset: 0; background: rgba(17, 17, 27, 0.55);
+        backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); }
+      #join { position: fixed; left: 50%; top: 12vh; transform: translateX(-50%);
+        width: min(26rem, calc(100vw - 2em)); box-sizing: border-box; margin: 0; padding: 2em 2.2em;
+        background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); z-index: 1; }
+      #join h1 { margin: 0 0 0.3em; font-size: 1.4em; }
+      #join .roomline { color: var(--muted-foreground); margin: 0.2em 0 1em; }
+      #join .lede { color: var(--muted-foreground); margin: 0.2em 0 1em; }
+      #join label { display: block; margin: 0.8em 0; font-size: 0.85em; font-weight: 600; }
+      #join input { width: 100%; box-sizing: border-box; margin-top: 0.35em; font-weight: normal; }
+      #join-button { margin-top: 0.5em; }
+      #join-error { color: #f38ba8; min-height: 1.4em; margin: 0.6em 0 0; }
+      @media (max-width: 640px) {
+        #session { flex-wrap: wrap; row-gap: 0.4em; }
+        #share-group { order: 3; flex-basis: 100%; max-width: none; }
+        #share-group #share { display: none; }
+        #status { margin-left: 0; flex-basis: 100%; max-width: none; }
+        #workspace { flex-direction: column; }
+        #side { width: auto; border-right: none; border-bottom: 1px solid var(--border);
+          max-height: 38%; }
+        #join { top: 4vh; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="session" hidden>
+        <span id="brand"><img src="mark-transparent.png" alt="" width="800" height="800" />Selvage</span>
+        <strong id="room-label"></strong>
+        <span id="share-group">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg></span>
+          <input id="share" readonly spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
+          <button id="copy-share" type="button">Copy link</button>
+        </span>
+        <span id="status" role="status"></span>
+      </div>
+      <div id="follow-banner" hidden></div>
+      <div id="preview" aria-hidden="true">
+        <div class="fake-side">
+          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+        </div>
+        <div class="fake-main">
+          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+        </div>
+      </div>
+      <div id="veil" aria-hidden="true"></div>
+      <div id="join">
+        <img class="mark" src="mark-transparent.png" alt="Selvage mark" width="800" height="800" />
+        <h1>Join a shared session</h1>
+        <p class="lede">
+          This page joins a live editing session as a guest. The host's working
+          copy stays the source of truth; what you type here goes to the room.
+        </p>
+        <p class="roomline" id="join-roomline" hidden>You've been invited to a live session</p>
+        <form id="join-form" action="#">
+          <label id="invite-wrap" hidden>Paste your invite link
+            <input id="invite" type="text" autocomplete="off" spellcheck="false"
+              placeholder="e.g. https://this-page/… — paste the whole invite link" />
+          </label>
+          <label>The name other participants see
+            <input id="name" type="text" maxlength="32" autocomplete="off" />
+          </label>
+          <button id="join-button" class="primary" type="submit">Join</button>
+        </form>
+        <p id="join-error" role="alert"></p>
+      </div>
+      <div id="workspace" hidden>
+        <div id="side">
+          <h2>Here</h2>
+          <ul id="roster"></ul>
+          <h2>Shared</h2>
+          <div id="tree"></div>
+        </div>
+        <div id="editor"></div>
+      </div>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

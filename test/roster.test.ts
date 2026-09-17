@@ -1,0 +1,139 @@
+/**
+ * Roster rows: names with no path text under them, the self row, and one
+ * stop control owned by the follow banner — never the roster.
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { renderRoster } from '../src/browser/roster.ts';
+import type { RosterPeer } from '../src/browser/roster.ts';
+
+function makeDocument() {
+  const elements = [];
+  function make(tag) {
+    const element = {
+      tag,
+      children: [],
+      className: '',
+      textContent: '',
+      title: '',
+      disabled: false,
+      style: {},
+      dataset: {},
+      classList: { add: (name) => void element.classes.push(name) },
+      classes: [],
+      replaceChildren: () => void element.children.splice(0),
+      append: (...nodes) => void nodes.forEach((node) => void element.children.push(node)),
+      appendChild: (node) => void element.children.push(node),
+      addEventListener: () => {},
+      setAttribute: () => {},
+    };
+    elements.push(element);
+    return element;
+  }
+  return {
+    elements,
+    createElement: (tag) => make(tag),
+  };
+}
+
+function textOf(element) {
+  return element.children.map((child) => child.textContent || textOf(child)).join(' ');
+}
+
+const SAM = { peerId: 'peer-sam', displayName: 'sam', role: 'guest', colour: '#e06c75', path: 'notes.md' };
+const JO = { peerId: 'peer-jo', displayName: 'jo', role: 'host', colour: '#61afef', path: undefined };
+
+function render(peers, overrides = {}) {
+  const document = makeDocument();
+  globalThis.document = document;
+  const list = document.createElement('ul');
+  const calls = [];
+  renderRoster(list, peers, {
+    followedPeerId: undefined,
+    selfName: 'me',
+    onGoTo: (peerId) => void calls.push(['go', peerId]),
+    onFollow: (peerId) => void calls.push(['follow', peerId]),
+    ...overrides,
+  });
+  return { list, calls, document };
+}
+
+describe('roster rows', () => {
+  it('names the peer with no path text under it', () => {
+    const { list } = render([SAM]);
+    const rows = list.children.filter((child) => child.tag === 'li');
+    assert.equal(rows.length, 2);
+    const row = rows.find((child) => child.classes.includes('peer'));
+    assert.ok(textOf(row).includes('sam'), `name missing: ${textOf(row)}`);
+    assert.ok(!textOf(row).includes('notes.md'), `path text under the name: ${textOf(row)}`);
+    assert.ok(!textOf(row).includes('no shared document'), `placeholder text under the name: ${textOf(row)}`);
+  });
+
+  it('marks the followed row Following with no stop of its own', () => {
+    const { list } = render([SAM], { followedPeerId: 'peer-sam' });
+    const row = list.children.find((child) => child.classes.includes('peer'));
+    const buttons = [];
+    const walk = (element) => {
+      if (element.tag === 'button') buttons.push(element);
+      for (const child of element.children) walk(child);
+    };
+    walk(row);
+    assert.equal(buttons.length, 2);
+    const follow = buttons[1];
+    assert.ok(textOf(follow).includes('Following'), `follow toggle lost: ${textOf(follow)}`);
+    assert.equal(follow.disabled, true);
+    for (const button of buttons) {
+      assert.ok(!/^stop\b/i.test(textOf(button).trim()), `a second stop control: ${textOf(button)}`);
+    }
+  });
+
+  it('an unfollowed peer offers Go to and Follow', () => {
+    const { list, calls } = render([SAM]);
+    const row = list.children.find((child) => child.classes.includes('peer'));
+    const buttons = [];
+    const walk = (element) => {
+      if (element.tag === 'button') buttons.push(element);
+      for (const child of element.children) walk(child);
+    };
+    walk(row);
+    assert.ok(textOf(buttons[0]).includes('Go to'));
+    assert.ok(textOf(buttons[1]).includes('Follow'));
+    assert.ok(!textOf(buttons[1]).includes('Following'));
+    assert.equal(calls.length, 0);
+  });
+
+  it('Go to is unavailable while the peer is in no document', () => {
+    const { list } = render([JO]);
+    const row = list.children.find((child) => child.classes.includes('peer'));
+    const buttons = [];
+    const walk = (element) => {
+      if (element.tag === 'button') buttons.push(element);
+      for (const child of element.children) walk(child);
+    };
+    walk(row);
+    assert.equal(buttons[0].disabled, true);
+  });
+
+  it('the self row leads with a you marker and no actions', () => {
+    const { list } = render([SAM]);
+    const self = list.children[0];
+    assert.ok(self.classes.includes('self'), 'self row is not first');
+    assert.ok(textOf(self).includes('me'), `own name missing: ${textOf(self)}`);
+    assert.ok(/you/i.test(textOf(self)), `you marker missing: ${textOf(self)}`);
+    const buttons = [];
+    const walk = (element) => {
+      if (element.tag === 'button') buttons.push(element);
+      for (const child of element.children) walk(child);
+    };
+    walk(self);
+    assert.equal(buttons.length, 0);
+  });
+
+  it('peer colours stay on the swatch, data-driven', () => {
+    const { list } = render([SAM]);
+    const row = list.children.find((child) => child.classes.includes('peer'));
+    const swatch = row.children.find((child) => child.className === 'swatch');
+    assert.equal(swatch.style.backgroundColor, '#e06c75');
+  });
+});

@@ -1,0 +1,335 @@
+/**
+ * Live proof for the M1 page stack, without a browser on this host.
+ *
+ * Drives the page's own code — the synced engine copy, the native WebSocket
+ * factory, the session bridge, and the real `MonacoBinding` with a fake editor
+ * standing in for Monaco — against a real `selvaged`: the room is minted by this
+ * checkout's own engine, the guest joins the way the page does (with the default
+ * `/meta` check, no skip), and the proof walks the roster, the grant tree, a
+ * jump, a follow, convergence both ways, a reconnect, and the degraded `/meta`
+ * a cross-origin page sees. What is not covered here is Monaco itself; the
+ * adapter owns no protocol logic beyond offset mapping, which both sides count
+ * in UTF-16 code units.
+ *
+ * Usage: SELVAGE_BASE=ws://100.64.0.3:8080 node scripts/prove-m1.mjs
+ */
+
+import { applyChange, SessionBridge } from '../src/bridge/index.ts';
+import { peerColour } from '../src/bridge/index.ts';
+import { SelvageEngine as Engine } from '../src/engine/index.ts';
+import { MonacoBinding } from '../src/browser/editor.ts';
+import { languageForPath } from '../src/browser/languages.ts';
+import { nativeWebSocketFactory } from '../src/browser/transport.ts';
+
+const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
+const NOTES = 'notes.md';
+const MAIN = 'src/main.ts';
+const SEED_NOTES = '# room notes\nline two\n';
+const SEED_MAIN = 'const x = 1;\n';
+
+// Minimal DOM: the binding owns one <style> element for peer colours.
+globalThis.document = {
+  createElement: () => ({ append: () => {}, remove: () => {} }),
+  head: { appendChild: () => {} },
+};
+
+function makeModel(text, seen) {
+  const listeners = new Set();
+  const lines = () => text.split('\n');
+  return {
+    isDisposed: () => false,
+    dispose: () => {},
+    getValue: () => text,
+    getEOL: () => '\n',
+    getOffsetAt: (pos) => {
+      const ls = lines();
+      let offset = 0;
+      for (let i = 0; i < pos.lineNumber - 1; i += 1) offset += ls[i].length + 1;
+      return offset + pos.column - 1;
+    },
+    getPositionAt: (offset) => {
+      const ls = lines();
+      let rest = offset;
+      for (let i = 0; i < ls.length; i += 1) {
+        if (rest <= ls[i].length) return { lineNumber: i + 1, column: rest + 1 };
+        rest -= ls[i].length + 1;
+      }
+      return { lineNumber: ls.length, column: ls[ls.length - 1].length + 1 };
+    },
+    pushEditOperations: (_before, edits, _cursor) => {
+      for (const edit of edits) {
+        const at = (p) => {
+          const ls = text.split('\n');
+          let offset = 0;
+          for (let i = 0; i < p.lineNumber - 1; i += 1) offset += ls[i].length + 1;
+          return offset + p.column - 1;
+        };
+        const from = at({ lineNumber: edit.range.startLineNumber, column: edit.range.startColumn });
+        const to = at({ lineNumber: edit.range.endLineNumber, column: edit.range.endColumn });
+        text = text.slice(0, from) + edit.text + text.slice(to);
+      }
+      return null;
+    },
+    onDidChangeContent: (listener) => {
+      listeners.add(listener);
+      return { dispose: () => void listeners.delete(listener) };
+    },
+    __fire: () => void listeners.forEach((listener) => listener()),
+    __text: () => text,
+  };
+}
+
+function makeEditor(seen) {
+  return {
+    positions: [],
+    createDecorationsCollection: () => ({ set: () => {}, clear: () => {} }),
+    onDidChangeCursorSelection: () => ({ dispose: () => {} }),
+    getSelection: function () {
+      return this.selection ?? null;
+    },
+    selection: null,
+    setModel: () => {},
+    setPosition: function (position) {
+      this.positions.push(position);
+      this.selection = {
+        selectionStartLineNumber: position.lineNumber,
+        selectionStartColumn: position.column,
+        positionLineNumber: position.lineNumber,
+        positionColumn: position.column,
+      };
+    },
+    revealPositionInCenter: () => {},
+  };
+}
+
+class MemHost {
+  texts = new Map();
+  cursors = [];
+  reports = [];
+  text(path) {
+    return this.texts.get(path);
+  }
+  lineEnding(_path) {
+    return '\n';
+  }
+  async applyChange(path, change) {
+    const current = this.texts.get(path);
+    if (current === undefined) return false;
+    this.texts.set(path, applyChange(current, change));
+    return true;
+  }
+  async save(_path) {
+    return true;
+  }
+  async readGrantedFile(_path) {
+    return undefined;
+  }
+  renderCursors(cursors) {
+    this.cursors = cursors;
+  }
+  report(report) {
+    this.reports.push(report);
+  }
+}
+
+async function waitFor(label, predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const seen = predicate();
+    if (seen !== undefined) return seen;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+function check(name, condition) {
+  if (!condition) throw new Error(`FAILED: ${name}`);
+  console.log(`ok: ${name}`);
+}
+
+// The room is minted by this checkout's own engine: one copy, no harness caveat.
+const hostEngine = await Engine.host(BASE, 'prove-host', { client: 'web-prove/host' });
+const invite = hostEngine.inviteUrl();
+if (invite === undefined) throw new Error('host minted no invite');
+console.log(`room minted: ${hostEngine.session().roomId}`);
+
+const hostFiles = new MemHost();
+hostFiles.texts.set(NOTES, SEED_NOTES);
+hostFiles.texts.set(MAIN, SEED_MAIN);
+const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
+hostBridge.documentOpened(NOTES);
+hostBridge.documentOpened(MAIN);
+await hostEngine.grant([NOTES, MAIN, 'todo.txt']);
+console.log('host shares two documents and a three-path listing');
+
+// The page joins with the default `/meta` check — no skip — and the handshake
+// negotiates the wire version on top.
+let guestSocket;
+const capturingFactory = (url) => {
+  guestSocket = nativeWebSocketFactory(url);
+  return guestSocket;
+};
+const guestEngine = await Engine.join(invite, 'prove-web', {
+  webSocketFactory: capturingFactory,
+  client: 'web_client/0.1.0',
+});
+console.log(`guest joined as ${guestEngine.session().role} over native WebSocket, meta checked`);
+
+const seen = { languages: [] };
+const guestEditor = makeEditor(seen);
+const notices = [];
+const guestModels = [];
+const binding = new MonacoBinding({
+  engine: guestEngine,
+  editor: guestEditor,
+  onNotice: (notice) => void notices.push(notice),
+  createModel: (text, language) => {
+    seen.languages.push(language);
+    const model = makeModel(text, seen);
+    guestModels.push(model);
+    return model;
+  },
+});
+guestEngine.setSelection(NOTES, { anchor: 0, head: 0 });
+
+// The roster names the host with the caret mapping's colour.
+const roster = await waitFor(
+  'roster to name the host',
+  () => {
+    const participants = binding.participants();
+    return participants.length > 0 ? participants : undefined;
+  },
+  10_000,
+);
+const hostRow = roster.find((row) => row.displayName === 'prove-host');
+check('roster names the host', hostRow !== undefined);
+check('roster colour reuses the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
+console.log(`roster: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
+
+// The grant tree unions the listing with the open documents, directories first.
+const listing = await waitFor(
+  'grant listing to arrive',
+  () => (binding.grantListing().length >= 3 ? binding.grantListing() : undefined),
+  10_000,
+);
+check('grant listing unions listing and open documents', listing.includes('todo.txt') && listing.includes(NOTES));
+const root = binding.grantTree('');
+check('grant tree synthesises directories first', root[0]?.directory === true && root[0]?.name === 'src');
+console.log(`tree: ${listing.join(', ')}`);
+
+// Clicking a listed path opens it and fetches the text, like the desktop guest.
+await binding.openDocument(MAIN);
+await waitFor(
+  'listed document to fetch',
+  () => (guestEngine.text(MAIN) === SEED_MAIN ? true : undefined),
+  10_000,
+);
+check('click opens and fetches the listed document', true);
+check('models take the backed language', seen.languages.includes(languageForPath(MAIN)));
+check('markdown maps too', languageForPath(NOTES) === 'markdown');
+
+// Jump to the host: lands in the host's document at the host's caret.
+hostEngine.setSelection(MAIN, { anchor: 0, head: 5 });
+const hostPeerId = hostEngine.session().peer.peer_id;
+await waitFor(
+  'host presence to cross',
+  () => guestEngine.presence().find((record) => record.peer?.peer_id === hostPeerId)?.state?.selection,
+  10_000,
+);
+await binding.goTo(hostPeerId);
+check('jump lands in the followed document', binding.currentPath() === MAIN);
+// The landing may arrive via the pending go-to's next frame when a room event
+// supersedes the first attempt mid-open; the page shows the landing either way.
+const jumped = await waitFor(
+  'jump to place the caret',
+  () => guestEditor.positions.at(-1),
+  10_000,
+);
+check('jump places the caret', jumped !== undefined);
+console.log(`jump: ${MAIN} at line ${jumped.lineNumber}, column ${jumped.column}`);
+
+// Follow: the indicator rises, and the next caret move re-lands.
+await binding.follow(hostPeerId);
+check('follow indicator is up', binding.following()?.peerId === hostPeerId);
+const at = guestEditor.positions.length;
+hostEngine.setSelection(MAIN, { anchor: 0, head: 11 });
+await waitFor(
+  'follow to re-land on the next frame',
+  () => (guestEditor.positions.length > at ? true : undefined),
+  10_000,
+);
+check('follow re-lands on a remote caret move', true);
+
+// The binding's open primitive does not end the follow — landings are opens,
+// so this programmatic switch keeps it; only editing, leaving, or stopping
+// does. On the page, opening a file from the tree is a deliberate navigation
+// and stops the follow first, the same class as going to someone.
+await binding.openDocument(NOTES);
+await waitFor(
+  'guest to hold the notes seed',
+  () => (guestEngine.text(NOTES) === SEED_NOTES ? true : undefined),
+  10_000,
+);
+check('follow survives switching documents', binding.following()?.peerId === hostPeerId);
+
+// A local edit ends the follow, and the keystroke still reaches the room. The
+// keystroke goes into the front document: that is what typing while following is.
+await binding.openDocument(MAIN);
+check('guest is where the follow put it', binding.currentPath() === MAIN);
+const mainModel = guestModels[0];
+if (mainModel === undefined) throw new Error('guest never built the main model');
+mainModel.pushEditOperations([], [{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: '// guest\n', forceMoveMarkers: true }], () => null);
+mainModel.__fire();
+check('a local edit ends the follow', binding.following() === undefined);
+check('the stop is announced', notices.some((notice) => notice.kind === 'follow' && notice.following === undefined));
+await waitFor(
+  'host to converge on the guest edit',
+  () => (hostEngine.text(MAIN).includes('// guest') ? true : undefined),
+  10_000,
+);
+check('guest edit converges on the host', true);
+
+// Convergence the other way, through the binding, guest as the page's buffer.
+const withGuestLine = hostEngine.text(MAIN);
+hostFiles.texts.set(MAIN, `${withGuestLine}host line\n`);
+hostBridge.documentChanged(MAIN);
+await waitFor(
+  'guest to converge on the host edit',
+  () => (guestEngine.text(MAIN) === `${withGuestLine}host line\n` ? true : undefined),
+  10_000,
+);
+check('host edit converges on the guest', true);
+
+// The degraded `/meta` a cross-origin page sees: the read fails like any
+// unreachable endpoint, advisory, never a refusal — the join still lands.
+const degraded = await Engine.join(invite, 'prove-degraded', {
+  webSocketFactory: nativeWebSocketFactory,
+  fetchImpl: () => Promise.reject(new Error('CORS blocked')),
+  client: 'web_client/0.1.0',
+});
+check('join survives an unreadable /meta', degraded.session().role === 'guest');
+await degraded.disconnect();
+
+// Reconnect: cut the socket, watch it come back, converge again.
+let reconnecting = false;
+const stop = guestEngine.on((event) => {
+  if (event.type === 'reconnecting') reconnecting = true;
+});
+guestSocket.close();
+await waitFor('engine to notice the cut socket', () => (reconnecting ? true : undefined), 10_000);
+console.log('guest reconnects after the socket is cut');
+const afterReconnect = `${guestEngine.text(NOTES)}back again\n`;
+hostFiles.texts.set(NOTES, afterReconnect);
+hostBridge.documentChanged(NOTES);
+await waitFor(
+  'room to converge after reconnect',
+  () => (guestEngine.text(NOTES) === afterReconnect ? true : undefined),
+  15_000,
+);
+stop();
+check('room converges after reconnect', true);
+
+binding.dispose();
+await guestEngine.disconnect();
+await hostEngine.disconnect();
+console.log('PROOF OK');
