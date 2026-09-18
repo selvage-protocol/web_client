@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Selvage — shared editing in the browser</title>
     <meta name="description" content="This page joins a live editing session as a guest. The host's working copy stays the source of truth; what you type here goes to the room." />
     <meta name="theme-color" content="#1e1e2e" />
@@ -48,7 +48,13 @@
       [hidden] { display: none !important; }
       html, body { height: 100%; margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
         background: var(--background); color: var(--foreground); }
-      #app { display: flex; flex-direction: column; height: 100%; }
+      /* `dvh`, not `vh`: the dynamic viewport follows the browser chrome and, on
+         the platforms that resize the layout viewport, the soft keyboard. The
+         `100%` above is what a browser without `dvh` falls back to. The bottom
+         inset keeps the last row off a phone's home indicator.
+         (`viewport-fit=cover` in the meta is what makes the inset non-zero.) */
+      #app { display: flex; flex-direction: column; height: 100%; height: 100dvh;
+        padding-bottom: env(safe-area-inset-bottom); }
       .icon { display: inline-flex; flex: none; }
       .icon svg { width: 1em; height: 1em; }
       button { font: inherit; color: var(--foreground); background: var(--muted);
@@ -117,11 +123,26 @@
         border-left: 3px solid var(--danger); border-radius: var(--radius);
         box-shadow: var(--shadow); color: var(--foreground); }
       #alert:empty { display: none; }
+      /* The tap-revealed line: what a `title` says to a pointer, said on screen
+         to a finger. Same anatomy as the failure alert so the page has one
+         voice for a transient line, and quiet enough to stand over the editor. */
+      #peek { position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%);
+        z-index: 5; box-sizing: border-box; max-width: min(30rem, calc(100vw - 2rem));
+        padding: 0.6em 0.9em; background: var(--card); border: 1px solid var(--border-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow); color: var(--foreground);
+        font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #peek:empty { display: none; }
       #follow-banner { display: flex; gap: 0.8em; align-items: center;
         padding: 0.5em 1.1em; font-weight: 600; border-bottom: 3px solid;
         color: var(--foreground); }
       #follow-banner button { font-weight: normal; font-size: 0.9em; }
       #workspace { display: flex; flex: 1; min-height: 0; }
+      /* The phone's own way into the panel below: a touch-only browser has no
+         hover and no room for a permanent 42% of the screen, so the tree and
+         the roster live behind a disclosure control that exists only there. */
+      #panel-toggle { display: none; }
+      #panel-toggle .chev { transition: transform 0.12s ease; }
+      #panel-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
       #side { width: 19rem; flex: none; overflow-y: auto; border-right: 1px solid var(--border);
         background: var(--card); padding: 0.9em 0.7em 1.2em; }
       #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
@@ -144,6 +165,9 @@
         border-color: transparent; color: var(--muted-foreground); }
       #roster .actions button:hover:not(:disabled) { background: var(--muted-hover);
         border-color: var(--border-strong); color: var(--foreground); }
+      /* A disabled verb's reason: a `title` on a pointer device, and this line —
+         which the `(hover: none)` block below unhides — on a finger. */
+      #roster .why { display: none; font-size: 0.8em; color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       #tree { margin: 0; padding: 0; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
@@ -215,9 +239,45 @@
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
         #share-group #share { display: none; }
         #workspace { flex-direction: column; }
+        /* `border-box` so the cap is the panel's own box: without it the padding
+           and the border sat outside the 38% and the panel took 42%. */
         #side { width: auto; border-right: none; border-bottom: 1px solid var(--border);
-          max-height: 38%; }
+          max-height: 38%; box-sizing: border-box; }
         #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
+      }
+      /* A finger, not a pointer. Everything here is behind `(hover: none)` so a
+         device with a mouse keeps the layout it has: the density below is a
+         touch affordance, not a size.
+         Two conditions, because they answer two questions: `(hover: none)` is
+         `touch at all` (field type and target size), and the phone query is
+         `this is a phone` (the card is a sheet, the panel is a disclosure). */
+      @media (hover: none) {
+        /* iOS zooms the page in when a focused field is under 16 px, and the
+           root is 14 px, so the fields' own `1rem` never cleared the floor. */
+        #join input, #join-message { font-size: 16px; }
+        /* 44 px is the smallest a fingertip is expected to hit. The floor is on
+           the box, not on the content: `min-height` sits inside the padding
+           otherwise, which rendered the copy strip 63 px tall. */
+        button, summary, #tree button.row { min-height: 44px; }
+        #share-group { min-height: 44px; box-sizing: border-box;
+          padding: 0.6em 0.55em 0.6em 0.8em; }
+        #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
+        /* A disabled verb explains itself in its `title` on a pointer device;
+           a phone has no hover, so the row says it in words instead. */
+        #roster li { flex-wrap: wrap; }
+        #roster .why { display: block; flex-basis: 100%; }
+        #alert, #peek { bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+      }
+      @media (hover: none) and (max-width: 640px) {
+        /* The panel is a disclosure on a phone, not a permanent 42% cut: it is
+           shut on join and a file open shuts it again (main.ts). */
+        #panel-toggle { display: flex; flex: none; width: 100%; justify-content: flex-start;
+          gap: 0.5em; padding: 0.5em 0.9em; background: var(--card); border-width: 0 0 1px;
+          border-radius: 0; font-weight: 600; color: var(--muted-foreground); }
+        /* A sheet over the keyboard rather than a card centred under it. */
+        #join { top: auto; bottom: 0; transform: translateX(-50%); width: 100%;
+          max-height: 85dvh; border-width: 1px 0 0; border-radius: 14px 14px 0 0;
+          padding-bottom: calc(1.3rem + env(safe-area-inset-bottom)); }
       }
       /* The reveal is a fade everywhere else; without motion it lands at once. */
       @media (prefers-reduced-motion: reduce) {
@@ -269,6 +329,9 @@
         <p id="join-error" role="alert"></p>
       </div>
       <div id="workspace" hidden>
+        <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="side">
+          <span class="icon chev" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span>Files and people
+        </button>
         <div id="side">
           <h2>People</h2>
           <ul id="roster"></ul>
@@ -277,6 +340,7 @@
         </div>
         <div id="editor"></div>
       </div>
+      <div id="peek" aria-live="polite"></div>
       <div id="alert" role="alert"></div>
     </div>
     <script>
