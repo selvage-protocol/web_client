@@ -57,6 +57,33 @@ export function wireFailureAlert(element: HTMLElement, options: NoticeOptions = 
 /** The two lifecycle states the chrome names for itself. */
 export type SessionNoteKind = 'warning' | 'ended';
 
+/** What one transient binding sentence means for the session note. */
+export type SessionNoteSignal = 'grace' | 'back';
+
+/**
+ * The host's socket detaching — the sentence that opens the grace window — and
+ * the host coming back inside it. The binding has no notice kind for either,
+ * so both arrive as transient text; every other transient sentence (a drop, a
+ * reconnect, a follow landing) is chatter and maps to nothing.
+ */
+export function sessionNoteSignal(text: string): SessionNoteSignal | undefined {
+  if (text.startsWith(HOST_LEFT)) {
+    return 'grace';
+  }
+  if (HOST_BACK.test(text)) {
+    return 'back';
+  }
+  return undefined;
+}
+
+/**
+ * The binding's own opening words, kept as the contract the routing reads:
+ * `test/join-chrome.test.ts` drives the binding that emits them, so a reworded
+ * sentence cannot drop the warning (or leave it standing) silently.
+ */
+const HOST_LEFT = 'host left';
+const HOST_BACK = /^host .+ is back$/;
+
 export interface SessionNote {
   /** Shows the line, replacing whatever stood before. */
   show(text: string, kind: SessionNoteKind): void;

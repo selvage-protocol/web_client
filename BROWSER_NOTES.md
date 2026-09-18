@@ -1118,7 +1118,10 @@ silently:
   appears only while something is true of the room, and the end never leaves.
   Both homes are live regions (`role="alert"`) that stay in the DOM and hide
   through `:empty`, so the sentence a guest cannot see is still the sentence a
-  screen reader hears — the role the deleted span used to carry.
+  screen reader hears — the role the deleted span used to carry. The same
+  transient channel carries `host <name> is back`, which clears the grace
+  strip again; with the status line gone nothing else would have, and the
+  warning would have kept standing there after the host returned.
 - **An action that refused** — a file that would not open, a go-to or follow
   that failed, the hand-copy fallback when the clipboard is unavailable —
   shows in `#alert`: a failure strip at the bottom of the window,
@@ -1137,14 +1140,18 @@ silently:
   terminal sentence from a dead control — every one of those controls is
   `disabled` or `aria-disabled` with its reason on hover, so the refusal is
   already visible. With the drop status gone, the `linkDown`/`reseated()`
-  bookkeeping that existed only to retire it went too.
+  bookkeeping that existed only to retire it went too. The one transient
+  sentence that is routed instead of dropped is the host's return, which
+  clears the grace strip.
 
 One coupling is unavoidable and is pinned rather than hidden: the binding has
-no notice kind for the host's grace window, so that warning arrives as a
-`status` notice and the page routes exactly the sentence that starts with
-`host left`. `test/join-chrome.test.ts` drives
-`MonacoBinding.report({ kind: 'hostDetached' })` and fails if the binding stops
-saying it, so a reworded binding cannot drop the warning silently.
+no notice kind for the host's grace window, so that warning and its
+`host <name> is back` all-clear arrive as transient text, and
+`sessionNoteSignal` in `notice.ts` maps exactly those two sentences — every
+other transient sentence is chatter. `test/join-chrome.test.ts` drives
+`MonacoBinding.report({ kind: 'hostDetached' })` and `{ kind: 'hostAttached' }`
+through the binding and maps the sentences that come out, so a reworded binding
+can neither drop the warning nor leave it standing after the host is back.
 
 Proven live (`EYEBALL_DONE`, no console exceptions): the room hosted by
 `scripts/tmp-webflow-host.mjs`, `dist/` served on `:8081`, real Chromium 152

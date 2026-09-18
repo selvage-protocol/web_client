@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { wireFailureAlert, wireSessionNote } from '../src/browser/notice.ts';
+import { sessionNoteSignal, wireFailureAlert, wireSessionNote } from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -326,11 +326,30 @@ describe('the message homes', () => {
   });
 });
 
-describe('the host leaving still reaches the guest', () => {
-  // The binding has no notice kind for the detach warning: it arrives on the
-  // status channel, so the page routes exactly that sentence. This pins the
-  // contract the routing reads, so a reworded binding cannot drop it silently.
-  it('the binding announces it on the notice channel', () => {
+describe('the host leaving and coming back', () => {
+  it('only the detach and the return are note signals; the rest is chatter', () => {
+    assert.equal(
+      sessionNoteSignal('host left — the room closes in 30s unless the host returns'),
+      'grace',
+    );
+    assert.equal(sessionNoteSignal('host demo-host is back'), 'back');
+    for (const chatter of [
+      'Connection dropped. Reconnecting…',
+      'disconnected',
+      'Reconnected.',
+      'room closed: host did not return',
+      'Following sam in a.txt',
+      "'sam' left the room, so following stopped",
+    ]) {
+      assert.equal(sessionNoteSignal(chatter), undefined, `${chatter} became a note signal`);
+    }
+  });
+
+  // The binding has no notice kind for either: both arrive as transient text,
+  // so the page routes exactly those sentences. This pins the contract the
+  // routing reads, so a reworded binding cannot drop the warning (or leave it
+  // standing after the host is back) silently.
+  it('the binding announces both on the notice channel, and the page routes them', () => {
     globalThis.document = {
       createElement: () => ({ append: () => {}, remove: () => {} }),
       head: { appendChild: () => {} },
@@ -369,12 +388,18 @@ describe('the host leaving still reaches the guest', () => {
       onNotice: (notice) => void notices.push(notice),
       createModel: (text: string) => ({ isDisposed: () => false, dispose: () => {}, getValue: () => text }),
     } as never);
+
     binding.report({ kind: 'hostDetached', graceMs: 30000 } as never);
-    const warned = notices.find((notice) => (notice.text ?? '').startsWith('host left'));
-    assert.ok(warned, `no host-left notice in ${JSON.stringify(notices)}`);
+    const warned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'grace');
+    assert.ok(warned, `no host-left signal in ${JSON.stringify(notices)}`);
+
+    binding.report({ kind: 'hostAttached', peer: { display_name: 'demo-host' } } as never);
+    const returned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'back');
+    assert.ok(returned, `no host-back signal in ${JSON.stringify(notices)}`);
     binding.dispose();
 
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(main.includes("'host left'"), 'the page does not route the detach warning');
+    assert.ok(main.includes('sessionNoteSignal(notice.text)'), 'the page routes no note signal');
+    assert.ok(main.includes('sessionNote.hide()'), 'the grace warning never clears');
   });
 });

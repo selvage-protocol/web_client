@@ -20,7 +20,7 @@ import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { initials } from './presence.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
-import { wireFailureAlert, wireSessionNote } from './notice.ts';
+import { wireFailureAlert, wireSessionNote, sessionNoteSignal } from './notice.ts';
 import {
   ROSTER_DISABLED_REASON,
   SESSION_ENDED_MESSAGE,
@@ -713,21 +713,25 @@ function onNotice(notice: BindingNotice): void {
     case 'follow':
       syncFollow(notice.following);
       break;
-    case 'status':
+    case 'status': {
       // Past the end the note stands: nothing transient overwrites it.
       if (endedMessage !== undefined) {
         return;
       }
-      // The binding has no notice kind for the host's grace window, so that
-      // one warning arrives on this channel and the page routes exactly it.
-      // The rest of the transient text (a drop, a reconnect, a follow
-      // landing) asks the guest to do nothing and is dropped rather than
-      // moved: the editor keeps working locally and the room converges again
-      // on its own.
-      if (notice.text.startsWith(HOST_LEFT)) {
+      // Exactly two binding sentences have a home here: the grace window the
+      // host's detach opens, and the host coming back inside it (which has to
+      // clear the warning — the sentence would otherwise stand and lie). The
+      // rest of the transient text (a drop, a reconnect, a follow landing)
+      // asks the guest to do nothing and is dropped rather than moved: the
+      // editor keeps working locally and the room converges again on its own.
+      const signal = sessionNoteSignal(notice.text);
+      if (signal === 'grace') {
         sessionNote.show(notice.text, 'warning');
+      } else if (signal === 'back') {
+        sessionNote.hide();
       }
       break;
+    }
   }
 }
 
@@ -740,13 +744,6 @@ function syncTreeIfMoved(): void {
   syncGrant();
 }
 
-/**
- * The one binding notice that arrives as transient text and still has a
- * home: the host's socket detached, and the room closes when its grace runs
- * out. Matched by its opening words only, and pinned in
- * `test/join-chrome.test.ts` against the binding that emits it.
- */
-const HOST_LEFT = 'host left';
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
