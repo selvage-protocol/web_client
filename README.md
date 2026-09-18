@@ -14,16 +14,21 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   never enters the bundle; the build refuses otherwise.
 - `src/browser/node-shim.ts` — the one Node global the synced engine expects
   (`Buffer.byteLength`), defined only when absent.
-- `src/browser/monaco.ts` — the Monaco runtime: the editor core plus the three
-  backed languages (markdown, TypeScript, JavaScript) with the TS language
-  service. Everything else is `plaintext` (see `languages.ts`).
+- `src/browser/monaco.ts` — the Monaco runtime: the editor core plus the
+  languages the page backs, each with its tokenizer and, for TypeScript and
+  JavaScript, the language worker that makes the mode understanding rather than
+  colouring. JSON, TOML and Nix are this repository's own small Monarch sets,
+  because Monaco 0.52.2 ships none of the three. Every tokenizer loads lazily,
+  when a document of that language opens; anything unbacked is `plaintext`
+  (see `languages.ts`).
 - `src/browser/workers/` — the two worker entries the backed modes need: the
   editor fallback and the TypeScript/JavaScript language worker.
 - `src/browser/editor.ts` — the Monaco adapter: remote text in, local edits and
   the selection out, peer cursors as decorations (glyph-margin initials
-  badges, caret bars, subtle line underlines, `label · role` hovers), plus the grant
-  tree, jump-to-participant and follow.
-- `src/browser/icons.ts` — the inline-SVG set plus the per-type tree icon.
+  badges, caret bars, selection fills, `label · role` hovers), plus the grant
+  tree, jump-to-participant and follow. A peer's whole line is never marked.
+- `src/browser/icons.ts` — the inline-SVG set plus the per-type tree icon: a
+  solid page in the type's colour with a short label, so it reads in a tree row.
 - `src/browser/roster.ts` — the People roster as a testable render: the own
   name first as a full row (swatch, quiet `you`, reasoned disabled actions),
   one row per peer, no path text.
@@ -76,6 +81,20 @@ hashes, so anything else would strand orphans), minified and code-split: the
 page loads the editor core and the language service up front, tokenizers load
 when a document of that language opens, and the two workers are fetched only
 when a mode needs them.
+
+## Languages and peer markers
+
+A room path opens in the mode its type maps to (`languages.ts`): Markdown/MDX,
+TypeScript/JavaScript, Rust, CSS/SCSS/Less, HTML, XML/SVG, YAML, shell, Python,
+Go, C/C++, Java, SQL, Lua, INI, Dockerfile, PowerShell, Ruby, PHP, C#, Kotlin,
+Swift, Dart, R, Perl, Clojure, GraphQL, Protobuf, HCL/Terraform,
+reStructuredText, CoffeeScript, Batch, and JSON, TOML and Nix. Everything else
+stays `plaintext`. Each tokenizer is a `lang-*.js` chunk fetched the first time
+a document of that language opens.
+
+A peer is drawn as a caret bar, a glyph-margin initials badge, a `label · role`
+hover, an overview-ruler tick, and — while they hold a selection — a fill. The
+peer's whole line is never marked; the VS Code client draws the same pair.
 
 ## Joining
 

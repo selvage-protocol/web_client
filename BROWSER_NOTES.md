@@ -1296,6 +1296,85 @@ Open questions: whether leaving should also clear the address bar's dead room
 its `Join a shared session` heading above the closure line or swap it for the
 reason, and whether the grace warning should keep the session note at all now
 that it is the only thing the strip ever shows.
+
+## Editor icons and backing languages (2026-09-18)
+
+Owner, twice: "there shouldnt be a colored underline on the line the other
+person is on" and "file icons and syntax highlighting are still not there".
+Both were reproduced against a real room; each had a different cause.
+
+**The underline is gone.** Remote presence drew a whole-line `border-bottom`
+in the peer's quarter-alpha colour beside the caret bar, the badge, the hover
+and the ruler tick. The bar, badge, hover and tick stay; the line marker does
+not. The desktop draws the same pair — caret bar and selection fill,
+`vscode_client/src/adapter/decorations.ts` — and a whole-line rule under a
+peer's line reads as the document's own rule besides. `renderCursors` now
+returns a caret alone for a bare cursor and a caret plus an inline fill for a
+selection. `test/presence.test.ts` pins the absence (no whole-line decoration,
+no minted rule carrying `border-bottom`) and the caret bar and ruler tick;
+`test/binding.test.ts` follows the same shift.
+
+**The tree icons read now.** `icons.ts` drew a 16-unit page outline with a
+`<text font-size="4.6">` label; at a ~14 px row that label was under 4 px and
+every file read as the same page. A typed file is now a solid page in the
+type's colour with a bold 7.6-unit label — TS blue, JS yellow, Rust orange,
+shell green, YAML red, Nix blue, and so on — while the generic and text files
+stay the muted outline, so an unbacked type is visibly a plain file. The
+extension map grew to the types a room plausibly holds (Rust, CSS/SCSS/Less,
+JSON, HTML/XML/SVG, shell, TOML, YAML, Nix, INI, Python, Go, C/C++, Java, SQL,
+Lua, Docker, …) and gained a filename map for `Dockerfile` and
+`.editorconfig`.
+
+**The highlighting: 39 languages, lazily.** `languages.ts` mapped ten
+extensions. It now names 39 languages over 97 extensions and five filenames:
+every basic language Monaco 0.52.2 ships that a room plausibly holds, plus
+JSON, TOML and Nix — which Monaco does not ship at all, so
+`tokenizers/{json,toml,nix}.ts` are this repository's own small Monarch sets,
+colour-only, no worker. Each is registered through Monaco's own
+`registerLanguage` with a dynamic loader, so the tokenizer body is a
+`lang-*.js` chunk fetched the first time a document of that language opens;
+only the id and its loader register with the runtime. Unknown extensions stay
+`plaintext`.
+
+Bundle, minified, same machine:
+
+| measured | before | after |
+| --- | --- | --- |
+| entry `app.js` | 150,482 B | 154,855 B (+4,373, +2.9%) |
+| runtime chunk fetched on join | 971,885 B | 979,437 B (+7,552, +0.8%) |
+| a newly-backed document fetches | nothing | its tokenizer chunk: `rust.js` 4,592 B, `css.js` 4,940 B, `shell.js` 3,507 B, `json.ts` 774 B, `toml.ts` 1,197 B, `nix.ts` 1,829 B |
+
+The entry grows only by the icon SVGs and the two maps; the runtime chunk by
+the 36 registration modules. The tokenizer bodies stay out of both.
+
+**Everything is green.** `npm run typecheck` clean; `npm test` **215/215**
+(the new icon and language cases, and the presence tests that pin the marker's
+absence); `npm run build` green with the `ws`-absence assert, `dist/` rebuilt
+last so the bundle matches `src`.
+
+Proven in a real browser (Chromium 152 from the nix store over CDP, profile
+under `.tmp/live/`, `dist/` on `:8081`, a real room on the demo server):
+driver `.tmp/live/icons.mjs`, host `.tmp/live/host.mjs`, shots under
+`.tmp/live/icons/`. Opening every granted file read a distinct token-class
+set — Rust 9, Nix 10, CSS 8, shell 7, JSON 7, TOML 3, `todo.txt` 1
+(plaintext) — and fetched exactly its own chunk (table above). The peer caret
+on `main.rs` left the binding's only line rule `.selvage-0 { border-left: 2px
+solid #c678dd; }`, with one caret-bar element and zero elements carrying a
+`border-bottom`; shots `01-notes.md.png` … `08-todo.txt.png`,
+`90-main.rs-caret.png`, `91-tree.png`.
+
+**The build stopped dirtying the tree.** Every `npm run build` rewrote the
+four `dist/*.png` icons with a new ImageMagick `tIME` chunk and
+`date:timestamp` tag, byte-identical otherwise. `scripts/build.mjs` now passes
+`-define png:exclude-chunk=time +set date:timestamp`; two consecutive builds
+hash identically, and `date:create`/`date:modify` and the source's `Software`
+tag survive.
+
+Could not verify: a second peer (one host peer only), and the marker in a
+non-Chromium engine. Open questions: whether `.zsh` belongs to the shell
+tokenizer (mapped; `.fish` and `.ksh` are not), whether `.conf`/`.cfg` should
+be INI (mapped; a guess), and whether JSON deserves the schema-aware language
+service rather than this colour-only set (it would add a worker).
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and
