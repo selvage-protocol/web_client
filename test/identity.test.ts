@@ -1,10 +1,18 @@
 /**
  * Identity: the page carries the site's own mark — the owner's `svp` monogram
- * in Mocha/mauve — as favicon, touch icon, manifest, header brand and
- * OpenGraph image. Nothing here is redrawn: the sources are byte-identical
- * copies of the site's files, and the sized icons are rendered by the build.
+ * in Mocha/mauve — as the sized favicon set, the touch icon, the manifest, the
+ * chrome's mark and the OpenGraph image. Nothing here is redrawn: the sources
+ * are byte-identical copies of the site's files, the sized icons are rendered
+ * by the build from the opaque master, and the mark in the shell is 104 px of
+ * the transparent master, decoded here and checked against that same renderer.
  * The site keeps its opaque mark as the OpenGraph image (`app/`), which is the
  * same file this page serves as `mark-opaque.png`.
+ *
+ * The site's `app/icon.svg` — the vector monogram this page used to copy as
+ * `favicon.svg` — is gone: its `clipPath` pointed at a `<g>` and the whole
+ * monogram was clipped away, so it rendered nothing but its background plate.
+ * The site's icon set is its own pixels now, and this page's tab is the rasters
+ * below.
  */
 
 import { describe, it } from 'node:test';
@@ -42,7 +50,6 @@ function siteSha256(path) {
 describe('identity', () => {
   it('ships the site mark byte-identical, never redrawn', () => {
     for (const [ours, theirs] of [
-      ['public/favicon.svg', 'app/icon.svg'],
       ['public/mark-opaque.png', 'app/opengraph-image.png'],
       ['public/mark-transparent.png', 'public/mark-transparent.png'],
     ]) {
@@ -52,8 +59,9 @@ describe('identity', () => {
 
   it('wires favicon, touch icon, manifest, theme colour and OpenGraph', () => {
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
-    assert.match(html, /rel="icon" href="favicon\.svg" type="image\/svg\+xml"/);
+    assert.match(html, /rel="icon" href="favicon-16x16\.png" sizes="16x16"/);
     assert.match(html, /rel="icon" href="favicon-32x32\.png" sizes="32x32"/);
+    assert.match(html, /rel="icon" href="icon-48\.png" sizes="48x48"/);
     assert.match(html, /rel="apple-touch-icon" href="apple-touch-icon\.png"/);
     assert.match(html, /rel="manifest" href="site\.webmanifest"/);
     assert.match(html, /name="theme-color" content="#1e1e2e"/);
@@ -66,18 +74,15 @@ describe('identity', () => {
   });
 
   it('brands the page chrome with the mark', () => {
-    // The mark is inline SVG — the shell's own copy of the site's artwork, so
-    // the first frame cannot paint it as a waiting box or as alt text (see
-    // test/join-paint.test.ts for the drift guard against the site file).
+    // One rule carries the mark's bytes and both marks wear it: nothing to
+    // fetch, and no element that could paint alt text or a broken-image box
+    // (see test/join-paint.test.ts for the first-frame side).
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
-    assert.match(html, /<symbol id="svp-mark" viewBox="0 0 211\.6667 211\.66669"/);
-    assert.match(
-      html,
-      /<span id="brand"><svg class="mark" viewBox="0 0 211\.6667 211\.66669" aria-hidden="true"[^>]*><use href="#svp-mark" \/>[\s\S]*?<\/svg>Selvage/,
-    );
-    assert.match(
-      html,
-      /<svg class="mark" viewBox="0 0 211\.6667 211\.66669" aria-hidden="true"[^>]*><use href="#svp-mark" \/>/,
+    assert.match(html, /<span id="brand"><span class="mark" aria-hidden="true"><\/span>Selvage/);
+    assert.equal(
+      (html.match(/<span class="mark" aria-hidden="true"><\/span>/g) ?? []).length,
+      2,
+      'the card and the brand do not both wear the mark',
     );
     assert.ok(!/<img[^>]*mark-transparent/.test(html), 'the chrome still fetches the PNG mark');
   });
@@ -86,10 +91,40 @@ describe('identity', () => {
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
     assert.doesNotMatch(html, /data:image\/svg\+xml/);
   });
+
+  it("carries the mark in the shell as the owner's pixels, resampled not redrawn", () => {
+    const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
+    const found = html.match(/url\("data:image\/png;base64,([^"]+)"\)/);
+    assert.ok(found !== null, 'the shell carries no inlined mark');
+    const inlined = Buffer.from(found[1] ?? '', 'base64');
+    // 104 px is the card's 3.25rem at 2x: the largest the mark is ever shown.
+    assert.equal(inlined.readUInt32BE(16), 104, 'the inlined mark is not 104 px wide');
+    assert.equal(inlined.readUInt32BE(20), 104, 'the inlined mark is not 104 px tall');
+    const scratch = resolve(root, '.tmp/mark-inline');
+    mkdirSync(scratch, { recursive: true });
+    try {
+      const rendered = resolve(scratch, 'mark-104.png');
+      renderIcon(resolve(root, 'public/mark-transparent.png'), 104, rendered);
+      assert.equal(
+        sha256(rendered),
+        createHash('sha256').update(inlined).digest('hex'),
+        'the inlined mark is not what the renderer makes of the site\'s mark',
+      );
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
 });
 
 /** The four icons the build renders from the opaque mark. */
-const RENDERED_ICONS = ['favicon-32x32.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
+const RENDERED_ICONS = [
+  'favicon-16x16.png',
+  'favicon-32x32.png',
+  'icon-48.png',
+  'apple-touch-icon.png',
+  'icon-192.png',
+  'icon-512.png',
+];
 
 /**
  * The clock chunks an ImageMagick PNG can carry: the `tIME` chunk, and a `tEXt`

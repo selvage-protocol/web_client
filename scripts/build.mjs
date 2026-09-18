@@ -78,14 +78,18 @@ if (!inputs.some((input) => input.includes('monaco-editor'))) {
 }
 
 cpSync(resolve(root, 'public/index.html'), resolve(root, 'dist/index.html'));
-// Identity: the owner's mark, byte-identical from the site. Sized favicon and
-// touch icons are rendered here, at build time, from the 800px opaque mark —
-// no hand-scaled binaries live in the source tree.
-for (const asset of ['favicon.svg', 'mark-opaque.png', 'mark-transparent.png']) {
+// Identity: the owner's mark, byte-identical from the site. Sized icons are
+// rendered here, at build time, from the 800px opaque mark — no hand-scaled
+// binaries live in the source tree — and the sizes the site serves (16, 32, 48
+// and 180) are the set this page serves too. The mark itself is inlined in the
+// shell, so `mark-transparent.png` is not copied: nothing fetches it.
+for (const asset of ['mark-opaque.png']) {
   cpSync(resolve(root, 'public', asset), resolve(root, 'dist', asset));
 }
 for (const [size, out] of [
+  [16, 'favicon-16x16.png'],
   [32, 'favicon-32x32.png'],
+  [48, 'icon-48.png'],
   [180, 'apple-touch-icon.png'],
   [192, 'icon-192.png'],
   [512, 'icon-512.png'],

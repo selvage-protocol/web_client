@@ -134,6 +134,16 @@ describe('the card shell decides the first frame', () => {
     assert.equal(runShell('?room=r-1&token=tok', 'browser').nameInput.value, 'browser');
   });
 
+  it('the held-submit guard is installed before the card block, so nothing can disarm it', () => {
+    // The guard is the safety net: if the card block below it threw, an early
+    // submit would navigate away and wipe the fields.
+    const guard = html.indexOf('__selvageJoinArmed');
+    const card = html.indexOf("getElementById('invite-wrap')");
+    assert.ok(guard !== -1, 'no pre-bundle guard');
+    assert.ok(card !== -1, 'no pre-paint card block');
+    assert.ok(guard < card, 'the card block runs before the guard that protects the form');
+  });
+
   it('the script runs while the parser still holds the shell', () => {
     const at = html.indexOf('<script>');
     assert.ok(at !== -1, 'no inline script in the shell');
@@ -148,34 +158,34 @@ describe('the card shell decides the first frame', () => {
 });
 
 describe('the mark is painted by the shell, never fetched', () => {
-  it('the card carries no image, so no frame can show its alt text', () => {
+  it('the card carries no image element, so no frame can show alt text or a broken box', () => {
     assert.ok(!/<img/i.test(card), 'the card still asks the network for the mark');
     assert.ok(!card.includes('alt='), 'the card mark still carries alt text');
     assert.ok(!html.includes('alt="Selvage mark"'), 'the mark alt text survives in the shell');
-    assert.ok(/<svg class="mark"[^>]*aria-hidden="true"/.test(card), 'the card mark is not a decorative inline svg');
-  });
-
-  it('the shell asks for no mark file at all', () => {
-    assert.ok(!html.includes('mark-transparent.png'), 'the shell still loads the PNG mark');
-    assert.ok(!/<link[^>]*as="image"/.test(html), 'the shell preloads an image instead');
-    assert.ok(!/url\(/.test(style), 'the mark moved into a stylesheet fetch');
-  });
-
-  it("the inline mark is the site's own artwork, carried once", () => {
-    const site = readFileSync(new URL('../public/favicon.svg', import.meta.url), 'utf8').match(/<path .*?\/>/g) ?? [];
-    const symbol = html.match(/<symbol id="svp-mark"[\s\S]*?<\/symbol>/)?.[0] ?? '';
-    const inline = symbol.match(/<path .*?\/>/g) ?? [];
-    assert.equal(site.length, 3, 'the site mark no longer carries its three glyphs');
-    assert.deepEqual(inline, site, 'the inline mark has drifted from the site mark');
-    assert.ok(/<symbol id="svp-mark"/.test(html), 'nothing carries the artwork as a symbol');
-    const uses = html.match(/<use href="#svp-mark"/g) ?? [];
-    assert.equal(uses.length, 2, `the card and the brand do not both use the mark: ${uses.length}`);
-    assert.equal(
-      (html.match(/viewBox="0 0 211\.6667 211\.66669"/g) ?? []).length,
-      3,
-      'a mark lost its intrinsic box',
+    assert.ok(
+      /<span class="mark" aria-hidden="true"><\/span>/.test(card),
+      'the card mark is not a decorative span wearing the bytes the shell carries',
     );
-    assert.ok(!/<symbol[^>]*style="display:\s*none/.test(html), 'the sprite is hidden the fragile way');
+  });
+
+  it("the mark is the owner's pixels in the document, carried once", () => {
+    // A preload is still a race — the mark request can lose to the first paint
+    // — so the bytes are in the shell instead (test/identity.test.ts checks
+    // them against the site's master). Nothing here fetches anything.
+    assert.ok(
+      !/(src|href)=["']?mark-transparent\.png/.test(html) && !/url\(["']?mark-transparent\.png/.test(html),
+      'the shell still loads the PNG mark',
+    );
+    assert.ok(!html.includes('favicon.svg'), 'the blank site icon still ships as a favicon');
+    assert.ok(!/<link[^>]*as="image"/.test(html), 'the shell preloads an image instead');
+    assert.ok(/url\("data:image\/png;base64,[^"]+"\)/.test(style), 'the mark is not in the shell');
+    assert.equal(
+      (style.match(/url\("data:image\/png;base64,/g) ?? []).length,
+      1,
+      'the mark is carried more than once',
+    );
+    const uses = html.match(/<span class="mark" aria-hidden="true">/g) ?? [];
+    assert.equal(uses.length, 2, `the card and the brand do not both wear the mark: ${uses.length}`);
   });
 
   it('both marks are sized by the inline block, so first paint is final', () => {
