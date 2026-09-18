@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MonacoBinding } from '../src/browser/editor.ts';
+import { MonacoBinding, literalMarkdown } from '../src/browser/editor.ts';
 import {
   ANONYMOUS_INITIALS,
   badgeCss,
@@ -238,3 +238,66 @@ function ruleFor(className) {
   const pattern = new RegExp(`\\.${className}\\s*\\{`);
   return appendedRules.find((rule) => pattern.test(rule));
 }
+
+describe('a peer name is text in the hover, never markup', () => {
+  /**
+   * Monaco renders a hover message as markdown and the room supplies the peer
+   * name, so an unescaped name is a request the guest never made: a host
+   * called `![](http://…/l.png)` fits the protocol's 32-unit display-name
+   * bound, and every guest's browser fetched that URL on hover (2026-09-18).
+   */
+  const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
+
+  /** No live markdown character survives: each is escaped, or is the escape. */
+  function assertNoMarkup(value) {
+    for (let at = 0; at < value.length; at += 1) {
+      if (value[at] === '\\') {
+        at += 1;
+        continue;
+      }
+      assert.ok(!PUNCTUATION.test(value[at]), `live markdown character in ${JSON.stringify(value)}`);
+    }
+  }
+
+  /** What a guest reads: the escapes come off and nothing else has changed. */
+  function read(value) {
+    return value.replace(/\\([\s\S])/g, '$1');
+  }
+
+  const NAMES = [
+    '![](http://127.0.0.1:8099/l.png)',
+    '[click](https://attacker.example)',
+    '`tick`',
+    '**bold**',
+    '<img src=x onerror="alert(1)">',
+    '<http://attacker.example>',
+    'a|b~c^d',
+    '# heading',
+    'back\\slash',
+    'demo-host',
+  ];
+
+  for (const name of NAMES) {
+    it(`${JSON.stringify(name)} reaches the hover as its own characters`, async () => {
+      const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
+      const editor = makeEditor();
+      const binding = new MonacoBinding({
+        engine,
+        editor,
+        onNotice: () => {},
+        createModel: (text) => makeModel(text),
+      });
+      await binding.openDocument('a.txt');
+      binding.renderCursors([cursor('peer-a', name, 4)]);
+      const value = editor.decorations[0]?.options.hoverMessage?.value ?? '';
+      assertNoMarkup(value);
+      assert.equal(read(value), `${name} · guest`);
+      binding.dispose();
+    });
+  }
+
+  it('a name of letters reaches the hover exactly as it is', () => {
+    assert.equal(literalMarkdown('sam'), 'sam');
+    assert.equal(literalMarkdown('Ada Lovelace'), 'Ada Lovelace');
+  });
+});

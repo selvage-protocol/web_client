@@ -8,6 +8,21 @@ import { roomGoneMessage } from './ended.ts';
 import { languageForPath } from './languages.ts';
 import { badgeCss, initials, onePerLine } from './presence.ts';
 
+/**
+ * A room-supplied string as literal markdown text.
+ *
+ * A decoration's `hoverMessage` is markdown, and every peer name in it comes
+ * from the room: a host named `![](http://…/l.png)` — 32 characters, so the
+ * protocol's own display-name bound admits it — would otherwise make each
+ * guest's browser fetch that URL the moment they hovered its caret. Every
+ * ASCII punctuation character CommonMark may read as structure is escaped
+ * here, so a name paints as the text it is and can build no link, image or
+ * code span, while a name of letters (the common case) is untouched.
+ */
+export function literalMarkdown(text: string): string {
+  return text.replace(/[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, '\\$&');
+}
+
 /** What the binding reports to the page, in the page's own vocabulary. */
 export type BindingNotice =
   | { kind: 'documents'; documents: string[] }
@@ -537,7 +552,7 @@ export class MonacoBinding implements EditorHost {
         const line = model.getPositionAt(cursor.head).lineNumber;
         const caretOptions: monaco.editor.IModelDecorationOptions = {
           className: this.colourClass(`caret:${cursor.colour}`, `border-left: 2px solid ${cursor.colour};`),
-          hoverMessage: { value: `${cursor.label} · ${cursor.role}` },
+          hoverMessage: { value: `${literalMarkdown(cursor.label)} · ${literalMarkdown(cursor.role)}` },
           overviewRuler: {
             color: cursor.colour,
             position: 4 as monaco.editor.OverviewRulerLane,
