@@ -1,8 +1,10 @@
 import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
-import type { Cursor, EditorHost, GrantChild, LineEnding, Report, TextChange } from '../bridge/index.ts';
-import { grantChildren, grantUnion, peerColour } from '../bridge/index.ts';
+import type { Cursor, EditorHost, LineEnding, Report, TextChange } from '../bridge/index.ts';
+import { grantUnion, peerColour } from '../bridge/index.ts';
+import { grantChildren } from './tree.ts';
+import type { GrantChild } from './tree.ts';
 import type { Role, SelvageEngine } from '../engine/index.ts';
 import { roomGoneMessage } from './ended.ts';
 import { languageForPath } from './languages.ts';
