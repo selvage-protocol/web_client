@@ -19,11 +19,6 @@ export interface ShareBoxOptions {
 export interface ShareBox {
   /** Shows the confirmation overlay, then hides it. */
   confirm(): void;
-  /**
-   * Retires the bar for a closed room: it no longer copies, with the reason
-   * on hover. The dead link stays readable but never reaches the clipboard.
-   */
-  retire(reason: string): void;
   dispose(): void;
 }
 
@@ -41,7 +36,6 @@ export function wireShareBox(
   const doc = group.ownerDocument;
   let overlay: HTMLElement | undefined;
   let pending: unknown;
-  let retiredReason: string | undefined;
 
   const restore = (): void => {
     if (overlay === undefined) {
@@ -52,15 +46,9 @@ export function wireShareBox(
     pending = undefined;
   };
   const onClick = (): void => {
-    if (retiredReason !== undefined) {
-      return;
-    }
     void copy();
   };
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (retiredReason !== undefined) {
-      return;
-    }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       void copy();
@@ -69,23 +57,7 @@ export function wireShareBox(
   group.addEventListener('click', onClick);
   group.addEventListener('keydown', onKeyDown);
   return {
-    retire(reason: string): void {
-      retiredReason = reason;
-      if (pending !== undefined) {
-        cancel(pending);
-        pending = undefined;
-      }
-      if (overlay !== undefined) {
-        overlay.hidden = true;
-      }
-      group.classList.remove('copied');
-      group.classList.add('retired');
-      group.setAttribute('aria-disabled', 'true');
-    },
     confirm(): void {
-      if (retiredReason !== undefined) {
-        return;
-      }
       if (overlay === undefined) {
         overlay = doc.createElement('span');
         overlay.className = 'confirm';

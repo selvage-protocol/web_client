@@ -103,10 +103,6 @@ describe('the status element is gone for good', () => {
       /#session-note:empty/.test(style) && /#alert:empty/.test(style),
       'an empty live region still paints its box',
     );
-    assert.ok(
-      /#session-note\[data-kind="ended"\]/.test(style),
-      'the end of the room gets no treatment of its own',
-    );
   });
 });
 
@@ -276,25 +272,20 @@ describe('the message homes', () => {
     assert.equal(element.textContent, '', 'the alert survived its dismissal');
   });
 
-  it('the session note carries the lifecycle states and nothing else', () => {
+  it('the session note carries the host-leave warning and nothing else', () => {
     const element = makeElement();
     const note = wireSessionNote(element as unknown as HTMLElement);
     assert.equal(element.textContent, '', 'an untouched note paints nothing');
-    note.show('host left — the room closes in 30s unless the host returns', 'warning');
-    assert.equal(element.dataset.kind, 'warning');
+    note.show('host left — the room closes in 30s unless the host returns');
     assert.match(element.textContent, /host left/);
-    note.show('The room is closed — host did not return.', 'ended');
-    assert.equal(element.dataset.kind, 'ended');
-    assert.equal(element.textContent, 'The room is closed — host did not return.');
     note.hide();
     assert.equal(element.textContent, '');
-    assert.equal(element.dataset.kind, undefined);
   });
 
-  it('the end of the room reaches the session note', () => {
+  it('the end of the room comes back as the card, not as a strip', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(
-      main.includes("sessionNote.show(message, 'ended')"),
+      main.includes('leaveSession(roomGoneMessage(notice.reason))'),
       'the terminal sentence has no home',
     );
     assert.ok(!main.includes('setStatus'), 'the status line is still called');

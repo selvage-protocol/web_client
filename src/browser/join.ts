@@ -59,6 +59,16 @@ export function normalizeWireInvite(text: string): string {
 }
 
 /**
+ * What a join reads from the address bar. The share link the host sent wins
+ * while it is the way in; once a room closes, that link names a room that is
+ * gone, so the bar contributes nothing and the fresh link pasted on the card
+ * is what lands. Without this the rejoin would retry the dead room and fail.
+ */
+export function addressBarInvite(isTheInvite: boolean, search: URLSearchParams): URLSearchParams {
+  return isTheInvite ? search : new URLSearchParams();
+}
+
+/**
  * Works out where to join from the address bar, falling back to a pasted
  * link when the page opened bare. A link in the address bar wins: it is the
  * share the host sent. Throws in the card's own plain words.
@@ -222,4 +232,36 @@ export function initJoinCard(
     elements.nameInput.value = loadDisplayName(storage);
   }
   return linkMode || elements.inviteInput.value !== '' ? 'name' : 'invite';
+}
+
+/**
+ * The card in its rejoin shape, addressed the same structural way as the
+ * pre-join wiring. The session is over, so the card comes back over the
+ * blurred preview with one line saying what happened and the paste box open:
+ * the link the address bar carried named the room that just closed, and only a
+ * fresh link gets anyone in. The name is left as the guest typed it, so the
+ * next join is one paste and Enter.
+ */
+export interface RejoinCardElements {
+  join: { hidden: boolean };
+  preview: { hidden: boolean };
+  veil: { hidden: boolean };
+  message: { hidden: boolean; textContent: string };
+  error: { textContent: string };
+  inviteWrap: { hidden: boolean };
+  inviteInput: { value: string };
+  joinButton: { disabled: boolean; textContent: string };
+}
+
+export function showRejoinCard(elements: RejoinCardElements, message: string): void {
+  elements.join.hidden = false;
+  elements.preview.hidden = false;
+  elements.veil.hidden = false;
+  elements.message.textContent = message;
+  elements.message.hidden = false;
+  elements.error.textContent = '';
+  elements.inviteWrap.hidden = false;
+  elements.inviteInput.value = '';
+  elements.joinButton.disabled = false;
+  elements.joinButton.textContent = 'Join';
 }

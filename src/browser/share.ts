@@ -103,13 +103,15 @@ export function abbreviateHost(host: string, maxLength = 24): string {
 
 /**
  * What the share bar shows: the guest link with its long parts shortened
- * middle-first — the host, the room id and the token, each on its own bound.
- * Display only: the caller keeps the full link for the element's title and
- * for the clipboard, so the abbreviation is a paint, never a credential.
- * The `server` parameter stays whole: it names where the room is, not a
- * permission, and the bar's own width is what clips it.
+ * middle-first — the host, the room id and the token, each on its own bound —
+ * and, when the link is on this page's own origin, without the scheme and the
+ * host at all: the guest is looking at the page the link points to, and the
+ * pill only has room for something that reads at a glance. Display only: the
+ * caller keeps the full link for the element's title and for the clipboard, so
+ * the abbreviation is a paint, never a credential. The `server` parameter
+ * stays whole: it names where the room is, not a permission.
  */
-export function displayShareLink(link: string, maxHost = 24): string {
+export function displayShareLink(link: string, pageOrigin = '', maxHost = 24): string {
   try {
     const url = new URL(link);
     const host = abbreviateMiddle(url.hostname, maxHost);
@@ -127,6 +129,9 @@ export function displayShareLink(link: string, maxHost = 24): string {
         return short === value ? whole : `${lead}${key}=${short}`;
       },
     );
+    if (pageOrigin !== '' && url.origin === new URL(pageOrigin).origin) {
+      return `${url.pathname}${query}${url.hash}`;
+    }
     if (host === url.hostname && query === url.search) {
       return link;
     }
@@ -137,13 +142,22 @@ export function displayShareLink(link: string, maxHost = 24): string {
 }
 
 /**
- * The paste-box example, built from the real page origin at runtime: the
- * origin is real, the room and token are ellipsis placeholders — never
- * literal ids, never the wire scheme.
+ * Sizes the bar's readout to the value it carries. An input sits at its own
+ * intrinsic width otherwise, whatever the CSS says, and the bar would show the
+ * first twenty-odd characters of the link with the rest scrolled out of sight.
+ *
+ * `size` counts the font's *average* character, and a link of digits,
+ * lowercase and ellipses runs wider than that average — measured in Chromium,
+ * 38 characters of a share link come to 275 px against 263 px of `size`. Hence
+ * the slack; the shell also sets `field-sizing: content`, which sizes the
+ * readout to the value exactly where the engine has it.
  */
-export function invitePlaceholder(pageOrigin: string): string {
-  return `${pageOrigin}/?room=…&token=…`;
+export function fitReadout(readout: { size: number }, shown: string): void {
+  readout.size = Math.ceil(shown.length * READOUT_SIZE_SLACK) + 1;
 }
+
+/** How much wider than its character count a readout has to be, per above. */
+const READOUT_SIZE_SLACK = 1.15;
 
 /**
  * Keeps a manual room/token join across reloads: after joining, the page URL

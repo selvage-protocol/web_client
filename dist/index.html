@@ -70,19 +70,22 @@
       #brand img { width: 1.6em; height: 1.6em; }
       #session-note { display: flex; align-items: center; gap: 0.6em; padding: 0.65em 1em;
         background: var(--card); border-bottom: 1px solid var(--border);
-        font-weight: 600; color: var(--foreground); }
+        font-weight: 600; color: var(--warning); }
       #session-note::before { content: ''; flex: none; width: 0.5em; height: 0.5em;
         border-radius: 50%; background: currentColor; }
-      #session-note[data-kind="warning"] { color: var(--warning); }
-      #session-note[data-kind="ended"] { color: var(--danger); }
       #session-note:empty { display: none; }
-      #share-group { display: flex; align-items: center; gap: 0.3em; flex: 0 1 auto;
-        min-width: 0; max-width: 22em; padding: 0.2em 0.3em 0.2em 0.55em;
+      #share-group { display: flex; align-items: center; gap: 0.35em; flex: 0 1 auto;
+        min-width: 0; max-width: 100%; padding: 0.25em 0.4em 0.25em 0.6em;
         background: var(--input); border: 1px solid var(--border); border-radius: var(--radius);
         color: var(--muted-foreground); position: relative;
         transition: border-color 0.15s ease; }
-      #share { flex: 1 1 auto; min-width: 0; font-size: 0.85em; padding: 0;
+      /* Sized to its value by `fitReadout` (and to nothing when there is none,
+         where the readonly text is empty), so the bar shows the whole link.
+         `field-sizing` fits it exactly where the engine supports it; the
+         `size` attribute is the fallback. */
+      #share { flex: 0 0 auto; width: auto; max-width: 100%; font-size: 0.85em; padding: 0;
         background: none; border: none; color: transparent;
+        field-sizing: content;
         text-shadow: 0 0 8px var(--muted-foreground);
         transition: color 180ms ease, text-shadow 180ms ease; }
       #share:focus { border: none; outline: none; }
@@ -94,9 +97,6 @@
       #share-group .icon { display: inline-flex; flex: none; }
       #share-group:hover { border-color: var(--primary); }
       #share-group.copied { border-color: var(--primary); }
-      #share-group.retired { opacity: 0.55; cursor: not-allowed; }
-      #share-group.retired:hover { border-color: var(--border); }
-      #share-group.retired #share { cursor: not-allowed; }
       #share-group .confirm { position: absolute; inset: 0; display: inline-flex;
         align-items: center; justify-content: center; gap: 0.45em;
         background: var(--input); border-radius: var(--radius);
@@ -175,8 +175,13 @@
         background: var(--card); border: 1px solid var(--border); border-radius: 14px;
         box-shadow: var(--shadow); z-index: 1; }
       #join .mark { display: block; width: 3.25rem; height: 3.25rem; margin: 0 0 1.1rem; }
-      #join h1 { margin: 0 0 1.5rem; font-size: 1.35rem; font-weight: 650;
+      #join h1 { margin: 0 0 1.2rem; font-size: 1.35rem; font-weight: 650;
         line-height: 1.25; letter-spacing: -0.01em; }
+      /* The line the card carries when a session ends: what happened, then the
+         one next step. It is the reason the card came back, so it reads first. */
+      #join-message { margin: 0 0 1.4rem; padding: 0.7em 0.85em; border-radius: var(--radius);
+        background: rgba(243, 139, 168, 0.12); border: 1px solid rgba(243, 139, 168, 0.4);
+        color: var(--foreground); font-size: 0.92em; line-height: 1.45; }
       #join label { display: block; margin: 0 0 1.1rem; font-size: 0.8rem; font-weight: 600;
         letter-spacing: 0.02em; color: var(--muted-foreground); }
       #join input { display: block; width: 100%; box-sizing: border-box; margin-top: 0.4em;
@@ -235,10 +240,11 @@
       <div id="join">
         <img class="mark" src="mark-transparent.png" alt="Selvage mark" width="800" height="800" />
         <h1>Join a shared session</h1>
+        <p id="join-message" hidden></p>
         <form id="join-form" action="#">
           <label id="invite-wrap" hidden>Paste your invite link
             <input id="invite" type="text" autocomplete="off" spellcheck="false"
-              placeholder="e.g. https://this-page/?room=…&token=…" />
+              placeholder="/?room=…&token=…" />
           </label>
           <label>The name other participants see
             <input id="name" type="text" maxlength="32" autocomplete="off" placeholder="Ada" />

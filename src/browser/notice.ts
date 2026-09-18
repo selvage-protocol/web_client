@@ -4,8 +4,9 @@
  * Neither is a ticker. The failure alert is an error surface: it appears only
  * when an action a guest took refused, stands a few seconds, and leaves on its
  * own — progress, success and connection chatter never reach it. The session
- * note is the chrome's own lifecycle line: the host-leave warning while the
- * grace runs, and the end of the room, each staying for as long as it is true.
+ * note is the one warning about the room itself: the host's socket detached
+ * and the grace window is running, so it stays for as long as that is true.
+ * When the room actually ends the page leaves and says so on the card.
  */
 
 export interface NoticeOptions {
@@ -54,9 +55,6 @@ export function wireFailureAlert(element: HTMLElement, options: NoticeOptions = 
   };
 }
 
-/** The two lifecycle states the chrome names for itself. */
-export type SessionNoteKind = 'warning' | 'ended';
-
 /** What one transient binding sentence means for the session note. */
 export type SessionNoteSignal = 'grace' | 'back';
 
@@ -86,7 +84,7 @@ const HOST_BACK = /^host .+ is back$/;
 
 export interface SessionNote {
   /** Shows the line, replacing whatever stood before. */
-  show(text: string, kind: SessionNoteKind): void;
+  show(text: string): void;
   hide(): void;
 }
 
@@ -98,13 +96,11 @@ export interface SessionNote {
  */
 export function wireSessionNote(element: HTMLElement): SessionNote {
   return {
-    show(text: string, kind: SessionNoteKind): void {
+    show(text: string): void {
       element.textContent = text;
-      element.dataset.kind = kind;
     },
     hide(): void {
       element.textContent = '';
-      delete element.dataset.kind;
     },
   };
 }

@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { wireShareBox } from '../src/browser/share-box.ts';
-import { abbreviateHost, displayShareLink, invitePlaceholder } from '../src/browser/share.ts';
+import { abbreviateHost, displayShareLink } from '../src/browser/share.ts';
 import { resolveJoin, validateDisplayName } from '../src/browser/join.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 
@@ -161,13 +161,18 @@ describe('join button', () => {
 });
 
 describe('placeholders', () => {
-  it('the invite example is built from the real page origin, schematic only', () => {
-    const shown = invitePlaceholder('https://this-host.example');
-    assert.equal(shown, 'https://this-host.example/?room=…&token=…');
+  it('the invite hint is schematic and short enough to show whole', () => {
+    // The field is 1rem tall type in a 24rem card: a hint carrying the whole
+    // origin was 300 px wide in a 254 px field, so it read as a clipped prefix.
+    const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+    const shown = card.slice(card.indexOf('<input id="invite"')).match(/placeholder="([^"]*)"/)?.[1] ?? '';
+    assert.ok(shown.includes('?room=…&token=…'), `no schematic: ${shown}`);
+    assert.ok(shown.length <= 24, `the hint would clip again: ${shown}`);
     assert.ok(!/ws:\/\//i.test(shown), `wire scheme in the example: ${shown}`);
     assert.ok(!/room=[^…]|token=[^…]/.test(shown), `literal ids in the example: ${shown}`);
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(main.includes('invitePlaceholder'), 'the card keeps a fixed example host');
+    assert.ok(!main.includes('invitePlaceholder'), 'the card still builds a hint from the origin');
   });
 
   it('the name field shows a real example', () => {

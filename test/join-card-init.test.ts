@@ -129,10 +129,16 @@ describe('join card wiring in main.ts', () => {
 
   it('never focuses synchronously during bundle evaluation', () => {
     // settleFocus runs past first paint, the share fallback runs on a click,
-    // and the editor focus runs post-join after awaits — never at eval.
+    // the editor focus runs post-join, and the rejoin card takes the paste box
+    // after a session ends — never at eval.
     // Anything else is a top-level focus() forcing layout pre-load again.
     const focuses = main.match(/\w+\.focus\(\)/g) ?? [];
-    assert.deepEqual(focuses.sort(), ['editor.focus()', 'field.focus()', 'shareInput.focus()']);
+    assert.deepEqual(focuses.sort(), [
+      'editor.focus()',
+      'field.focus()',
+      'inviteInput.focus()',
+      'shareInput.focus()',
+    ]);
   });
 
   it('reaches the editor stack only on join, via a dynamic import', () => {

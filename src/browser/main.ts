@@ -2,14 +2,16 @@ import { SelvageEngine, sessionUrl } from '../engine/index.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
-import { buildShareLink, displayShareLink, invitePlaceholder, pageQueryParams, persistJoinUrl } from './share.ts';
+import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   createJoinGate,
   initJoinCard,
   joinOnEnter,
+  addressBarInvite,
   resolveJoin,
   saveDisplayName,
+  showRejoinCard,
   validateDisplayName,
 } from './join.ts';
 import type { JoinTarget } from './join.ts';
@@ -22,12 +24,10 @@ import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
 import { wireFailureAlert, wireSessionNote, sessionNoteSignal } from './notice.ts';
 import {
-  ROSTER_DISABLED_REASON,
   SESSION_ENDED_MESSAGE,
-  SHARE_RETIRED_REASON,
-  TREE_STALE_NOTE,
+  dropSession,
   roomGoneMessage,
-  visibleListing,
+  sessionOverMessage,
 } from './ended.ts';
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
@@ -107,6 +107,7 @@ const inviteWrap = document.getElementById('invite-wrap') as HTMLElement;
 const inviteInput = document.getElementById('invite') as HTMLInputElement;
 const nameInput = document.getElementById('name') as HTMLInputElement;
 const joinButton = document.getElementById('join-button') as HTMLButtonElement;
+const joinMessage = document.getElementById('join-message') as HTMLElement;
 const joinError = document.getElementById('join-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
@@ -118,9 +119,9 @@ const treePane = document.getElementById('tree') as HTMLElement;
 const followBanner = document.getElementById('follow-banner') as HTMLElement;
 
 /**
- * The chrome's lifecycle line: the host-leave warning while the grace runs,
- * and the end of the room. Anything transient the page used to announce
- * either has a home of its own or is dropped (see `onNotice`).
+ * The chrome's lifecycle line: the host-leave warning while the grace runs.
+ * Anything transient the page used to announce either has a home of its own
+ * or is dropped (see `onNotice`).
  */
 const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
 /** Failures of an action the guest took: shown, then gone on their own. */
@@ -132,14 +133,13 @@ const linkToken = (params.get('token') ?? '').trim();
 // A share link carries the room and its token, so the card asks one thing —
 // the name — behind a plain invite line that names no id. A bare page open
 // shows the paste box instead; the link stays the whole guest flow either way.
-const linkMode = linkRoom !== '' && linkToken !== '';
+// A room that closes takes that link with it: the card comes back and the
+// address-bar link is no longer the way in.
+let linkIsTheInvite = linkRoom !== '' && linkToken !== '';
 // The card shell is inline HTML, so it paints before this bundle arrives: wire
 // only the variant the address bar calls for, prefill only an untouched name
 // field, and land focus past first paint without stealing a typed-into field.
 const focusTarget = initJoinCard({ inviteWrap, inviteInput, nameInput }, params, window.localStorage);
-// The paste box shows a schematic built from this page's own origin — real
-// origin, ellipsis placeholders, never literal ids, never the wire scheme.
-inviteInput.placeholder = invitePlaceholder(window.location.origin);
 settleFocusWhenReady(focusTarget === 'name' ? nameInput : inviteInput);
 
 /**
@@ -165,6 +165,8 @@ function settleFocus(field: HTMLInputElement): void {
 
 let binding: MonacoBinding | undefined;
 let engine: SelvageEngine | undefined;
+/** The editor widget the binding drew into, dropped with the session. */
+let editorApi: { dispose(): void } | undefined;
 let opening: string | undefined;
 /** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
 let fullShareLink = '';
@@ -176,16 +178,6 @@ let selfName = '';
 const openDirs = new Set<string>();
 /** The path the tree last highlighted, so landings re-render it. */
 let renderedPath: string | undefined;
-/**
- * The terminal state, once the room is over. While set, the session note
- * keeps its sentence (no later notice overwrites it), the roster renders
- * nobody with dead actions, the share link stays retired, and the tree shows
- * the snapshot below instead of the live listing. A rejoin is always a fresh
- * join from a link — this page never re-hellos on its own, and never as host.
- */
-let endedMessage: string | undefined;
-/** The last listing known before the room ended: the stale tree, never shed. */
-let staleSnapshot: string[] = [];
 
 joinForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -231,7 +223,11 @@ function attemptJoin(): void {
     // typed meanwhile must not rewrite the attempt.
     held = {
       displayName: validateDisplayName(nameInput.value),
-      figured: resolveJoin(params, linkMode ? '' : inviteInput.value, pageDefaultServer),
+      figured: resolveJoin(
+        addressBarInvite(linkIsTheInvite, params),
+        linkIsTheInvite ? '' : inviteInput.value,
+        pageDefaultServer,
+      ),
     };
   } catch (error: unknown) {
     const base = fallbackBase();
@@ -306,10 +302,14 @@ async function join(held: HeldJoin): Promise<void> {
     base,
     pageDefaultServer,
   );
-  // The bar shows the host abbreviated middle-first with the full link as
-  // its title; the clipboard below keeps the full bytes.
-  shareInput.value = displayShareLink(fullShareLink);
+  // The bar shows the link with the page's own origin dropped and its long
+  // parts shortened, and sized to what it shows; the title and the clipboard
+  // below keep the full bytes.
+  const shown = displayShareLink(fullShareLink, window.location.origin);
+  shareInput.value = shown;
+  fitReadout(shareInput, shown);
   shareInput.title = fullShareLink;
+  joinMessage.hidden = true;
   joinPane.hidden = true;
   previewPane.hidden = true;
   veilPane.hidden = true;
@@ -322,6 +322,8 @@ async function join(held: HeldJoin): Promise<void> {
     minimap: { enabled: true, side: 'right' },
     theme: 'selvage-mocha',
   });
+  // Held so the whole session can be dropped, editor and all, when the room ends.
+  editorApi = editor;
   binding = new MonacoBinding({
     engine,
     editor,
@@ -366,11 +368,6 @@ async function openPath(path: string): Promise<void> {
   if (binding === undefined || opening === path) {
     return;
   }
-  // Past the end nothing opens: the row that led here is visibly dead, and
-  // the note already stands, so the refusal is read rather than restated.
-  if (endedMessage !== undefined) {
-    return;
-  }
   opening = path;
   try {
     // The hold taken by the open is what makes the room send the text: opening a
@@ -400,11 +397,6 @@ const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
 });
 
 async function copyShareLink(): Promise<void> {
-  // A retired bar never reaches the clipboard: the bar says so itself, reads
-  // over and refuses the press.
-  if (endedMessage !== undefined) {
-    return;
-  }
   try {
     if (navigator.clipboard === undefined) {
       throw new Error('no clipboard');
@@ -438,27 +430,17 @@ async function copyShareLink(): Promise<void> {
  * reads on the grant tree, not here; the follow banner owns the one stop.
  */
 function syncRoster(participants: Participant[]): void {
-  // Past the end the roster is nobody with dead actions: who was here is
-  // gone, and no Go to/Follow may look live.
-  const ended = endedMessage !== undefined;
-  renderRoster(rosterList, ended ? [] : participants, {
+  renderRoster(rosterList, participants, {
     followedPeerId: binding?.following()?.peerId,
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
-    ...(ended ? { disabled: true, disabledReason: ROSTER_DISABLED_REASON } : {}),
     onGoTo: (peerId) => {
-      if (endedMessage !== undefined) {
-        return;
-      }
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
         failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
       });
     },
     onFollow: (peerId) => {
-      if (endedMessage !== undefined) {
-        return;
-      }
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.follow(peerId).catch((error: unknown) => {
         failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
@@ -473,17 +455,7 @@ function syncGrant(): void {
     return;
   }
   treePane.replaceChildren();
-  // Past the end the tree is the snapshot, visibly stale: the engine sheds
-  // its local grant on the terminal close, so the live view would silently
-  // lose files that were never opened.
-  const ended = endedMessage !== undefined;
-  const listing = visibleListing(ended, staleSnapshot, binding.grantListing());
-  if (ended) {
-    const stale = document.createElement('p');
-    stale.className = 'stale';
-    stale.textContent = `The room is closed. ${TREE_STALE_NOTE}`;
-    treePane.appendChild(stale);
-  }
+  const listing = binding.grantListing();
   if (listing.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty';
@@ -580,15 +552,7 @@ function treeLevel(
       if (child.path === current) {
         row.classList.add('open');
       }
-      // Past the end no file opens: the rows stay readable but dead.
-      if (endedMessage !== undefined) {
-        row.disabled = true;
-        row.title = endedMessage;
-      }
       row.addEventListener('click', () => {
-        if (endedMessage !== undefined) {
-          return;
-        }
         // Opening a file is a deliberate navigation, the same class as
         // typing or going to someone: the follow ends instead of landing
         // back over the file just opened.
@@ -638,19 +602,60 @@ function syncFollow(following: Following | undefined): void {
  * tree freezes on the snapshot taken here — the engine sheds its local grant
  * on the terminal close, so the snapshot must precede it.
  */
-function enterTerminal(message: string): void {
-  const first = endedMessage === undefined;
-  if (binding !== undefined && first) {
-    staleSnapshot = binding.grantListing();
+/**
+ * Leaves the session when it ends: the binding, the editor and the socket are
+ * dropped, the session chrome and the tree come down, and the card returns over
+ * the blurred preview carrying the reason and the next step. Nothing of the
+ * dead room stays on screen — no frozen tree, no dead roster, no retired link —
+ * and the guest can join another room from here with one fresh link.
+ *
+ * The address-bar link named the room that just closed, so it stops being the
+ * way in (`linkIsTheInvite`): the paste box is what gets anyone back.
+ */
+function leaveSession(sentence: string): void {
+  if (binding === undefined) {
+    // No live session: a notice that arrives twice, or before anything joined,
+    // has nothing to leave. The card is already the card.
+    return;
   }
-  endedMessage = message;
-  sessionNote.show(message, 'ended');
-  shareBox.retire(SHARE_RETIRED_REASON);
-  shareInput.disabled = true;
-  shareInput.title = SHARE_RETIRED_REASON;
-  syncFollow(undefined);
-  syncRoster([]);
-  syncGrant();
+  dropSession({ binding, editor: editorApi, engine });
+  // Monaco takes its own DOM with it; anything it leaves behind must not sit in
+  // the host when the next session builds another editor there.
+  editorHost.replaceChildren();
+  binding = undefined;
+  engine = undefined;
+  editorApi = undefined;
+  opening = undefined;
+  renderedPath = undefined;
+  openDirs.clear();
+  fullShareLink = '';
+  shareInput.value = '';
+  shareInput.title = '';
+  rosterList.replaceChildren();
+  treePane.replaceChildren();
+  followBanner.replaceChildren();
+  followBanner.hidden = true;
+  sessionNote.hide();
+  sessionBar.hidden = true;
+  workspacePane.hidden = true;
+  linkIsTheInvite = false;
+  showRejoinCard(
+    {
+      join: joinPane,
+      preview: previewPane,
+      veil: veilPane,
+      message: joinMessage,
+      error: joinError,
+      inviteWrap,
+      inviteInput,
+      joinButton,
+    },
+    sessionOverMessage(sentence),
+  );
+  // The join gate was left settled by the join that just ended: another join
+  // from this card has to start clean.
+  joinGate.release();
+  inviteInput.focus();
 }
 
 function onNotice(notice: BindingNotice): void {
@@ -660,22 +665,14 @@ function onNotice(notice: BindingNotice): void {
   syncTreeIfMoved();
   switch (notice.kind) {
     case 'roomGone':
-      enterTerminal(roomGoneMessage(notice.reason));
+      leaveSession(roomGoneMessage(notice.reason));
       break;
     case 'disconnected':
-      // The bare disconnect never overwrites the reason: with one, the note
-      // already stands; without one (reconnection gave up) the session ends
-      // with its own sentence. Either way nothing rejoins on its own — the
-      // way back is a fresh join from a link.
-      if (endedMessage === undefined) {
-        enterTerminal(SESSION_ENDED_MESSAGE);
-      }
+      // No room-gone reason came with it (reconnection gave up): the session is
+      // over all the same, and the way back is a fresh join from a link.
+      leaveSession(SESSION_ENDED_MESSAGE);
       break;
     case 'documents':
-      // Past the end the room says nothing new: the frozen render stands.
-      if (endedMessage !== undefined) {
-        return;
-      }
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
       syncGrant();
@@ -687,9 +684,6 @@ function onNotice(notice: BindingNotice): void {
       }
       break;
     case 'peers':
-      if (endedMessage !== undefined) {
-        return;
-      }
       if (binding !== undefined) {
         syncRoster(binding.participants());
         // Where someone is reads on the tree, so presence moves re-render it.
@@ -697,27 +691,17 @@ function onNotice(notice: BindingNotice): void {
       }
       break;
     case 'roster':
-      if (endedMessage !== undefined) {
-        return;
-      }
       syncRoster(notice.participants);
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();
       break;
     case 'grant':
-      if (endedMessage !== undefined) {
-        return;
-      }
       syncGrant();
       break;
     case 'follow':
       syncFollow(notice.following);
       break;
     case 'status': {
-      // Past the end the note stands: nothing transient overwrites it.
-      if (endedMessage !== undefined) {
-        return;
-      }
       // Exactly two binding sentences have a home here: the grace window the
       // host's detach opens, and the host coming back inside it (which has to
       // clear the warning — the sentence would otherwise stand and lie). The
@@ -726,7 +710,7 @@ function onNotice(notice: BindingNotice): void {
       // editor keeps working locally and the room converges again on its own.
       const signal = sessionNoteSignal(notice.text);
       if (signal === 'grace') {
-        sessionNote.show(notice.text, 'warning');
+        sessionNote.show(notice.text);
       } else if (signal === 'back') {
         sessionNote.hide();
       }

@@ -286,14 +286,15 @@ describe('join card markup', () => {
   });
 
   it('paste box shows a schematic page-link example, never a real one', () => {
-    const placeholder = card.match(/placeholder="([^"]*)"/)?.[1] ?? '';
-    assert.ok(placeholder.includes('https://'), `no page-link example: ${placeholder}`);
-    assert.ok(/room=…&token=…/.test(placeholder), `no schematic example: ${placeholder}`);
+    const placeholder = card.slice(card.indexOf('<input id="invite"')).match(/placeholder="([^"]*)"/)?.[1] ?? '';
+    assert.match(placeholder, /\?room=…&token=…/, `no schematic example: ${placeholder}`);
     const stripped = placeholder.replace(/room=…&token=…/, '');
     assert.ok(!/token=/i.test(stripped), `token material in the example: ${placeholder}`);
     assert.ok(!/room=[^…]/i.test(stripped), `literal room in the example: ${placeholder}`);
     assert.ok(!/ws:\/\//i.test(placeholder), `wire scheme in the example: ${placeholder}`);
     assert.ok(!/\d+\.\d+\.\d+\.\d+/.test(placeholder), `bare address in the example: ${placeholder}`);
+    // The whole hint has to fit the field it sits in (see `test/session-over`).
+    assert.ok(placeholder.length <= 24, `the example is wide enough to clip: ${placeholder}`);
   });
 
   it('shows no wire scheme anywhere on the card', () => {

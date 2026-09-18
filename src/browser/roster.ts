@@ -25,12 +25,6 @@ export interface RosterView {
   selfName: string;
   /** The swatch colour for the own row; the page passes the peer-colour mapping. */
   selfColour?: string;
-  /**
-   * Past the end of the room every action stays drawn but dead, with the
-   * reason on hover: a live-looking Go to/Follow on a dead room is the limbo.
-   */
-  disabled?: boolean;
-  disabledReason?: string;
   onGoTo(peerId: string): void;
   onFollow(peerId: string): void;
 }
@@ -118,27 +112,17 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   const go = document.createElement('button');
   go.type = 'button';
   go.append(iconSpan('go'), labelSpan('Go to'));
-  go.disabled = view.disabled === true || peer.path === undefined;
-  if (view.disabled === true && view.disabledReason !== undefined) {
-    go.title = view.disabledReason;
-  }
+  go.disabled = peer.path === undefined;
   go.addEventListener('click', () => view.onGoTo(peer.peerId));
   actions.appendChild(go);
   const follow = document.createElement('button');
   follow.type = 'button';
-  if (view.followedPeerId === peer.peerId && view.disabled !== true) {
+  if (view.followedPeerId === peer.peerId) {
     follow.append(iconSpan('follow'), labelSpan('Following'));
     follow.disabled = true;
   } else {
     follow.append(iconSpan('follow'), labelSpan('Follow'));
-    if (view.disabled === true) {
-      follow.disabled = true;
-      if (view.disabledReason !== undefined) {
-        follow.title = view.disabledReason;
-      }
-    } else {
-      follow.addEventListener('click', () => view.onFollow(peer.peerId));
-    }
+    follow.addEventListener('click', () => view.onFollow(peer.peerId));
   }
   actions.appendChild(follow);
   row.appendChild(actions);
