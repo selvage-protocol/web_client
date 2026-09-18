@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { sessionNoteSignal, wireFailureAlert, wireSessionNote } from '../src/browser/notice.ts';
+import { sessionNoteSignal, hostPresent, wireFailureAlert, wireSessionNote } from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -324,6 +324,9 @@ describe('the host leaving and coming back', () => {
       'grace',
     );
     assert.equal(sessionNoteSignal('host demo-host is back'), 'back');
+    // The engine's own validation accepts an empty display name, so the
+    // all-clear can arrive as two words and a gap.
+    assert.equal(sessionNoteSignal('host  is back'), 'back');
     for (const chatter of [
       'Connection dropped. Reconnecting…',
       'disconnected',
@@ -334,6 +337,13 @@ describe('the host leaving and coming back', () => {
     ]) {
       assert.equal(sessionNoteSignal(chatter), undefined, `${chatter} became a note signal`);
     }
+  });
+
+  it('a membership report that names the host is the all-clear too', () => {
+    assert.equal(hostPresent([{ role: 'host' }]), true);
+    assert.equal(hostPresent([{ role: 'guest' }, { role: 'host' }]), true);
+    assert.equal(hostPresent([{ role: 'guest' }, { role: 'guest' }]), false);
+    assert.equal(hostPresent([]), false);
   });
 
   // The binding has no notice kind for either: both arrive as transient text,
@@ -359,7 +369,9 @@ describe('the host leaving and coming back', () => {
       setAwareness: () => {},
       presence: () => [],
       resolveSelection: () => undefined,
-      peers: () => [],
+      // The host, unnamed: the room's own membership names it by role, which
+      // is what the page reads when the attach frame was missed.
+      peers: () => [{ peer_id: 'peer-host', display_name: '', role: 'host' }],
       documents: () => [],
       grantedPaths: () => [],
       on: () => () => {},
@@ -387,10 +399,32 @@ describe('the host leaving and coming back', () => {
     binding.report({ kind: 'hostAttached', peer: { display_name: 'demo-host' } } as never);
     const returned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'back');
     assert.ok(returned, `no host-back signal in ${JSON.stringify(notices)}`);
+
+    // The same attach with a name the engine's validation allows to be empty:
+    // the sentence is still the all-clear.
+    binding.report({ kind: 'hostAttached', peer: { display_name: '' } } as never);
+    assert.ok(
+      notices.some((notice) => notice.text === 'host  is back'),
+      `an unnamed host produced no all-clear: ${JSON.stringify(notices)}`,
+    );
+
+    // And the membership the page reads for the same news: the host's role.
+    assert.equal(hostPresent(binding.participants()), true, 'the roster hid the host');
     binding.dispose();
 
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(main.includes('sessionNoteSignal(notice.text)'), 'the page routes no note signal');
     assert.ok(main.includes('sessionNote.hide()'), 'the grace warning never clears');
+    // Both membership notices carry the host, so both are all-clears: the
+    // attach sentence is not the only way the warning comes down.
+    for (const kind of ["case 'peers':", "case 'roster':"]) {
+      const at = main.indexOf(kind);
+      assert.ok(at !== -1, `${kind} left the notice routing`);
+      const branch = main.slice(at, main.indexOf('break;', at));
+      assert.ok(
+        branch.includes('hostPresent('),
+        `${kind} does not clear the grace warning when the host is named`,
+      );
+    }
   });
 });

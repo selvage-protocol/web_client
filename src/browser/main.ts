@@ -22,7 +22,7 @@ import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { initials } from './presence.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
-import { wireFailureAlert, wireSessionNote, sessionNoteSignal } from './notice.ts';
+import { wireFailureAlert, wireSessionNote, hostPresent, sessionNoteSignal } from './notice.ts';
 import {
   SESSION_ENDED_MESSAGE,
   dropSession,
@@ -685,12 +685,22 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'peers':
       if (binding !== undefined) {
-        syncRoster(binding.participants());
+        const present = binding.participants();
+        // The membership report is the room's own word on who is here, so a
+        // report that names the host clears the warning the attach frame may
+        // never have delivered (S1, 2026-09-18).
+        if (hostPresent(present)) {
+          sessionNote.hide();
+        }
+        syncRoster(present);
         // Where someone is reads on the tree, so presence moves re-render it.
         syncGrant();
       }
       break;
     case 'roster':
+      if (hostPresent(notice.participants)) {
+        sessionNote.hide();
+      }
       syncRoster(notice.participants);
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();

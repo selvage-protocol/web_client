@@ -75,12 +75,28 @@ export function sessionNoteSignal(text: string): SessionNoteSignal | undefined {
 }
 
 /**
+ * Whether a membership report — a `roster` or a `peers` notice — names the host
+ * as present. Either one is the all-clear the warning needs: the `host <name>
+ * is back` sentence only rides the attach frame, so a guest whose socket was
+ * down at that instant would otherwise read "the room closes in 30s unless the
+ * host returns" for the rest of the session (S1, 2026-09-18). The room's own
+ * word on who is here carries the same news on every membership frame.
+ */
+export function hostPresent(members: readonly { role: string }[]): boolean {
+  return members.some((member) => member.role === HOST_ROLE);
+}
+
+/**
  * The binding's own opening words, kept as the contract the routing reads:
  * `test/join-chrome.test.ts` drives the binding that emits them, so a reworded
- * sentence cannot drop the warning (or leave it standing) silently.
+ * sentence cannot drop the warning (or leave it standing) silently. The name
+ * between the two words may be empty: the engine's own validation accepts an
+ * empty `display_name`, and the binding prints whatever the peer carries.
  */
 const HOST_LEFT = 'host left';
-const HOST_BACK = /^host .+ is back$/;
+const HOST_BACK = /^host (.*) is back$/;
+/** The one role that means the host. */
+const HOST_ROLE = 'host';
 
 export interface SessionNote {
   /** Shows the line, replacing whatever stood before. */
