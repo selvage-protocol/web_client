@@ -8,10 +8,11 @@
  */
 
 import { build } from 'esbuild';
-import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { renderIcon } from './dist-icons.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -89,24 +90,7 @@ for (const [size, out] of [
   [192, 'icon-192.png'],
   [512, 'icon-512.png'],
 ]) {
-  execFileSync(
-    'magick',
-    [
-      resolve(root, 'public/mark-opaque.png'),
-      '-resize',
-      `${size}x${size}!`,
-      // Stable bytes across builds: ImageMagick writes the current time into a
-      // `tIME` chunk and a `date:timestamp` tag, so every build dirtied the tree
-      // with byte-identical icons. Drop both; keep `date:create`/`date:modify`
-      // and the source's `Software` tag.
-      '-define',
-      'png:exclude-chunk=time',
-      '+set',
-      'date:timestamp',
-      resolve(root, `dist/${out}`),
-    ],
-    { stdio: 'inherit' },
-  );
+  renderIcon(resolve(root, 'public/mark-opaque.png'), size, resolve(root, `dist/${out}`));
 }
 writeFileSync(
   resolve(root, 'dist/site.webmanifest'),
