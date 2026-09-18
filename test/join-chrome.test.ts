@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { peerColour } from '../src/bridge/index.ts';
-import { sessionNoteSignal, hostPresent, wireFailureAlert, wireSessionNote } from '../src/browser/notice.ts';
+import { sessionNoteSignal, hostPresent, wireFailureAlert, wireSessionNote, wireTapPeek } from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -305,6 +305,22 @@ describe('the message homes', () => {
     assert.equal(cancelled.length, 2, 'a later failure never restarted the timer');
     alert.dismiss();
     assert.equal(element.textContent, '', 'the alert survived its dismissal');
+  });
+
+  it('the tap-revealed line says one thing, stands, and takes itself down', () => {
+    const element = makeElement();
+    const scheduled: Array<() => void> = [];
+    const peek = wireTapPeek(element as unknown as HTMLElement, {
+      schedule: (run) => {
+        scheduled.push(run);
+        return scheduled.length;
+      },
+      cancel: () => {},
+    });
+    peek.show('sam · host');
+    assert.equal(element.textContent, 'sam · host');
+    scheduled[0]?.();
+    assert.equal(element.textContent, '', 'the peek never left the screen');
   });
 
   it('the session note carries the host-leave warning and nothing else', () => {

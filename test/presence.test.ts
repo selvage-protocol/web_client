@@ -233,6 +233,58 @@ describe('renderCursors parity', () => {
   });
 });
 
+describe('a tap on a peer caret, where a pointer would hover', () => {
+  it('names the peer whose caret is at the offset', async () => {
+    const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
+    const editor = makeEditor();
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+    });
+    await binding.openDocument('a.txt');
+    binding.renderCursors([cursor('peer-a', 'amy', 4), cursor('peer-b', 'bob', 9)]);
+    assert.equal(binding.peerAt(4)?.label, 'amy');
+    assert.equal(binding.peerAt(9)?.label, 'bob');
+    assert.equal(binding.peerAt(5), undefined, 'a caret was found past the end of a peer');
+    binding.dispose();
+  });
+
+  it('names the peer whose selection covers the offset', async () => {
+    const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
+    const editor = makeEditor();
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+    });
+    await binding.openDocument('a.txt');
+    // bob holds 3..6; a tap between the ends is a tap on his text.
+    binding.renderCursors([cursor('peer-b', 'bob', 6, 3)]);
+    assert.equal(binding.peerAt(5)?.label, 'bob');
+    assert.equal(binding.peerAt(2), undefined, 'a selection answered outside its own range');
+    binding.dispose();
+  });
+
+  it('answers nothing when the carets drawn are not for the showing document', async () => {
+    const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
+    const editor = makeEditor();
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+    });
+    await binding.openDocument('a.txt');
+    binding.renderCursors([{ ...cursor('peer-a', 'amy', 4), path: 'b.txt' }]);
+    // The caret is drawn per document, and a tap only ever lands in the one showing.
+    assert.equal(binding.peerAt(4), undefined);
+    binding.dispose();
+  });
+});
+
 /** The minted rule for one decoration class, if any. */
 function ruleFor(className) {
   const pattern = new RegExp(`\\.${className}\\s*\\{`);
