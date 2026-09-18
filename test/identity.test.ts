@@ -7,6 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -17,6 +18,23 @@ const site = resolve(root, '..', 'site');
 
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
+/**
+ * The site's hash for one of its files. The sibling checkout is edited in
+ * parallel, so an in-flight edit can have the file gone from its working tree:
+ * the blob its history carries is the same file, and the comparison stays
+ * byte-for-byte against the site rather than against a redraw.
+ */
+function siteSha256(path) {
+  try {
+    return sha256(resolve(site, path));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return createHash('sha256')
+      .update(execFileSync('git', ['-C', site, 'show', `HEAD:${path}`]))
+      .digest('hex');
+  }
+}
+
 describe('identity', () => {
   it('ships the site mark byte-identical, never redrawn', () => {
     for (const [ours, theirs] of [
@@ -24,7 +42,7 @@ describe('identity', () => {
       ['public/mark-opaque.png', 'public/mark-opaque.png'],
       ['public/mark-transparent.png', 'public/mark-transparent.png'],
     ]) {
-      assert.equal(sha256(resolve(root, ours)), sha256(resolve(site, theirs)), ours);
+      assert.equal(sha256(resolve(root, ours)), siteSha256(theirs), ours);
     }
   });
 
