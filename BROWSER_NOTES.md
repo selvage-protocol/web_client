@@ -1689,7 +1689,7 @@ was content-box, so padding and border sat outside the cap and the panel took
 is a disclosure: a full-width `Files and people` control sits under the session
 bar, the panel starts *shut* so the editor owns the screen, and opening a file
 shuts it again. With the keyboard emulated (390×420) the editor went 187 px to
-267 px of a 311 px workspace — 53 % to 86 %, over the 55 % floor. Rotating out
+286 px of a 330 px workspace — 53 % to 87 %, over the 55 % floor. Rotating out
 of the phone shape opens the panel rather than leaving the tree with no control
 to reach it.
 
@@ -1723,7 +1723,7 @@ height the guest can actually see and re-measures the editor; `appHeightFor`
 declines a pinch-zoom, which is a visual-viewport shrink too, and a test pins
 that. Driven with an installed `visualViewport` (no CDP call shrinks it — see
 the annotations in `.tmp/mobile-ux/drive.mjs`): `#app` 844 → 420, editor
-691 → 267 px, and back.
+710 → 286 px, and back.
 
 **Measured, before → after** (`drive.mjs before|after`, 49 checks, all green
 after; the hook is that the driver reports each one and its measurement):
@@ -1734,10 +1734,11 @@ after; the hook is that the driver reports each one and its measurement):
 | `#join-message` | 12.88 px | 16 px |
 | controls under 44 px, seated 390 | 12 | 0 |
 | `#share-group` | 359×24 | 359×44 |
+| session bar height (44 px of it the copy control) | 70 px | 90 px |
 | roster `Go to`/`Follow` | 62×26 / 67×26 | 62×44 / 67×44 |
 | tree `summary` / row | 370×32 / 370×34 | 370×44 / 370×44 |
-| `#side` of `#workspace` (open) | 324/774 = 42 % | 279/735 = 38 % |
-| editor of workspace, kb 390×420 | 187/350 = 53 % | 267/311 = 86 % |
+| `#side` of `#workspace` (open) | 324/774 = 42 % | 279/754 = 37 % |
+| editor of workspace, kb 390×420 | 187/350 = 53 % | 286/330 = 87 % |
 | Monaco minimap | 38 px | 0 |
 | horizontal page scroll, every state | none | none |
 
