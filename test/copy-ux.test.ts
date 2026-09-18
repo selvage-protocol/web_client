@@ -3,7 +3,8 @@
  * join button presence, runtime placeholder, and the plain-words copy pass.
  *
  * Each item below failed before its fix (the morph removed the link, the
- * cursor covered the bar only, the status line confirmed the copy, the link
+ * cursor covered the bar only, the page confirmed the copy outside the
+ * control, the link
  * read in full at rest, the host showed untruncated, the button was small,
  * the placeholder was a fixed this-page example with no name example).
  */
@@ -101,8 +102,8 @@ describe('copy cursor', () => {
 describe('no top-right copy sentence', () => {
   it('the page never confirms a copy outside the link control', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(!main.includes('invite link copied'), 'a copy sentence survives in the status line');
-    assert.ok(!main.includes('anyone holding it'), 'a copy sentence survives in the status line');
+    assert.ok(!main.includes('invite link copied'), 'a copy sentence survives in the page');
+    assert.ok(!main.includes('anyone holding it'), 'a copy sentence survives in the page');
   });
 });
 
@@ -145,13 +146,15 @@ describe('abbreviated host', () => {
 });
 
 describe('join button', () => {
-  it('the primary join control is bigger than the roster and tree controls', () => {
+  it('centres its label, keeps its type below the old 1.05em, and stays the biggest control', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const style = styleOf(html);
     const buttonRule = style.match(/#join-button\s*\{[^}]*\}/);
     assert.ok(buttonRule, 'no join-button rule');
-    assert.ok(/padding:\s*0\.7/.test(buttonRule[0]), `join padding near roster size: ${buttonRule[0]}`);
-    assert.ok(/font-size:\s*1/.test(buttonRule[0]), `join text near roster size: ${buttonRule[0]}`);
+    assert.ok(/justify-content:\s*center/.test(buttonRule[0]), `Join label is not centred: ${buttonRule[0]}`);
+    assert.ok(/padding:\s*0\.8/.test(buttonRule[0]), `join padding near roster size: ${buttonRule[0]}`);
+    assert.ok(/font-size:\s*1em\b/.test(buttonRule[0]), `join text is not below 1.05em: ${buttonRule[0]}`);
+    assert.ok(!/font-size:\s*1\.05em/.test(style), 'the oversized Join type survives');
     assert.ok(/transition:/.test(buttonRule[0]), 'no hover transition on Join');
     assert.ok(/#join-button:active/.test(style), 'no active press on Join');
   });

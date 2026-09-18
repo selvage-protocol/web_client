@@ -47,7 +47,7 @@ console.log('AFTER_STOP', JSON.stringify(await cdp.evaluate(`({
 // Go to host
 await cdp.evaluate(`[...document.querySelectorAll('#roster li')][${idx}].querySelectorAll('button')[0].click()`);
 await cdp.sleep(1500);
-console.log('GOTO_STATUS', JSON.stringify(await cdp.evaluate(`document.querySelector('#status').textContent`)));
+console.log('GOTO_STATUS', JSON.stringify(await cdp.evaluate(`document.querySelector('#session-note').textContent`)));
 await cdp.shot(`${SHOT}/06-after-goto.png`);
 await cdp.close();
 console.log('WF3_DONE');

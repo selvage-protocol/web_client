@@ -186,7 +186,6 @@ export function joinOnEnter(
  * address bar calls for — never a re-render, so nothing typed is lost.
  */
 export interface JoinCardElements {
-  joinRoomline: { hidden: boolean };
   inviteWrap: { hidden: boolean };
   inviteInput: { value: string };
   nameInput: { value: string };
@@ -202,6 +201,9 @@ export type JoinFocusTarget = 'name' | 'invite';
  * only an untouched field — anything typed before the bundle arrives stays —
  * and the caller's focus decision lands past first paint, never stealing a
  * field the guest already typed into. Returns where focus belongs.
+ *
+ * The card asks its one question either way: a link open needs nothing but
+ * the name, a bare open shows the paste box above it.
  */
 export function initJoinCard(
   elements: JoinCardElements,
@@ -211,9 +213,7 @@ export function initJoinCard(
   const room = (search.get('room') ?? '').trim();
   const token = (search.get('token') ?? '').trim();
   const linkMode = room !== '' && token !== '';
-  if (linkMode) {
-    elements.joinRoomline.hidden = false;
-  } else {
+  if (!linkMode) {
     elements.inviteWrap.hidden = false;
   }
   // A slow first load means the guest may have typed ahead of the bundle:

@@ -17,7 +17,6 @@ import type { JoinCardElements } from '../src/browser/join.ts';
 
 function elements(over: Partial<JoinCardElements> = {}): JoinCardElements {
   return {
-    joinRoomline: { hidden: true },
     inviteWrap: { hidden: true },
     inviteInput: { value: '' },
     nameInput: { value: '' },
@@ -58,15 +57,13 @@ describe('initJoinCard preserves typed state under a slow load', () => {
     assert.equal(target, 'name');
   });
 
-  it('a link open shows the invite line; a bare open shows the paste box', () => {
+  it('a bare open shows the paste box; a link open shows nothing but the question', () => {
     const linked = elements();
     initJoinCard(linked, new URLSearchParams('room=r-1&token=tok'), emptyStorage);
-    assert.equal(linked.joinRoomline.hidden, false);
     assert.equal(linked.inviteWrap.hidden, true);
 
     const bare = elements();
     const target = initJoinCard(bare, new URLSearchParams(), emptyStorage);
-    assert.equal(bare.joinRoomline.hidden, true);
     assert.equal(bare.inviteWrap.hidden, false);
     assert.equal(target, 'invite');
   });

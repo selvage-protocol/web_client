@@ -418,13 +418,14 @@ describe('joined chrome', () => {
     assert.ok(main.includes("iconSvg('check')"), 'no copied confirmation on the bar');
   });
 
-  it('an unpublished open writes no status sentence', () => {
-    assert.ok(!/setStatus\([^)]*hasn/.test(main), 'an unpublished advisory survived in the status line');
+  it('an unpublished open announces nothing', () => {
+    // The advisory lives on the open row's own badge and its title, never as a message.
+    assert.ok(!/show\([^)]*hasn/.test(main), 'an unpublished advisory survived as a message');
   });
 
-  it('a plain open writes no open: status', () => {
-    assert.ok(!/setStatus\(`open: /.test(main), 'an open: status survived');
-    assert.ok(!main.includes('`open: ${path}`'), 'a go-to open: status survived');
+  it('a plain open announces nothing', () => {
+    assert.ok(!main.includes('`open: ${path}`'), 'a go-to open: message survived');
+    assert.ok(!/m(?:essage|ote|alert)\.show\([^)]*open:/.test(main), 'an open: message survived');
   });
 
   it('the first file opens focused', () => {

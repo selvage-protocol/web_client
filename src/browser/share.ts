@@ -79,31 +79,58 @@ export function parsePageLink(text: string): { room: string; token: string; serv
 }
 
 /**
- * Shortens a long hostname middle-first: the head and the tail survive and
- * an ellipsis stands where the middle was. Short hosts show whole.
+ * Shortens a value middle-first: the head and the tail survive and an
+ * ellipsis stands where the middle was. Anything at or under the bound shows
+ * whole — an abbreviation must never make a value longer than it was.
  */
-export function abbreviateHost(host: string, maxLength = 24): string {
-  if (host.length <= maxLength) {
-    return host;
+function abbreviateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
   }
   const head = Math.ceil((maxLength - 1) / 2);
   const tail = Math.floor((maxLength - 1) / 2);
-  return `${host.slice(0, head)}…${host.slice(host.length - tail)}`;
+  return `${value.slice(0, head)}…${value.slice(value.length - tail)}`;
+}
+
+/** How much of the room id and of the token the bar carries. */
+const ROOM_DISPLAY_MAX = 12;
+const TOKEN_DISPLAY_MAX = 12;
+
+/** A long hostname, shortened for the bar. Short hosts show whole. */
+export function abbreviateHost(host: string, maxLength = 24): string {
+  return abbreviateMiddle(host, maxLength);
 }
 
 /**
- * What the share bar shows: the guest link with a long hostname abbreviated
- * middle-first. Display only — the path and query are untouched, and the
- * caller keeps the full link for the title and the clipboard.
+ * What the share bar shows: the guest link with its long parts shortened
+ * middle-first — the host, the room id and the token, each on its own bound.
+ * Display only: the caller keeps the full link for the element's title and
+ * for the clipboard, so the abbreviation is a paint, never a credential.
+ * The `server` parameter stays whole: it names where the room is, not a
+ * permission, and the bar's own width is what clips it.
  */
 export function displayShareLink(link: string, maxHost = 24): string {
   try {
     const url = new URL(link);
-    const short = abbreviateHost(url.hostname, maxHost);
-    if (short === url.hostname) {
+    const host = abbreviateMiddle(url.hostname, maxHost);
+    const query = url.search.replace(
+      /(\?|&)(room|token)=([^&]*)/g,
+      (whole: string, lead: string, key: string, raw: string) => {
+        let value: string;
+        try {
+          value = decodeURIComponent(raw);
+        } catch {
+          return whole;
+        }
+        const max = key === 'room' ? ROOM_DISPLAY_MAX : TOKEN_DISPLAY_MAX;
+        const short = abbreviateMiddle(value, max);
+        return short === value ? whole : `${lead}${key}=${short}`;
+      },
+    );
+    if (host === url.hostname && query === url.search) {
       return link;
     }
-    return `${url.protocol}//${short}${url.port === '' ? '' : `:${url.port}`}${url.pathname}${url.search}${url.hash}`;
+    return `${url.protocol}//${host}${url.port === '' ? '' : `:${url.port}`}${url.pathname}${query}${url.hash}`;
   } catch {
     return link;
   }

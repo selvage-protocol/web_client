@@ -1,8 +1,8 @@
 /**
- * Flow-review regressions: every landing announces its status, unpublished
- * files read as advisories, the drop signal reaches the status line, duplicate
- * names disambiguate, the join URL persists, unreachable servers read plainly,
- * and tree directories keep their openness.
+ * Flow-review regressions: every landing announces itself, unpublished
+ * files read as advisories, the drop signal reaches the page as a notice,
+ * duplicate names disambiguate, the join URL persists, unreachable servers
+ * read plainly, and tree directories keep their openness.
  */
 
 import { describe, it } from 'node:test';
@@ -124,8 +124,8 @@ async function waitFor(label, predicate, timeoutMs = 2000) {
   }
 }
 
-describe('landing status (status/tree/editor agree)', () => {
-  it('go-to lands with no open: status line — tree and editor name the file', async () => {
+describe('landing notices (tree and editor agree)', () => {
+  it('go-to lands with no open: sentence — tree and editor name the file', async () => {
     const { binding, notices } = setup(new Map([['a.txt', 'aaa'], ['b.txt', 'bbb']]), {
       peers: [SAM, JO],
       presence: [{ clientId: 9, peer: JO, state: { path: 'b.txt', selection: selectionAt(1) } }],
@@ -180,7 +180,7 @@ describe('unpublished files', () => {
 });
 
 describe('drop signal', () => {
-  it('the engine reconnecting report reaches the status line', () => {
+  it('the engine reconnecting report reaches the page as a notice', () => {
     const { binding, notices } = setup(new Map());
     binding.report({ kind: 'reconnecting' });
     assert.ok(

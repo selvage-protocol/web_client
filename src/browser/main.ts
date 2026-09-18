@@ -20,6 +20,7 @@ import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { initials } from './presence.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
+import { wireFailureAlert, wireSessionNote } from './notice.ts';
 import {
   ROSTER_DISABLED_REASON,
   SESSION_ENDED_MESSAGE,
@@ -102,14 +103,12 @@ const joinPane = document.getElementById('join') as HTMLElement;
 const previewPane = document.getElementById('preview') as HTMLElement;
 const veilPane = document.getElementById('veil') as HTMLElement;
 const joinForm = document.getElementById('join-form') as HTMLFormElement;
-const joinRoomline = document.getElementById('join-roomline') as HTMLElement;
 const inviteWrap = document.getElementById('invite-wrap') as HTMLElement;
 const inviteInput = document.getElementById('invite') as HTMLInputElement;
 const nameInput = document.getElementById('name') as HTMLInputElement;
 const joinButton = document.getElementById('join-button') as HTMLButtonElement;
 const joinError = document.getElementById('join-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
-const statusLabel = document.getElementById('status') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
@@ -117,6 +116,15 @@ const editorHost = document.getElementById('editor') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
 const followBanner = document.getElementById('follow-banner') as HTMLElement;
+
+/**
+ * The chrome's lifecycle line: the host-leave warning while the grace runs,
+ * and the end of the room. Anything transient the page used to announce
+ * either has a home of its own or is dropped (see `onNotice`).
+ */
+const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
+/** Failures of an action the guest took: shown, then gone on their own. */
+const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLElement);
 
 const params = pageQueryParams(window.location.search);
 const linkRoom = (params.get('room') ?? '').trim();
@@ -128,7 +136,7 @@ const linkMode = linkRoom !== '' && linkToken !== '';
 // The card shell is inline HTML, so it paints before this bundle arrives: wire
 // only the variant the address bar calls for, prefill only an untouched name
 // field, and land focus past first paint without stealing a typed-into field.
-const focusTarget = initJoinCard({ joinRoomline, inviteWrap, inviteInput, nameInput }, params, window.localStorage);
+const focusTarget = initJoinCard({ inviteWrap, inviteInput, nameInput }, params, window.localStorage);
 // The paste box shows a schematic built from this page's own origin — real
 // origin, ellipsis placeholders, never literal ids, never the wire scheme.
 inviteInput.placeholder = invitePlaceholder(window.location.origin);
@@ -168,14 +176,12 @@ let selfName = '';
 const openDirs = new Set<string>();
 /** The path the tree last highlighted, so landings re-render it. */
 let renderedPath: string | undefined;
-/** A dropped socket with no room event since: the next one means reseated. */
-let linkDown = false;
 /**
- * The terminal state, once the room is over. While set, the status keeps its
- * sentence (no bare `disconnected` overwrites it), the roster renders nobody
- * with dead actions, the share link stays retired, and the tree shows the
- * snapshot below instead of the live listing. A rejoin is always a fresh join
- * from a link — this page never re-hellos on its own, and never as host.
+ * The terminal state, once the room is over. While set, the session note
+ * keeps its sentence (no later notice overwrites it), the roster renders
+ * nobody with dead actions, the share link stays retired, and the tree shows
+ * the snapshot below instead of the live listing. A rejoin is always a fresh
+ * join from a link — this page never re-hellos on its own, and never as host.
  */
 let endedMessage: string | undefined;
 /** The last listing known before the room ended: the stale tree, never shed. */
@@ -337,10 +343,8 @@ async function join(held: HeldJoin): Promise<void> {
   }
   // The joined name is the prefill next time: localStorage only, never the wire.
   saveDisplayName(window.localStorage, displayName);
-  // A name already in the room is allowed in, with its row told apart.
-  if (binding.participants().some((peer) => peer.displayName === displayName)) {
-    setStatus(`'${displayName}' is already here. Your row carries a short id.`);
-  }
+  // A name already in the room is allowed in, and the roster row carries the
+  // short id that tells the two apart, so no sentence is needed here.
 }
 
 /** The server a failure message names before any attempt resolved one. */
@@ -353,18 +357,18 @@ async function openFirst(session: SessionInfo): Promise<void> {
   const first = session.documents.slice().sort()[0];
   if (first !== undefined) {
     await openPath(first);
-  } else {
-    setStatus('Joined. Waiting for the room to name a document.');
   }
+  // A room that names no document needs no sentence: the tree already reads
+  // `The room shares no listing yet.`
 }
 
 async function openPath(path: string): Promise<void> {
   if (binding === undefined || opening === path) {
     return;
   }
-  // Past the end nothing opens: the state echoes instead of a silent miss.
+  // Past the end nothing opens: the row that led here is visibly dead, and
+  // the note already stands, so the refusal is read rather than restated.
   if (endedMessage !== undefined) {
-    setStatus(endedMessage);
     return;
   }
   opening = path;
@@ -376,10 +380,9 @@ async function openPath(path: string): Promise<void> {
     renderedPath = path;
     // A plain open says nothing — the tree highlight and the buffer already
     // name the file. A listed path nobody published reads empty like a
-    // cleared file; the open row's badge tells the two apart, never a
-    // status sentence.
+    // cleared file; the open row's badge tells the two apart, never a message.
   } catch (error) {
-    setStatus(`Could not open ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    failureAlert.show(`Could not open ${path}: ${describe(error)}`);
   } finally {
     if (opening === path) {
       opening = undefined;
@@ -397,9 +400,9 @@ const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
 });
 
 async function copyShareLink(): Promise<void> {
-  // A retired bar never reaches the clipboard: the state echoes instead.
+  // A retired bar never reaches the clipboard: the bar says so itself, reads
+  // over and refuses the press.
   if (endedMessage !== undefined) {
-    setStatus(endedMessage);
     return;
   }
   try {
@@ -422,11 +425,11 @@ async function copyShareLink(): Promise<void> {
     }
     shareInput.value = shown;
     if (!done) {
-      setStatus('Select the link and copy it by hand.');
+      failureAlert.show('Select the link and copy it by hand.');
       return;
     }
   }
-  // The bar's brief morph is the whole confirmation: no status sentence.
+  // The bar's brief morph is the whole confirmation: nothing is announced.
   shareBox.confirm();
 }
 
@@ -445,22 +448,20 @@ function syncRoster(participants: Participant[]): void {
     ...(ended ? { disabled: true, disabledReason: ROSTER_DISABLED_REASON } : {}),
     onGoTo: (peerId) => {
       if (endedMessage !== undefined) {
-        setStatus(endedMessage);
         return;
       }
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
-        setStatus(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+        failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
       });
     },
     onFollow: (peerId) => {
       if (endedMessage !== undefined) {
-        setStatus(endedMessage);
         return;
       }
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.follow(peerId).catch((error: unknown) => {
-        setStatus(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+        failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
       });
     },
   });
@@ -586,7 +587,6 @@ function treeLevel(
       }
       row.addEventListener('click', () => {
         if (endedMessage !== undefined) {
-          setStatus(endedMessage);
           return;
         }
         // Opening a file is a deliberate navigation, the same class as
@@ -633,10 +633,10 @@ function syncFollow(following: Following | undefined): void {
 }
 
 /**
- * Enters the terminal state: the status keeps this sentence to the end, the
- * roster clears with dead actions, the share link retires, and the tree
- * freezes on the snapshot taken here — the engine sheds its local grant on
- * the terminal close, so the snapshot must precede it.
+ * Enters the terminal state: the session note carries this sentence to the
+ * end, the roster clears with dead actions, the share link retires, and the
+ * tree freezes on the snapshot taken here — the engine sheds its local grant
+ * on the terminal close, so the snapshot must precede it.
  */
 function enterTerminal(message: string): void {
   const first = endedMessage === undefined;
@@ -644,7 +644,7 @@ function enterTerminal(message: string): void {
     staleSnapshot = binding.grantListing();
   }
   endedMessage = message;
-  setStatus(message);
+  sessionNote.show(message, 'ended');
   shareBox.retire(SHARE_RETIRED_REASON);
   shareInput.disabled = true;
   shareInput.title = SHARE_RETIRED_REASON;
@@ -663,14 +663,12 @@ function onNotice(notice: BindingNotice): void {
       enterTerminal(roomGoneMessage(notice.reason));
       break;
     case 'disconnected':
-      // The bare disconnect never overwrites the reason: with one, it
-      // re-asserts it; without one (reconnection gave up) it ends the
-      // session with its own sentence. Either way nothing rejoins on its
-      // own — the way back is a fresh join from a link.
+      // The bare disconnect never overwrites the reason: with one, the note
+      // already stands; without one (reconnection gave up) the session ends
+      // with its own sentence. Either way nothing rejoins on its own — the
+      // way back is a fresh join from a link.
       if (endedMessage === undefined) {
         enterTerminal(SESSION_ENDED_MESSAGE);
-      } else {
-        setStatus(endedMessage);
       }
       break;
     case 'documents':
@@ -678,7 +676,6 @@ function onNotice(notice: BindingNotice): void {
       if (endedMessage !== undefined) {
         return;
       }
-      reseated();
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
       syncGrant();
@@ -693,7 +690,6 @@ function onNotice(notice: BindingNotice): void {
       if (endedMessage !== undefined) {
         return;
       }
-      reseated();
       if (binding !== undefined) {
         syncRoster(binding.participants());
         // Where someone is reads on the tree, so presence moves re-render it.
@@ -704,7 +700,6 @@ function onNotice(notice: BindingNotice): void {
       if (endedMessage !== undefined) {
         return;
       }
-      reseated();
       syncRoster(notice.participants);
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();
@@ -713,20 +708,25 @@ function onNotice(notice: BindingNotice): void {
       if (endedMessage !== undefined) {
         return;
       }
-      reseated();
       syncGrant();
       break;
     case 'follow':
       syncFollow(notice.following);
       break;
     case 'status':
-      // Past the end the sentence stands: transient statuses (including the
-      // bare `disconnected` that trails the room-gone) never overwrite it.
+      // Past the end the note stands: nothing transient overwrites it.
       if (endedMessage !== undefined) {
         return;
       }
-      setStatus(notice.text);
-      linkDown = notice.text.startsWith('connection dropped');
+      // The binding has no notice kind for the host's grace window, so that
+      // one warning arrives on this channel and the page routes exactly it.
+      // The rest of the transient text (a drop, a reconnect, a follow
+      // landing) asks the guest to do nothing and is dropped rather than
+      // moved: the editor keeps working locally and the room converges again
+      // on its own.
+      if (notice.text.startsWith(HOST_LEFT)) {
+        sessionNote.show(notice.text, 'warning');
+      }
       break;
   }
 }
@@ -741,26 +741,12 @@ function syncTreeIfMoved(): void {
 }
 
 /**
- * The first room event after a drop arrives on the reseated socket, so it
- * retires the reconnecting status: even when the re-hello wins the race and
- * nobody saw the drop, the room still says it reconnected.
+ * The one binding notice that arrives as transient text and still has a
+ * home: the host's socket detached, and the room closes when its grace runs
+ * out. Matched by its opening words only, and pinned in
+ * `test/join-chrome.test.ts` against the binding that emits it.
  */
-function reseated(): void {
-  if (!linkDown || binding === undefined) {
-    return;
-  }
-  linkDown = false;
-  const current = binding.currentPath();
-  setStatus(
-    current === undefined
-      ? 'Reconnected. Waiting for the room to name a document.'
-      : 'Reconnected.',
-  );
-}
-
-function setStatus(text: string): void {
-  statusLabel.textContent = text;
-}
+const HOST_LEFT = 'host left';
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

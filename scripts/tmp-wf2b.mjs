@@ -19,7 +19,7 @@ await cdp.sleep(6000);
 console.log('STATE2', JSON.stringify(await cdp.evaluate(`({
   workspaceHidden: document.querySelector('#workspace')?.hidden,
   joinError: document.querySelector('#join-error')?.textContent,
-  status: document.querySelector('#status')?.textContent,
+  status: document.querySelector('#session-note')?.textContent,
   roomLabel: document.querySelector('#room-label')?.textContent,
 })`)));
 await cdp.shot(`${SHOT}/04-first-sight-tree-editor.png`);

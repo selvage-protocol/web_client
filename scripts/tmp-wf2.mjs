@@ -41,7 +41,7 @@ await cdp.sleep(2500);
 await cdp.shot(`${SHOT}/04-first-sight-tree-editor.png`);
 console.log('JOINED', JSON.stringify(await cdp.evaluate(`({
   roomLabel: document.querySelector('#room-label').textContent,
-  status: document.querySelector('#status').textContent,
+  status: document.querySelector('#session-note').textContent,
   docs: [...document.querySelector('#docs').options].map(o => o.value + (o.selected ? ' [sel]' : '')),
   roster: [...document.querySelectorAll('#roster li')].map(li => li.textContent),
   tree: document.querySelector('#tree').textContent.slice(0, 400),
