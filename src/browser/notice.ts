@@ -63,16 +63,21 @@ export interface SessionNote {
   hide(): void;
 }
 
+/**
+ * Wires the chrome's lifecycle line the same way as the alert: it stays in the
+ * DOM as an empty live region (so the sentence is announced when it lands) and
+ * its empty state is what hides it, so the strip takes no room while the room
+ * is healthy.
+ */
 export function wireSessionNote(element: HTMLElement): SessionNote {
   return {
     show(text: string, kind: SessionNoteKind): void {
       element.textContent = text;
       element.dataset.kind = kind;
-      element.hidden = false;
     },
     hide(): void {
       element.textContent = '';
-      element.hidden = true;
+      delete element.dataset.kind;
     },
   };
 }

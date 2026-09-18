@@ -1116,6 +1116,9 @@ silently:
   inline strip under the bar, a dot and the sentence, yellow for the grace and
   red for the end (7.58:1 on mantle). It is a lifecycle line, not a ticker: it
   appears only while something is true of the room, and the end never leaves.
+  Both homes are live regions (`role="alert"`) that stay in the DOM and hide
+  through `:empty`, so the sentence a guest cannot see is still the sentence a
+  screen reader hears — the role the deleted span used to carry.
 - **An action that refused** — a file that would not open, a go-to or follow
   that failed, the hand-copy fallback when the clipboard is unavailable —
   shows in `#alert`: a failure strip at the bottom of the window,

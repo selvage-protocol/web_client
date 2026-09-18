@@ -92,10 +92,17 @@ describe('the status element is gone for good', () => {
   });
 
   it('messages with homes of their own have them in the shell', () => {
-    assert.ok(/<div id="session-note"[^>]*hidden/.test(html), 'no session note in the chrome');
+    assert.ok(
+      /<div id="session-note" role="alert"><\/div>/.test(html),
+      'no session note in the chrome',
+    );
     assert.ok(/<div id="alert" role="alert"><\/div>/.test(html), 'no failure alert in the shell');
     assert.ok(style.includes('#session-note'), 'the session note is unstyled');
     assert.ok(style.includes('#alert'), 'the failure alert is unstyled');
+    assert.ok(
+      /#session-note:empty/.test(style) && /#alert:empty/.test(style),
+      'an empty live region still paints its box',
+    );
     assert.ok(
       /#session-note\[data-kind="ended"\]/.test(style),
       'the end of the room gets no treatment of its own',
@@ -272,16 +279,16 @@ describe('the message homes', () => {
   it('the session note carries the lifecycle states and nothing else', () => {
     const element = makeElement();
     const note = wireSessionNote(element as unknown as HTMLElement);
+    assert.equal(element.textContent, '', 'an untouched note paints nothing');
     note.show('host left — the room closes in 30s unless the host returns', 'warning');
-    assert.equal(element.hidden, false);
     assert.equal(element.dataset.kind, 'warning');
     assert.match(element.textContent, /host left/);
     note.show('The room is closed — host did not return.', 'ended');
     assert.equal(element.dataset.kind, 'ended');
     assert.equal(element.textContent, 'The room is closed — host did not return.');
     note.hide();
-    assert.equal(element.hidden, true);
     assert.equal(element.textContent, '');
+    assert.equal(element.dataset.kind, undefined);
   });
 
   it('the end of the room reaches the session note', () => {

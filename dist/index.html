@@ -75,6 +75,7 @@
         border-radius: 50%; background: currentColor; }
       #session-note[data-kind="warning"] { color: var(--warning); }
       #session-note[data-kind="ended"] { color: var(--danger); }
+      #session-note:empty { display: none; }
       #share-group { display: flex; align-items: center; gap: 0.3em; flex: 0 1 auto;
         min-width: 0; max-width: 22em; padding: 0.2em 0.3em 0.2em 0.55em;
         background: var(--input); border: 1px solid var(--border); border-radius: var(--radius);
@@ -216,7 +217,7 @@
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
       </div>
-      <div id="session-note" hidden></div>
+      <div id="session-note" role="alert"></div>
       <div id="follow-banner" hidden></div>
       <div id="preview" aria-hidden="true">
         <div class="fake-side">
