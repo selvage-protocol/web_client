@@ -1648,20 +1648,25 @@ stays a guard in the client.
 A recon of the page at 390, 320 and landscape found five defects and said which
 sizes to move; this is the pass that moved them. Everything below is Chromium
 152 with `Emulation.setDeviceMetricsOverride { mobile: true }` and touch
-emulation on, so `(hover: none)` and `(pointer: coarse)` are both true — the
+emulation on, so `(any-hover: none)` and `(pointer: coarse)` are both true — the
 query the whole round keys on. Every measurement before and after is in
 `.tmp/mobile-ux/{before,after}/facts.json`, the driver in
 `.tmp/mobile-ux/drive.mjs`, the shots beside them.
 
-**A phone is `(hover: none)`, and nothing else is.** Two media queries carry the
-round: `(hover: none)` for what a finger needs (field size, target size) and
-`(hover: none) and (max-width: 640px)` for what a phone needs (the card as a
-sheet, the panel as a disclosure). `mobile.ts` names both and
+**A phone is `(any-hover: none)`, and nothing else is.** Two media queries carry
+the round: `(any-hover: none)` for what a finger needs (field size, target size)
+and `(any-hover: none) and (max-width: 640px)` for what a phone needs (the card
+as a sheet, the panel as a disclosure). `mobile.ts` names both and
 `test/mobile.test.ts` holds the stylesheet and the page to the same two strings,
 because a page that thinks it is a phone while the CSS paints a desktop is the
-failure this leaves behind otherwise. A narrow desktop window is a desktop and a
-touchscreen laptop with a mouse is one too; landscape at 844 keeps the
-two-column layout it already read well in.
+failure this leaves behind otherwise. `any-hover` and not `hover`, because
+`hover` answers for the *primary* input mechanism alone: a touchscreen laptop
+whose primary is reported as touch would take the phone layout with a mouse
+sitting next to it. A narrow desktop window is a desktop, and so is anything
+with a mouse or a touchpad; landscape at 844 keeps the two-column layout it
+already read well in. (Headless Chromium reports *both* queries as true — it has
+no pointer at all — so the driver cannot tell them apart; the distinction is the
+device's.)
 
 **iOS zoomed every field.** The root font is 14 px, so `#join input { font-size:
 1rem }` computed to 14 px — under the 16 px floor at which iOS stops zooming the
@@ -1715,9 +1720,10 @@ mechanism (`wireTransientLine`) with different copy and no danger border, empty
 and therefore hidden at rest, and politely announced when it fills.
 
 **The keyboard and the viewport.** `#app` is `100dvh` (with `100%` before it for
-a browser without `dvh`), the viewport meta carries `viewport-fit=cover` and
-`interactive-widget=resizes-content`, and `env(safe-area-inset-bottom)` pads the
-app, the card and the alert. iOS shrinks only the *visual* viewport, which no
+a browser without `dvh` and `box-sizing: border-box`, without which the inset
+below would push it past the height it was measured against), the viewport meta
+carries `viewport-fit=cover` and `interactive-widget=resizes-content`, and
+`env(safe-area-inset-bottom)` pads the app, the card and the alert. iOS shrinks only the *visual* viewport, which no
 layout engine hears about, so a `visualViewport` resize re-pins `#app` to the
 height the guest can actually see and re-measures the editor; `appHeightFor`
 declines a pinch-zoom, which is a visual-viewport shrink too, and a test pins
@@ -1750,6 +1756,17 @@ for); `npm run build` with the `ws`-absence assert, `dist/` rebuilt last.
 `test/mobile.test.ts` is new and pins the media queries, the editor options, the
 visual-viewport rule and the 16/44 px sizes at both ends of the query.
 
+**Three review findings, all fixed.** The safe-area padding above needed
+`box-sizing: border-box` on `#app`, or content-box made the app taller than the
+viewport the inset was measured against. `MonacoBinding.peerAt` read the path
+from the last drawn frame, and opening a document changes the path and the model
+in one step while the frame that re-draws the carets arrives later — so a tap's
+offset into the new buffer could be answered by the previous document's carets;
+it now filters the drawn carets by the *current* path, with a test that opens a
+second document between the draw and the tap. And the touch query is
+`(any-hover: none)` rather than `(hover: none)`, which answers for the primary
+input mechanism alone.
+
 Could not verify: a real iOS or Android soft keyboard — the driver emulates the
 layout-viewport shrink and, separately, an installed `visualViewport`; whether
 `visualViewport.height` on a real iOS keyboard is the number `#app` should take
@@ -1763,8 +1780,9 @@ strip rather than one disclosure — the recon offered both and this took the
 smaller one; whether the roster's dead-verb reasons should be permanently on
 screen on a phone or revealed by a tap instead (they are plain text today, which
 costs the self row two lines); whether an iPad with a trackpad should keep
-desktop density, since such a device reports `(hover: hover)` and would still
-zoom a 14 px field; and whether landscape's session bar at 62 px (44 px of it
+desktop density, since such a device reports `(any-hover: hover)`, takes the
+desktop layout, and would still zoom a 14 px field — the query buys the
+touchscreen laptop its desktop and pays for it here; and whether landscape's session bar at 62 px (44 px of it
 the copy control) is worth a shorter variant, given 390 px of height.
 
 ## M2 needs (polish / publish-readiness)
