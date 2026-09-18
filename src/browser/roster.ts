@@ -113,6 +113,11 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   go.type = 'button';
   go.append(iconSpan('go'), labelSpan('Go to'));
   go.disabled = peer.path === undefined;
+  if (go.disabled) {
+    // Disabled, never mysteriously: the row says why, the way the self row's
+    // dead actions do.
+    go.title = 'They are not in a document yet';
+  }
   go.addEventListener('click', () => view.onGoTo(peer.peerId));
   actions.appendChild(go);
   const follow = document.createElement('button');

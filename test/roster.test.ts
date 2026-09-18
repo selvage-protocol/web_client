@@ -103,7 +103,7 @@ describe('roster rows', () => {
     assert.equal(calls.length, 0);
   });
 
-  it('Go to is unavailable while the peer is in no document', () => {
+  it('Go to is unavailable while the peer is in no document, with the reason', () => {
     const { list } = render([JO]);
     const row = list.children.find((child) => child.classes.includes('peer'));
     const buttons = [];
@@ -113,6 +113,21 @@ describe('roster rows', () => {
     };
     walk(row);
     assert.equal(buttons[0].disabled, true);
+    assert.ok(buttons[0].title.length > 0, 'a peer Go to is disabled with no reason');
+  });
+
+  it('keeps every disabled action reasoned, peer row and self row alike', () => {
+    const { list } = render([JO, SAM]);
+    const dead = [];
+    const walk = (element) => {
+      if (element.tag === 'button' && element.disabled) dead.push(element);
+      for (const child of element.children) walk(child);
+    };
+    walk(list);
+    assert.ok(dead.length > 0, 'nothing is disabled: the check covers nothing');
+    for (const button of dead) {
+      assert.ok(button.title.length > 0, `a disabled action names no reason: ${textOf(button)}`);
+    }
   });
 
   it('the self row is a roster row: swatch, name, quiet you, reasoned actions', () => {
