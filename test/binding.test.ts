@@ -228,6 +228,7 @@ describe('MonacoBinding', () => {
       { kind: 'documents', documents: ['a.txt'] },
       { kind: 'peers', count: 1, names: ['sam'] },
       { kind: 'status', text: 'room closed: host left' },
+      { kind: 'roomGone', reason: 'host left' },
     ]);
     assert.equal(await binding.save('a.txt'), true);
     assert.equal(await binding.readGrantedFile('a.txt'), undefined);

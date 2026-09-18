@@ -23,6 +23,14 @@ export interface RosterPeer {
 export interface RosterView {
   followedPeerId: string | undefined;
   selfName: string;
+  /** The swatch colour for the own row; the page passes the peer-colour mapping. */
+  selfColour?: string;
+  /**
+   * Past the end of the room every action stays drawn but dead, with the
+   * reason on hover: a live-looking Go to/Follow on a dead room is the limbo.
+   */
+  disabled?: boolean;
+  disabledReason?: string;
   onGoTo(peerId: string): void;
   onFollow(peerId: string): void;
 }
@@ -30,26 +38,54 @@ export interface RosterView {
 /** Draws the self row plus one row per peer, replacing the list contents. */
 export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], view: RosterView): void {
   list.replaceChildren();
-  list.appendChild(selfRow(view.selfName));
+  list.appendChild(selfRow(view));
   for (const peer of peers) {
     list.appendChild(peerRow(peer, peers, view));
   }
 }
 
-function selfRow(selfName: string): HTMLElement {
+/**
+ * The own row, drawn with the same anatomy as a peer row — swatch, name and
+ * actions slot — so it reads as a roster member rather than a section
+ * header. The actions stay, disabled with the reason: going to or following
+ * yourself is meaningless, and the `you` marker stays quiet beside the name.
+ */
+function selfRow(view: RosterView): HTMLElement {
   const row = document.createElement('li');
   row.classList.add('self');
+  const swatch = document.createElement('span');
+  swatch.className = 'swatch';
+  if (view.selfColour !== undefined) {
+    swatch.style.backgroundColor = view.selfColour;
+  }
+  swatch.title = 'this is you';
+  row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
   const name = document.createElement('span');
   name.className = 'name';
-  name.textContent = selfName;
+  name.textContent = view.selfName;
   who.appendChild(name);
   const you = document.createElement('span');
   you.className = 'you';
   you.textContent = 'you';
   who.appendChild(you);
   row.appendChild(who);
+  const actions = document.createElement('span');
+  actions.className = 'actions';
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.append(iconSpan('go'), labelSpan('Go to'));
+  go.disabled = true;
+  go.title = 'This is you. There is nowhere to go to';
+  actions.appendChild(go);
+  const follow = document.createElement('button');
+  follow.type = 'button';
+  follow.append(iconSpan('follow'), labelSpan('Follow'));
+  follow.disabled = true;
+  follow.title = "You can't follow yourself.";
+  actions.appendChild(follow);
+  row.appendChild(actions);
   return row;
 }
 
@@ -82,17 +118,27 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   const go = document.createElement('button');
   go.type = 'button';
   go.append(iconSpan('go'), labelSpan('Go to'));
-  go.disabled = peer.path === undefined;
+  go.disabled = view.disabled === true || peer.path === undefined;
+  if (view.disabled === true && view.disabledReason !== undefined) {
+    go.title = view.disabledReason;
+  }
   go.addEventListener('click', () => view.onGoTo(peer.peerId));
   actions.appendChild(go);
   const follow = document.createElement('button');
   follow.type = 'button';
-  if (view.followedPeerId === peer.peerId) {
+  if (view.followedPeerId === peer.peerId && view.disabled !== true) {
     follow.append(iconSpan('follow'), labelSpan('Following'));
     follow.disabled = true;
   } else {
     follow.append(iconSpan('follow'), labelSpan('Follow'));
-    follow.addEventListener('click', () => view.onFollow(peer.peerId));
+    if (view.disabled === true) {
+      follow.disabled = true;
+      if (view.disabledReason !== undefined) {
+        follow.title = view.disabledReason;
+      }
+    } else {
+      follow.addEventListener('click', () => view.onFollow(peer.peerId));
+    }
   }
   actions.appendChild(follow);
   row.appendChild(actions);

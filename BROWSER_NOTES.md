@@ -727,6 +727,9 @@ yet`); reseats read a bare `reconnected`. `test/flow-fixes.test.ts` pins
    the link icon is the button (`aria-label="Copy invite link"`) and
    confirms with a check glyph plus the status line. Proven live: the
    clipboard holds the page-origin guest link after an icon click.
+   (Superseded twice over: first the whole bar became the copy target —
+   see §Owner-findings round below — then the status-line confirmation was
+   deleted and the morph scoped to an overlay — see §Copy-control batch.)
 4. Header: the session text is gone (`SESSION_HEADING` deleted with its
    test); the mark and `Selvage` wordmark suffice.
 5. Roster heading: `Here` reads `People`, in the shell and everywhere the
@@ -748,7 +751,9 @@ docs named it.
 9. Presence parity with the desktop: glyph-margin initials badges in peer
    colours (one per line, lowest peer id winning the lane — the same rule
    the VS Code client draws by), a whole-line fill beside the selection
-   fill, `label · role` hovers, and an overview-ruler tick. `peerColour`
+   fill, `label · role` hovers, and an overview-ruler tick. (Superseded:
+   the fill is gone — an underline only — see §Owner-findings round
+   below.) `peerColour`
    was verified identical across the two clients' bridges for sampled ids
    (same synced copy, same hash). The VS Code window itself could not run
    on the proving host (no display server, no editor binary), so parity is
@@ -779,6 +784,270 @@ stop ends it; minimap and scrollbar measure side by side; 390px fits;
 zero JS exceptions and no failing request but the known cross-origin
 `/meta` advisory. Shots `01-joined-uxb.png` through `12-narrow-uxb.png`.
 Verdict in `ai_notes/.tmp/web-eyeball-report.md`.
+
+
+## Owner-findings round (2026-09-17)
+
+Five findings from the owner testing the page live, each reproduced in a
+real Chromium against the Pi demo before fixing (`READ VERDICT: PASS`,
+`ai_notes/.tmp/web-eyeball/eye-read.mjs`, fresh timestamped profiles
+removed after, shots `*-read.png`). Typecheck green, minified build green
+with the ws-absence assert, suite 151/151.
+
+1. Peer wash. Remote presence painted the entire line in the peer colour
+   (`isWholeLine` plus a `background-color` fill in `renderCursors`),
+   hiding the local caret and selection. The desktop rule
+   (`vscode_client/src/adapter/decorations.ts`) draws two decoration types
+   per peer colour only — a caret bar and a selection fill — and no line
+   background at all, so the page matches it now: the fill is deleted and
+   the line marker is a subtle underline (`border-bottom` in the peer's
+   quarter-alpha fill, transparent background) beside the 2px caret bar,
+   the glyph-margin initials badge, the `label · role` hover and the
+   overview-ruler tick. The caret is always visible; selections keep their
+   tint. `peerColour` re-verified identical across both clients' bridges
+   for eight sampled ids (same synced copy, same hash); the VS Code window
+   itself still cannot run on the proving host, so parity stays by shared
+   rule plus live DOM proof. Pinned by rewritten `presence` tests including
+   a no-full-line-wash assert (red before the fix), and live: zero
+   background rules on whole-line classes, zero painted wash nodes, one
+   underlined remote line, badge in the lane. Shot `01-wash-read.png`.
+2. Link box. The whole bar is the copy target now: `#share-group` is one
+   control (`role="button"`, `tabindex="0"`, the copy label) wrapping a
+   readout input, and `src/browser/share-box.ts` (`test/share-box.test.ts`)
+   wires click-anywhere plus Enter/Space with a morphing confirmation —
+   the bar swaps to check plus `Link copied` briefly, then reverts — beside
+   the kept status line. The icon-only `#copy-share` button is gone with
+   its styles. Proven live: a bar-body click and a focus-plus-Enter each
+   fill the clipboard with the page-origin guest link, the bar morphs and
+   reverts. Shots `02-link-read.png`.
+   (Superseded: the morph is an overlay that never removes the readout,
+   and the status-line confirmation is deleted — see §Copy-control batch.)
+3. Self row. The own name led the roster as bare text with a mauve `you`,
+   reading as a section header. It is a roster row now: swatch (the shared
+   `peerColour` of the session's own peer id, passed as `selfColour`),
+   700-weight name like peers, the `you` marker kept but quiet
+   (muted, smaller), and the actions slot with Go to/Follow disabled
+   carrying the reason on hover (`this is you — …`, `you can't follow
+   yourself`). Pinned in `test/roster.test.ts` (red before the fix);
+   proven live in `03-self-read.png`.
+4. Unpublished advisory. The top-right `<path> — the host hasn't shared
+   its text yet` sentence is gone; no `setStatus` carries it (pinned in
+   `test/join-screen.test.ts`). The state machine stays untouched:
+   fetch-on-open plus `binding.isUnpublished` (still pinned in
+   `test/flow-fixes.test.ts`). The state was judged truly undiscoverable
+   without it — an unpublished file reads empty exactly like a cleared one
+   — so the minimal replacement is a tree-row badge: the open file's own
+   row wears a quiet `not yet shared` pill (reason on hover), and only the
+   open file may (`showUnpublishedBadge` in `tree-state.ts` gates on the
+   current path, because every unopened path reads unpublished too and
+   badging those would mark the whole tree). Proven live: opening
+   `todo.txt` writes no status while its row carries the pill.
+   Shot `04-unpub-read.png`.
+5. Highlighting and icons status check. Live per type from each file's own
+   tree row: `util.js` 25 spans over six token classes with a JS icon,
+   `notes.md` 10 spans over four classes with an MD icon, `main.ts` 77
+   spans over six classes with a TS icon, and `notes.txt` 2 spans in the
+   single uncoloured `mtk1` base token only with a TXT icon — plaintext
+   honestly uncoloured is correct, not a regression. Nothing regressed, so
+   nothing fixed; this is the record. Shots `05-util-js-read.png`,
+   `05-notes-md-read.png`, `05-notes-txt-read.png`, `05-main-ts-read.png`.
+   Console: zero JS exceptions; the only failing request is the known
+   cross-origin `/meta` CORS downgrade, advisory as documented. Verdict in
+   `ai_notes/.tmp/web-eyeball-report.md`.
+
+## Copy-control batch (2026-09-18)
+
+Seven findings from the owner testing the page live, each reproduced in a
+real Chromium against the Pi demo before fixing (`COPY VERDICT: PASS`,
+`ai_notes/.tmp/web-eyeball/eye-copy.mjs`, fresh `chrome-profile-copy-*`
+removed after, shots `*-copy.png`). Typecheck green, minified build green
+with the ws-absence assert, suite 162/162 (`test/copy-ux.test.ts` new: 8
+checks, each red before its fix).
+
+1. Copy flicker. `confirm()` replaced the bar's children with the
+   confirmation badge, so the whole bar resized and the eye read it as a
+   page flash. The confirmation is an overlay now (`span.confirm` appended
+   once, `hidden` toggled, painted `absolute inset: 0` over the bar): the
+   icon and the readout never leave, the bar keeps its box to the pixel
+   (asserted live before/during/after), and a MutationObserver over the
+   session bar records zero mutations outside the control through a full
+   morph cycle. Pinned in `test/share-box.test.ts` and `test/copy-ux.test.ts`
+   (red: the old code removed the readout).
+2. Cursor. The bar carried `cursor: pointer` but the input and the morph
+   fell back to their own cursors. One rule covers the control in every
+   state: `#share-group, #share-group *, #share-group.copied,
+   #share-group.copied *`. Asserted live on group, input and overlay
+   mid-morph, pinned in `test/copy-ux.test.ts` (red: only the bar matched).
+3. Top-right copy sentence gone. `invite link copied — anyone holding it
+   joins while the room lives` is deleted with no replacement anywhere:
+   the overlay morph is the whole confirmation, and the status line stays
+   empty through a copy (asserted live). The clipboard-less fallback keeps
+   its one-line next step (`Select the link and copy it by hand.`), which
+   is a failure path, not a confirmation. Pinned in `test/copy-ux.test.ts`
+   (red: the sentence was in `main.ts`).
+4. Link privacy. The invite is a bearer credential on a shared screen, so
+   the readout is masked at rest (`color: transparent` with a blurred
+   shadow holding its shape) and reads on hover or focus only
+   (`#share-group:hover #share, #share-group:focus-within #share`). The
+   clipboard and the title keep the full bytes; only the paint is masked.
+   Proven live: transparent at rest, named colour on focus and on a real
+   hover, transparent again on leave. Shot `05-follow-copy.png` shows the
+   masked bar in a real layout. Pinned in `test/copy-ux.test.ts` (red: the
+   link read in full at rest).
+5. Abbreviated host. The bar shows the link with a long hostname truncated
+   middle-first (`abbreviateHost` in `share.ts`: whole at or under 24
+   characters, else head plus ellipsis plus tail) while the full link stays
+   as the input's title and the clipboard bytes (`fullShareLink` in
+   `main.ts`; the hand-copy fallback briefly fields the full link, then
+   restores the display). Proven live from a 37-character host:
+   `http://lumi-raspber…o.localhost:8081/?room=…` on the bar, the full
+   host in the title, `readText` equal to the title. Shot
+   `04-abbrev-copy.png`. Pinned in `test/copy-ux.test.ts` plus
+   `test/share.test.ts`-style unit pins (red: the helpers did not exist).
+6. Join button. The card's primary was default-sized beside roster buttons
+   at 0.78em. It is full-width now with its own padding (0.75em 1.2em),
+   text (1.05em) and press (hover/active transitions plus a 1px active
+   sink), still on the Mocha tokens. Proven live by computed style.
+   Pinned in `test/copy-ux.test.ts` (red: one margin rule only).
+7. Copy pass over every user-visible string: sentence case, periods instead
+   of em dashes doing structural work, no new claims. The full before/after
+   list stands at the end of this section; the lede, meta/og copy, invite
+   line, labels, banner, pills, headings and diagnostics are verbatim.
+   Two functional changes ride with it: the paste placeholder is a
+   schematic built from the real page origin at runtime
+   (`invitePlaceholder(pageOrigin)` → `<origin>/?room=…&token=…`, ellipsis
+   placeholders, never literal ids, never the wire scheme — the shell keeps
+   an `https://this-page/` fallback of the same shape), and the name field
+   shows `Ada`. One deliberate carve-out the task forces: the schematic
+   contains `room=…&token=…`, so the old blanket no-`token=` asserts now
+   strip the schematic before scanning (pinned in
+   `test/join-screen.test.ts`). New-string pins plus a no-em-dash sweep
+   over failures, validation and invite errors live in
+   `test/copy-ux.test.ts` (red: every dash joined two clauses).
+
+Changed strings, before → after (unchanged strings are not listed):
+
+- `invite link copied — anyone holding it joins while the room lives`
+  → deleted, no replacement.
+- `nothing answers at that link — ask the host for a fresh link and retry`
+  → `Nothing answers at that link. Ask the host for a fresh link and retry.`
+- `that link was refused — paste the whole link again and retry`
+  → `That link was refused. Paste the whole link again and retry.`
+- `the session already ended — ask the host for a fresh link and retry`
+  → `The session already ended. Ask the host for a fresh link and retry.`
+- `the session already has its host — ask the host for a guest link and retry`
+  → `The session already has its host. Ask the host for a guest link and retry.`
+- `the page and the session disagree — reload the page and retry`
+  → `The page and the session disagree. Reload the page and retry.`
+- `got no answer — check the link and retry` → `Got no answer. Check the link and retry.`
+- `the join was refused — check the link and retry`
+  → `The join was refused. Check the link and retry.`
+- `couldn't reach the session — check your connection and retry`
+  → `Couldn't reach the session. Check your connection and retry.`
+- `that invite link can't be used — paste the whole link and retry`
+  → `That invite link can't be used. Paste the whole link and retry.`
+- `type the name other participants will see` → `Type the name other participants will see.`
+- `that name is <n> characters and the room allows 32 — shorten it to join`
+  → `That name is <n> characters and the room allows 32. Shorten it to join.`
+- `that invite link does not name a session — paste the whole link`
+  → `That invite link does not name a session. Paste the whole link.`
+- `paste an invite link to join` → `Paste an invite link to join.`
+- `following <name> — <path>` → `Following <name> in <path>`
+- `connection dropped — reconnecting…` → `Connection dropped. Reconnecting…`
+- `<status> — '<name>' is already here, so your row carries a short id`
+  → `'<name>' is already here. Your row carries a short id.`
+- `joined — waiting for the room to name a document`
+  → `Joined. Waiting for the room to name a document.`
+- `could not open <path>: …` → `Could not open <path>: …`
+- `could not go to <name>: …` → `Could not go to <name>: …`
+- `could not follow <name>: …` → `Could not follow <name>: …`
+- `select the link and copy it by hand` → `Select the link and copy it by hand.`
+- `the room shares no listing yet` → `The room shares no listing yet.`
+- `reconnected — waiting for the room to name a document`
+  → `Reconnected. Waiting for the room to name a document.`
+- `reconnected` → `Reconnected.`
+- `the editor code failed to load — reload the page and retry`
+  → `The editor code failed to load. Reload the page and retry.`
+- `this is you — there is nowhere to go to` → `This is you. There is nowhere to go to.`
+- `you can't follow yourself` → `You can't follow yourself.`
+- Paste placeholder `e.g. https://this-page/… — paste the whole invite link`
+  → shell fallback `e.g. https://this-page/?room=…&token=…`, replaced at
+  runtime with `<this-origin>/?room=…&token=…`.
+- Name field, no placeholder → `Ada`.
+
+Proven live (`COPY VERDICT: PASS`, Pi demo `ws://100.64.0.3:8080/session`,
+room minted by this checkout's own engine, `dist/` on `:8081`): card
+placeholders (runtime origin plus `Ada`), primary-sized Join with
+transitions, blank-name and bad-paste copy with no em dash, page-link bar
+with the full value as title, scoped morph (overlay only, bar box stable,
+zero outside mutations, empty status, pointer on group/input/overlay),
+clipboard equal to the full bytes, mask at rest with hover/focus reveal,
+`Following copy-peer in notes.md` with no em dash, 37-character host
+abbreviated mid-first with full title and bytes. Shots `01-card-copy.png`,
+`02-errors-copy.png`, `03-morph-copy.png`, `04-abbrev-copy.png`,
+`05-follow-copy.png`. Console: zero JS exceptions; the only failing
+requests are the known cross-origin `/meta` CORS downgrade, advisory as
+documented. Verdict in `ai_notes/.tmp/web-eyeball-report.md`.
+
+## Room-gone terminal state (2026-09-18)
+
+The host-leave probe (`ai_notes/.tmp/hostleave-probe.md`) found the web page
+in limbo at grace expiry: it flashed `room closed: <reason>` and then rested
+on bare `disconnected`, with a stale live-looking roster (Go to/Follow still
+offered), a dead but copyable share link, typing silently swallowed into the
+local model, and the tree shedding never-opened files when the engine cleared
+its local grant on the 4003 close. Nvim (full reset) and VS Code (dispose +
+status gone) were already explicit. This batch matches that bar, in page form
+— the session chrome stays up, but everything in it reads over:
+
+- Status keeps its sentence. The binding reports `roomGone` as its own
+  notice ahead of the trailing `disconnected`, and the page's terminal state
+  (`endedMessage`) ignores every later transient status — the resting line
+  reads `The room is closed — host did not return.` A terminal disconnect
+  with no room-gone reason (reconnection gave up) ends with its own
+  sentence instead (`SESSION_ENDED_MESSAGE`). Copy lives in
+  `src/browser/ended.ts`, shared by the page, the binding and the tests.
+- Roster clears with dead actions. The binding's `participants()` reads empty
+  past the end, and the page renders nobody with `disabled` rows whose hover
+  names the reason (`ROSTER_DISABLED_REASON`) — never a live-looking Go
+  to/Follow. `renderRoster` takes the disabled view; the self row was already
+  reasoned-disabled.
+- Share link retires. `ShareBox.retire` stops all copying (click, Enter,
+  Space, confirmation) and marks the bar `aria-disabled`; the page disables
+  the readout with the reason as its title (`SHARE_RETIRED_REASON`). The dead
+  link stays readable but never reaches the clipboard.
+- Editor goes read-only with the message. The binding sets
+  `readOnly: true` on entry, so keystrokes are prevented visibly; a change
+  that still slips through re-announces the terminal sentence instead of
+  publishing, and go-to/follow/tree opens past the end refuse or echo it.
+  Nothing typed goes nowhere silently.
+- Tree freezes on the snapshot, visibly stale. The page snapshots
+  `binding.grantListing()` on entry — before the engine sheds its local
+  grant on the terminal close — and renders the snapshot under a stale
+  marker (`TREE_STALE_NOTE`) with dead rows. The never-opened file stays
+  listed; nothing is silently shed.
+- Rejoin is manual only. The page never re-hellos on its own, and no
+  auto-reclaim exists or was added: `test/room-gone.test.ts` scans
+  `src/browser/` and fails on any host-role hello or room mint, pinning the
+  all-clear the probe verified live (guests stay `guest` end to end; a dead
+  token is refused `room_unknown`). A dead link rejoins only through the
+  card, which refuses it plainly (`Nothing answers at that link. …`).
+
+Tests: `test/room-gone.test.ts` (11) — copy, binding end/lock/typing-echo/
+go-to-follow refusal, roster disabled-vs-live, share retire, snapshot rule,
+no-host-hello scan — plus one updated expectation in `test/binding.test.ts`
+(the new `roomGone` notice). Suite 173/173, typecheck and minified build
+(with the ws-absence assert) green.
+
+Proven live (`GONE VERDICT: PASS`, Pi demo `ws://100.64.0.3:8080/session`,
+room minted by a scripted holder with `demo.ts`/`notes.md`/`todo.txt` granted,
+`dist/` on `:8081`, real Chromium 152 over CDP with a fresh profile killed
+after): holder SIGKILLed through the 30 s grace to gone, both guests resting
+on the sentence with cleared rosters, retired links, read-only editors and
+three-row stale trees; a post-death keystroke changed nothing with the
+sentence standing; the dead link refused at the card; no rejoin or reclaim
+fired on its own. Shots `gone-*-end.png`, driver `goneleg-end.mjs`, holder
+`holder-gone-end.mjs`. Verdict in `ai_notes/.tmp/web-eyeball-report.md`.
 
 ## M2 needs (polish / publish-readiness)
 

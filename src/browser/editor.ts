@@ -4,6 +4,7 @@ import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantChild, LineEnding, Report, TextChange } from '../bridge/index.ts';
 import { grantChildren, grantUnion, peerColour } from '../bridge/index.ts';
 import type { Role, SelvageEngine } from '../engine/index.ts';
+import { roomGoneMessage } from './ended.ts';
 import { languageForPath } from './languages.ts';
 import { badgeCss, initials, onePerLine } from './presence.ts';
 
@@ -14,6 +15,8 @@ export type BindingNotice =
   | { kind: 'roster'; participants: Participant[] }
   | { kind: 'grant'; paths: string[] }
   | { kind: 'follow'; following: Following | undefined }
+  | { kind: 'roomGone'; reason: string }
+  | { kind: 'disconnected' }
   | { kind: 'status'; text: string };
 
 /** Another participant, as the roster draws one row. */
@@ -77,6 +80,8 @@ export class MonacoBinding implements EditorHost {
   private followingName = '';
   /** A go-to whose document has not arrived yet: re-resolved on every room event. */
   private pendingGoTo: string | undefined;
+  /** The room-gone reason once the session has ended terminally, if it has. */
+  private terminalReason: string | undefined;
   /** Every landing stamps the cycle: a newer frame supersedes an older one still opening. */
   private landingCycle = 0;
 
@@ -143,8 +148,17 @@ export class MonacoBinding implements EditorHost {
    * re-opened on every frame would answer its own open with the room event
    * that supersedes it, and follow could never land.
    */
+  /** Whether the room is over: the roster is empty, the editor read-only. */
+  isTerminal(): boolean {
+    return this.terminalReason !== undefined;
+  }
+
   async openDocument(path: string): Promise<void> {
     if (this.disposed) {
+      return;
+    }
+    if (this.terminalReason !== undefined) {
+      this.onNotice({ kind: 'status', text: roomGoneMessage(this.terminalReason) });
       return;
     }
     if (this.fronted.has(path) && this.models.get(path)?.isDisposed() === false) {
@@ -162,6 +176,13 @@ export class MonacoBinding implements EditorHost {
       this.models.set(path, model);
       const changed = model.onDidChangeContent(() => {
         if (this.applying === 0 && this.path === path) {
+          // Past the end nothing reaches the room: a keystroke that slipped
+          // through the read-only guard echoes the state instead of landing
+          // silently in the local model.
+          if (this.terminalReason !== undefined) {
+            this.onNotice({ kind: 'status', text: roomGoneMessage(this.terminalReason) });
+            return;
+          }
           // A local edit ends the follow: the caret has moved to the peer's
           // position, so typing on would have the next frame yank it back. A
           // remote apply runs with `applying` raised and never lands here.
@@ -216,6 +237,11 @@ export class MonacoBinding implements EditorHost {
    * always a caret colour to look it up by.
    */
   participants(): Participant[] {
+    // Past the end nobody is here: the roster clears instead of lingering
+    // with live-looking actions.
+    if (this.terminalReason !== undefined) {
+      return [];
+    }
     const paths = new Map<string, string>();
     for (const presence of this.engine.presence()) {
       const peer = presence.peer;
@@ -276,6 +302,9 @@ export class MonacoBinding implements EditorHost {
    * A deliberate navigation stops following first, the same class as typing.
    */
   async goTo(peerId: string): Promise<void> {
+    if (this.terminalReason !== undefined) {
+      throw new Error(roomGoneMessage(this.terminalReason));
+    }
     if (this.followingPeerId !== undefined) {
       this.clearFollow();
     }
@@ -302,6 +331,9 @@ export class MonacoBinding implements EditorHost {
    * is incoming, so immediate feedback beats silence.
    */
   async follow(peerId: string): Promise<void> {
+    if (this.terminalReason !== undefined) {
+      throw new Error(roomGoneMessage(this.terminalReason));
+    }
     if (this.followingPeerId === peerId) {
       await this.followTick();
       return;
@@ -385,7 +417,7 @@ export class MonacoBinding implements EditorHost {
     // file, and the status line stays for news.
     if (mode === 'follow') {
       this.onNotice({ kind: 'follow', following: this.following() });
-      this.onNotice({ kind: 'status', text: `following ${this.followingName} — ${path}` });
+      this.onNotice({ kind: 'status', text: `Following ${this.followingName} in ${path}` });
     }
     return 'landed';
   }
@@ -419,6 +451,27 @@ export class MonacoBinding implements EditorHost {
 
   private refreshRoster(): void {
     this.onNotice({ kind: 'roster', participants: this.participants() });
+  }
+
+  /**
+   * Enters the terminal state: the follow and any pending landing end, the
+   * editor goes read-only so keystrokes never land silently, and the page
+   * learns the room is over as its own notice — ahead of the `disconnected`
+   * that follows, so the resting state keeps the reason.
+   */
+  private enterTerminal(reason: string): void {
+    if (this.terminalReason !== undefined) {
+      return;
+    }
+    this.terminalReason = reason;
+    this.pendingGoTo = undefined;
+    this.landingCycle += 1;
+    if (this.followingPeerId !== undefined) {
+      this.clearFollow();
+    }
+    const options = this.editor as unknown as { updateOptions?: (options: { readOnly: boolean }) => void };
+    options.updateOptions?.({ readOnly: true });
+    this.onNotice({ kind: 'roomGone', reason });
   }
 
   /** The name a sentence says: the room's, or the id when the room left it blank. */
@@ -494,19 +547,22 @@ export class MonacoBinding implements EditorHost {
           caretOptions.glyphMarginClassName = this.badgeClass(cursor);
         }
         const caret = { range: caretRange, options: caretOptions };
-        const lineLight = {
+        // The line marker is an underline only, never a fill: a full-line
+        // wash would paint over the local caret and selection, while the
+        // desktop draws the same peer as a caret bar plus a selection fill.
+        const underline = {
           range: caretRange,
           options: {
             isWholeLine: true,
-            className: this.colourClass(`line:${cursor.fill}`, `background-color: ${cursor.fill};`),
+            className: this.colourClass(`under:${cursor.fill}`, `border-bottom: 1px solid ${cursor.fill};`),
           },
         };
         if (cursor.anchor === cursor.head) {
-          return [caret, lineLight];
+          return [caret, underline];
         }
         return [
           caret,
-          lineLight,
+          underline,
           {
             range: toRange(model, cursor.anchor, cursor.head),
             options: {
@@ -547,15 +603,17 @@ export class MonacoBinding implements EditorHost {
         break;
       case 'roomGone':
         this.onNotice({ kind: 'status', text: `room closed: ${report.reason}` });
+        this.enterTerminal(report.reason);
         break;
       case 'sessionError':
         this.onNotice({ kind: 'status', text: `session error ${report.code}: ${report.message}` });
         break;
       case 'reconnecting':
-        this.onNotice({ kind: 'status', text: 'connection dropped — reconnecting…' });
+        this.onNotice({ kind: 'status', text: 'Connection dropped. Reconnecting…' });
         break;
       case 'disconnected':
         this.onNotice({ kind: 'status', text: 'disconnected' });
+        this.onNotice({ kind: 'disconnected' });
         break;
       default:
         break;

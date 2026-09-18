@@ -2,7 +2,7 @@ import { SelvageEngine, sessionUrl } from '../engine/index.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
-import { buildShareLink, pageQueryParams, persistJoinUrl } from './share.ts';
+import { buildShareLink, displayShareLink, invitePlaceholder, pageQueryParams, persistJoinUrl } from './share.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   createJoinGate,
@@ -15,11 +15,22 @@ import {
 import type { JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
-import { dirOpen } from './tree-state.ts';
+import { dirOpen, showUnpublishedBadge } from './tree-state.ts';
 import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { initials } from './presence.ts';
 import { renderRoster } from './roster.ts';
+import { wireShareBox } from './share-box.ts';
+import {
+  ROSTER_DISABLED_REASON,
+  SESSION_ENDED_MESSAGE,
+  SHARE_RETIRED_REASON,
+  TREE_STALE_NOTE,
+  roomGoneMessage,
+  visibleListing,
+} from './ended.ts';
+import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
+import { peerColour } from '../bridge/index.ts';
 import { defaultServerForPage, schemeMatchBase } from './servers.ts';
 
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
@@ -81,7 +92,7 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
       // Joins only start once the page loads (the join gate holds earlier
       // submits), so a stack that never arrives is a failed load, not an
       // early one.
-      throw new Error('the editor code failed to load — reload the page and retry');
+      throw new Error('The editor code failed to load. Reload the page and retry.');
     }
   }
   return monacoReady;
@@ -100,7 +111,7 @@ const joinError = document.getElementById('join-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
 const statusLabel = document.getElementById('status') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
-const copyButton = document.getElementById('copy-share') as HTMLButtonElement;
+const shareGroup = document.getElementById('share-group') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
@@ -118,6 +129,9 @@ const linkMode = linkRoom !== '' && linkToken !== '';
 // only the variant the address bar calls for, prefill only an untouched name
 // field, and land focus past first paint without stealing a typed-into field.
 const focusTarget = initJoinCard({ joinRoomline, inviteWrap, inviteInput, nameInput }, params, window.localStorage);
+// The paste box shows a schematic built from this page's own origin — real
+// origin, ellipsis placeholders, never literal ids, never the wire scheme.
+inviteInput.placeholder = invitePlaceholder(window.location.origin);
 settleFocusWhenReady(focusTarget === 'name' ? nameInput : inviteInput);
 
 /**
@@ -144,6 +158,8 @@ function settleFocus(field: HTMLInputElement): void {
 let binding: MonacoBinding | undefined;
 let engine: SelvageEngine | undefined;
 let opening: string | undefined;
+/** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
+let fullShareLink = '';
 /** The server the last join attempt reached for, for the unreachable-server copy. */
 let lastBase = '';
 /** The joined display name, for the roster's self row. */
@@ -154,6 +170,16 @@ const openDirs = new Set<string>();
 let renderedPath: string | undefined;
 /** A dropped socket with no room event since: the next one means reseated. */
 let linkDown = false;
+/**
+ * The terminal state, once the room is over. While set, the status keeps its
+ * sentence (no bare `disconnected` overwrites it), the roster renders nobody
+ * with dead actions, the share link stays retired, and the tree shows the
+ * snapshot below instead of the live listing. A rejoin is always a fresh join
+ * from a link — this page never re-hellos on its own, and never as host.
+ */
+let endedMessage: string | undefined;
+/** The last listing known before the room ended: the stale tree, never shed. */
+let staleSnapshot: string[] = [];
 
 joinForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -266,7 +292,7 @@ async function join(held: HeldJoin): Promise<void> {
   });
   const session = engine.session();
   selfName = displayName;
-  shareInput.value = buildShareLink(
+  fullShareLink = buildShareLink(
     window.location.origin,
     window.location.pathname,
     figured.room,
@@ -274,6 +300,10 @@ async function join(held: HeldJoin): Promise<void> {
     base,
     pageDefaultServer,
   );
+  // The bar shows the host abbreviated middle-first with the full link as
+  // its title; the clipboard below keeps the full bytes.
+  shareInput.value = displayShareLink(fullShareLink);
+  shareInput.title = fullShareLink;
   joinPane.hidden = true;
   previewPane.hidden = true;
   veilPane.hidden = true;
@@ -301,7 +331,7 @@ async function join(held: HeldJoin): Promise<void> {
   // from it instead of losing what was typed. Same-origin only; elsewhere
   // the link stays in the session bar.
   try {
-    persistJoinUrl(window.history, shareInput.value);
+    persistJoinUrl(window.history, fullShareLink);
   } catch {
     // Leave the address bar alone.
   }
@@ -309,7 +339,7 @@ async function join(held: HeldJoin): Promise<void> {
   saveDisplayName(window.localStorage, displayName);
   // A name already in the room is allowed in, with its row told apart.
   if (binding.participants().some((peer) => peer.displayName === displayName)) {
-    setStatus(`${statusLabel.textContent} — '${displayName}' is already here, so your row carries a short id`);
+    setStatus(`'${displayName}' is already here. Your row carries a short id.`);
   }
 }
 
@@ -324,12 +354,17 @@ async function openFirst(session: SessionInfo): Promise<void> {
   if (first !== undefined) {
     await openPath(first);
   } else {
-    setStatus('joined — waiting for the room to name a document');
+    setStatus('Joined. Waiting for the room to name a document.');
   }
 }
 
 async function openPath(path: string): Promise<void> {
   if (binding === undefined || opening === path) {
+    return;
+  }
+  // Past the end nothing opens: the state echoes instead of a silent miss.
+  if (endedMessage !== undefined) {
+    setStatus(endedMessage);
     return;
   }
   opening = path;
@@ -339,14 +374,12 @@ async function openPath(path: string): Promise<void> {
     await binding.openDocument(path);
     syncGrant();
     renderedPath = path;
-    // A listed path nobody published reads empty like a cleared file; the
-    // advisory tells the two apart. A plain open says nothing — the tree
-    // highlight and the buffer already name the file.
-    if (binding.isUnpublished(path)) {
-      setStatus(`${path} — the host hasn't shared its text yet`);
-    }
+    // A plain open says nothing — the tree highlight and the buffer already
+    // name the file. A listed path nobody published reads empty like a
+    // cleared file; the open row's badge tells the two apart, never a
+    // status sentence.
   } catch (error) {
-    setStatus(`could not open ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    setStatus(`Could not open ${path}: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     if (opening === path) {
       opening = undefined;
@@ -354,39 +387,32 @@ async function openPath(path: string): Promise<void> {
   }
 }
 
-/** Copies the guest link: the clipboard where it exists, a selection otherwise. */
-copyButton.addEventListener('click', () => {
-  void copyShareLink();
+/**
+ * The whole bar is the copy target — click anywhere on it, or focus it and
+ * press Enter — and on a copy the bar itself morphs to the confirmation
+ * briefly, then reverts.
+ */
+const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
+  checkSvg: iconSvg('check'),
 });
 
-/** A copy the icon button confirms itself: check glyph, then back. */
-let copyConfirm: ReturnType<typeof setTimeout> | undefined;
-
-function confirmCopied(): void {
-  const glyph = copyButton.querySelector('.icon');
-  if (glyph === null) {
+async function copyShareLink(): Promise<void> {
+  // A retired bar never reaches the clipboard: the state echoes instead.
+  if (endedMessage !== undefined) {
+    setStatus(endedMessage);
     return;
   }
-  glyph.innerHTML = iconSvg('check');
-  copyButton.classList.add('copied');
-  if (copyConfirm !== undefined) {
-    clearTimeout(copyConfirm);
-  }
-  copyConfirm = setTimeout(() => {
-    glyph.innerHTML = iconSvg('link');
-    copyButton.classList.remove('copied');
-    copyConfirm = undefined;
-  }, 1500);
-}
-
-async function copyShareLink(): Promise<void> {
   try {
     if (navigator.clipboard === undefined) {
       throw new Error('no clipboard');
     }
-    await navigator.clipboard.writeText(shareInput.value);
+    await navigator.clipboard.writeText(fullShareLink);
   } catch {
     shareInput.focus();
+    // The fallback copies from the field, so it holds the full link while
+    // the guest copies by hand; the abbreviated display returns after.
+    const shown = shareInput.value;
+    shareInput.value = fullShareLink;
     shareInput.select();
     let done = false;
     try {
@@ -394,13 +420,14 @@ async function copyShareLink(): Promise<void> {
     } catch {
       done = false;
     }
+    shareInput.value = shown;
     if (!done) {
-      setStatus('select the link and copy it by hand');
+      setStatus('Select the link and copy it by hand.');
       return;
     }
   }
-  confirmCopied();
-  setStatus('invite link copied — anyone holding it joins while the room lives');
+  // The bar's brief morph is the whole confirmation: no status sentence.
+  shareBox.confirm();
 }
 
 /**
@@ -408,19 +435,32 @@ async function copyShareLink(): Promise<void> {
  * reads on the grant tree, not here; the follow banner owns the one stop.
  */
 function syncRoster(participants: Participant[]): void {
-  renderRoster(rosterList, participants, {
+  // Past the end the roster is nobody with dead actions: who was here is
+  // gone, and no Go to/Follow may look live.
+  const ended = endedMessage !== undefined;
+  renderRoster(rosterList, ended ? [] : participants, {
     followedPeerId: binding?.following()?.peerId,
     selfName,
+    selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
+    ...(ended ? { disabled: true, disabledReason: ROSTER_DISABLED_REASON } : {}),
     onGoTo: (peerId) => {
+      if (endedMessage !== undefined) {
+        setStatus(endedMessage);
+        return;
+      }
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
-        setStatus(`could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+        setStatus(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
       });
     },
     onFollow: (peerId) => {
+      if (endedMessage !== undefined) {
+        setStatus(endedMessage);
+        return;
+      }
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.follow(peerId).catch((error: unknown) => {
-        setStatus(`could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+        setStatus(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
       });
     },
   });
@@ -432,11 +472,21 @@ function syncGrant(): void {
     return;
   }
   treePane.replaceChildren();
-  const listing = binding.grantListing();
+  // Past the end the tree is the snapshot, visibly stale: the engine sheds
+  // its local grant on the terminal close, so the live view would silently
+  // lose files that were never opened.
+  const ended = endedMessage !== undefined;
+  const listing = visibleListing(ended, staleSnapshot, binding.grantListing());
+  if (ended) {
+    const stale = document.createElement('p');
+    stale.className = 'stale';
+    stale.textContent = `The room is closed. ${TREE_STALE_NOTE}`;
+    treePane.appendChild(stale);
+  }
   if (listing.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = 'the room shares no listing yet';
+    empty.textContent = 'The room shares no listing yet.';
     treePane.appendChild(empty);
     return;
   }
@@ -467,6 +517,18 @@ function presenceBadges(present: readonly Participant[]): HTMLElement {
     wrap.appendChild(badge);
   }
   return wrap;
+}
+
+/**
+ * The unpublished marker: a quiet pill on the open file's own row, with the
+ * reason on hover. Only the open file may wear it (see `showUnpublishedBadge`).
+ */
+function unpublishedBadge(): HTMLElement {
+  const badge = document.createElement('span');
+  badge.className = 'unpub';
+  badge.textContent = 'not yet shared';
+  badge.title = "The host hasn't shared its text yet";
+  return badge;
 }
 
 function treeLevel(
@@ -511,10 +573,22 @@ function treeLevel(
       row.className = 'row';
       row.append(iconSpan(fileIcon(child.path)), labelSpan(child.name));
       row.append(presenceBadges(presence.get(child.path) ?? []));
+      if (showUnpublishedBadge(child.path, current, owner.isUnpublished(child.path))) {
+        row.append(unpublishedBadge());
+      }
       if (child.path === current) {
         row.classList.add('open');
       }
+      // Past the end no file opens: the rows stay readable but dead.
+      if (endedMessage !== undefined) {
+        row.disabled = true;
+        row.title = endedMessage;
+      }
       row.addEventListener('click', () => {
+        if (endedMessage !== undefined) {
+          setStatus(endedMessage);
+          return;
+        }
         // Opening a file is a deliberate navigation, the same class as
         // typing or going to someone: the follow ends instead of landing
         // back over the file just opened.
@@ -558,13 +632,52 @@ function syncFollow(following: Following | undefined): void {
   followBanner.appendChild(stop);
 }
 
+/**
+ * Enters the terminal state: the status keeps this sentence to the end, the
+ * roster clears with dead actions, the share link retires, and the tree
+ * freezes on the snapshot taken here — the engine sheds its local grant on
+ * the terminal close, so the snapshot must precede it.
+ */
+function enterTerminal(message: string): void {
+  const first = endedMessage === undefined;
+  if (binding !== undefined && first) {
+    staleSnapshot = binding.grantListing();
+  }
+  endedMessage = message;
+  setStatus(message);
+  shareBox.retire(SHARE_RETIRED_REASON);
+  shareInput.disabled = true;
+  shareInput.title = SHARE_RETIRED_REASON;
+  syncFollow(undefined);
+  syncRoster([]);
+  syncGrant();
+}
+
 function onNotice(notice: BindingNotice): void {
   // A landing moves the current path outside openPath: the tree highlight
   // follows it here, on every notice kind, so go-to and follow re-lands
   // mark the row the editor shows.
   syncTreeIfMoved();
   switch (notice.kind) {
+    case 'roomGone':
+      enterTerminal(roomGoneMessage(notice.reason));
+      break;
+    case 'disconnected':
+      // The bare disconnect never overwrites the reason: with one, it
+      // re-asserts it; without one (reconnection gave up) it ends the
+      // session with its own sentence. Either way nothing rejoins on its
+      // own — the way back is a fresh join from a link.
+      if (endedMessage === undefined) {
+        enterTerminal(SESSION_ENDED_MESSAGE);
+      } else {
+        setStatus(endedMessage);
+      }
+      break;
     case 'documents':
+      // Past the end the room says nothing new: the frozen render stands.
+      if (endedMessage !== undefined) {
+        return;
+      }
       reseated();
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
@@ -577,6 +690,9 @@ function onNotice(notice: BindingNotice): void {
       }
       break;
     case 'peers':
+      if (endedMessage !== undefined) {
+        return;
+      }
       reseated();
       if (binding !== undefined) {
         syncRoster(binding.participants());
@@ -585,12 +701,18 @@ function onNotice(notice: BindingNotice): void {
       }
       break;
     case 'roster':
+      if (endedMessage !== undefined) {
+        return;
+      }
       reseated();
       syncRoster(notice.participants);
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();
       break;
     case 'grant':
+      if (endedMessage !== undefined) {
+        return;
+      }
       reseated();
       syncGrant();
       break;
@@ -598,6 +720,11 @@ function onNotice(notice: BindingNotice): void {
       syncFollow(notice.following);
       break;
     case 'status':
+      // Past the end the sentence stands: transient statuses (including the
+      // bare `disconnected` that trails the room-gone) never overwrite it.
+      if (endedMessage !== undefined) {
+        return;
+      }
       setStatus(notice.text);
       linkDown = notice.text.startsWith('connection dropped');
       break;
@@ -626,8 +753,8 @@ function reseated(): void {
   const current = binding.currentPath();
   setStatus(
     current === undefined
-      ? 'reconnected — waiting for the room to name a document'
-      : 'reconnected',
+      ? 'Reconnected. Waiting for the room to name a document.'
+      : 'Reconnected.',
   );
 }
 

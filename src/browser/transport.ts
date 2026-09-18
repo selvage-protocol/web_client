@@ -39,17 +39,17 @@ export function describeJoinError(error: unknown, _base?: string): string {
   if (isProtocolError(error)) {
     switch (error.code) {
       case errCode.roomUnknown:
-        return 'nothing answers at that link — ask the host for a fresh link and retry';
+        return 'Nothing answers at that link. Ask the host for a fresh link and retry.';
       case errCode.tokenInvalid:
-        return 'that link was refused — paste the whole link again and retry';
+        return 'That link was refused. Paste the whole link again and retry.';
       case errCode.roomGone:
-        return 'the session already ended — ask the host for a fresh link and retry';
+        return 'The session already ended. Ask the host for a fresh link and retry.';
       case errCode.hostPresent:
-        return 'the session already has its host — ask the host for a guest link and retry';
+        return 'The session already has its host. Ask the host for a guest link and retry.';
       case errCode.unsupportedVersion:
-        return 'the page and the session disagree — reload the page and retry';
+        return 'The page and the session disagree. Reload the page and retry.';
       case errCode.helloRequired:
-        return 'got no answer — check the link and retry';
+        return 'Got no answer. Check the link and retry.';
       default:
         break;
     }
@@ -59,19 +59,19 @@ export function describeJoinError(error: unknown, _base?: string): string {
   if (closeCode !== undefined) {
     switch (Number(closeCode)) {
       case close.roomUnknown:
-        return 'nothing answers at that link — ask the host for a fresh link and retry';
+        return 'Nothing answers at that link. Ask the host for a fresh link and retry.';
       case close.tokenInvalid:
-        return 'that link was refused — paste the whole link again and retry';
+        return 'That link was refused. Paste the whole link again and retry.';
       case close.roomGone:
-        return 'the session already ended — ask the host for a fresh link and retry';
+        return 'The session already ended. Ask the host for a fresh link and retry.';
       case close.hostPresent:
-        return 'the session already has its host — ask the host for a guest link and retry';
+        return 'The session already has its host. Ask the host for a guest link and retry.';
       case close.unsupportedVersion:
-        return 'the page and the session disagree — reload the page and retry';
+        return 'The page and the session disagree. Reload the page and retry.';
       case close.protocolError:
-        return 'the join was refused — check the link and retry';
+        return 'The join was refused. Check the link and retry.';
       default:
-        return 'couldn\'t reach the session — check your connection and retry';
+        return "Couldn't reach the session. Check your connection and retry.";
     }
   }
   if (
@@ -79,13 +79,13 @@ export function describeJoinError(error: unknown, _base?: string): string {
       message,
     )
   ) {
-    return 'couldn\'t reach the session — check your connection and retry';
+    return "Couldn't reach the session. Check your connection and retry.";
   }
   if (/failed to construct .WebSocket|not a valid .*URL|invalid URL/i.test(message)) {
-    return 'that invite link can\'t be used — paste the whole link and retry';
+    return 'That invite link can\'t be used. Paste the whole link and retry.';
   }
   if (/WebSocket|session\.hello|UTF-16|the connection closed/i.test(message)) {
-    return 'couldn\'t reach the session — check your connection and retry';
+    return "Couldn't reach the session. Check your connection and retry.";
   }
   return message;
 }

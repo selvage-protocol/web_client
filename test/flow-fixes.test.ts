@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { persistJoinUrl } from '../src/browser/share.ts';
-import { dirOpen } from '../src/browser/tree-state.ts';
+import { dirOpen, showUnpublishedBadge } from '../src/browser/tree-state.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 
 // Minimal DOM: the binding owns one <style> element for peer colours.
@@ -148,12 +148,12 @@ describe('landing status (status/tree/editor agree)', () => {
     };
     const { binding, engine, notices } = setup(new Map([['a.txt', 'aaa'], ['b.txt', 'bbb']]), overrides);
     await binding.follow('peer-sam');
-    assert.ok(notices.some((notice) => notice.kind === 'status' && notice.text === 'following sam — a.txt'));
+    assert.ok(notices.some((notice) => notice.kind === 'status' && notice.text === 'Following sam in a.txt'));
     overrides.presence = [{ clientId: 7, peer: SAM, state: { path: 'b.txt', selection: selectionAt(1) } }];
     engine.__emit({ type: 'presenceChanged' });
     await waitFor(
       'follow re-land status',
-      () => (notices.some((notice) => notice.kind === 'status' && notice.text === 'following sam — b.txt') ? true : undefined),
+      () => (notices.some((notice) => notice.kind === 'status' && notice.text === 'Following sam in b.txt') ? true : undefined),
     );
     assert.equal(binding.currentPath(), 'b.txt');
     binding.dispose();
@@ -170,6 +170,13 @@ describe('unpublished files', () => {
     assert.equal(binding.currentPath(), 'todo.txt');
     binding.dispose();
   });
+
+  it('only the open file may wear the unpublished badge — never an unopened one', () => {
+    assert.equal(showUnpublishedBadge('todo.txt', 'todo.txt', true), true);
+    assert.equal(showUnpublishedBadge('todo.txt', undefined, true), false);
+    assert.equal(showUnpublishedBadge('todo.txt', 'notes.md', true), false);
+    assert.equal(showUnpublishedBadge('todo.txt', 'todo.txt', false), false);
+  });
 });
 
 describe('drop signal', () => {
@@ -177,7 +184,7 @@ describe('drop signal', () => {
     const { binding, notices } = setup(new Map());
     binding.report({ kind: 'reconnecting' });
     assert.ok(
-      notices.some((notice) => notice.kind === 'status' && notice.text === 'connection dropped — reconnecting…'),
+      notices.some((notice) => notice.kind === 'status' && notice.text === 'Connection dropped. Reconnecting…'),
       `no drop status in ${JSON.stringify(notices)}`,
     );
     binding.dispose();
@@ -214,15 +221,15 @@ describe('unreachable server copy', () => {
     ]) {
       assert.equal(
         describeJoinError(error, 'ws://127.0.0.1:9'),
-        "couldn't reach the session — check your connection and retry",
+        "Couldn't reach the session. Check your connection and retry.",
       );
     }
   });
 
   it('other join failures keep their own message', () => {
     assert.equal(
-      describeJoinError(new Error('that invite link does not name a session — paste the whole link'), 'ws://h'),
-      'that invite link does not name a session — paste the whole link',
+      describeJoinError(new Error('That invite link does not name a session. Paste the whole link.'), 'ws://h'),
+      'That invite link does not name a session. Paste the whole link.',
     );
   });
 });

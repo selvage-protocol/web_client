@@ -79,6 +79,46 @@ export function parsePageLink(text: string): { room: string; token: string; serv
 }
 
 /**
+ * Shortens a long hostname middle-first: the head and the tail survive and
+ * an ellipsis stands where the middle was. Short hosts show whole.
+ */
+export function abbreviateHost(host: string, maxLength = 24): string {
+  if (host.length <= maxLength) {
+    return host;
+  }
+  const head = Math.ceil((maxLength - 1) / 2);
+  const tail = Math.floor((maxLength - 1) / 2);
+  return `${host.slice(0, head)}…${host.slice(host.length - tail)}`;
+}
+
+/**
+ * What the share bar shows: the guest link with a long hostname abbreviated
+ * middle-first. Display only — the path and query are untouched, and the
+ * caller keeps the full link for the title and the clipboard.
+ */
+export function displayShareLink(link: string, maxHost = 24): string {
+  try {
+    const url = new URL(link);
+    const short = abbreviateHost(url.hostname, maxHost);
+    if (short === url.hostname) {
+      return link;
+    }
+    return `${url.protocol}//${short}${url.port === '' ? '' : `:${url.port}`}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return link;
+  }
+}
+
+/**
+ * The paste-box example, built from the real page origin at runtime: the
+ * origin is real, the room and token are ellipsis placeholders — never
+ * literal ids, never the wire scheme.
+ */
+export function invitePlaceholder(pageOrigin: string): string {
+  return `${pageOrigin}/?room=…&token=…`;
+}
+
+/**
  * Keeps a manual room/token join across reloads: after joining, the page URL
  * already has the share-link shape, so replacing it means a reload rejoins
  * from the address bar instead of losing what was typed.

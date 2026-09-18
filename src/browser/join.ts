@@ -26,11 +26,11 @@ export const DISPLAY_NAME_KEY = 'selvage.displayName';
 export function validateDisplayName(raw: string): string {
   const name = raw.trim();
   if (name === '') {
-    throw new Error('type the name other participants will see');
+    throw new Error('Type the name other participants will see.');
   }
   if (name.length > MAX_DISPLAY_NAME_UNITS) {
     throw new Error(
-      `that name is ${name.length} characters and the room allows ${MAX_DISPLAY_NAME_UNITS} — shorten it to join`,
+      `That name is ${name.length} characters and the room allows ${MAX_DISPLAY_NAME_UNITS}. Shorten it to join.`,
     );
   }
   return name;
@@ -98,9 +98,9 @@ export function resolveJoin(
     ) {
       return { base: parsed.base, room: parsed.join.room, token: parsed.join.token };
     }
-    throw new Error('that invite link does not name a session — paste the whole link');
+    throw new Error('That invite link does not name a session. Paste the whole link.');
   }
-  throw new Error('paste an invite link to join');
+  throw new Error('Paste an invite link to join.');
 }
 
 /** The last name that joined, for prefill — localStorage only, never the wire. */

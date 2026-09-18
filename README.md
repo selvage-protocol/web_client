@@ -21,20 +21,26 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   editor fallback and the TypeScript/JavaScript language worker.
 - `src/browser/editor.ts` — the Monaco adapter: remote text in, local edits and
   the selection out, peer cursors as decorations (glyph-margin initials
-  badges, whole-line highlights, `label · role` hovers), plus the grant
+  badges, caret bars, subtle line underlines, `label · role` hovers), plus the grant
   tree, jump-to-participant and follow.
 - `src/browser/icons.ts` — the inline-SVG set plus the per-type tree icon.
 - `src/browser/roster.ts` — the People roster as a testable render: the own
-  name first, one row per peer, no path text.
+  name first as a full row (swatch, quiet `you`, reasoned disabled actions),
+  one row per peer, no path text.
+- `src/browser/share-box.ts` — the share bar as one copy control: click
+  anywhere or focus plus Enter copies, and an overlay inside the bar names
+  the `Link copied` confirmation briefly, then hides; the readout never
+  leaves, so no layout shifts.
 - `src/browser/presence.ts` — initials, one-badge-per-line, the badge CSS.
 - `src/browser/main.ts` — the page: display name, invite, the editable
   document (focused on join, so typing starts at once), the People roster
   with go-to/follow, the presence-badged grant tree, the follow banner with
-  the one stop control, and the page-origin share link whose link icon
+  the one stop control, and the page-origin share link whose whole bar
   copies. The tree is the only way to open a document.
 - `src/browser/share.ts` — the guest link shape: built from the page's own
   origin (`?room=&token=`, plus `?server=` off the default), read back the
-  same way when pasted.
+  same way when pasted; the bar shows it with long hosts abbreviated
+  middle-first, and the paste-box schematic is built from the real origin.
 - `public/` — the page shell.
 - `scripts/prove-m1.mjs` — the live proof (see below). `scripts/prove-pi.mjs`
   is the M0 record, kept as-is. `scripts/prove-fb2.mjs` is the
@@ -83,7 +89,9 @@ field), an early submit is held and replayed, and the editor stack loads only
 on join. Opening the page bare shows the same card with a paste box for the
 invite link (a page link, or a whole `ws://…/session?room=…&token=…`
 invite) above the name; after joining, the session bar shows the same link
-with its link icon doing the copy, and a paste join lands in the address
+— abbreviated mid-first on long hosts, masked until hovered or focused,
+with its whole bar doing the copy (focus plus Enter works too), the full
+link as its title and the clipboard bytes — and a paste join lands in the address
 bar so a reload
 rejoins from it. A submit that lands before the page finishes loading never
 fails: it queues until loaded and joins exactly once, the button reading
@@ -92,14 +100,23 @@ name, press Join (or Enter) — the first shared file opens focused, so you
 type at once. The last joined name is remembered for
 prefill in the browser only. The People roster leads with your own name and
 lists who else is here with go-to and follow, never path text; the tree
-lists what the room shares with a peer badge on whoever's file is whose;
+lists what the room shares with a peer badge on whoever's file is whose
+(an open file the host hasn't shared wears a `not yet shared` pill instead
+of a status sentence);
 following shows a banner in the followed peer's colour with the stop control
 on it, and ends when you type, navigate (open a file from the tree or go
-to someone), stop it, or the peer leaves.
+to someone), stop it, or the peer leaves. When the room ends — the host
+does not return before the grace expires — the page says so plainly and
+stays said: the status keeps `The room is closed — host did not return.`,
+the roster clears with its actions disabled, the share link retires (readable
+but never copied again), the editor goes read-only, and the tree freezes on
+the last listing visibly marked stale, never shedding files. The way back is
+a fresh join from a link; the page never rejoins or reclaims on its own.
 
 ## What the page does NOT do
 
 No hosting, no accounts, no stored state beyond the live session plus the
-remembered display name, no analytics.
+remembered display name, no analytics, no automatic rejoin or host reclaim —
+a test pins that no browser source ever hellos as host.
 See `BROWSER_NOTES.md` for the decisions, the bundle diet, and the one layer a
 human still has to eyeball (Monaco rendering — no display on the proving host).

@@ -115,19 +115,33 @@ describe('roster rows', () => {
     assert.equal(buttons[0].disabled, true);
   });
 
-  it('the self row leads with a you marker and no actions', () => {
-    const { list } = render([SAM]);
+  it('the self row is a roster row: swatch, name, quiet you, reasoned actions', () => {
+    const { list } = render([SAM], { selfColour: '#cba6f7' });
     const self = list.children[0];
     assert.ok(self.classes.includes('self'), 'self row is not first');
     assert.ok(textOf(self).includes('me'), `own name missing: ${textOf(self)}`);
     assert.ok(/you/i.test(textOf(self)), `you marker missing: ${textOf(self)}`);
+    const swatch = self.children.find((child) => child.className === 'swatch');
+    assert.ok(swatch !== undefined, 'self row carries no swatch');
+    assert.equal(swatch.style.backgroundColor, '#cba6f7');
+    const you = [];
+    const walkYou = (element) => {
+      if (element.className === 'you') you.push(element);
+      for (const child of element.children) walkYou(child);
+    };
+    walkYou(self);
+    assert.equal(you.length, 1);
     const buttons = [];
     const walk = (element) => {
       if (element.tag === 'button') buttons.push(element);
       for (const child of element.children) walk(child);
     };
     walk(self);
-    assert.equal(buttons.length, 0);
+    assert.equal(buttons.length, 2);
+    for (const button of buttons) {
+      assert.equal(button.disabled, true);
+      assert.ok(button.title.length > 0, 'a self action names no reason');
+    }
   });
 
   it('peer colours stay on the swatch, data-driven', () => {

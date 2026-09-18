@@ -64,7 +64,7 @@ function assertPlain(output: string): void {
 
 describe('display-name validation', () => {
   it('blank names keep the card copy', () => {
-    assert.throws(() => validateDisplayName('   '), /type the name other participants will see/);
+    assert.throws(() => validateDisplayName('   '), /Type the name other participants will see\./);
   });
 
   it('trims and returns the name', () => {
@@ -73,7 +73,7 @@ describe('display-name validation', () => {
 
   it('32 units join; 33 are refused, never shortened', () => {
     assert.equal(validateDisplayName('a'.repeat(32)), 'a'.repeat(32));
-    assert.throws(() => validateDisplayName('a'.repeat(33)), /allows 32.*shorten it to join/);
+    assert.throws(() => validateDisplayName('a'.repeat(33)), /allows 32.*Shorten it to join/);
   });
 
   it('counts the protocol unit: astral characters cost two', () => {
@@ -133,21 +133,21 @@ describe('join targets', () => {
   it('a pasted fragment keeps the paste-it-whole copy', () => {
     assert.throws(
       () => resolveJoin(new URLSearchParams(), 'just some words', BASE),
-      /that invite link does not name a session — paste the whole link/,
+      /That invite link does not name a session\. Paste the whole link\./,
     );
   });
 
   it('a bare open with nothing pasted asks for the link', () => {
     assert.throws(
       () => resolveJoin(new URLSearchParams(), '  ', BASE),
-      /paste an invite link to join/,
+      /Paste an invite link to join\./,
     );
   });
 
   it('a room without a token is not a link', () => {
     assert.throws(
       () => resolveJoin(new URLSearchParams('room=r-1'), '', BASE),
-      /paste an invite link to join/,
+      /Paste an invite link to join\./,
     );
   });
 });
@@ -235,12 +235,12 @@ describe('join failures in plain words', () => {
     const refused = new ProtocolError(errCode.roomUnknown, 'no such room: r-3ab6c4e248c7');
     assert.equal(
       describeJoinError(refused, BASE),
-      'nothing answers at that link — ask the host for a fresh link and retry',
+      'Nothing answers at that link. Ask the host for a fresh link and retry.',
     );
     const closed = new Error('the socket closed before it opened: 4001 no such room: r-3ab6c4e248c7');
     assert.equal(
       describeJoinError(closed, BASE),
-      'nothing answers at that link — ask the host for a fresh link and retry',
+      'Nothing answers at that link. Ask the host for a fresh link and retry.',
     );
   });
 
@@ -252,9 +252,9 @@ describe('join failures in plain words', () => {
 
   it('the card copy still passes through untouched', () => {
     for (const copy of [
-      'type the name other participants will see',
-      'that invite link does not name a session — paste the whole link',
-      'paste an invite link to join',
+      'Type the name other participants will see.',
+      'That invite link does not name a session. Paste the whole link.',
+      'Paste an invite link to join.',
     ]) {
       assert.equal(describeJoinError(new Error(copy), BASE), copy);
       assertNoPlumbing(copy, 'card copy');
@@ -277,15 +277,23 @@ describe('join card markup', () => {
     assert.ok(html.includes('backdrop-filter'), 'no backdrop blur');
   });
 
-  it('shows no room id and no token material', () => {
+  it('shows no room id and no token material outside the schematic example', () => {
     assert.ok(!card.includes('join-room-id'), 'room id still on the card');
-    assert.ok(!/token/i.test(card), 'token material on the card');
+    // The paste example is schematic (`room=…&token=…`, ellipsis only): strip
+    // it before scanning, so only real material fails.
+    const stripped = card.replace(/room=…&token=…/, '');
+    assert.ok(!/token/i.test(stripped), 'token material on the card');
   });
 
-  it('paste box shows an https page-link example, never the wire', () => {
+  it('paste box shows a schematic page-link example, never a real one', () => {
     const placeholder = card.match(/placeholder="([^"]*)"/)?.[1] ?? '';
     assert.ok(placeholder.includes('https://'), `no page-link example: ${placeholder}`);
-    assertNoPlumbing(placeholder, 'paste placeholder');
+    assert.ok(/room=…&token=…/.test(placeholder), `no schematic example: ${placeholder}`);
+    const stripped = placeholder.replace(/room=…&token=…/, '');
+    assert.ok(!/token=/i.test(stripped), `token material in the example: ${placeholder}`);
+    assert.ok(!/room=[^…]/i.test(stripped), `literal room in the example: ${placeholder}`);
+    assert.ok(!/ws:\/\//i.test(placeholder), `wire scheme in the example: ${placeholder}`);
+    assert.ok(!/\d+\.\d+\.\d+\.\d+/.test(placeholder), `bare address in the example: ${placeholder}`);
   });
 
   it('shows no wire scheme anywhere on the card', () => {
@@ -399,11 +407,19 @@ describe('joined chrome', () => {
     assert.ok(!html.includes('<h2>Here</h2>'), 'Here heading still on the page');
   });
 
-  it('the link icon copies — no separate Copy button', () => {
+  it('the whole link bar copies — no separate Copy button', () => {
     const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('id="follow-banner"'));
     assert.ok(!bar.includes('Copy link'), 'separate copy button still in the bar');
-    assert.ok(/id="copy-share"[^>]*aria-label="Copy invite link"/.test(bar), 'icon button copies nothing');
-    assert.ok(main.includes("iconSvg('check')"), 'no copied confirmation on the icon');
+    assert.ok(!bar.includes('copy-share'), 'the icon-only button survived beside the bar');
+    assert.ok(/id="share-group"[^>]*role="button"/.test(bar), 'the bar is no button');
+    assert.ok(/id="share-group"[^>]*tabindex="0"/.test(bar), 'the bar takes no focus');
+    assert.ok(/id="share-group"[^>]*aria-label="Copy invite link"/.test(bar), 'the bar names no action');
+    assert.ok(main.includes('wireShareBox'), 'the bar copies from its icon only');
+    assert.ok(main.includes("iconSvg('check')"), 'no copied confirmation on the bar');
+  });
+
+  it('an unpublished open writes no status sentence', () => {
+    assert.ok(!/setStatus\([^)]*hasn/.test(main), 'an unpublished advisory survived in the status line');
   });
 
   it('a plain open writes no open: status', () => {
