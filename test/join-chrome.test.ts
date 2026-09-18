@@ -86,7 +86,18 @@ describe('the status element is gone for good', () => {
     for (const file of readdirSync(base)) {
       if (!file.endsWith('.mjs')) continue;
       const text = readFileSync(new URL(file, base), 'utf8');
-      if (/#status|setStatus/.test(text)) hits.push(file);
+      for (const pattern of [
+        /#status/,
+        /setStatus/,
+        // Reading the notices by the internal `status` kind is the same lost
+        // surface under another name: the page routes those sentences by
+        // text, to the session note and the alert, and a driver belongs on
+        // the same two homes.
+        /kind\s*[!=]==?\s*['"]status['"]/,
+        /kind:\s*['"]status['"]/,
+      ]) {
+        if (pattern.test(text)) hits.push(`${file} matches ${pattern}`);
+      }
     }
     assert.deepEqual(hits, [], `driver scripts still address the status line: ${hits.join(', ')}`);
   });

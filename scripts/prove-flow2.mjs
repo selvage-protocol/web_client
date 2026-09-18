@@ -2,11 +2,15 @@
  * Live proof for the flow-review fixes, without a browser on this host.
  *
  * Drives the page's own binding with a fake editor against a real `selvaged`
- * and re-walks the three headline flows: (1) go-to and follow re-lands
- * announce the landed file in the status line, (2) a granted-but-unpublished
- * file reads unpublished after opening, (3) a cut socket raises the drop
- * status and the reseated room converges again. Duplicate names and the join
- * error copy ride along.
+ * and re-walks the three headline flows: (1) a go-to lands silently — the tree
+ * row and the buffer name the file — while a follow re-land announces who and
+ * where, (2) a granted-but-unpublished file reads unpublished after opening,
+ * (3) a cut socket raises the reconnect sentence and the reseated room
+ * converges again. Duplicate names and the join error copy ride along.
+ *
+ * The binding's transient sentences are read by text, the way the page reads
+ * them (`sessionNoteSignal`): the notice kind is the binding's own vocabulary,
+ * and the page routes these sentences to the session note and the alert.
  *
  * Usage: SELVAGE_BASE=ws://100.64.0.3:8080 node scripts/prove-flow2.mjs
  */
@@ -169,27 +173,32 @@ const binding = new MonacoBinding({
   createModel: (text, language) => makeModel(text, language),
 });
 const hostPeerId = hostEngine.session().peer.peer_id;
-const statusTexts = () => notices.filter((n) => n.kind === 'status').map((n) => n.text);
+const sentences = () =>
+  notices.filter((notice) => typeof notice.text === 'string').map((notice) => notice.text);
 
-// (1) Go-to lands and the status names the landed file.
+// (1) The go-to lands, and says nothing: the tree row and the buffer name the
+// file, so no sentence is owed.
 await waitFor(
   'host presence to cross',
   () => guestEngine.presence().find((record) => record.peer?.peer_id === hostPeerId)?.state?.selection,
   10_000,
 );
 await binding.goTo(hostPeerId);
-check('go-to status names the landed file', statusTexts().includes(`open: ${MAIN}`));
-check('go-to status agrees with the editor', binding.currentPath() === MAIN);
+check('go-to landing agrees with the editor', binding.currentPath() === MAIN);
+check(
+  'go-to landing announces no file',
+  !sentences().some((text) => text.startsWith('open:')),
+);
 
 // Follow re-lands announce who and where.
 await binding.follow(hostPeerId);
 hostEngine.setSelection(NOTES, { anchor: 0, head: 3 });
 await waitFor(
-  'follow re-land status',
-  () => (statusTexts().includes(`following flow2-host — ${NOTES}`) ? true : undefined),
+  'follow re-land sentence',
+  () => (sentences().includes(`Following flow2-host in ${NOTES}`) ? true : undefined),
   10_000,
 );
-check('follow re-land status agrees with the editor', binding.currentPath() === NOTES);
+check('follow re-land agrees with the editor', binding.currentPath() === NOTES);
 binding.stopFollowing();
 
 // (2) Granted-but-unpublished opens empty and reads unpublished.
@@ -215,10 +224,11 @@ await twin.disconnect();
 check(
   'raw socket error maps to plain copy',
   describeJoinError(new Error('the WebSocket reported an error'), `${BASE}/session`) ===
-    `couldn't reach ${BASE}/session — check the server address and retry`,
+    "Couldn't reach the session. Check your connection and retry.",
 );
 
-// (3) Cut the socket: the drop status fires, the room reseats and converges.
+// (3) Cut the socket: the reconnect sentence fires, the room reseats and
+// converges.
 let reconnecting = false;
 const stop = guestEngine.on((event) => {
   if (event.type === 'reconnecting') reconnecting = true;
@@ -226,8 +236,8 @@ const stop = guestEngine.on((event) => {
 binding.stopFollowing();
 await binding.openDocument(NOTES);
 guestSocket.close();
-await waitFor('drop status in the binding notices', () => (statusTexts().includes('connection dropped — reconnecting…') ? true : undefined), 10_000);
-check('drop raises the reconnecting status', reconnecting);
+await waitFor('reconnect sentence in the binding notices', () => (sentences().includes('Connection dropped. Reconnecting…') ? true : undefined), 10_000);
+check('the drop raises the reconnecting sentence', reconnecting);
 const afterReconnect = `${guestEngine.text(NOTES)}back again\n`;
 hostFiles.texts.set(NOTES, afterReconnect);
 hostBridge.documentChanged(NOTES);
