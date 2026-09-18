@@ -1,23 +1,26 @@
 /**
  * The phone's own choices, decided once from what the browser reports about
  * itself rather than from the width of a window: a narrow desktop window is a
- * desktop, and a touchscreen laptop with a mouse is one too.
+ * desktop.
  *
- * `(hover: none)` is the query that separates them — it is true exactly when
- * there is no pointer that can hover, which is the whole of what a touch-only
- * browser is missing. Everything below is the *behaviour* behind the two media
- * queries in `public/index.html`; the shell owns the sizes.
+ * `(any-hover: none)` is the query that separates them. `(hover: …)` answers for
+ * the *primary* input mechanism alone, so a touchscreen laptop whose primary is
+ * reported as touch would get the phone layout while a mouse sits next to it;
+ * `any-hover` answers for every mechanism the device has, and `none` is true
+ * only when none of them can hover — a phone or a tablet, never a machine with
+ * a mouse or a touchpad. Everything below is the *behaviour* behind the two
+ * media queries in `public/index.html`; the shell owns the sizes.
  *
  * Nothing here touches the DOM, so the decisions are testable without one.
  */
 
 import type * as monaco from 'monaco-editor';
 
-/** A device with no hover: a phone or a tablet, never a machine with a mouse. */
-export const TOUCH_QUERY = '(hover: none)';
+/** No pointing device anywhere: a phone or a tablet, never a machine with a mouse. */
+export const TOUCH_QUERY = '(any-hover: none)';
 
 /** The same device, phone-shaped: the card is a sheet and the panel a disclosure. */
-export const PHONE_QUERY = '(hover: none) and (max-width: 640px)';
+export const PHONE_QUERY = '(any-hover: none) and (max-width: 640px)';
 
 /**
  * The editor options for this device. A phone gets the settings its screen

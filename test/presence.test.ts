@@ -268,6 +268,26 @@ describe('a tap on a peer caret, where a pointer would hover', () => {
     binding.dispose();
   });
 
+  it('never answers with a caret drawn for the document that just closed', async () => {
+    // Opening a document changes the path and the model together, and the frame
+    // that re-draws the carets arrives later: an offset into the new buffer must
+    // not be answered by the previous document's carets.
+    const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng'], ['b.txt', 'xy\nzw\n']]));
+    const editor = makeEditor();
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+    });
+    await binding.openDocument('a.txt');
+    binding.renderCursors([cursor('peer-a', 'amy', 4)]);
+    await binding.openDocument('b.txt');
+    assert.equal(binding.currentPath(), 'b.txt');
+    assert.equal(binding.peerAt(4), undefined, 'the previous document answered for the new one');
+    binding.dispose();
+  });
+
   it('answers nothing when the carets drawn are not for the showing document', async () => {
     const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
     const editor = makeEditor();

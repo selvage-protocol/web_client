@@ -88,7 +88,12 @@ describe('the visual viewport a soft keyboard shrinks', () => {
 describe('the shell and the page agree on what a phone is', () => {
   it('carries both queries the page matches on', () => {
     assert.ok(style.includes(`@media ${TOUCH_QUERY}`), `the shell has no ${TOUCH_QUERY} block`);
-    assert.ok(html.includes(PHONE_QUERY), `the shell has no ${PHONE_QUERY} block`);
+    assert.ok(style.includes(`@media ${PHONE_QUERY}`), `the shell has no ${PHONE_QUERY} block`);
+    assert.equal(PHONE_QUERY.startsWith(`${TOUCH_QUERY} and `), true, 'the phone query is not the touch query, narrowed');
+  });
+
+  it('keeps the safe-area inset inside the height it is measured against', () => {
+    assert.match(declarations(style, '#app'), /box-sizing:\s*border-box/, 'the inset pushes the app past 100dvh');
   });
 
   it('lets the layout viewport follow the browser chrome and the keyboard', () => {
@@ -108,20 +113,20 @@ describe('the shell and the page agree on what a phone is', () => {
 
   it('keeps the last row off a phone’s home indicator', () => {
     assert.ok(style.includes('env(safe-area-inset-bottom)'), 'no bottom inset anywhere');
-    assert.match(mediaBlock('(hover: none) and (max-width: 640px)'), /#join\s*\{[^}]*env\(safe-area-inset-bottom\)/);
-    assert.match(mediaBlock('(hover: none)'), /#alert[^{]*\{[^}]*env\(safe-area-inset-bottom\)/);
+    assert.match(mediaBlock(PHONE_QUERY), /#join\s*\{[^}]*env\(safe-area-inset-bottom\)/);
+    assert.match(mediaBlock(TOUCH_QUERY), /#alert[^{]*\{[^}]*env\(safe-area-inset-bottom\)/);
   });
 });
 
 describe('the sizes a finger needs', () => {
   it('clears the 16 px floor iOS zooms a focused field below', () => {
-    const touch = mediaBlock('(hover: none)');
+    const touch = mediaBlock(TOUCH_QUERY);
     assert.match(declarations(touch, '#join input'), /font-size:\s*16px/, 'the fields are back under the zoom floor');
     assert.match(declarations(touch, '#join-message'), /font-size:\s*16px/, 'the line that says the room is gone is the smallest thing on the card');
   });
 
   it('gives every control a 44 px box to hit', () => {
-    const touch = mediaBlock('(hover: none)');
+    const touch = mediaBlock(TOUCH_QUERY);
     assert.match(declarations(touch, 'button'), /min-height:\s*44px/, 'buttons are under the target size');
     assert.match(declarations(touch, 'summary'), /min-height:\s*44px/, 'tree folders are under the target size');
     const share = declarations(touch, '#share-group');
@@ -133,7 +138,10 @@ describe('the sizes a finger needs', () => {
   });
 
   it('keeps the desktop density: the sizes above are behind the touch query', () => {
-    assert.ok(!/min-height:\s*44px/.test(style.slice(0, style.indexOf('@media (hover: none)'))), 'a 44 px target leaked into the desktop layout');
+    assert.ok(
+      !/min-height:\s*44px/.test(style.slice(0, style.indexOf(`@media ${TOUCH_QUERY}`))),
+      'a 44 px target leaked into the desktop layout',
+    );
     assert.match(declarations(style, '#join input'), /font-size:\s*1rem/, 'the desktop field size moved');
   });
 });
@@ -141,7 +149,7 @@ describe('the sizes a finger needs', () => {
 describe('the panel on a phone', () => {
   it('is shut unless the guest opens it, and the editor keeps the screen', () => {
     assert.match(declarations(style, '#panel-toggle'), /display:\s*none/, 'the disclosure control shows on a pointer device');
-    assert.match(declarations(mediaBlock('(hover: none) and (max-width: 640px)'), '#panel-toggle'), /display:\s*flex/);
+    assert.match(declarations(mediaBlock(PHONE_QUERY), '#panel-toggle'), /display:\s*flex/);
   });
 
   it('makes its 38% cap the box the panel actually takes', () => {
@@ -154,7 +162,7 @@ describe('the panel on a phone', () => {
 describe('what a phone cannot hover', () => {
   it('shows a dead roster verb’s reason as row text', () => {
     assert.match(declarations(style, '#roster .why'), /display:\s*none/);
-    assert.match(declarations(mediaBlock('(hover: none)'), '#roster .why'), /display:\s*block/);
+    assert.match(declarations(mediaBlock(TOUCH_QUERY), '#roster .why'), /display:\s*block/);
   });
 
   it('carries a tap-revealed line for the peer a caret belongs to', () => {

@@ -88,8 +88,8 @@ export class MonacoBinding implements EditorHost {
   private readonly style: HTMLStyleElement;
   private readonly stopEngine: () => void;
   private applying = 0;
-  /** The carets drawn for the showing path, for a tap (`peerAt`). */
-  private showing: Cursor[] = [];
+  /** The carets the last frame drew, for a tap (`peerAt`). */
+  private drawn: Cursor[] = [];
   private path: string | undefined;
   private disposed = false;
   /** Paths handed to the bridge, whose hold and seed run once per showing. */
@@ -235,7 +235,7 @@ export class MonacoBinding implements EditorHost {
     }
     this.disposed = true;
     this.stopEngine();
-    this.showing = [];
+    this.drawn = [];
     this.followingPeerId = undefined;
     this.pendingGoTo = undefined;
     for (const stop of this.stops.splice(0)) {
@@ -550,16 +550,22 @@ export class MonacoBinding implements EditorHost {
    * the page taps that decoration and says the same line (`main.ts`). The exact
    * position is tried first, because a tap lands on a character, and a peer's
    * selection second, so a tap inside their fill names them too.
+   *
+   * The path is read here rather than trusted from the frame: opening a document
+   * changes `path` and the model in one step, and the room's next frame — the one
+   * that re-draws the carets — arrives later. An offset into the new buffer must
+   * never be answered with the previous document's carets.
    */
   peerAt(offset: number): Cursor | undefined {
-    if (this.disposed || this.path === undefined) {
+    if (this.disposed) {
       return undefined;
     }
-    const exact = this.showing.find((cursor) => cursor.head === offset);
+    const here = this.drawn.filter((cursor) => cursor.path === this.path);
+    const exact = here.find((cursor) => cursor.head === offset);
     if (exact !== undefined) {
       return exact;
     }
-    return this.showing.find(
+    return here.find(
       (cursor) =>
         cursor.anchor !== cursor.head &&
         offset >= Math.min(cursor.anchor, cursor.head) &&
@@ -571,11 +577,11 @@ export class MonacoBinding implements EditorHost {
     const model = this.path === undefined ? undefined : this.models.get(this.path);
     if (model === undefined) {
       this.cursors.clear();
-      this.showing = [];
+      this.drawn = [];
       return;
     }
     const here = cursors.filter((cursor) => cursor.path === this.path);
-    this.showing = here;
+    this.drawn = cursors;
     // One glyph-margin badge per line: badges on one line share a lane and
     // would draw over one another, so the lowest peer id wins the lane.
     const badged = onePerLine(here, (cursor) => model.getPositionAt(cursor.head).lineNumber);

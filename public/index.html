@@ -51,10 +51,12 @@
       /* `dvh`, not `vh`: the dynamic viewport follows the browser chrome and, on
          the platforms that resize the layout viewport, the soft keyboard. The
          `100%` above is what a browser without `dvh` falls back to. The bottom
-         inset keeps the last row off a phone's home indicator.
+         inset keeps the last row off a phone's home indicator, and `border-box`
+         is what keeps that inset *inside* the height: content-box would make the
+         app taller than the viewport it was measured against.
          (`viewport-fit=cover` in the meta is what makes the inset non-zero.) */
       #app { display: flex; flex-direction: column; height: 100%; height: 100dvh;
-        padding-bottom: env(safe-area-inset-bottom); }
+        box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
       .icon { display: inline-flex; flex: none; }
       .icon svg { width: 1em; height: 1em; }
       button { font: inherit; color: var(--foreground); background: var(--muted);
@@ -245,13 +247,14 @@
           max-height: 38%; box-sizing: border-box; }
         #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
       }
-      /* A finger, not a pointer. Everything here is behind `(hover: none)` so a
-         device with a mouse keeps the layout it has: the density below is a
-         touch affordance, not a size.
-         Two conditions, because they answer two questions: `(hover: none)` is
-         `touch at all` (field type and target size), and the phone query is
+      /* A finger, not a pointer. Everything here is behind `(any-hover: none)`,
+         true only where no input mechanism the device has can hover, so a
+         machine with a mouse or a touchpad keeps the layout it has: the density
+         below is a touch affordance, not a size.
+         Two conditions, because they answer two questions: `(any-hover: none)`
+         is `touch at all` (field type and target size), and the phone query is
          `this is a phone` (the card is a sheet, the panel is a disclosure). */
-      @media (hover: none) {
+      @media (any-hover: none) {
         /* iOS zooms the page in when a focused field is under 16 px, and the
            root is 14 px, so the fields' own `1rem` never cleared the floor. */
         #join input, #join-message { font-size: 16px; }
@@ -268,7 +271,7 @@
         #roster .why { display: block; flex-basis: 100%; }
         #alert, #peek { bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
       }
-      @media (hover: none) and (max-width: 640px) {
+      @media (any-hover: none) and (max-width: 640px) {
         /* The panel is a disclosure on a phone, not a permanent 42% cut: it is
            shut on join and a file open shuts it again (main.ts). */
         #panel-toggle { display: flex; flex: none; width: 100%; justify-content: flex-start;
