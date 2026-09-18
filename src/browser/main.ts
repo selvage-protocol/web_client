@@ -57,7 +57,10 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
         base: 'vs-dark',
         inherit: true,
         rules: [
-          { token: 'comment', foreground: '7f849c' },
+          // Mocha's overlay1 is 4.4:1 on the editor ground — under AA for the
+          // two dims a reader reads most (comments, line numbers) — so both
+          // step one shade lighter: 4.9:1, still quiet.
+          { token: 'comment', foreground: '868ca2' },
           { token: 'keyword', foreground: 'cba6f7' },
           { token: 'string', foreground: 'a6e3a1' },
           { token: 'number', foreground: 'fab387' },
@@ -67,7 +70,7 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
           'editor.background': '#1e1e2e',
           'editor.foreground': '#cdd6f4',
           'editor.lineHighlightBackground': '#31324466',
-          'editorLineNumber.foreground': '#6c7086',
+          'editorLineNumber.foreground': '#868ca2',
           'editorLineNumber.activeForeground': '#cba6f7',
           'editorCursor.foreground': '#cba6f7',
           'editor.selectionBackground': '#45475a',

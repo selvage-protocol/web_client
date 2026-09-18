@@ -15,6 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
+import { peerColour } from '../src/bridge/index.ts';
 import { sessionNoteSignal, hostPresent, wireFailureAlert, wireSessionNote } from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
 
@@ -246,6 +247,25 @@ describe('the landing page language', () => {
     for (const [what, fg, bg] of pairs) {
       const ratio = contrast(token(fg), token(bg));
       assert.ok(ratio >= 4.5, `${what} is ${ratio.toFixed(2)}:1 (${token(fg)} on ${token(bg)})`);
+    }
+  });
+
+  it('keeps the peer palette legible on every ground it is used on', () => {
+    // The peer palette is One Dark's, reached by hashing a peer id, and it is
+    // used twice: black initials on the colour (the tree badge) and the colour
+    // as text and as the roster swatch on the card. Eight hues is the palette;
+    // if that changes, this table has to be verified again rather than left
+    // to look covered.
+    const colours = new Set<string>();
+    for (let index = 0; index < 5000; index += 1) {
+      colours.add(peerColour(`peer-${index}`));
+    }
+    assert.equal(colours.size, 8, `the palette changed shape: ${[...colours].join(', ')}`);
+    for (const colour of colours) {
+      const initials = contrast('#000000', colour);
+      assert.ok(initials >= 4.5, `badge initials on ${colour} are ${initials.toFixed(2)}:1`);
+      const asText = contrast(colour, token('card'));
+      assert.ok(asText >= 4.5, `${colour} as text on the card is ${asText.toFixed(2)}:1`);
     }
   });
 
