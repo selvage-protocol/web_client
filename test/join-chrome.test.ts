@@ -92,10 +92,14 @@ describe('the status element is gone for good', () => {
   });
 
   it('messages with homes of their own have them in the shell', () => {
+    // The note is the grace warning, not an interruption: polite, like the
+    // status line it replaced — `role="status"` would put the forbidden word
+    // back in the shell. The failure alert stays assertive.
     assert.ok(
-      /<div id="session-note" role="alert"><\/div>/.test(html),
+      /<div id="session-note" aria-live="polite"><\/div>/.test(html),
       'no session note in the chrome',
     );
+    assert.ok(!/role="alert"[^>]*session-note|session-note"[^>]*role="alert"/.test(html));
     assert.ok(/<div id="alert" role="alert"><\/div>/.test(html), 'no failure alert in the shell');
     assert.ok(style.includes('#session-note'), 'the session note is unstyled');
     assert.ok(style.includes('#alert'), 'the failure alert is unstyled');
