@@ -66,9 +66,20 @@ describe('identity', () => {
   });
 
   it('brands the page chrome with the mark', () => {
+    // The mark is inline SVG — the shell's own copy of the site's artwork, so
+    // the first frame cannot paint it as a waiting box or as alt text (see
+    // test/join-paint.test.ts for the drift guard against the site file).
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
-    assert.match(html, /<img src="mark-transparent\.png" alt=""[^>]*>Selvage/);
-    assert.match(html, /<img class="mark" src="mark-transparent\.png" alt="Selvage mark"/);
+    assert.match(html, /<symbol id="svp-mark" viewBox="0 0 211\.6667 211\.66669"/);
+    assert.match(
+      html,
+      /<span id="brand"><svg class="mark" viewBox="0 0 211\.6667 211\.66669" aria-hidden="true"[^>]*><use href="#svp-mark" \/>[\s\S]*?<\/svg>Selvage/,
+    );
+    assert.match(
+      html,
+      /<svg class="mark" viewBox="0 0 211\.6667 211\.66669" aria-hidden="true"[^>]*><use href="#svp-mark" \/>/,
+    );
+    assert.ok(!/<img[^>]*mark-transparent/.test(html), 'the chrome still fetches the PNG mark');
   });
 
   it('keeps no placeholder favicon', () => {

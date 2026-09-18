@@ -207,6 +207,10 @@ export type JoinFocusTarget = 'name' | 'invite';
 /**
  * Wires the pre-join card for `search` without touching the editor stack.
  *
+ * The shell's inline script has already made both decisions once — it runs
+ * before the first paint, so the card never grows a paste box or a name under
+ * the reader — and this is the same wiring taking over with the same answer.
+ *
  * Two guarantees the slow-load defect taught: the remembered name prefills
  * only an untouched field — anything typed before the bundle arrives stays —
  * and the caller's focus decision lands past first paint, never stealing a
@@ -223,9 +227,9 @@ export function initJoinCard(
   const room = (search.get('room') ?? '').trim();
   const token = (search.get('token') ?? '').trim();
   const linkMode = room !== '' && token !== '';
-  if (!linkMode) {
-    elements.inviteWrap.hidden = false;
-  }
+  // Both ways, not just the bare open: the variant is one decision, and a
+  // shell that painted the other one is corrected here rather than trusted.
+  elements.inviteWrap.hidden = linkMode;
   // A slow first load means the guest may have typed ahead of the bundle:
   // prefill only the field they left alone.
   if (elements.nameInput.value === '') {
