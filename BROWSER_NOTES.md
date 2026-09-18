@@ -991,6 +991,11 @@ documented. Verdict in `ai_notes/.tmp/web-eyeball-report.md`.
 
 ## Room-gone terminal state (2026-09-18)
 
+**Superseded** by *The room closing leaves, and the links read* below: the page
+no longer rests on a dead session — it leaves it and says why on the card — so
+the resting chrome this section describes (a frozen tree, a dead roster, a
+retired link, a read-only editor left on screen) was deleted with it.
+
 The host-leave probe (`ai_notes/.tmp/hostleave-probe.md`) found the web page
 in limbo at grace expiry: it flashed `room closed: <reason>` and then rested
 on bare `disconnected`, with a stale live-looking roster (Go to/Follow still
@@ -1185,6 +1190,112 @@ id and the token, which is a guess at what still reads as an identifier; and
 whether the grace-window warning should become its own notice kind in the
 binding instead of a sentence the page matches by its opening words.
 
+## The room closing leaves, and the links read (2026-09-18)
+
+Owner, on the state the round above produced: "if the room is closed the
+instance should just disconnect with a toast/popup similar to the joining one".
+This supersedes the resting terminal state of **Room-gone terminal state
+(2026-09-18)** — that section's stale tree, dead roster, retired link and
+read-only editor left on screen are gone from the page.
+
+**The page leaves.** On the binding's `roomGone` — and on a terminal
+`disconnected` that carries no reason, which ends a session just the same — the
+page drops the session whole and puts the card back. `dropSession` in
+`ended.ts` disposes the binding, then the editor widget it drew into, then the
+engine's socket, in that order, each step guarded so one throwing never strands
+the others (the failure goes to the console rather than the void). The session
+bar, the follow banner, the workspace, the tree and the roster come down, the
+note is cleared, the per-session state is reset, the editor host is emptied, the
+join gate is released, and the card returns over the blurred preview with the
+paste box open, the name still typed, and focus in the field. Read off the
+served page after a host SIGKILL at grace expiry: card shown, message
+`The room is gone (host did not return). Paste a fresh invite link to join
+another session.`, paste box shown, empty and focused, the button reading
+`Join` and enabled, session/workspace/follow hidden, `#share` empty, the
+editor's DOM gone, no error line, and zero console exceptions.
+
+**What went with it.** `endedMessage` and every branch that read it; the frozen
+tree (`visibleListing`, `TREE_STALE_NOTE`); the dead roster
+(`ROSTER_DISABLED_REASON`, `roster.ts`'s `disabled`/`disabledReason` view); the
+retired link (`SHARE_RETIRED_REASON`, `ShareBox.retire`, the
+`#share-group.retired` rules); and the session note's `ended` state, so the
+strip is now only ever the grace warning. `ended.ts` stays because something
+still uses it: `editor.ts` imports `roomGoneMessage` for the terminal echo it
+sends while a keystroke slips through, and the page uses `roomGoneMessage`,
+`SESSION_ENDED_MESSAGE`, `REJOIN_PROMPT`, `sessionOverMessage` and
+`dropSession`. The binding's own terminal behaviour is untouched — it still
+empties the roster, sets the editor read-only and refuses go-to/follow past the
+end, which is what covers the window between the notice and the teardown, and
+`test/room-gone.test.ts` still pins it.
+
+**The words are the desktop clients'.** `roomGoneMessage` reads
+`The room is gone (<reason>).` — vscode's sentence without its `Selvage:`
+prefix, nvim's verbatim — with `no reason given` when the report carries none,
+and the card adds the one next step
+(`Paste a fresh invite link to join another session.`). No em dash, and no
+claim about a room that no longer exists.
+
+**The way back.** The address bar still names the room that just closed, and a
+rejoin would otherwise retry it: the first live proof run pasted a fresh link
+and got `Nothing answers at that link. Ask the host for a fresh link and
+retry.`, because `resolveJoin` lets the address-bar link win by design. The
+page now decides which source is the way in — `addressBarInvite(isTheInvite,
+search)` hands the join nothing from the bar once a room has closed — pinned by
+a test that fails on the old composition. The second run: the pasted fresh link
+joins, the chrome returns with the new room's roster and tree, the bar shows
+the new link, and exactly one editor lives in `#editor` (the dead session's is
+disposed, not stacked behind it).
+
+**The two clipped links.** Same instrument, same 1280×900 window, Chromium 152,
+a real room on the demo server:
+
+| measured | before | after |
+| --- | --- | --- |
+| `#share` value | 59 chars: `http://127.0.0.1:8081/?room=r-0d9b…&token=…` | 38 chars: `/?room=r-98b4…77f7e&token=896498…1f210` |
+| `#share` clientWidth / scrollWidth | 148 / 413 px — a scrolled prefix | 280 / 280 px — the whole value, `scrollLeft` 0 |
+| `#share-group` width | 180 px | 315 px |
+| paste hint vs its field | `http://127.0.0.1:8081/?room=…&token=…`, 37 chars, 300 px in 254 px — clipped | `/?room=…&token=…`, 16 chars, 150 px in 254 px — whole |
+
+`displayShareLink(link, pageOrigin)` drops the scheme and the host when the
+link is on the page's own origin (the guest is looking at the page it points
+to) and keeps a shortened host when it is somewhere else, and `fitReadout`
+sizes the readout to the value it carries — `size` counts the font's *average*
+character and a link of digits, lowercase and ellipses runs wider, so the
+fallback carries 15 % slack, while `field-sizing: content` in the shell fits it
+exactly where the engine has it (probed: a 275 px value in a 275 px readout).
+The paste hint is a static schematic in the shell now, so no origin can clip it;
+`invitePlaceholder` and its runtime assignment are gone.
+
+Tests: suite **210/210** (`test/session-over.test.ts` new, 18 checks, every one
+red against the previous revision; `test/room-gone.test.ts` reduced to the
+binding and the no-host-hello scan; `test/copy-ux.test.ts`,
+`test/join-screen.test.ts`, `test/join-card-init.test.ts` and
+`test/join-chrome.test.ts` updated for the copy, the hint, the fourth focus
+call and the note's single state), typecheck green, minified build green with
+the ws-absence assert.
+
+Proven live (`CLOSED_DONE`, zero console exceptions): room hosted by
+`scripts/tmp-webflow-host.mjs`, `dist/` on `:8081`, Chromium 152 from the nix
+store over CDP, drivers `.tmp/live/measure.mjs` (before/after numbers),
+`.tmp/live/closed.mjs` (the popup and the rejoin), `.tmp/live/sizing-probe.mjs`
+(the sizing options), `.tmp/live/bar-look.mjs` (the revealed bar), shots
+`hint-before.png` / `hint-after.png`, `bar-before.png` / `20-joined-bar.png`,
+`21-grace-warning.png`, `22-room-closed-popup.png`, `23-rejoined.png`,
+`25-bar-masked.png`, `26-bar-revealed.png`.
+
+Could not verify: a real hover (reveal proven by focus and by computed style),
+the rejoin after a *terminal disconnect with no reason* (no way to make the
+engine give up reconnecting on demand in the demo room — the same `leaveSession`
+path is taken, and the copy is unit-pinned), and the stack in an engine without
+`field-sizing` (the `size` fallback was measured in Chromium by setting `size`
+directly: 281 px readout for a 275 px value, and the fallback's own slack is
+the tested part).
+
+Open questions: whether leaving should also clear the address bar's dead room
+(it keeps it; a reload refuses that link plainly), whether the card should keep
+its `Join a shared session` heading above the closure line or swap it for the
+reason, and whether the grace warning should keep the session note at all now
+that it is the only thing the strip ever shows.
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and

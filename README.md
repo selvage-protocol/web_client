@@ -38,14 +38,17 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   the one stop control, and the page-origin share link whose whole bar
   copies. The tree is the only way to open a document.
 - `src/browser/notice.ts` — the two message homes the page keeps: the
-  session note in the chrome (the host-leave warning, the end of the room)
+  session note in the chrome (the host-leave warning while the grace runs)
   and the failure alert that shows an action that refused and leaves on its
   own.
+- `src/browser/ended.ts` — the end of a session: the sentence for it (the
+  desktop clients' `The room is gone (<reason>).`), the one next step, and
+  `dropSession`, the order in which the page leaves a dead room.
 - `src/browser/share.ts` — the guest link shape: built from the page's own
   origin (`?room=&token=`, plus `?server=` off the default), read back the
-  same way when pasted; the bar shows it with the long host, the room id and
-  the token shortened middle-first, and the paste-box schematic is built from
-  the real origin.
+  same way when pasted; the bar shows it with the page's own origin dropped
+  and the host, the room id and the token shortened middle-first, sized to
+  what it shows.
 - `public/` — the page shell.
 - `scripts/prove-m1.mjs` — the live proof (see below). `scripts/prove-pi.mjs`
   is the M0 record, kept as-is. `scripts/prove-fb2.mjs` is the
@@ -95,8 +98,9 @@ field), an early submit is held and replayed, and the editor stack loads only
 on join. Opening the page bare shows the same card with a paste box for the
 invite link (a page link, or a whole `ws://…/session?room=…&token=…`
 invite) above the name; after joining, the session bar shows the same link
-— host, room id and token each shortened, masked until hovered or focused and
-fading in rather than snapping,
+with the page's own origin dropped, the room id and the token shortened,
+masked until hovered or focused and fading in rather than snapping, sized to
+what it shows so the whole thing reads at a glance,
 with its whole bar doing the copy (focus plus Enter works too), the full
 link as its title and the clipboard bytes — and a paste join lands in the address
 bar so a reload
@@ -113,13 +117,15 @@ of a sentence, and an action that refuses says so in the alert);
 following shows a banner in the followed peer's colour with the stop control
 on it, and ends when you type, navigate (open a file from the tree or go
 to someone), stop it, or the peer leaves. When the host's socket drops, the
-session note names the grace window; when the room ends — the host
-does not return before the grace expires — the page says so plainly and
-stays said: the note keeps `The room is closed — host did not return.`,
-the roster clears with its actions disabled, the share link retires (readable
-but never copied again), the editor goes read-only, and the tree freezes on
-the last listing visibly marked stale, never shedding files. The way back is
-a fresh join from a link; the page never rejoins or reclaims on its own.
+session note names the grace window and clears when the host is back. When the
+room ends — the host does not return before the grace expires — the page
+leaves the session: the socket closes, the binding and the editor are dropped,
+the chrome comes down, and the card returns over the blurred preview carrying
+`The room is gone (host did not return). Paste a fresh invite link to join
+another session.` Nothing of the dead room stays on screen, the name stays
+typed, and pasting a fresh link joins the next room from there. No manual
+rejoin, and no reclaim: the page never hellos as host and never rebuilds a room
+on its own.
 
 ## What the page does NOT do
 
