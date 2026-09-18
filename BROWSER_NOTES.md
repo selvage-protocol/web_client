@@ -1506,6 +1506,143 @@ reads as `predefined` (cosmetic, unchanged); and whether the orphaned
 terminal-state doc comment in `main.ts` belongs beside `enterTerminal` in
 `editor.ts`.
 
+## First frame, the inlined mark, the hover and the server a link may name (2026-09-18)
+
+Five defects, four of them owner-facing, each reproduced before it was fixed and
+each pinned by a test that fails without the fix.
+
+**The first frame is the final card.** Reproduced on the built page with
+`app.js` held at the CDP Fetch gate: on a bare open the first painted frame was
+a card with no paste box and `Selvage mark` drawn where the mark belongs (the
+60 KB PNG had not arrived), measuring 336×310 against the final 336×389 — a
+40 px move under the reader. The shell's inline script now decides the card's
+shape **and** the remembered name while the parser is still reading the markup,
+so nothing the bundle does changes what the first frame looks like, and
+`initJoinCard` sets the variant both ways when it takes over. The inline script
+is two blocks: the held-submit guard **first**, so a throw in the card block
+cannot disarm the safety net, then the card block. `test/join-paint.test.ts`
+runs the real inline script and the real `initJoinCard` against the same address
+bars (bare, link, room without a token, `?room=&token=`, an appended
+`?debug=1`, a percent-encoded room) and holds them to the same answer: the two
+languages carry one predicate, and that test is what keeps them one rule.
+
+**The mark never wears a request, and it is the owner's pixels.** Two changes
+met here. The card painted `Selvage mark` as alt text while the 60 KB PNG was
+in flight and an empty box while it was merely slow; and the site then deleted
+`app/icon.svg` — the vector monogram this page copied as `favicon.svg` — because
+its `clipPath` pointed at a `<g>` and the whole monogram was clipped away, so
+the tab icon it served here was blank. The site's icon set is its own pixels
+now, and a measurement settled what this page should carry: the vector draws the
+same monogram but not the same image — at the card's 52 px, eight times up, its
+strokes and its `p` differ visibly from the master's, which is exactly the
+"a redraw cannot match the owner's artwork" the site's own change concluded.
+`preload` + `<img alt="">` would have kept the pixels but not the invariant: a
+preload is still a race the first paint can win, and only the *document* cannot
+lose it. So the mark's bytes are in the shell — a 104 px render of
+`public/mark-transparent.png` (the card's 3.25rem at 2x, the largest the mark is
+ever shown) by the same renderer the build's icons use, carried once as the
+`.mark` rule's `background-image` and worn by the card and the brand. It paints
+nothing that could be text, it cannot fail to arrive, and the first frame's
+resource list is `app.css` and `site.webmanifest` with the mark already drawn:
+**zero pixels** different from the final frame on a bare open, a bare open with
+a remembered name, a link open with a remembered name, and with the PNG request
+failed outright — and 224 distinct colours in the mark's own 46×46 crop, so it
+is a mark and not a blank box. `test/identity.test.ts` decodes the data URI and
+holds it to `renderIcon(public/mark-transparent.png, 104)` byte for byte, so
+refreshing the site's master cannot go stale; `node scripts/inline-mark.mjs`
+prints the replacement in one paste. `public/favicon.svg` is gone with its
+`<link>`, and the tab is the rasters the build renders from the opaque master —
+`favicon-16x16.png`, `favicon-32x32.png` and `icon-48.png`, the sizes the site
+serves, alongside the touch and manifest icons this page already had.
+`mark-transparent.png` stays in `public/` as the artwork's source and is no
+longer served: nothing fetches it.
+
+**A peer's name is text, not markup.** A decoration's `hoverMessage` is
+rendered as markdown and the label in it is the room's, so a host named
+`![](http://127.0.0.1:8181/l.png)` — 31 units, inside the protocol's 32-unit
+display-name bound — made every guest's browser fetch that URL on hover.
+`literalMarkdown` in `editor.ts` escapes every ASCII punctuation character a
+name can carry before the message is built, so a name paints as its own
+characters and can form no link, image or code span; a name of letters is
+untouched. It is the hover channel's `escapeCssContent` — the badge's CSS
+content channel already had its own escape. `test/presence.test.ts` drives the
+real binding with `![](…)`, `[x](…)`, backticks, `<http://…>`, an `onerror`
+image and a trailing backslash, and asserts that no live markdown character
+survives and that what a guest reads is the name. Proven in the browser: the
+keyboard hover (End of the peer's line, then Ctrl+K Ctrl+I) renders
+`<p>![](http://127.0.0.1:8181/l.png) · host</p>` with `img` and `a` counts of 0
+and no request at all, where the unescaped build — rebuilt only for the control
+— logged `GET /l.png` and an `<img>` node.
+
+**The server a link may name.** `?server=` (and the `server` in a pasted page
+link or wire invite) was passed through untouched, and the page is what reads
+`<server>/meta` and opens a socket at `<server>/session` from it.
+`linkServerBase` in `servers.ts` now admits an absolute `ws`/`wss`/`http`/`https`
+URL with a host and refuses credentials, a fragment, a query and anything
+relative, at every way in; a path is kept, because a server behind a prefix is
+addressed rather than spoofed. The refusal is the card's own copy — `That invite
+link names a server this page cannot reach. Ask the host for a fresh link.` —
+carrying no address. Driven on the built page against a listener: credentials, a
+fragment, a query, `file://` and a relative value produce **no request at all**
+and that sentence, while a plain `ws://127.0.0.1:…` still reaches the listener
+with `GET /meta` and the upgrade — the residual the rule leaves, and the one the
+demo's own default depends on.
+
+**A refused pre-flight hands the button back.** The browser run above found a
+dead end next door: a submit held before the bundle disables the button with
+`Joining…`, and a pre-flight refusal (a blank name, a link that names no
+session) returned before `runJoin`'s restore, so the guest's only way on was
+Enter. `attemptJoin`'s catch now restores the button the way a refused join
+does; `test/join-card-init.test.ts` pins the restore inside `attemptJoin` rather
+than on the queued path, and the browser run reads `Join`, enabled, with `Paste
+an invite link to join.` under it.
+
+**Design pass.** The session chrome grew a bar, rows with air, quieter verbs and
+one less smudge. The session bar is taller and wider-spaced; the share pill is
+larger with a tighter mask (a 5 px text-shadow rather than 8 px, so the rest
+state is a redaction bar rather than a grey foam); the sidebar labels are 11 px
+with 0.08em tracking and 1.5em of air above; roster rows are 38 px and tree rows
+34 px with 2 px between them; the roster's `Go to`/`Follow` are ghost buttons at
+rest that fill on hover; the join card's rhythm was tightened (1.9rem padding,
+1rem between rows, `line-height: 1.5` on the room-closed line) and the body
+line-height went 1.45 → 1.5. The two dims a reader reads most in the editor were
+the only colours under AA — Mocha's overlay1 is 4.4:1 on the editor ground — so
+comments and line numbers step to `#868ca2` (4.9:1). `test/join-chrome.test.ts`
+now also pins the peer palette, eight hues reached by hashing a peer id and used
+as black initials on the colour and as the colour on the card, at or above
+4.5:1 on both grounds. Nothing was added: no dependency, no fetched font, no
+gradient, no feature.
+
+Proven live on the built page by scratch harnesses under `.tmp/prepaint/` (CDP
+over the `ws` package, Chromium 152 from the nix store, its own `selvaged` on
+8183 and its own static server on 8182, so no run shares a room space with
+another checkout's): the four pre-paint frame pairs, the held submit, a real
+guest session (join, sidebar with a directory open, share hover, `Link copied`,
+the grace note at a 4 s grace, the room-closed card), the hover control pair,
+and the server-link table.
+
+Green: `npm run typecheck` clean, `npm test` 275/275 — including
+`identity.test.ts`'s byte-identity pairs, which the site's icon change had left
+stale and this round resolves: the pairing for the deleted `app/icon.svg` is
+gone with the file, and the two marks that remain are still compared to the
+site's own copies. `npm run build` with the `ws`-absence assert, and `dist/`
+rebuilt last.
+
+Could not verify: Monaco's own rendering of a hover beyond its DOM, and
+anything on Firefox — every browser claim here is Chromium 152.
+
+Open questions: whether the shell should carry the mark's bytes at all or
+whether a *blocking* first paint on the PNG is worth revisiting (measured here:
+a preload loses the race, so the invariant and the request cannot both be had);
+whether
+`showIfCollapsed` on the caret decoration would give a *mouse* reader the hover
+anywhere on the peer's line (today only the keyboard path and the mouse just
+past the line's text reach it — a decoration hover answers a position anchor,
+not a token); whether a link should be allowed to name a private or loopback
+address at all (the demo default is one, so a rule that refused them would
+refuse the demo); and whether the `?server=` bound belongs in the protocol or
+stays a guard in the client.
+
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and

@@ -27,6 +27,9 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   the selection out, peer cursors as decorations (glyph-margin initials
   badges, caret bars, selection fills, `label · role` hovers), plus the grant
   tree, jump-to-participant and follow. A peer's whole line is never marked.
+  The hover's label is room-supplied, so it is escaped to literal markdown
+  (`literalMarkdown`): a name paints as its characters and can carry no link,
+  image or code span into a guest's browser.
 - `src/browser/icons.ts` — the inline-SVG set plus the per-type tree icon: a
   solid page in the type's colour with a short label, so it reads in a tree row.
 - `src/browser/roster.ts` — the People roster as a testable render: the own
@@ -54,7 +57,9 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   same way when pasted; the bar shows it with the page's own origin dropped
   and the host, the room id and the token shortened middle-first, sized to
   what it shows.
-- `public/` — the page shell.
+- `public/` — the page shell, carrying the site's mark as its own pixels (a
+  104 px render of `mark-transparent.png` in the shell, so no frame waits on an
+  image; `node scripts/inline-mark.mjs` prints a refreshed one).
 - `scripts/prove-m1.mjs` — the live proof (see below). `scripts/prove-pi.mjs`
   is the M0 record, kept as-is. `scripts/prove-fb2.mjs` is the
   owner-feedback proof (tree-only open, create+move refresh, share-link
@@ -105,13 +110,19 @@ http://host:8081/?room=<room>&token=<token>&server=<ws-base>
 ```
 
 `server` is omitted for the default demo instance and appears only for other
-servers — and the default itself follows the page scheme: an https page joins
+servers, and it is bounded before it is used: an absolute `ws`/`wss`/`http`/
+`https` URL with a host, and no credentials, fragment or query — the guest's own
+browser is what would read its `/meta` and open its socket (`linkServerBase`).
+The default itself follows the page scheme: an https page joins
 over `wss://` (the Pi TLS proxy) while an http page keeps the plaintext `ws://`
 default, so an https page never emits a `ws://` or `http://` subrequest (see
 `BROWSER_NOTES.md`). That link is the whole guest flow: the page shows one
 card — the heading, one question (the name other participants see) and one
 confirm, over a blurred preview of the editor — and joins. The card shell is
-inline HTML, so it paints before the bundle arrives:
+inline HTML, so it paints before the bundle arrives, and its own inline script
+has already decided which shape it is (a bare open shows the paste box, a link
+open does not) and prefilled the remembered name, so the first painted frame is
+the final one:
 a name typed during a slow load survives (prefill only fills an untouched
 field), an early submit is held and replayed, and the editor stack loads only
 on join. Opening the page bare shows the same card with a paste box for the
@@ -145,6 +156,18 @@ another session.` Nothing of the dead room stays on screen, the name stays
 typed, and pasting a fresh link joins the next room from there. No manual
 rejoin, and no reclaim: the page never hellos as host and never rebuilds a room
 on its own.
+
+## The mark, and the icons
+
+The page carries the site's own mark and nothing drawn in its place: the card
+and the session bar wear a 104 px render of `public/mark-transparent.png` — the
+site's copy, byte-identical — inlined in the shell, and the tab is the rasters
+`npm run build` renders from `mark-opaque.png` at the sizes the site serves
+(16, 32, 48, 180). `node scripts/inline-mark.mjs` prints the data URI to paste
+if the site's master changes; `test/identity.test.ts` holds the two together
+byte for byte. The site's `app/icon.svg` — copied here as `favicon.svg` until
+this round — drew nothing but its background plate (its `clipPath` pointed at a
+`<g>`), and is gone with it.
 
 ## What the page does NOT do
 
