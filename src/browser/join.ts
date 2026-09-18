@@ -11,6 +11,7 @@
 import { MAX_DISPLAY_NAME_UNITS, parseSessionUrl } from '../engine/index.ts';
 
 import { parsePageLink } from './share.ts';
+import { linkServerBase } from './servers.ts';
 
 export { MAX_DISPLAY_NAME_UNITS };
 
@@ -75,7 +76,8 @@ export function addressBarInvite(isTheInvite: boolean, search: URLSearchParams):
  *
  * `search` must already carry param semantics (`pageQueryParams` in
  * `share.ts` reads the address bar that way); pasted wire invites are
- * normalised here.
+ * normalised here. A link may name the server the room lives on, and only the
+ * schemes `linkServerBase` admits reach the socket and the `/meta` read.
  */
 export function resolveJoin(
   search: URLSearchParams,
@@ -85,15 +87,14 @@ export function resolveJoin(
   const room = (search.get('room') ?? '').trim();
   const token = (search.get('token') ?? '').trim();
   if (room !== '' && token !== '') {
-    const server = (search.get('server') ?? '').trim();
-    return { base: server === '' ? defaultServer : server, room, token };
+    return { base: namedServer((search.get('server') ?? '').trim(), defaultServer), room, token };
   }
   const text = pasted.trim();
   if (text !== '') {
     const page = parsePageLink(text);
     if (page !== undefined) {
       return {
-        base: page.server === undefined ? defaultServer : page.server,
+        base: namedServer(page.server ?? '', defaultServer),
         room: page.room,
         token: page.token,
       };
@@ -106,11 +107,32 @@ export function resolveJoin(
       parsed.join.room !== undefined &&
       parsed.join.token !== undefined
     ) {
-      return { base: parsed.base, room: parsed.join.room, token: parsed.join.token };
+      return {
+        base: namedServer(parsed.base, defaultServer),
+        room: parsed.join.room,
+        token: parsed.join.token,
+      };
     }
     throw new Error('That invite link does not name a session. Paste the whole link.');
   }
   throw new Error('Paste an invite link to join.');
+}
+
+/**
+ * The server a link names, or the page's own default when it names none.
+ *
+ * A link that names one it may not — see `linkServerBase` — is refused in the
+ * card's words: the guest's browser is what would have made the request.
+ */
+function namedServer(raw: string, defaultServer: string): string {
+  if (raw === '') {
+    return defaultServer;
+  }
+  const base = linkServerBase(raw);
+  if (base === undefined) {
+    throw new Error('That invite link names a server this page cannot reach. Ask the host for a fresh link.');
+  }
+  return base;
 }
 
 /** The last name that joined, for prefill — localStorage only, never the wire. */

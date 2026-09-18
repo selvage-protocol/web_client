@@ -12,6 +12,7 @@ import { metaUrl, sessionUrl } from '../src/engine/index.ts';
 import {
   DEFAULT_TLS_SERVER,
   defaultServerForPage,
+  linkServerBase,
   schemeMatchBase,
 } from '../src/browser/servers.ts';
 
@@ -60,6 +61,50 @@ describe('scheme-match rule', () => {
       assert.ok(socket.startsWith('wss://'), `${base} -> socket ${socket}`);
       assert.ok(!socket.startsWith('ws://'), `${base} -> socket ${socket}`);
       assert.ok(meta.startsWith('https://'), `${base} -> meta ${meta}`);
+    }
+  });
+});
+
+describe('the server a link may name', () => {
+  it('takes the schemes a room can live on, and nothing else', () => {
+    for (const base of [
+      'ws://other:8080',
+      'wss://other:8443',
+      'http://other:8080',
+      'https://other:8443',
+      'wss://other:8443/proxy',
+      'ws://other:8080/',
+    ]) {
+      assert.equal(linkServerBase(base), base);
+    }
+    for (const base of [
+      'ftp://other:8080',
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'data:text/html,x',
+      'other:8080',
+      '127.0.0.1:8099',
+      '//other:8080',
+      '/session',
+      '',
+      '   ',
+      'ws://',
+    ]) {
+      assert.equal(linkServerBase(base), undefined, `${base} was admitted`);
+    }
+  });
+
+  it('refuses credentials, a fragment and a query', () => {
+    // Each of these puts an address in the page's request that the link does
+    // not read as naming.
+    for (const base of [
+      'ws://user:secret@other:8080',
+      'ws://user@other:8080',
+      'ws://other:8080#frag',
+      'ws://other:8080/session?room=r-1',
+      'wss://other:8443/?debug=1',
+    ]) {
+      assert.equal(linkServerBase(base), undefined, `${base} was admitted`);
     }
   });
 });

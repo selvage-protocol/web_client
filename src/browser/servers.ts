@@ -30,3 +30,39 @@ export function schemeMatchBase(base: string, pageProtocol: string): string {
   }
   return base.replace(/^ws:\/\//, 'wss://').replace(/^https?:\/\//, 'wss://');
 }
+
+/** The schemes a link may name: a socket, or the http(s) form of the same server. */
+const LINK_SCHEMES = new Set(['ws:', 'wss:', 'http:', 'https:']);
+
+/**
+ * The server base a link names, or `undefined` when a link may not name it.
+ *
+ * A link's `server` comes from whoever sent the link, and the page reads
+ * `<server>/meta` and opens a socket at `<server>/session` from it, so what it
+ * may name is bounded before it is used: an absolute `ws`/`wss`/`http`/`https`
+ * URL with a host, and nothing that would put a different address in the
+ * request than the link reads as naming — no credentials, no fragment, no
+ * query. A path is kept: a server behind a prefix is addressed, not spoofed.
+ */
+export function linkServerBase(raw: string): string | undefined {
+  const text = raw.trim();
+  if (text === '') {
+    return undefined;
+  }
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return undefined;
+  }
+  if (!LINK_SCHEMES.has(url.protocol) || url.hostname === '') {
+    return undefined;
+  }
+  if (url.username !== '' || url.password !== '') {
+    return undefined;
+  }
+  if (url.hash !== '' || url.search !== '') {
+    return undefined;
+  }
+  return text;
+}

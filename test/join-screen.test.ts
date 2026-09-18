@@ -150,7 +150,86 @@ describe('join targets', () => {
       /Paste an invite link to join\./,
     );
   });
+
+  it('a link may name a server, and only one this page can dial', () => {
+    // The `server` in a link arrives from whoever sent the link, and the
+    // guest's own browser is what would read `<server>/meta` and open a socket
+    // at `<server>/session`, so only the schemes a room can live on are used.
+    const refused = [
+      'ws://user:secret@other:8080',
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'other:8080',
+      '127.0.0.1:8099',
+      '//other:8080',
+      '/session',
+      'ws://other:8080#frag',
+      'ws://other:8080/session?room=r-1',
+    ];
+    for (const server of refused) {
+      for (const attempt of [
+        () =>
+          resolveJoin(
+            new URLSearchParams(`room=r-1&token=tok&server=${encodeURIComponent(server)}`),
+            '',
+            BASE,
+          ),
+        () =>
+          resolveJoin(
+            new URLSearchParams(),
+            `https://edit.example/?room=r-1&token=tok&server=${encodeURIComponent(server)}`,
+            BASE,
+          ),
+      ]) {
+        let thrown: Error | undefined;
+        try {
+          attempt();
+        } catch (error: unknown) {
+          thrown = error as Error;
+        }
+        assert.ok(thrown !== undefined, `${server} was admitted`);
+        assertPlain(thrown.message);
+      }
+    }
+    // A pasted wire invite names its server in the authority: credentials and
+    // an unlisted scheme are the two shapes that reach the base from there.
+    for (const invite of [
+      'ws://user:secret@other:8080/session?room=r-1&token=tok',
+      'ftp://other:8080/session?room=r-1&token=tok',
+    ]) {
+      assert.throws(
+        () => resolveJoin(new URLSearchParams(), invite, BASE),
+        /Ask the host for a fresh link\./,
+        `${invite} was admitted`,
+      );
+    }
+  });
+
+  it('a link with no server, or a dialable one, is untouched', () => {
+    assert.deepEqual(resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', BASE), {
+      base: BASE,
+      room: 'r-1',
+      token: 'tok',
+    });
+    // `http(s)://` names the same server and is upgraded on the page that
+    // needs TLS (`schemeMatchBase`), so the rule admits it here too.
+    for (const server of [
+      'ws://other:8080',
+      'wss://other:8443',
+      'http://other:8080',
+      'https://other:8443/proxy',
+      'ws://127.0.0.1:8117',
+      'ws://100.64.0.3:8080',
+    ]) {
+      assert.deepEqual(
+        resolveJoin(new URLSearchParams(`room=r-1&token=tok&server=${encodeURIComponent(server)}`), '', BASE),
+        { base: server, room: 'r-1', token: 'tok' },
+      );
+    }
+  });
 });
+
 
 describe('display-name persistence', () => {
   it('round-trips through localStorage only', () => {

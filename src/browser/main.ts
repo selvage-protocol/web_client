@@ -32,7 +32,7 @@ import {
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
-import { defaultServerForPage, schemeMatchBase } from './servers.ts';
+import { defaultServerForPage, linkServerBase, schemeMatchBase } from './servers.ts';
 
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
   getWorkerUrl: (_moduleId: string, label: string) =>
@@ -362,8 +362,8 @@ async function join(held: HeldJoin): Promise<void> {
 
 /** The server a failure message names before any attempt resolved one. */
 function fallbackBase(): string {
-  const raw = (params.get('server') ?? '').trim() || pageDefaultServer;
-  return schemeMatchBase(raw, pageProtocol);
+  const named = linkServerBase(params.get('server') ?? '') ?? pageDefaultServer;
+  return schemeMatchBase(named, pageProtocol);
 }
 
 async function openFirst(session: SessionInfo): Promise<void> {
