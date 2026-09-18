@@ -88,6 +88,8 @@ export class MonacoBinding implements EditorHost {
   private readonly style: HTMLStyleElement;
   private readonly stopEngine: () => void;
   private applying = 0;
+  /** The carets drawn for the showing path, for a tap (`peerAt`). */
+  private showing: Cursor[] = [];
   private path: string | undefined;
   private disposed = false;
   /** Paths handed to the bridge, whose hold and seed run once per showing. */
@@ -233,6 +235,7 @@ export class MonacoBinding implements EditorHost {
     }
     this.disposed = true;
     this.stopEngine();
+    this.showing = [];
     this.followingPeerId = undefined;
     this.pendingGoTo = undefined;
     for (const stop of this.stops.splice(0)) {
@@ -538,13 +541,41 @@ export class MonacoBinding implements EditorHost {
     return undefined;
   }
 
+  /**
+   * The peer whose caret sits at `offset` in the showing document, or whose
+   * selection covers it — the peer the guest has just put a finger on.
+   *
+   * A pointer device reads a peer's `label · role` from the caret decoration's
+   * hover; a finger has no hover and a native tooltip never paints on touch, so
+   * the page taps that decoration and says the same line (`main.ts`). The exact
+   * position is tried first, because a tap lands on a character, and a peer's
+   * selection second, so a tap inside their fill names them too.
+   */
+  peerAt(offset: number): Cursor | undefined {
+    if (this.disposed || this.path === undefined) {
+      return undefined;
+    }
+    const exact = this.showing.find((cursor) => cursor.head === offset);
+    if (exact !== undefined) {
+      return exact;
+    }
+    return this.showing.find(
+      (cursor) =>
+        cursor.anchor !== cursor.head &&
+        offset >= Math.min(cursor.anchor, cursor.head) &&
+        offset <= Math.max(cursor.anchor, cursor.head),
+    );
+  }
+
   renderCursors(cursors: Cursor[]): void {
     const model = this.path === undefined ? undefined : this.models.get(this.path);
     if (model === undefined) {
       this.cursors.clear();
+      this.showing = [];
       return;
     }
     const here = cursors.filter((cursor) => cursor.path === this.path);
+    this.showing = here;
     // One glyph-margin badge per line: badges on one line share a lane and
     // would draw over one another, so the lowest peer id wins the lane.
     const badged = onePerLine(here, (cursor) => model.getPositionAt(cursor.head).lineNumber);
