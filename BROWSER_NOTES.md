@@ -1375,6 +1375,137 @@ non-Chromium engine. Open questions: whether `.zsh` belongs to the shell
 tokenizer (mapped; `.fish` and `.ksh` are not), whether `.conf`/`.cfg` should
 be INI (mapped; a guess), and whether JSON deserves the schema-aware language
 service rather than this colour-only set (it would add a worker).
+## Independent review round: the tokenizer, the grace note and the proofs (2026-09-18)
+
+A review of the icons-and-languages round found one blocking defect, three
+smaller ones and four leftovers. All are fixed here, each with a test that
+fails without it; `npm test` goes 215/215 to **234/234**.
+
+**B1: the TOML set threw on every assignment line.** `tokenizers/toml.ts` sent
+`[{}[].=,]` to `@brackets`. Monarch compiles a tokenizer from the *language
+definition* alone — `basic-languages/_.contribution.js` hands the tokens
+provider `mod.language`, and `conf` only ever reaches
+`setLanguageConfiguration` — and `compile()` defaults the bracket list to
+`{} [] () <>` only when the definition carries no `brackets` of its own. The
+file's `conf.brackets` never reached the lexer, so `=` had no pair:
+`compile('toml', language)` yields brackets `"{} [] () <>"` and the lexer threw
+`toml: @brackets token returned but no bracket defined as: =` on the first
+assignment of every pass. `Cargo.toml` — the file that motivated the set — lost
+its colour, and the page raised an uncaught error per pass. The rule is now
+`[/[{}[\]]/, '@brackets']` with `[/[.,=]/, 'delimiter']` beside it: the
+assignment operators are punctuation, not brackets. JSON and Nix were checked
+for the same mistake and are clean — every character either sends to `@brackets`
+is in the default list — and are pinned by the same test.
+
+`test/tokenizers.test.ts` is new and drives the real path: `compile()` the
+language definition, then Monaco's own `MonarchTokenizer` line by line, carrying
+the end state, over a `Cargo.toml` (table header, `name = "selvage"`,
+`version = "0.1.0"`, an inline table, an array, an indented multi-line string, a
+dotted key, a date, a number), a `package.json` and a `flake.nix` — asserting no
+throw *and* the classes that come out. `test/languages.test.ts` only mapped a
+path to a language id, which is how a set that threw on line two passed a round.
+
+Live, Chromium 152 from the nix store over CDP, `dist/` on `:8081`, the icons
+round's own driver under `.tmp/live/` with the console watch it never had (it
+recorded token classes but watched no console — the reason this read as a
+success):
+
+| `Cargo.toml`, the same file | token classes | console |
+| --- | --- | --- |
+| before | 3 — base, string, one bracket | 5 uncaught `@brackets … no bracket defined as: =` |
+| after | 8 — base, key, string, number, type, `delimiter`, `delimiter.curly`, `delimiter.square` | clean |
+
+The other files still read as before (Rust 9, Nix 10, CSS 8, shell 7, JSON 7,
+`todo.txt` 1), and the peer caret still leaves one rule with no underline. The
+previous round's own line — "TOML 3" — was the symptom, read as a result.
+
+**S1: the grace warning could stand for the rest of a session.** The note came
+down only on the literal sentence `host <name> is back`, which rides the live
+`host.attached` frame; a guest whose socket was down at that instant missed the
+one all-clear, reconnected and read "the room closes in 30s unless the host
+returns" indefinitely. Two changes. The fallback pattern is now
+`/^host (.*) is back$/`: the engine's own validation accepts an empty
+`display_name` and the binding prints whatever the peer carries, so the
+all-clear can arrive as `host  is back`. And the note also clears on any
+membership report that names the host — the `roster` and `peers` notices, read
+through `hostPresent(participants)` in `notice.ts`.
+
+That the membership is a safe all-clear was checked, not assumed: the room sends
+`peer.left` for the host before `host.detached`, so through the grace the guest's
+own peer list holds no host at all. Probed live against the demo server
+(`.tmp/grace-probe.mjs`): before the detach the guest sees `[["grace-host","host"]]`
+and `hostPresent` is true; during the grace it sees `[]`, `hostPresent` false,
+and the `host left — the room closes in 30s unless the host returns` sentence. A
+membership report can only name the host once it is really back.
+
+**S2: `npm run prove:flow2` could not pass.** It still expected `following
+flow2-host — <path>`, `connection dropped — reconnecting…`, an `open: <path>`
+go-to sentence the round deleted, and a join-error copy reworded two rounds ago.
+The script still has value — it is the only proof that go-to, follow, the
+unpublished read and the reconnect re-seat work against a real server — so it is
+updated rather than deleted: a go-to now proves it lands *and* stays silent, a
+follow proves `Following flow2-host in notes.md`, the drop proves `Connection
+dropped. Reconnecting…`, the join error proves `Couldn't reach the session.
+Check your connection and retry.` Its notices are read by *text*, the way the
+page reads them, never by notice kind — and the guard in
+`test/join-chrome.test.ts` that greps drivers for `#status|setStatus` now flags
+a driver reading them by the internal `status` kind too. Live: `PROOF OK`
+against the demo server.
+
+**The leftovers.**
+
+- The session note was `role="alert"` (assertive) where the deleted status span
+  was polite: it is `aria-live="polite"` now — the equivalent, and no `status`
+  word back in the shell (`role="status"` would have been). The failure alert
+  stays assertive.
+- `registerLinkGuard` registers an opener on the editor's service and threw its
+  `{dispose}` away, leaking one opener per join. It returns the registration now,
+  and the page hands it to `dropSession` (disposed first, before the binding)
+  and drops a refused join's registration before a retry.
+- The peer row's `Go to` was disabled with no reason while the self row's dead
+  actions carried titles: it says `They are not in a document yet`, and
+  `test/roster.test.ts` pins that *every* disabled action carries one.
+  `test/session-over.test.ts` no longer claims the roster draws no dead actions
+  at all — it draws them reasoned, and the terminal vocabulary is what is gone.
+- The icon determinism fix was incomplete: `tIME` and `date:timestamp` went, but
+  `date:create`/`date:modify` were inherited from `public/mark-opaque.png`'s own
+  mtime, so a fresh clone rebuilt four different PNGs. `scripts/dist-icons.mjs`
+  now owns the one render (used by the build and by the test), drops all four
+  clock chunks and keeps the source's `Software` tag. Two builds with the
+  source's mtime twenty years apart hash identically, and the pixels are
+  untouched (`magick identify -format '%#'` equal before and after).
+
+**Two things deliberately left alone**, the review's own instruction being to
+record the decision rather than churn the code:
+
+- the internal `{ kind: 'status' }` notice kind stays: it is the binding's own
+  vocabulary — the desktop clients' `Report` channel — and the page routes those
+  sentences by text (`sessionNoteSignal`) to the note and the alert, so a driver
+  should read them the same way;
+- the binding's terminal state (`enterTerminal`, `terminalReason`) stays, and so
+  does the doc comment in `main.ts` that still describes it: the page leaves a
+  dead room above it (`dropSession`), but the resting state is the adapter
+  vocabulary both desktop clients implement, and deleting it would take the page
+  further from them than the design says.
+
+Green: `npm run typecheck` clean, `npm test` 234/234, `npm run build` with the
+`ws`-absence assert, `dist/` rebuilt last. Live: the full icons driver pass
+(join, every file, the caret) with a clean console, and `prove:flow2` `PROOF OK`.
+
+Could not verify: the grace warning coming down in a real browser — the
+membership path is pinned at the binding and probed against the live server, but
+no browser join survived a host detach here — and the *look* of a coloured
+`Cargo.toml`; the token classes were recorded, the pixels were not eyeballed.
+Open questions: whether `hostPresent` should be the trigger at all or the attach
+frame plus the reconnect snapshot only (the probe says the membership is only
+ever host-bearing when the host is really back, so the two agree); whether
+`delimiter` is the right class for TOML's `=`/`.`/`,` (JSON and Nix use
+`delimiter` for the same punctuation); that a dotted Nix builtin
+(`builtins.getEnv`) still reads as a plain identifier while a bare `length`
+reads as `predefined` (cosmetic, unchanged); and whether the orphaned
+terminal-state doc comment in `main.ts` belongs beside `enterTerminal` in
+`editor.ts`.
+
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and
