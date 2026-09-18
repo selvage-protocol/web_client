@@ -1049,6 +1049,132 @@ sentence standing; the dead link refused at the card; no rejoin or reclaim
 fired on its own. Shots `gone-*-end.png`, driver `goneleg-end.mjs`, holder
 `holder-gone-end.mjs`. Verdict in `ai_notes/.tmp/web-eyeball-report.md`.
 
+## Join card and chrome (2026-09-18)
+
+Six findings from the owner on the live page: the confirm button's label sat
+left and its type ran large; the card was a wall of prose before the one
+question it asks; the invite link snapped into view; the link in the bar was
+still too revealing; `#status` was still in the served shell (the fourth ask);
+and the page was not pretty. Typecheck green, minified build green with the
+ws-absence assert, suite **197/197** (`test/join-chrome.test.ts` new: 24
+checks, 16 of them red against `e7bf124`).
+
+1. **`#status` is gone.** No node in the shell, no rule (the media query's
+   included), no `#status` anywhere in `src/browser/`, no `setStatus`, no read
+   and no write. A scan test pins it by id, by role and by the bare word in the
+   shell, and it also fails on the historical driver scripts under `scripts/`
+   still selecting it — those three now read `#session-note`. Nothing the line
+   carried is restated anywhere: the messages that need a home have one, and
+   the rest are dropped (see below).
+2. **The card is the flow.** One heading (`Join a shared session`), the name
+   field, the confirm — and the paste box only for a page opened without a
+   link. The lede paragraph and the `You've been invited to a live session`
+   line are deleted, copy and all: with the heading above it, the line only
+   repeated the invitation. `initJoinCard` lost its roomline field rather than
+   keeping a dead one.
+3. **The primary control reads deliberate.** `#join-button` centres its label
+   (`justify-content: center`), drops to `1em` from `1.05em`, keeps
+   `padding: 0.8em 1.1em` and its press; the name field is `1rem` with
+   `padding: 0.7em`. Measured live in the browser: `justifyContent: center`,
+   `fontSize: 14px` (the old one was 14.7px), `padding: 11.2px 15.4px`; the
+   field padding `9.8px 11.2px`. The card no longer renders left-aligned
+   because the shared `button` rule has no `justify-content`.
+4. **The link fades.** The masked readout keeps its blur and gains
+   `transition: color 180ms ease, text-shadow 180ms ease`, so hover and focus
+   fade the value in instead of swapping it. Sampled in the real browser: at
+   rest `rgba(0,0,0,0)` with an 8px shadow, 70 ms after focus
+   `rgba(166,173,200,0.64)` with a 2.9px shadow, then `rgb(166,173,200)` with
+   no shadow. Under `prefers-reduced-motion: reduce` the transition is cut,
+   not shortened (and so is the button's press).
+5. **The bar shortens the credential, not just the host.** `abbreviateHost`
+   became `abbreviateMiddle` (one rule, three callers) and `displayShareLink`
+   shortens the `room` and `token` query values to 12 characters middle-first,
+   each on its own bound; the host bound stays 24 and the `server` value stays
+   whole (it names where the room is, not a permission). Live:
+   `?room=r-6a6a…af57e&token=45a54a…9bc53` on the bar, the whole link as the
+   element's title, and a real `navigator.clipboard.readText()` returned the
+   full bytes, byte-identical to the title.
+6. **The chrome speaks the landing page's language.** One Mocha token set
+   (`--background`, `--card`, `--foreground`, `--muted-foreground`, `--primary`
+   are the site's own values), borders moved to surface0 with a new
+   `--border-strong` for the edges that must stay visible (the open tree row,
+   the follow outline, the unpublished pill), one radius scale, the svp mark at
+   3.25rem over the blurred preview, the card centred instead of pinned to
+   12vh, a deeper veil (0.6 at 11px) and a softer shadow. A test computes WCAG
+   contrast from the tokens in the CSS itself: text, subtext, the primary
+   label, the failure red and the placeholder all land at or above 4.5:1 (the
+   tightest is the placeholder `#7f849c` on `#11111b`, 5.07:1). No gradient, no
+   fetched font, no new dependency.
+
+Where a message lives now — the owner's standard is that nothing fails
+silently:
+
+- **The host's socket detaching** (`host left — the room closes in 30s unless
+  the host returns`) and **the end of the room** (`The room is closed — host
+  did not return.`, or `Disconnected — the session ended. …` for a terminal
+  drop with no reason) show in the session chrome as `#session-note`: an
+  inline strip under the bar, a dot and the sentence, yellow for the grace and
+  red for the end (7.58:1 on mantle). It is a lifecycle line, not a ticker: it
+  appears only while something is true of the room, and the end never leaves.
+- **An action that refused** — a file that would not open, a go-to or follow
+  that failed, the hand-copy fallback when the clipboard is unavailable —
+  shows in `#alert`: a failure strip at the bottom of the window,
+  `role="alert"`, a red left rule, standing 7 s and then gone. It is empty at
+  rest and `:empty` hides it (a live region that is never removed announces
+  reliably); it never shows success, progress or connection chatter.
+- **Dropped**, deliberately, with nothing in their place: `Joined. Waiting for
+  the room to name a document.` (the tree already reads `The room shares no
+  listing yet.`), `'<name>' is already here. Your row carries a short id.`
+  (the roster row already carries the short id), the follow landings
+  (`Following <n> in <path>` — the banner names who, the tree and the buffer
+  name where), the transients `Connection dropped. Reconnecting…`,
+  `Reconnected.` and `disconnected` (nothing to act on: the socket reseats and
+  the room converges on its own), `room closed: <reason>` (the terminal
+  sentence supersedes it), and the past-the-end refusals that echoed the
+  terminal sentence from a dead control — every one of those controls is
+  `disabled` or `aria-disabled` with its reason on hover, so the refusal is
+  already visible. With the drop status gone, the `linkDown`/`reseated()`
+  bookkeeping that existed only to retire it went too.
+
+One coupling is unavoidable and is pinned rather than hidden: the binding has
+no notice kind for the host's grace window, so that warning arrives as a
+`status` notice and the page routes exactly the sentence that starts with
+`host left`. `test/join-chrome.test.ts` drives
+`MonacoBinding.report({ kind: 'hostDetached' })` and fails if the binding stops
+saying it, so a reworded binding cannot drop the warning silently.
+
+Proven live (`EYEBALL_DONE`, no console exceptions): the room hosted by
+`scripts/tmp-webflow-host.mjs`, `dist/` served on `:8081`, real Chromium 152
+from the nix store over CDP, profiles and shots under `./.tmp/live/` (the
+native browser tool cannot launch on this host — its bundled Chrome misses
+`libglib-2.0.so.0`), drivers `.tmp/live/eyeball.mjs`, `.tmp/live/clip.mjs`,
+`.tmp/live/mobile.mjs`. Read off the served page: the bare card is
+`Join a shared session | Paste your invite link | The name other participants
+see | Join`, with `document.getElementById('status') === null` and zero
+`[role="status"]` nodes; the invited card is the heading, the name and Join
+with focus already in the field; the joined bar abbreviates the room id and the
+token while the title and the clipboard keep the whole link; the reveal
+interpolates mid-fade; the host's death raises the yellow grace strip and, 30 s
+later, the red end strip with the roster dead, the link retired
+(`aria-disabled`, its title naming the reason) and the tree frozen under its
+stale marker; the alert paints bottom centre. Shots `01-card-bare.png`,
+`03-card-invited.png`, `04-joined.png`, `05-share-revealed.png`,
+`07-host-left.png`, `08-room-gone.png`, `09-alert.png`, `10-copy-whole.png`,
+`11-card-narrow.png`, `12-joined-narrow.png`. The alert's data path (which
+failures reach it, that success never does, that it clears itself) is covered
+by unit tests against the wired module, not by the live run — no reachable
+failure was at hand in the demo room — and only its paint was eyeballed. The
+clipboard read needed `Emulation.setFocusEmulationEnabled` plus a granted
+permission, so it is the real clipboard, not a stub.
+
+Open questions this round did not settle: whether a dropped socket deserves any
+visible state at all (today it has none, by design); whether the owner accepts a
+failure alert as a home rather than a status line by another name (it appears
+only on a failure and leaves on its own); the 12-character bound for the room
+id and the token, which is a guess at what still reads as an identifier; and
+whether the grace-window warning should become its own notice kind in the
+binding instead of a sentence the page matches by its opening words.
+
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and

@@ -37,10 +37,15 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   with go-to/follow, the presence-badged grant tree, the follow banner with
   the one stop control, and the page-origin share link whose whole bar
   copies. The tree is the only way to open a document.
+- `src/browser/notice.ts` — the two message homes the page keeps: the
+  session note in the chrome (the host-leave warning, the end of the room)
+  and the failure alert that shows an action that refused and leaves on its
+  own.
 - `src/browser/share.ts` — the guest link shape: built from the page's own
   origin (`?room=&token=`, plus `?server=` off the default), read back the
-  same way when pasted; the bar shows it with long hosts abbreviated
-  middle-first, and the paste-box schematic is built from the real origin.
+  same way when pasted; the bar shows it with the long host, the room id and
+  the token shortened middle-first, and the paste-box schematic is built from
+  the real origin.
 - `public/` — the page shell.
 - `scripts/prove-m1.mjs` — the live proof (see below). `scripts/prove-pi.mjs`
   is the M0 record, kept as-is. `scripts/prove-fb2.mjs` is the
@@ -81,15 +86,17 @@ http://host:8081/?room=<room>&token=<token>&server=<ws-base>
 servers — and the default itself follows the page scheme: an https page joins
 over `wss://` (the Pi TLS proxy) while an http page keeps the plaintext `ws://`
 default, so an https page never emits a `ws://` or `http://` subrequest (see
-`BROWSER_NOTES.md`). That link is the whole guest flow: the page shows one question —
-the name other participants see — over a blurred preview of the editor, and
-joins. The card shell is inline HTML, so it paints before the bundle arrives:
+`BROWSER_NOTES.md`). That link is the whole guest flow: the page shows one
+card — the heading, one question (the name other participants see) and one
+confirm, over a blurred preview of the editor — and joins. The card shell is
+inline HTML, so it paints before the bundle arrives:
 a name typed during a slow load survives (prefill only fills an untouched
 field), an early submit is held and replayed, and the editor stack loads only
 on join. Opening the page bare shows the same card with a paste box for the
 invite link (a page link, or a whole `ws://…/session?room=…&token=…`
 invite) above the name; after joining, the session bar shows the same link
-— abbreviated mid-first on long hosts, masked until hovered or focused,
+— host, room id and token each shortened, masked until hovered or focused and
+fading in rather than snapping,
 with its whole bar doing the copy (focus plus Enter works too), the full
 link as its title and the clipboard bytes — and a paste join lands in the address
 bar so a reload
@@ -102,12 +109,13 @@ prefill in the browser only. The People roster leads with your own name and
 lists who else is here with go-to and follow, never path text; the tree
 lists what the room shares with a peer badge on whoever's file is whose
 (an open file the host hasn't shared wears a `not yet shared` pill instead
-of a status sentence);
+of a sentence, and an action that refuses says so in the alert);
 following shows a banner in the followed peer's colour with the stop control
 on it, and ends when you type, navigate (open a file from the tree or go
-to someone), stop it, or the peer leaves. When the room ends — the host
+to someone), stop it, or the peer leaves. When the host's socket drops, the
+session note names the grace window; when the room ends — the host
 does not return before the grace expires — the page says so plainly and
-stays said: the status keeps `The room is closed — host did not return.`,
+stays said: the note keeps `The room is closed — host did not return.`,
 the roster clears with its actions disabled, the share link retires (readable
 but never copied again), the editor goes read-only, and the tree freezes on
 the last listing visibly marked stale, never shedding files. The way back is
