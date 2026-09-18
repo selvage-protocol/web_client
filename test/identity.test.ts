@@ -3,6 +3,8 @@
  * in Mocha/mauve — as favicon, touch icon, manifest, header brand and
  * OpenGraph image. Nothing here is redrawn: the sources are byte-identical
  * copies of the site's files, and the sized icons are rendered by the build.
+ * The site keeps its opaque mark as the OpenGraph image (`app/`), which is the
+ * same file this page serves as `mark-opaque.png`.
  */
 
 import { describe, it } from 'node:test';
@@ -39,7 +41,7 @@ describe('identity', () => {
   it('ships the site mark byte-identical, never redrawn', () => {
     for (const [ours, theirs] of [
       ['public/favicon.svg', 'app/icon.svg'],
-      ['public/mark-opaque.png', 'public/mark-opaque.png'],
+      ['public/mark-opaque.png', 'app/opengraph-image.png'],
       ['public/mark-transparent.png', 'public/mark-transparent.png'],
     ]) {
       assert.equal(sha256(resolve(root, ours)), siteSha256(theirs), ours);
