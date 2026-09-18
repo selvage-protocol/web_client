@@ -68,6 +68,24 @@ describe('leaving the session', () => {
     assert.deepEqual(order, ['binding', 'editor', 'engine']);
   });
 
+  it('drops the editor opener guard with the session', () => {
+    const order: string[] = [];
+    dropSession({
+      linkGuard: { dispose: () => void order.push('linkGuard') },
+      binding: { dispose: () => void order.push('binding') },
+      editor: { dispose: () => void order.push('editor') },
+      engine: { disconnect: () => void order.push('engine') },
+    });
+    assert.deepEqual(order, ['linkGuard', 'binding', 'editor', 'engine']);
+  });
+
+  it('the page holds the one guard registration per join, and drops it', () => {
+    assert.match(main, /linkGuard = registerLinkGuard\(/, 'the page discards the registration');
+    assert.match(main, /dropSession\(\{[^}]*linkGuard[^}]*\}\)/, 'the teardown never drops the guard');
+    const refused = main.slice(main.indexOf('async function runJoin'), main.indexOf('async function join('));
+    assert.match(refused, /linkGuard\?\.dispose\(\)/, 'a refused join left its guard registered');
+  });
+
   it('a step that throws never strands the others, and never goes unsaid', () => {
     const order: string[] = [];
     const logged: unknown[] = [];
@@ -147,8 +165,12 @@ describe('leaving the session', () => {
       assert.ok(!ended.includes(gone), `${gone} still lives in ended.ts`);
     }
     assert.ok(!shareBox.includes('retire'), 'the share box can still retire a link');
-    assert.ok(!roster.includes('disabledReason'), 'the roster can still draw dead actions');
-    assert.ok(!roster.includes('view.disabled'), 'the roster can still draw dead actions');
+    // The roster still draws disabled actions of its own — the self row's, and
+    // a peer's Go to while they are in no document. They are reasoned, not
+    // dead (test/roster.test.ts pins every one's title); what the terminal
+    // state must not leave behind is its own dead-room vocabulary.
+    assert.ok(!roster.includes('disabledReason'), 'the roster can still draw terminal reasons');
+    assert.ok(!roster.includes('view.disabled'), 'the roster can still draw a dead-room flag');
     assert.ok(!style.includes('.retired'), 'the shell still styles a retired link');
   });
 });

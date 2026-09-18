@@ -45,9 +45,13 @@ export function linkTargetScheme(target: LinkTarget): string {
  * Registers the guard with the editor's opener service. It runs first and
  * answers `true` (handled — the default opener never runs) for anything that
  * is not a web or mail link, so no shared-text link can navigate the page.
+ *
+ * The registration is returned: an opener on the editor's service lives until
+ * it is disposed, and a page that joins a second room would otherwise leave
+ * one behind per join. The caller owns it and drops it with the session.
  */
-export function registerLinkGuard(service: GuardableOpenerService): void {
-  service.registerOpener({
+export function registerLinkGuard(service: GuardableOpenerService): { dispose(): void } {
+  return service.registerOpener({
     open: (target) => !linkOpensExternally(linkTargetScheme(target)),
   });
 }

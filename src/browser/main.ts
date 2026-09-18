@@ -165,6 +165,8 @@ function settleFocus(field: HTMLInputElement): void {
 
 let binding: MonacoBinding | undefined;
 let engine: SelvageEngine | undefined;
+/** The editor's opener guard, one registration per join, dropped with the session. */
+let linkGuard: { dispose(): void } | undefined;
 /** The editor widget the binding drew into, dropped with the session. */
 let editorApi: { dispose(): void } | undefined;
 let opening: string | undefined;
@@ -257,6 +259,10 @@ async function runJoin(held: HeldJoin): Promise<void> {
     // plain copy unless the owner asked for the diagnostic with `?debug=1`.
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
     joinError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
+    // A refused join registered the guard before it gave up, so the retry
+    // starts from a clean opener service rather than a second registration.
+    linkGuard?.dispose();
+    linkGuard = undefined;
     // A held early submit disables the button for feedback (see the inline
     // guard): a refused join hands the card back, so the guest can retry.
     joinGate.release();
@@ -282,7 +288,12 @@ async function join(held: HeldJoin): Promise<void> {
   // would drive the page itself at `file:///...`. The guard swallows
   // everything but web and mail links before the default opener runs.
   const services = await import('./monaco.ts');
-  registerLinkGuard(services.StandaloneServices.get<GuardableOpenerService>(services.IOpenerService));
+  // The registration lives on the editor's opener service until it is
+  // disposed, so it is held here and dropped with the session — never left
+  // behind for the next join to overwrite.
+  linkGuard = registerLinkGuard(
+    services.StandaloneServices.get<GuardableOpenerService>(services.IOpenerService),
+  );
   // The default `/meta` check runs: same-origin it reads the version, and where
   // the page is cross-origin the read fails like any unreachable endpoint —
   // advisory, never a refusal — while the handshake negotiates the truth.
@@ -618,10 +629,11 @@ function leaveSession(sentence: string): void {
     // has nothing to leave. The card is already the card.
     return;
   }
-  dropSession({ binding, editor: editorApi, engine });
+  dropSession({ linkGuard, binding, editor: editorApi, engine });
   // Monaco takes its own DOM with it; anything it leaves behind must not sit in
   // the host when the next session builds another editor there.
   editorHost.replaceChildren();
+  linkGuard = undefined;
   binding = undefined;
   engine = undefined;
   editorApi = undefined;

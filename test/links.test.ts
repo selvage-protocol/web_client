@@ -17,14 +17,16 @@ import {
 } from '../src/browser/links.ts';
 import type { GuardableOpenerService, LinkTarget } from '../src/browser/links.ts';
 
-function fakeService(): { service: GuardableOpenerService; openers: Array<(target: LinkTarget) => boolean | Promise<boolean>> } {
+function fakeService(): { service: GuardableOpenerService; openers: Array<(target: LinkTarget) => boolean | Promise<boolean>>; disposals: () => number } {
   const openers: Array<(target: LinkTarget) => boolean | Promise<boolean>> = [];
+  let disposed = 0;
   return {
     openers,
+    disposals: () => disposed,
     service: {
       registerOpener: (opener) => {
         openers.push((target) => opener.open(target));
-        return { dispose: () => {} };
+        return { dispose: () => void (disposed += 1) };
       },
     },
   };
@@ -59,6 +61,14 @@ describe('linkTargetScheme', () => {
 });
 
 describe('registerLinkGuard', () => {
+  it('hands the registration back, so the caller can drop it', () => {
+    const { service, disposals } = fakeService();
+    const registration = registerLinkGuard(service);
+    assert.equal(disposals(), 0, 'the guard disposed itself the moment it registered');
+    registration.dispose();
+    assert.equal(disposals(), 1, 'the registration cannot be dropped');
+  });
+
   it('swallows file targets before the default opener runs', async () => {
     const { service, openers } = fakeService();
     registerLinkGuard(service);

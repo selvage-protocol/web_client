@@ -30,7 +30,9 @@ export function sessionOverMessage(sentence: string): string {
 
 /** The handles a live session holds, as the teardown sees them. */
 export interface LiveSession {
-  /** The binding first: a disposed binding never reports anything else. */
+  /** The editor's opener guard: one registration per join, dropped with the session. */
+  linkGuard?: { dispose(): void };
+  /** The binding next: a disposed binding never reports anything else. */
   binding?: { dispose(): void };
   /** The editor widget the binding drew into. */
   editor?: { dispose(): void };
@@ -39,12 +41,13 @@ export interface LiveSession {
 }
 
 /**
- * Drops a live session in the order that keeps it quiet: the binding, the
- * editor it drew into, then the socket. A step that throws never strands the
- * others — a page that cannot finish leaving a dead room is worse than a
- * logged error, and the log is the only place that failure may sit.
+ * Drops a live session in the order that keeps it quiet: the opener guard, the
+ * binding, the editor it drew into, then the socket. A step that throws never
+ * strands the others — a page that cannot finish leaving a dead room is worse
+ * than a logged error, and the log is the only place that failure may sit.
  */
 export function dropSession(session: LiveSession): void {
+  quiet(() => session.linkGuard?.dispose());
   quiet(() => session.binding?.dispose());
   quiet(() => session.editor?.dispose());
   quiet(() => void session.engine?.disconnect());
