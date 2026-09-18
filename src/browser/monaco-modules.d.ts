@@ -20,6 +20,19 @@ declare module 'monaco-editor/esm/vs/editor/editor.worker.js';
 
 declare module 'monaco-editor/esm/vs/language/typescript/ts.worker.js';
 
+/** The Monaco basic-language registration helper, for this repository's own tokenizers. */
+declare module 'monaco-editor/esm/vs/basic-languages/_.contribution.js' {
+  export function registerLanguage(def: {
+    id: string;
+    extensions?: string[];
+    filenames?: string[];
+    aliases?: string[];
+    mimetypes?: string[];
+    loader: () => Promise<{ language: unknown; conf: unknown }>;
+  }): void;
+  export function loadLanguage(languageId: string): Promise<void>;
+}
+
 /** The standalone service locator, for the shared-text link guard. */
 declare module 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js' {
   export const StandaloneServices: {
