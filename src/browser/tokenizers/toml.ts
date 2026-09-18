@@ -43,7 +43,12 @@ export const language = {
         'number.date',
       ],
       [/[+-]?(?:0x[0-9a-fA-F_]+|0o[0-7_]+|0b[01_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)/, 'number'],
-      [/[{}[\].=,]/, '@brackets'],
+      // The brackets this language declares in `conf` — and nothing else:
+      // Monarch compiles the tokenizer from the language definition alone, so
+      // a character here with no pair there throws on the line that carries
+      // it. The assignment operators are punctuation, not brackets.
+      [/[{}[\]]/, '@brackets'],
+      [/[.,=]/, 'delimiter'],
     ],
     string: [
       [/\\./, 'string.escape'],
