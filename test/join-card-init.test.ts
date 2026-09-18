@@ -159,6 +159,22 @@ describe('join card wiring in main.ts', () => {
     assert.ok(attempt.includes("joinButton.textContent = 'Join'"), 'refused joins never restore the button');
   });
 
+  it('a refused pre-flight hands the card back, not only a refused join', () => {
+    // A held early submit disables the button before the bundle lands, so a
+    // refusal that never left the page (a blank name, a link that names no
+    // session) has to hand it back here — otherwise the only way on is Enter.
+    const at = main.indexOf('function attemptJoin');
+    assert.ok(at !== -1, 'no attemptJoin in main.ts');
+    const attempt = main.slice(at, main.indexOf('async function runJoin', at));
+    const restore = attempt.indexOf('joinButton.disabled = false');
+    assert.ok(restore !== -1, 'a refused pre-flight leaves the Join button disabled');
+    assert.ok(
+      restore < attempt.indexOf('const outcome = joinGate.request'),
+      'the restore sits on the queued path rather than on the refusal',
+    );
+    assert.ok(attempt.includes("joinButton.textContent = 'Join'"), 'the button label is not restored');
+  });
+
   it('the join gate is born before the replay that uses it', () => {
     // The replay runs during this module's own evaluation: a gate declared
     // later would still be unborn (temporal dead zone), the replay would

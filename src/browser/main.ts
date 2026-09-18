@@ -235,6 +235,12 @@ function attemptJoin(): void {
     const base = fallbackBase();
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
     joinError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
+    // Nothing left the page, but a held early submit disabled the button
+    // before this bundle arrived: a refused pre-flight (a blank name, a link
+    // that names no session) hands the card back the way a refused join does,
+    // or the guest's only way on is Enter.
+    joinButton.disabled = false;
+    joinButton.textContent = 'Join';
     return;
   }
   const outcome = joinGate.request(() => {
