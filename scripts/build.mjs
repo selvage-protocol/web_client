@@ -91,7 +91,20 @@ for (const [size, out] of [
 ]) {
   execFileSync(
     'magick',
-    [resolve(root, 'public/mark-opaque.png'), '-resize', `${size}x${size}!`, resolve(root, `dist/${out}`)],
+    [
+      resolve(root, 'public/mark-opaque.png'),
+      '-resize',
+      `${size}x${size}!`,
+      // Stable bytes across builds: ImageMagick writes the current time into a
+      // `tIME` chunk and a `date:timestamp` tag, so every build dirtied the tree
+      // with byte-identical icons. Drop both; keep `date:create`/`date:modify`
+      // and the source's `Software` tag.
+      '-define',
+      'png:exclude-chunk=time',
+      '+set',
+      'date:timestamp',
+      resolve(root, `dist/${out}`),
+    ],
     { stdio: 'inherit' },
   );
 }
