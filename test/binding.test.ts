@@ -165,16 +165,16 @@ describe('MonacoBinding', () => {
       endColumn: 3,
     });
     assert.equal(caret.options.hoverMessage.value, 'sam · guest');
-    const line = editor.decorations[1];
-    assert.equal(line.options.isWholeLine, true);
-    assert.ok(line.options.className.startsWith('selvage-'));
-    const fill = editor.decorations[2];
+    // The selection rides as a fill; no whole-line marker exists.
+    assert.equal(editor.decorations.filter((entry) => entry.options.isWholeLine === true).length, 0);
+    const fill = editor.decorations[1];
     assert.deepEqual(fill.range, {
       startLineNumber: 2,
       startColumn: 1,
       endLineNumber: 2,
       endColumn: 3,
     });
+    assert.ok(fill.options.inlineClassName.startsWith('selvage-'));
     assert.ok(appended.some((rule) => rule.includes('#112233')));
     binding.dispose();
   });

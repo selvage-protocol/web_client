@@ -547,22 +547,15 @@ export class MonacoBinding implements EditorHost {
           caretOptions.glyphMarginClassName = this.badgeClass(cursor);
         }
         const caret = { range: caretRange, options: caretOptions };
-        // The line marker is an underline only, never a fill: a full-line
-        // wash would paint over the local caret and selection, while the
-        // desktop draws the same peer as a caret bar plus a selection fill.
-        const underline = {
-          range: caretRange,
-          options: {
-            isWholeLine: true,
-            className: this.colourClass(`under:${cursor.fill}`, `border-bottom: 1px solid ${cursor.fill};`),
-          },
-        };
+        // A peer draws as a caret bar, a selection fill and nothing else — the
+        // pair the desktop client draws. A whole-line marker under the peer's
+        // line reads as the document's own rule and says nothing the bar does
+        // not, so there is none.
         if (cursor.anchor === cursor.head) {
-          return [caret, underline];
+          return [caret];
         }
         return [
           caret,
-          underline,
           {
             range: toRange(model, cursor.anchor, cursor.head),
             options: {

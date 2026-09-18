@@ -1,6 +1,8 @@
 /**
  * Peer-presence visibility: initials badges, one badge per line, and the
- * Monaco rendering (glyph-margin badge, whole-line highlight, labelled hover).
+ * Monaco rendering (glyph-margin badge, caret bar, labelled hover). The whole-
+ * line marker is deliberately absent — a peer is a caret bar and, when they
+ * hold a selection, a fill.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -148,7 +150,7 @@ describe('badgeCss', () => {
 });
 
 describe('renderCursors parity', () => {
-  it('draws a glyph-margin badge, a caret bar, a subtle underline and a labelled hover', async () => {
+  it('draws a glyph-margin badge, a caret bar and a labelled hover, never a line marker', async () => {
     const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
     const editor = makeEditor();
     const binding = new MonacoBinding({
@@ -159,7 +161,7 @@ describe('renderCursors parity', () => {
     });
     await binding.openDocument('a.txt');
     appendedRules.length = 0;
-    // Two peers on line 2 (offsets 3..6): one badge, two carets, two underlines.
+    // Two peers on line 2 (offsets 3..6): one badge, two carets, no line marker.
     binding.renderCursors([cursor('peer-b', 'bob', 5, 3), cursor('peer-a', 'amy', 4)]);
     const decorations = editor.decorations;
     const glyphs = decorations.filter((entry) => entry.options.glyphMarginClassName !== undefined);
@@ -169,30 +171,28 @@ describe('renderCursors parity', () => {
       appendedRules.some((rule) => rule.includes(`.${badgeClass}::after`) && rule.includes('#e06c75')),
       `badge rule missing for ${badgeClass}: ${JSON.stringify(appendedRules)}`,
     );
+    // No peer underlines or washes their line: the caret bar is the whole line marker.
     const lines = decorations.filter((entry) => entry.options.isWholeLine === true);
-    assert.equal(lines.length, 2);
+    assert.equal(lines.length, 0, 'a whole-line decoration survived');
     for (const entry of decorations) {
       assert.ok(entry.options.hoverMessage === undefined || / · /.test(entry.options.hoverMessage.value));
     }
     const carets = decorations.filter((entry) => entry.options.hoverMessage !== undefined);
     assert.equal(carets.length, 2);
     assert.equal(carets[0].options.hoverMessage.value, 'bob · guest');
-    // The caret bar stays visible: a 2px tint no wash can cover.
+    // The caret bar stays visible: a 2px tint no wash can cover, plus the ruler tick.
     assert.ok(
       appendedRules.some((rule) => /border-left: 2px solid/.test(rule)),
       `caret bar lost: ${JSON.stringify(appendedRules)}`,
     );
-    // Underline only: no whole-line rule may carry a background wash.
-    for (const entry of lines) {
-      const rule = ruleFor(entry.options.className);
-      assert.ok(rule !== undefined, `no rule for ${entry.options.className}`);
-      assert.ok(!/background/.test(rule), `full-line wash survived: ${rule}`);
-      assert.ok(/border-bottom/.test(rule), `underline lost: ${rule}`);
-    }
+    assert.ok(
+      carets.every((entry) => entry.options.overviewRuler?.color === '#e06c75'),
+      'overview-ruler tick lost',
+    );
     binding.dispose();
   });
 
-  it('a selection fill rides beside the underline, never a full-line wash', async () => {
+  it('a selection keeps its fill and no whole-line marker', async () => {
     const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]));
     const editor = makeEditor();
     const binding = new MonacoBinding({
@@ -205,13 +205,10 @@ describe('renderCursors parity', () => {
     appendedRules.length = 0;
     binding.renderCursors([cursor('peer-a', 'amy', 5, 3)]);
     const decorations = editor.decorations;
-    assert.ok(decorations.some((entry) => entry.options.isWholeLine === true));
     assert.ok(decorations.some((entry) => entry.options.inlineClassName !== undefined));
-    for (const entry of decorations.filter((entry) => entry.options.isWholeLine === true)) {
-      const rule = ruleFor(entry.options.className);
-      assert.ok(rule !== undefined, `no rule for ${entry.options.className}`);
-      assert.ok(!/background/.test(rule), `full-line wash survived: ${rule}`);
-    }
+    const fill = decorations.find((entry) => entry.options.inlineClassName !== undefined);
+    assert.ok(/background-color/.test(ruleFor(fill.options.inlineClassName)), 'selection fill lost');
+    assert.equal(decorations.filter((entry) => entry.options.isWholeLine === true).length, 0);
     binding.dispose();
   });
 
@@ -228,11 +225,9 @@ describe('renderCursors parity', () => {
     appendedRules.length = 0;
     binding.renderCursors([cursor('peer-b', 'bob', 5, 3), cursor('peer-a', 'amy', 4)]);
     const lines = editor.decorations.filter((entry) => entry.options.isWholeLine === true);
-    assert.ok(lines.length > 0, 'the line marker is gone entirely');
-    for (const entry of lines) {
-      const rule = ruleFor(entry.options.className);
-      assert.ok(rule !== undefined, `no rule for ${entry.options.className}`);
-      assert.ok(!/background/.test(rule), `full-line wash: ${rule}`);
+    assert.equal(lines.length, 0, 'the line marker is back');
+    for (const rule of appendedRules) {
+      assert.ok(!/border-bottom/.test(rule), `underline rule minted: ${rule}`);
     }
     binding.dispose();
   });
