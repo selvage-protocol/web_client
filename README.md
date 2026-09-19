@@ -17,7 +17,10 @@ npm run serve # serve dist/ at http://localhost:8081/
 ```
 
 When you change a dependency, `npm install --no-audit --no-fund` writes the lockfile.
-`npm run serve` is `python3 -m http.server 8081 --directory dist`.
+`npm run serve` is `python3 -m http.server 8081 --directory dist`. That port is the
+development server's alone, chosen to avoid `selvaged`'s default 8080; it is not the
+deployed page's port. The image listens on 8080 and `compose.yaml` publishes it on 80
+(see Serving the page).
 
 ### Where the server comes from
 
@@ -53,15 +56,34 @@ beside it.
 
 **The page-only image.** This repository publishes the bundle on its own, so the page
 can live on an origin of its own, one page in front of several `selvaged` instances, or
-a page host separate from the servers:
+a page host separate from the servers. The preferred way to run it is `compose.yaml`,
+which builds the page from this checkout and answers on the standard web port:
 
 ```sh
-docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-  --publish 127.0.0.1:8080:8080 ghcr.io/selvage-protocol/selvage-web:0.1.0
+docker compose up --build --detach   # http://localhost/
 ```
 
-The tags are `<version>-<sha>`, `<version>` and `latest`, published from a `v*` tag by
-`.github/workflows/image.yml` and carrying this repository's committed `dist/` (the
+The service publishes `80:8080`: the host answers on port 80 while the container keeps
+listening on 8080, which it must, because `nginx-unprivileged` runs as uid 101 with every
+capability dropped and cannot bind a port below 1024. `compose.yaml` carries the same
+hardening as `reference_server`'s — `read_only`, `cap_drop: [ALL]`, `no-new-privileges`,
+no volumes — and `scripts/container-smoke.sh` asserts it. To evaluate on this machine
+only, rebind the published port to `127.0.0.1:8080:8080` there.
+
+**The image is not on a registry yet.** This repository has no `v*` tag, and
+`.github/workflows/image.yml` publishes only on one, so there is nothing to pull: the
+compose file builds the image from this checkout. That changes when a tag is cut; until
+then, building and running it by hand is the same page:
+
+```sh
+docker build --tag selvage-web:0.1.0 .
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  --publish 80:8080 selvage-web:0.1.0
+```
+
+On a tag, `.github/workflows/image.yml` publishes
+`ghcr.io/selvage-protocol/selvage-web` with the tags `<version>-<sha>`, `<version>` and
+`latest`, and the image carries this repository's committed `dist/` (the
 checks job proves a build of `src/` reproduces it, so the image cannot fall behind its
 source). The runtime is `nginx-unprivileged` as uid 101 on port 8080,
 and it answers the media types, the cache policy and the content-security policy that
