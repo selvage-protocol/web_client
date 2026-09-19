@@ -22,16 +22,22 @@ jobs:
     # `node:22-trixie-slim`, whose trixie imagemagick is 7 — which also makes the step
     # that asserts a build reproduces the committed `dist/` run in the environment the
     # page is built in everywhere else.
+    #
+    # A job container's own filesystem is the image's, so `git` and an `/etc/ssl` have
+    # to be installed first; see the step below.
     runs-on: ubuntu-24.04
     container: node:22-trixie-slim
     timeout-minutes: 20
     steps:
-      # Before the checkout: the slim image carries no git, and the checkout reads the
-      # repository with it.
-      - name: install git and ImageMagick 7
+      # Before the checkout: the slim image carries no git and, more to the point, no
+      # `/etc/ssl` at all, because the official node images install `ca-certificates`
+      # and purge it as auto-removable in the same layer. Node carries its own trusted
+      # roots; git, which the checkout uses over HTTPS, does not. ImageMagick 7's
+      # `magick` is here because `npm run build` shells out to it for the sized icons.
+      - name: install git, ca-certificates and ImageMagick 7
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git imagemagick
+          apt-get install -y --no-install-recommends ca-certificates git imagemagick
 
       - uses: actions/checkout@v7.0.1
         with:

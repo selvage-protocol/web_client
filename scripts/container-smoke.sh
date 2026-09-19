@@ -61,8 +61,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Runs a command whose own failure would otherwise leave nothing but `exit code 1` in a
+# transcript that cannot be read from the API: on failure its last lines go out as the
+# annotation, so a red run says what the daemon said.
+attempt() {  # attempt <what> <command...>
+    local what="$1" log="$TMPDIR/container-smoke-attempt.log"
+    shift
+    if ! "$@" >"$log" 2>&1; then
+        cat "$log" >&2
+        fail "$what: $(tail -n 3 "$log" | tr '\n' ' ' | cut -c1-400)"
+    fi
+    cat "$log"
+}
+
 echo "=== build: docker build of this repository's Dockerfile ==="
-docker build --tag "$image" \
+attempt 'docker build' docker build --tag "$image" \
     --build-arg "VERSION=$version" \
     --build-arg "REVISION=$revision" \
     .
@@ -76,7 +89,7 @@ got_revision="$(label org.opencontainers.image.revision)"
 echo "image OK: version $got_version, revision $got_revision"
 
 echo "=== run: the hardened container, no mount, the image's own command ==="
-docker run --detach --name "$name" "${hardening[@]}" \
+attempt 'docker run' docker run --detach --name "$name" "${hardening[@]}" \
     --publish "127.0.0.1:$port:8080" \
     "$image"
 
@@ -128,6 +141,6 @@ scripts/check-page.sh "$base" || {
 }
 
 echo "=== the container's own transcript ==="
-docker logs "$name"
+docker logs "$name" || true
 
 echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, and refused a write"
