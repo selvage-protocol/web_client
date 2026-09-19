@@ -42,9 +42,13 @@ function declarations(text: string, selector: string): string {
   return assert.fail(`no ${selector} rule`);
 }
 
-/** The body of the first `@media <header>` block, braces balanced. */
+/**
+ * The body of the first `@media <header>` block, braces balanced. The header is
+ * matched with the `{` that opens its block, so the touch query cannot match
+ * the phone block that merely starts with the same words.
+ */
 function mediaBlock(header: string): string {
-  const at = style.indexOf(`@media ${header}`);
+  const at = style.indexOf(`@media ${header} {`);
   assert.ok(at !== -1, `no @media ${header} block in the shell`);
   const open = style.indexOf('{', at);
   let depth = 0;
