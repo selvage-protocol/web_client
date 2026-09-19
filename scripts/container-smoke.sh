@@ -93,13 +93,18 @@ if service.get("read_only") is not True:
     failures.append(f"read_only is {service.get('read_only')!r}, want true")
 if service.get("cap_drop") != ["ALL"]:
     failures.append(f"cap_drop is {service.get('cap_drop')!r}, want ['ALL']")
+enabled_no_new_privileges = {
+    "no-new-privileges",
+    "no-new-privileges:true",
+    "no-new-privileges=true",
+}
 if not any(
-    opt.startswith("no-new-privileges")
+    opt in enabled_no_new_privileges
     for opt in service.get("security_opt", [])
 ):
     failures.append(
         f"security_opt is {service.get('security_opt')!r}, "
-        "want no-new-privileges among it"
+        "want an enabled no-new-privileges option"
     )
 # Nothing mounted: the image carries the page it serves, and nginx's writable
 # paths are the runtime's own /dev/shm.
