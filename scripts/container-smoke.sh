@@ -5,11 +5,12 @@
 #
 #   scripts/container-smoke.sh [PORT]
 #
-# Needs a Docker daemon, curl, node and git:
+# Needs a Docker daemon with the compose plugin, curl, node, git and python3:
 # `.github/workflows/image.yml` runs it on a runner that has all of them, and this
 # host has no Docker at all, so the run this script is read from is the CI one.
 #
-# Proves, in order: `docker build` succeeds and the version label reads back off the
+# Proves, in order: `compose.yaml` carries the hardened run a self-hoster gets;
+# `docker build` succeeds and the version label reads back off the
 # image; the container runs with a read-only root filesystem, every capability
 # dropped, no-new-privileges and nothing mounted at all, as the base's uid 101; the
 # page is served from the image's own copy of `dist/` — every file's media type,
@@ -26,12 +27,16 @@ cd "$repo_root"
 export TMPDIR="$repo_root/.tmp"
 mkdir -p "$TMPDIR"
 
-for tool in docker curl node git; do
+for tool in docker python3 curl node git; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "container-smoke.sh needs $tool, which this host does not have" >&2
         exit 2
     fi
 done
+if ! docker compose version >/dev/null 2>&1; then
+    echo "container-smoke.sh needs the docker compose plugin to read compose.yaml" >&2
+    exit 2
+fi
 
 port="${1:-18081}"
 image="selvage-web-smoke"
@@ -73,6 +78,66 @@ attempt() {  # attempt <what> <command...>
     fi
     cat "$log"
 }
+
+echo "=== compose: the hardened run is in the file a self-hoster uses, not only here ==="
+compose_json="$(docker compose -f compose.yaml config --format json)"
+COMPOSE_JSON="$compose_json" python3 - <<'EOF'
+import json
+import os
+import sys
+
+service = json.loads(os.environ["COMPOSE_JSON"])["services"]["selvage-web"]
+failures = []
+
+if service.get("read_only") is not True:
+    failures.append(f"read_only is {service.get('read_only')!r}, want true")
+if service.get("cap_drop") != ["ALL"]:
+    failures.append(f"cap_drop is {service.get('cap_drop')!r}, want ['ALL']")
+if not any(
+    opt.startswith("no-new-privileges")
+    for opt in service.get("security_opt", [])
+):
+    failures.append(
+        f"security_opt is {service.get('security_opt')!r}, "
+        "want no-new-privileges among it"
+    )
+# Nothing mounted: the image carries the page it serves, and nginx's writable
+# paths are the runtime's own /dev/shm.
+if service.get("volumes"):
+    failures.append(
+        f"volumes is {service['volumes']!r}, want none: a public deployment mounts "
+        "nothing from the host"
+    )
+if service.get("privileged"):
+    failures.append("privileged is set, want it unset")
+for key in ("network_mode", "pid", "ipc"):
+    if service.get(key) == "host":
+        failures.append(f"{key} is host, want the container's own")
+
+# The host answers on the standard web port while the container keeps its
+# unprivileged 8080: that mapping is the whole point of the file.
+published = set()
+for port in service.get("ports", []):
+    if isinstance(port, dict):
+        published.add((str(port.get("published")), int(port.get("target", 0))))
+    elif isinstance(port, str):
+        parts = port.rsplit(":", 2)
+        if len(parts) >= 2:
+            published.add((parts[-2], int(parts[-1].split("/")[0])))
+if ("80", 8080) not in published:
+    failures.append(
+        f"port 8080 is published as {sorted(published) or 'nothing'}, want '80': the "
+        "container cannot bind below 1024 with every capability dropped"
+    )
+
+if failures:
+    print("\n".join(failures), file=sys.stderr)
+    sys.exit(1)
+print(
+    "compose OK: read-only root filesystem, all capabilities dropped, "
+    "no-new-privileges, nothing mounted, host port 80 to container 8080"
+)
+EOF
 
 echo "=== build: docker build of this repository's Dockerfile ==="
 attempt 'docker build' docker build --tag "$image" \
