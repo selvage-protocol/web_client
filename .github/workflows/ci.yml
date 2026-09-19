@@ -53,31 +53,23 @@ jobs:
       # Dockerfile), so this is where a source change that was never built is caught,
       # rather than in an image that would carry a stale page.
       #
-      # Every file the bundler writes has to come back byte-identical. The six sized
-      # icons are excluded by name: their bytes are the renderer's, not this
-      # repository's (this job carries trixie's ImageMagick 7.1.1.x; the checkout the
-      # committed icons came from carried another), so pinning them here would pin a
-      # rendering tool's version. `test/identity.test.ts` is where they are pinned, and
-      # it is excluded from `test:ci` for the unrelated reason that it needs a sibling
-      # checkout. A difference anywhere else is named in an annotation, because a
-      # job's transcript is not readable from the API without a signed-in session.
+      # The assertion is `git status --porcelain`, not `git diff --exit-code`: both
+      # compare the working tree with the commit, and only `git status` also names an
+      # emitted file that was never committed. It is strict, with no path excluded, and
+      # the run carries the evidence as an annotation, because a job's transcript is
+      # not readable from the API without a signed-in session.
       #
-      # This is `sh`, not bash: a `run:` step in a job container is executed by the
+      # This is `sh`, not bash: a `run:` step in a job container is executed with the
       # container's own shell, so no arrays and no bashisms belong here.
       - name: the build reproduces the committed dist/
         run: |
           changed="$(git status --porcelain -- dist/ || true)"
-          rendered='dist/(favicon-16x16|favicon-32x32|icon-48|apple-touch-icon|icon-192|icon-512)\.png$'
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$rendered" || true)"
-          if [ -n "$unexpected" ]; then
-            echo "::error::a build differs from the committed dist/ in: $(printf '%s' "$unexpected" | tr '\n' ' ' | cut -c1-800)"
+          if [ -n "$changed" ]; then
+            echo "$changed" >&2
+            echo "::error::a build does not reproduce the committed dist/: $(printf '%s' "$changed" | tr '\n' ' ' | cut -c1-800)"
             exit 1
           fi
-          echo "reproduced; the icons this job's renderer re-rendered: $(printf '%s' "$changed" | tr '\n' ' ')"
-          # The run is read from the API, where the transcript is not: this is the
-          # evidence, as an annotation, of what a build re-rendered and why none of it
-          # was this repository's own work.
-          echo "::notice::a build reproduced dist/; re-rendered by this job's ImageMagick: $(printf '%s' "$changed" | tr '\n' ' ' | cut -c1-800)"
+          echo "::notice::a build here reproduces the committed dist/ byte for byte ($(find dist -type f | wc -l) files, none changed)"
 
       # `test/identity.test.ts` compares the page's mark with the `site` checkout
       # beside this one, which a single-checkout job does not have; it is excluded

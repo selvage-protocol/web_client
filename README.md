@@ -137,7 +137,7 @@ script is what `scripts/check-page.sh` runs, together with the served bytes and 
 
 The repository's two workflows. `ci.yml` is the node checks, on a pull request:
 `npm ci`, `typecheck`, `build`, a step asserting that build leaves
-`git diff --exit-code -- dist/` clean, and `test:ci`. It runs in `node:22-trixie-slim`
+`git status --porcelain -- dist/` empty, and `test:ci`. It runs in `node:22-trixie-slim`
 because the build shells out to ImageMagick 7's `magick` for the sized icons and the
 GitHub runner image ships ImageMagick 6. `image.yml` is the image: on a pull request
 that changes what the image is built from, `docker build` and a hardened `docker run`

@@ -41,7 +41,14 @@ job_checks() {
   # The image ships the committed `dist/` (see the Dockerfile), so a source change
   # that was not rebuilt would ship a stale page.
   say "checks: the build reproduces the committed dist/"
-  git diff --exit-code -- dist/
+  # `git status` rather than `git diff`: it names an emitted file that was never
+  # committed as well as a changed one.
+  changed="$(git status --porcelain -- dist/)"
+  if [ -n "$changed" ]; then
+    printf '%s\n' "$changed" >&2
+    echo "the build does not reproduce the committed dist/" >&2
+    exit 1
+  fi
   say "checks: the suite CI can run"
   npm run test:ci
 }

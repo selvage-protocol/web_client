@@ -16,9 +16,9 @@
 # revision and runs `npm ci && npm run build` inside its own build, and its round
 # recorded that the two are byte-identical; the `checks` job in
 # .github/workflows/ci.yml re-proves that on every pull request (`npm run build`
-# and then `git diff --exit-code -- dist/`), so what this COPY takes is the
-# reviewed bytes. What a rebuild inside the image would add is nothing the checks
-# job does not already assert, and it would add a node toolchain, a network fetch
+# and then asserts the working tree under `dist/` is unchanged), so what this COPY
+# takes is the reviewed bytes. What a rebuild inside the image would add is nothing
+# the checks job does not already assert, and it would add a node toolchain, a fetch
 # and ImageMagick 7 to this build for it. A page that must be built somewhere else
 # is served by mounting a `dist/` over `/usr/share/nginx/html` instead, which
 # needs no command override either.
