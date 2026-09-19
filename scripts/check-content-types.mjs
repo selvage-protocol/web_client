@@ -27,10 +27,10 @@ export const EXPECTED_TYPES = {
   '.map': 'application/json',
   '.wasm': 'application/wasm',
   '.svg': 'image/svg+xml',
-  // `page.rs` answers every JSON family, the manifest included, as
-  // `application/json`; a browser accepts it for `rel=manifest` (verified on
-  // the live page), where a wrong type for a hashed chunk is what S1 was.
-  '.webmanifest': 'application/json',
+  // The manifest has a media type of its own and `page.rs` answers that one;
+  // the one-origin move grouped it with JSON for a while, which is what this
+  // line caught — a wrong type for a hashed chunk is what S1 was.
+  '.webmanifest': 'application/manifest+json',
   '.png': 'image/png',
   '.ttf': 'font/ttf',
   '.woff': 'font/woff',
