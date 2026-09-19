@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { persistJoinUrl } from '../src/browser/share.ts';
-import { dirOpen, showUnpublishedBadge } from '../src/browser/tree-state.ts';
+import { dirOpen, showUnpublishedBadge, unpublishedPillText } from '../src/browser/tree-state.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 
 // Minimal DOM: the binding owns one <style> element for peer colours.
@@ -176,6 +176,13 @@ describe('unpublished files', () => {
     assert.equal(showUnpublishedBadge('todo.txt', undefined, true), false);
     assert.equal(showUnpublishedBadge('todo.txt', 'notes.md', true), false);
     assert.equal(showUnpublishedBadge('todo.txt', 'todo.txt', false), false);
+  });
+
+  it('the pill names the reason on a phone, where its title can never be read', () => {
+    // A pointer device hovers the pill and reads the reason; a finger cannot, so
+    // the pill itself says who has not shared the file.
+    assert.equal(unpublishedPillText(false), 'not yet shared');
+    assert.match(unpublishedPillText(true), /host/);
   });
 });
 

@@ -23,3 +23,12 @@ export function showUnpublishedBadge(
 ): boolean {
   return unpublished && current !== undefined && path === current;
 }
+
+/**
+ * What that pill says. A pointer device reads the short form and the reason on
+ * its `title`; a phone has no hover and no native tooltip, so the pill carries
+ * the reason itself — the one line a guest with a finger can actually read.
+ */
+export function unpublishedPillText(touch: boolean): string {
+  return touch ? 'not shared by the host' : 'not yet shared';
+}

@@ -10,6 +10,20 @@ import type { Role } from '../engine/index.ts';
 import { iconSpan, labelSpan } from './icons.ts';
 import { rosterLabel } from './names.ts';
 
+/**
+ * Marks a verb dead and says why, returning the reason as a line the row can
+ * carry. The `title` is what a pointer device reads on hover; a finger has none,
+ * so the returned element is unhidden there by the shell (`#roster .why`).
+ */
+function dead(button: HTMLButtonElement, reason: string): HTMLElement {
+  button.disabled = true;
+  button.title = reason;
+  const why = document.createElement('span');
+  why.className = 'why';
+  why.textContent = reason;
+  return why;
+}
+
 export interface RosterPeer {
   peerId: string;
   displayName: string;
@@ -70,16 +84,14 @@ function selfRow(view: RosterView): HTMLElement {
   const go = document.createElement('button');
   go.type = 'button';
   go.append(iconSpan('go'), labelSpan('Go to'));
-  go.disabled = true;
-  go.title = 'This is you. There is nowhere to go to';
+  const whyGo = dead(go, 'This is you. There is nowhere to go to');
   actions.appendChild(go);
   const follow = document.createElement('button');
   follow.type = 'button';
   follow.append(iconSpan('follow'), labelSpan('Follow'));
-  follow.disabled = true;
-  follow.title = "You can't follow yourself.";
+  const whyFollow = dead(follow, "You can't follow yourself.");
   actions.appendChild(follow);
-  row.appendChild(actions);
+  row.append(actions, whyGo, whyFollow);
   return row;
 }
 
@@ -112,12 +124,9 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   const go = document.createElement('button');
   go.type = 'button';
   go.append(iconSpan('go'), labelSpan('Go to'));
-  go.disabled = peer.path === undefined;
-  if (go.disabled) {
-    // Disabled, never mysteriously: the row says why, the way the self row's
-    // dead actions do.
-    go.title = 'They are not in a document yet';
-  }
+  // Disabled, never mysteriously: the row says why, the way the self row's dead
+  // actions do.
+  const whyGo = peer.path === undefined ? dead(go, 'They are not in a document yet') : undefined;
   go.addEventListener('click', () => view.onGoTo(peer.peerId));
   actions.appendChild(go);
   const follow = document.createElement('button');
@@ -131,5 +140,8 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   }
   actions.appendChild(follow);
   row.appendChild(actions);
+  if (whyGo !== undefined) {
+    row.appendChild(whyGo);
+  }
   return row;
 }

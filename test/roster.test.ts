@@ -130,6 +130,23 @@ describe('roster rows', () => {
     }
   });
 
+  it('says a dead verb’s reason in the row too, for the finger that cannot hover it', () => {
+    const { list } = render([JO, SAM], { followedPeerId: 'peer-jo' });
+    const reasons = [];
+    const walk = (element) => {
+      if (element.className === 'why') reasons.push(element.textContent);
+      for (const child of element.children) walk(child);
+    };
+    walk(list);
+    // The self row's two dead verbs, and the host's unavailable go-to: the same
+    // sentences the `titles` carry, on screen for a phone (`#roster .why`).
+    assert.deepEqual(reasons, [
+      'This is you. There is nowhere to go to',
+      "You can't follow yourself.",
+      'They are not in a document yet',
+    ]);
+  });
+
   it('the self row is a roster row: swatch, name, quiet you, reasoned actions', () => {
     const { list } = render([SAM], { selfColour: '#cba6f7' });
     const self = list.children[0];

@@ -1,5 +1,6 @@
 import { SelvageEngine, sessionUrl } from '../engine/index.ts';
 import type { SessionInfo } from '../engine/index.ts';
+import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
 import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
@@ -17,12 +18,12 @@ import {
 import type { JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
-import { dirOpen, showUnpublishedBadge } from './tree-state.ts';
+import { dirOpen, showUnpublishedBadge, unpublishedPillText } from './tree-state.ts';
 import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { initials } from './presence.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
-import { wireFailureAlert, wireSessionNote, hostPresent, sessionNoteSignal } from './notice.ts';
+import { wireFailureAlert, wireSessionNote, wireTapPeek, hostPresent, sessionNoteSignal } from './notice.ts';
 import {
   SESSION_ENDED_MESSAGE,
   dropSession,
@@ -33,6 +34,14 @@ import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
 import { defaultServerForPage, linkServerBase, schemeMatchBase } from './servers.ts';
+import {
+  PHONE_QUERY,
+  TOUCH_QUERY,
+  appHeightFor,
+  editorOptionsFor,
+  keyboardInsetFor,
+  watchTouchQuery,
+} from './mobile.ts';
 
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
   getWorkerUrl: (_moduleId: string, label: string) =>
@@ -40,6 +49,19 @@ import { defaultServerForPage, linkServerBase, schemeMatchBase } from './servers
 };
 
 const DEFAULT_SERVER = 'ws://100.64.0.3:8080';
+
+/**
+ * Whether this browser has no pointer that can hover: a phone or a tablet, and
+ * the one question the page asks about the device. A narrow window on a machine
+ * with a mouse answers no, and keeps the layout it has — see `mobile.ts`.
+ */
+/** The live touch query; `watchTouchQuery` re-decides when a pointer arrives. */
+const touchLayout = window.matchMedia(TOUCH_QUERY);
+let touchOnly = touchLayout.matches;
+/** The same device, phone-shaped: the panel is a disclosure that starts shut. */
+const phoneLayout = window.matchMedia(PHONE_QUERY);
+/** How far a finger may drift and still count as a tap rather than a scroll. */
+const TAP_SLOP = 12;
 
 /** The page's own scheme: an https page speaks TLS to the server, always. */
 const pageProtocol = window.location.protocol;
@@ -120,6 +142,9 @@ const editorHost = document.getElementById('editor') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
 const followBanner = document.getElementById('follow-banner') as HTMLElement;
+const appPane = document.getElementById('app') as HTMLElement;
+const sidePane = document.getElementById('side') as HTMLElement;
+const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 
 /**
  * The chrome's lifecycle line: the host-leave warning while the grace runs.
@@ -129,6 +154,35 @@ const followBanner = document.getElementById('follow-banner') as HTMLElement;
 const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
 /** Failures of an action the guest took: shown, then gone on their own. */
 const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLElement);
+/**
+ * What a fingertip touched: the words a `title` would have shown a pointer, and
+ * the reason a disabled action would have given on hover. It stands briefly and
+ * takes itself down, the way a failure does.
+ */
+const peek = wireTapPeek(document.getElementById('peek') as HTMLElement, { standMs: 4000 });
+
+/**
+ * The panel is a disclosure on a phone and simply a column on anything else.
+ * Rotating out of the phone shape opens it rather than leaving the tree with no
+ * way to be reached: the control that would open it is gone at that width.
+ */
+function showPanel(open: boolean): void {
+  sidePane.hidden = !open;
+  panelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+panelToggle.addEventListener('click', () => showPanel(sidePane.hidden));
+phoneLayout.addEventListener('change', () => showPanel(!phoneLayout.matches));
+// The panel competes with the editor on a phone (a 42 % cut of a 844 px screen)
+// and starts shut there; every other device has the room for both.
+showPanel(!phoneLayout.matches);
+
+/** Shuts the panel after a navigation, so the file that opened gets the screen. */
+function collapsePanel(): void {
+  if (phoneLayout.matches) {
+    showPanel(false);
+  }
+}
 
 const params = pageQueryParams(window.location.search);
 const linkRoom = (params.get('room') ?? '').trim();
@@ -171,7 +225,9 @@ let engine: SelvageEngine | undefined;
 /** The editor's opener guard, one registration per join, dropped with the session. */
 let linkGuard: { dispose(): void } | undefined;
 /** The editor widget the binding drew into, dropped with the session. */
-let editorApi: { dispose(): void } | undefined;
+let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
+/** What the editor was created with on this device, to return to under a pointer. */
+let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
 /** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
 let fullShareLink = '';
@@ -339,9 +395,25 @@ async function join(held: HeldJoin): Promise<void> {
   const editor = monaco.editor.create(editorHost, {
     automaticLayout: true,
     glyphMargin: true,
-    minimap: { enabled: true, side: 'right' },
     theme: 'selvage-mocha',
   });
+  // Read the desktop options off the editor it just made rather than restating
+  // them: Monaco's font size default is platform-dependent, and a pointer that
+  // arrives mid-session has to be able to put all three back (see
+  // `applyTouchMode`).
+  const scrollbar = editor.getOption(monaco.editor.EditorOption.scrollbar);
+  desktopEditorOptions = {
+    ...editorOptionsFor(false),
+    wordWrap: editor.getOption(monaco.editor.EditorOption.wordWrap),
+    fontSize: editor.getOption(monaco.editor.EditorOption.fontSize),
+    scrollbar: {
+      verticalScrollbarSize: scrollbar.verticalScrollbarSize,
+      horizontalScrollbarSize: scrollbar.horizontalScrollbarSize,
+    },
+  };
+  if (touchOnly) {
+    editor.updateOptions(editorOptionsFor(true));
+  }
   // Held so the whole session can be dropped, editor and all, when the room ends.
   editorApi = editor;
   binding = new MonacoBinding({
@@ -353,8 +425,12 @@ async function join(held: HeldJoin): Promise<void> {
   syncRoster(binding.participants());
   syncGrant();
   await openFirst(session);
-  // The first file opens focused: typing starts at once, no click-to-type.
-  editor.focus();
+  // The first file opens focused on a desktop, where typing starts at once. A
+  // phone would read that as the guest asking for the keyboard, which then
+  // stands over the room they have not seen yet: focus follows the first tap.
+  if (!touchOnly) {
+    editor.focus();
+  }
   // A typed room/token join lands in the address bar, so a reload rejoins
   // from it instead of losing what was typed. Same-origin only; elsewhere
   // the link stays in the session bar.
@@ -395,6 +471,9 @@ async function openPath(path: string): Promise<void> {
     await binding.openDocument(path);
     syncGrant();
     renderedPath = path;
+    // The file that just opened is what the guest asked for: on a phone the
+    // panel gets out of its way rather than holding 42 % of the screen.
+    collapsePanel();
     // A plain open says nothing — the tree highlight and the buffer already
     // name the file. A listed path nobody published reads empty like a
     // cleared file; the open row's badge tells the two apart, never a message.
@@ -513,13 +592,16 @@ function presenceBadges(present: readonly Participant[]): HTMLElement {
 }
 
 /**
- * The unpublished marker: a quiet pill on the open file's own row, with the
- * reason on hover. Only the open file may wear it (see `showUnpublishedBadge`).
+ * The unpublished marker: a quiet pill on the open file's own row.
+ *
+ * The short form is what a pointer device reads, with the reason on its `title`;
+ * a phone has no hover to read that with, so the pill carries the reason itself.
+ * Only the open file may wear it (see `showUnpublishedBadge`).
  */
 function unpublishedBadge(): HTMLElement {
   const badge = document.createElement('span');
   badge.className = 'unpub';
-  badge.textContent = 'not yet shared';
+  badge.textContent = unpublishedPillText(touchOnly);
   badge.title = "The host hasn't shared its text yet";
   return badge;
 }
@@ -646,6 +728,7 @@ function leaveSession(sentence: string): void {
   binding = undefined;
   engine = undefined;
   editorApi = undefined;
+  desktopEditorOptions = undefined;
   opening = undefined;
   renderedPath = undefined;
   openDirs.clear();
@@ -657,6 +740,7 @@ function leaveSession(sentence: string): void {
   followBanner.replaceChildren();
   followBanner.hidden = true;
   sessionNote.hide();
+  peek.dismiss();
   sessionBar.hidden = true;
   workspacePane.hidden = true;
   linkIsTheInvite = false;
@@ -769,4 +853,93 @@ function describe(error: unknown): string {
 window.addEventListener('beforeunload', () => {
   binding?.dispose();
   void engine?.disconnect();
+});
+
+/**
+ * Keeps the page the size of what the guest can actually see.
+ *
+ * A soft keyboard on iOS shrinks only the *visual* viewport, so the layout
+ * viewport — and with it `100dvh`, and with it every layout engine listening to
+ * the element's own size — never hears about it. That is how a caret ends up
+ * behind the keyboard. Following the visual viewport is the fix; `appHeightFor`
+ * is the rule, and it declines a pinch-zoom, which is a visual-viewport shrink
+ * too. A layout that did change gets its editor re-measured. The transient
+ * lines are fixed against the layout viewport, which the keyboard leaves
+ * alone, so they are told the distance up to the floor the guest can see.
+ */
+function fitVisualViewport(): void {
+  const height = touchOnly
+    ? appHeightFor(window.visualViewport ?? undefined, window.innerHeight)
+    : undefined;
+  appPane.style.height = height === undefined ? '' : `${height}px`;
+  const inset = touchOnly
+    ? keyboardInsetFor(window.visualViewport ?? undefined, window.innerHeight)
+    : 0;
+  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
+  editorApi?.layout();
+}
+
+window.visualViewport?.addEventListener('resize', fitVisualViewport);
+// A pan scrolls the visual viewport without resizing it, and the inset is
+// measured from its offset, so the same rule runs on the scroll too.
+window.visualViewport?.addEventListener('scroll', fitVisualViewport);
+
+/**
+ * The decisions a stylesheet cannot restyle, replayed when a pointer is
+ * attached or removed mid-session: Monaco's options, the off-hover wording,
+ * and the viewport pin handed back to the browser or taken over again.
+ */
+function applyTouchMode(): void {
+  editorApi?.updateOptions(
+    touchOnly ? editorOptionsFor(true) : desktopEditorOptions ?? editorOptionsFor(false),
+  );
+  syncGrant();
+  fitVisualViewport();
+}
+
+watchTouchQuery(touchLayout, (touch) => {
+  touchOnly = touch;
+  applyTouchMode();
+});
+
+/**
+ * A finger taps where a pointer hovers. A peer's `label · role` is a decoration
+ * hover, which never paints for a finger, so a tap that lands on a peer's caret
+ * — or inside their selection — says the same line on the peek row. A drag is a
+ * scroll and says nothing.
+ */
+let pressedAt: readonly [number, number] | undefined;
+editorHost.addEventListener(
+  'touchstart',
+  (event) => {
+    const touch = event.changedTouches[0] ?? event.touches[0];
+    pressedAt = touch === undefined ? undefined : [touch.clientX, touch.clientY];
+  },
+  { passive: true },
+);
+editorHost.addEventListener('touchend', (event) => {
+  if (!touchOnly) {
+    return;
+  }
+  const touch = event.changedTouches[0] ?? event.touches[0];
+  const from = pressedAt;
+  pressedAt = undefined;
+  if (touch === undefined || from === undefined) {
+    return;
+  }
+  if (
+    Math.abs(touch.clientX - from[0]) > TAP_SLOP ||
+    Math.abs(touch.clientY - from[1]) > TAP_SLOP
+  ) {
+    return;
+  }
+  const position = editorApi?.getTargetAtClientPoint(touch.clientX, touch.clientY)?.position;
+  const model = editorApi?.getModel();
+  if (position === undefined || position === null || model === null || model === undefined) {
+    return;
+  }
+  const peer = binding?.peerAt(model.getOffsetAt(position));
+  if (peer !== undefined) {
+    peek.show(`${peer.label} · ${peer.role}`);
+  }
 });

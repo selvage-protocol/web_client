@@ -40,15 +40,22 @@ room shares and publishes what is typed. Hosting stays in the editor clients.
   the `Link copied` confirmation briefly, then hides; the readout never
   leaves, so no layout shifts.
 - `src/browser/presence.ts` — initials, one-badge-per-line, the badge CSS.
+- `src/browser/mobile.ts` — what a touch-only browser is given: the two media
+  queries the phone layout keys on, the editor options a phone needs (no
+  minimap, wrapped lines, 16 px), and how tall the app is when a soft keyboard
+  shrinks the visual viewport.
 - `src/browser/main.ts` — the page: display name, invite, the editable
-  document (focused on join, so typing starts at once), the People roster
-  with go-to/follow, the presence-badged grant tree, the follow banner with
-  the one stop control, and the page-origin share link whose whole bar
-  copies. The tree is the only way to open a document.
-- `src/browser/notice.ts` — the two message homes the page keeps: the
-  session note in the chrome (the host-leave warning while the grace runs)
-  and the failure alert that shows an action that refused and leaves on its
-  own.
+  document (focused on join on a device with a pointer, so typing starts at
+  once; a phone focuses it on the first tap instead, so the soft keyboard does
+  not stand over a room nobody has seen), the People roster with go-to/follow,
+  the presence-badged grant tree, the follow banner with the one stop control,
+  the panel disclosure a phone gets, and the page-origin share link whose whole
+  bar copies. The tree is the only way to open a document.
+- `src/browser/notice.ts` — the message homes the page keeps: the session
+  note in the chrome (the host-leave warning while the grace runs), the
+  failure alert that shows an action that refused, and the line a tap reveals
+  where a `title` would have shown a pointer. The last two are one mechanism,
+  standing a few seconds and leaving on their own.
 - `src/browser/ended.ts` — the end of a session: the sentence for it (the
   desktop clients' `The room is gone (<reason>).`), the one next step, and
   `dropSession`, the order in which the page leaves a dead room.
@@ -138,12 +145,14 @@ rejoins from it. A submit that lands before the page finishes loading never
 fails: it queues until loaded and joins exactly once, the button reading
 `Joining…` throughout. Type the
 name, press Join (or Enter) — the first shared file opens focused, so you
-type at once. The last joined name is remembered for
-prefill in the browser only. The People roster leads with your own name and
+type at once (a phone leaves the keyboard down until you tap the editor, and
+starts with the tree and roster behind a `Files and people` control). The last
+joined name is remembered for prefill in the browser only. The People roster leads with your own name and
 lists who else is here with go-to and follow, never path text; the tree
 lists what the room shares with a peer badge on whoever's file is whose
-(an open file the host hasn't shared wears a `not yet shared` pill instead
-of a sentence, and an action that refuses says so in the alert);
+(an open file the host hasn't shared wears a `not yet shared` pill — `not
+shared by the host` on a phone, where a title cannot be hovered — and an
+action that refuses says so in the alert);
 following shows a banner in the followed peer's colour with the stop control
 on it, and ends when you type, navigate (open a file from the tree or go
 to someone), stop it, or the peer leaves. When the host's socket drops, the

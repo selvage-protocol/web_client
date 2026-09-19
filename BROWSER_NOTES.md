@@ -1643,6 +1643,163 @@ address at all (the demo default is one, so a rule that refused them would
 refuse the demo); and whether the `?server=` bound belongs in the protocol or
 stays a guard in the client.
 
+## The join flow on a phone (2026-09-18)
+
+A recon of the page at 390, 320 and landscape found five defects and said which
+sizes to move; this is the pass that moved them. Everything below is Chromium
+152 with `Emulation.setDeviceMetricsOverride { mobile: true }` and touch
+emulation on, so `(any-hover: none)` and `(pointer: coarse)` are both true — the
+query the whole round keys on. Every measurement before and after is in
+`.tmp/mobile-ux/{before,after}/facts.json`, the driver in
+`.tmp/mobile-ux/drive.mjs`, the shots beside them.
+
+**A phone is `(any-hover: none)`, and nothing else is.** Two media queries carry
+the round: `(any-hover: none)` for what a finger needs (field size, target size)
+and `(any-hover: none) and (max-width: 640px)` for what a phone needs (the card
+as a sheet, the panel as a disclosure). `mobile.ts` names both and
+`test/mobile.test.ts` holds the stylesheet and the page to the same two strings,
+because a page that thinks it is a phone while the CSS paints a desktop is the
+failure this leaves behind otherwise. `any-hover` and not `hover`, because
+`hover` answers for the *primary* input mechanism alone: a touchscreen laptop
+whose primary is reported as touch would take the phone layout with a mouse
+sitting next to it. A narrow desktop window is a desktop, and so is anything
+with a mouse or a touchpad; landscape at 844 keeps the two-column layout it
+already read well in. (Headless Chromium reports *both* queries as true — it has
+no pointer at all — so the driver cannot tell them apart; the distinction is the
+device's.)
+
+**iOS zoomed every field.** The root font is 14 px, so `#join input { font-size:
+1rem }` computed to 14 px — under the 16 px floor at which iOS stops zooming the
+page on focus — and Monaco's own input textarea was 14 px too. Both are 16 px
+under the touch query, along with `#join-message`, which was 12.88 px: the
+sentence that says the room is gone was the smallest text on the card. Measured
+14 px → 16 px on `#invite`, `#name` and `textarea.inputarea`; desktop stays at
+`1rem` and 14 px.
+
+**Twelve of thirteen rows were under the 44 px a fingertip hits.** The share
+control was a 24 px strip, the roster's `Go to`/`Follow` were 26 px at 11.2 px,
+tree folders 32 px and tree rows 34 px. Under the touch query every `button`,
+every `summary`, the tree rows and `#share-group` take `min-height: 44px`, and
+the roster verbs take `min-width: 44px` with 0.9em labels. One trap worth
+recording: `min-height` is a floor on the *content* box, so 44 px plus 8.4 px of
+padding and a border rendered the share strip **63 px** tall. The floor is on
+the box (`box-sizing: border-box`) and the strip measures 44 px. Desktop density
+is untouched — the sizes are behind the query, and a test asserts no `44px`
+appears above it.
+
+**The panel owned 42 % of the workspace forever.** `#side { max-height: 38% }`
+was content-box, so padding and border sat outside the cap and the panel took
+42 % at 390 (324/774) and 44 % at 320 — and nothing could dismiss it. Now
+`box-sizing: border-box` makes 38 % the box it actually takes, and on a phone it
+is a disclosure: a full-width `Files and people` control sits under the session
+bar, the panel starts *shut* so the editor owns the screen, and opening a file
+shuts it again. With the keyboard emulated (390×420) the editor went 187 px to
+286 px of a 330 px workspace — 53 % to 87 %, over the 55 % floor. Rotating out
+of the phone shape opens the panel rather than leaving the tree with no control
+to reach it.
+
+**Monaco was configured for a desktop with a mouse attached.** The minimap took
+38 px of a 390 px screen, long lines did not wrap, and `editor.focus()` on join
+raised the soft keyboard over a room the guest had not seen. All four are
+`editorOptionsFor(touch)` in `mobile.ts`: no minimap, `wordWrap: 'on'`,
+`fontSize: 16`, 14 px scrollbars; and the focus is skipped on touch, where it
+follows the first tap instead. Measured: minimap 38 px → 0, a 240-character line
+paints as 2 (unwrapped; a stray third view-line is the trailing empty line)
+→ 19 visual lines, `activeElement` after join `textarea.inputarea` → `body`.
+Tapping the editor still focuses the input, and typing still lands in the model.
+
+**A `title` never paints for a finger.** A peer's `label · role` lived only in
+the caret decoration's `hoverMessage`, `not yet shared`'s reason and every dead
+roster verb's reason only in a `title`. The pill now says
+`not shared by the host` on a phone (`unpublishedPillText`), a dead verb's
+reason is a row line that the touch query unhides (`#roster .why`), and a peer's
+`label · role` is a tap: `MonacoBinding.peerAt(offset)` answers whose caret or
+selection is under a tap, and `main.ts` shows `name · role` on the `#peek` line
+— the tap state for a hover that cannot happen. `#peek` is the alert's own
+mechanism (`wireTransientLine`) with different copy and no danger border, empty
+and therefore hidden at rest, and politely announced when it fills.
+
+**The keyboard and the viewport.** `#app` is `100dvh` (with `100%` before it for
+a browser without `dvh` and `box-sizing: border-box`, without which the inset
+below would push it past the height it was measured against), the viewport meta
+carries `viewport-fit=cover` and `interactive-widget=resizes-content`, and
+`env(safe-area-inset-bottom)` pads the app, the card and the alert. iOS shrinks only the *visual* viewport, which no
+layout engine hears about, so a `visualViewport` resize re-pins `#app` to the
+height the guest can actually see and re-measures the editor; `appHeightFor`
+declines a pinch-zoom, which is a visual-viewport shrink too, and a test pins
+that. Driven with an installed `visualViewport` (no CDP call shrinks it — see
+the annotations in `.tmp/mobile-ux/drive.mjs`): `#app` 844 → 420, editor
+710 → 286 px, and back.
+
+**Measured, before → after** (`drive.mjs before|after`, 50 checks, all green
+after; the hook is that the driver reports each one and its measurement):
+
+| what | before | after |
+|---|---|---|
+| `#invite`, `#name`, Monaco input | 14 px | 16 px |
+| `#join-message` | 12.88 px | 16 px |
+| controls under 44 px, seated 390 | 12 | 0 |
+| `#share-group` | 359×24 | 359×44 |
+| session bar height (44 px of it the copy control) | 70 px | 90 px |
+| roster `Go to`/`Follow` | 62×26 / 67×26 | 62×44 / 67×44 |
+| tree `summary` / row | 370×32 / 370×34 | 370×44 / 370×44 |
+| `#side` of `#workspace` (open) | 324/774 = 42 % | 287/754 = 38 % |
+| editor of workspace, kb 390×420 | 187/350 = 53 % | 286/330 = 87 % |
+| Monaco minimap | 38 px | 0 |
+| horizontal page scroll, every state | none | none |
+
+**Everything is green.** `npm run typecheck` clean; `npm test` **299 tests, 297
+pass** from a nested worktree — the two that read `../../site` and
+`../../ai_notes/.tmp/` fail there alone, and both pass where the siblings sit at
+`web_client`'s level, which is the layout they were written for; `npm run build`
+with the `ws`-absence assert, `dist/` rebuilt last.
+`test/mobile.test.ts` is new and pins the media queries, the editor options, the
+visual-viewport rule and the 16/44 px sizes at both ends of the query.
+
+**Three review findings, all fixed.** The safe-area padding above needed
+`box-sizing: border-box` on `#app`, or content-box made the app taller than the
+viewport the inset was measured against. `MonacoBinding.peerAt` read the path
+from the last drawn frame, and opening a document changes the path and the model
+in one step while the frame that re-draws the carets arrives later — so a tap's
+offset into the new buffer could be answered by the previous document's carets;
+it now filters the drawn carets by the *current* path, with a test that opens a
+second document between the draw and the tap. And the touch query is
+`(any-hover: none)` rather than `(hover: none)`, which answers for the primary
+input mechanism alone.
+
+**The mobile review's findings, closed.** The masked `#share` readout is a
+readonly field the clipboard fallback focuses, and outside the phone sheet that
+hides it it was still 11.9 px — the one focusable field under the 16 px iOS zoom
+floor — so the touch query raises it too. Where a failure alert and the tap line
+stand at the same anchor the alert now paints over it (`z-index` 6 against
+`#peek`'s 5). Both lines take `--keyboard-inset` from `fitVisualViewport`: the
+distance from the layout viewport's floor up to the visual viewport's, which is
+how a fixed line stays above a keyboard the layout viewport never heard about.
+A pointer attached or removed mid-session re-decides the touch mode —
+`watchTouchQuery` re-applies Monaco's options (read off the editor it made,
+because Monaco's font default is platform-dependent), the off-hover pill's words
+and the viewport pin, and a pan of the visual viewport re-runs the inset. The
+guards on top of the round take the driver to **60 checks** and the suite to
+**306 tests (304 pass** from a nested worktree).
+
+Could not verify: a real iOS or Android soft keyboard — the driver emulates the
+layout-viewport shrink and, separately, an installed `visualViewport`; whether
+`visualViewport.height` on a real iOS keyboard is the number `#app` should take
+(the rule is pinned by unit test, the platform behaviour is not); Monaco's
+drag-scroll and word-selection under a real finger, which the recon also could
+not call; and `env(safe-area-inset-bottom)` on a notched device, which is zero
+on any desktop Chromium.
+
+Open questions: whether the panel should be a `Files | People | Editor` tab
+strip rather than one disclosure — the recon offered both and this took the
+smaller one; whether the roster's dead-verb reasons should be permanently on
+screen on a phone or revealed by a tap instead (they are plain text today, which
+costs the self row two lines); whether an iPad with a trackpad should keep
+desktop density, since such a device reports `(any-hover: hover)`, takes the
+desktop layout, and would still zoom a 14 px field — the query buys the
+touchscreen laptop its desktop and pays for it here; and whether landscape's session bar at 62 px (44 px of it
+the copy control) is worth a shorter variant, given 390 px of height.
+
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and

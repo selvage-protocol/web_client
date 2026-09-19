@@ -24,11 +24,21 @@ export interface FailureAlert {
 }
 
 /**
- * Wires the alert region. The element stays in the DOM — an empty live region
- * announces reliably, and its empty state is what hides it, so a failure
- * paints in one frame with no unhide flicker.
+ * The tap-revealed line: one sentence about what the guest just touched.
+ *
+ * A pointer device reads that sentence from a `title` the moment it hovers; a
+ * finger has no hover, and a native tooltip never paints on touch, so the same
+ * words have to arrive some other way — a tap, and a line that stands a few
+ * seconds the way a failure does.
  */
-export function wireFailureAlert(element: HTMLElement, options: NoticeOptions = {}): FailureAlert {
+export type TapPeek = FailureAlert;
+
+/**
+ * Wires a line that appears, stands a while, and leaves on its own. The failure
+ * alert and the tap-revealed peek are the same mechanism with different copy
+ * and different homes, so they are one implementation with two names.
+ */
+function wireTransientLine(element: HTMLElement, options: NoticeOptions): FailureAlert {
   const standMs = options.standMs ?? 7000;
   const schedule = options.schedule ?? ((run, ms) => setTimeout(run, ms));
   const cancel =
@@ -53,6 +63,20 @@ export function wireFailureAlert(element: HTMLElement, options: NoticeOptions = 
     },
     dismiss,
   };
+}
+
+/**
+ * Wires the alert region. The element stays in the DOM — an empty live region
+ * announces reliably, and its empty state is what hides it, so a failure
+ * paints in one frame with no unhide flicker.
+ */
+export function wireFailureAlert(element: HTMLElement, options: NoticeOptions = {}): FailureAlert {
+  return wireTransientLine(element, options);
+}
+
+/** Wires the tap-revealed line, with the same empty-is-hidden rule as the alert. */
+export function wireTapPeek(element: HTMLElement, options: NoticeOptions = {}): TapPeek {
+  return wireTransientLine(element, options);
 }
 
 /** What one transient binding sentence means for the session note. */
