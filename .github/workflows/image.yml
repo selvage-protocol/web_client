@@ -27,6 +27,7 @@ on:
     paths:
       - 'Dockerfile'
       - '.dockerignore'
+      - 'compose.yaml'
       - 'dist/**'
       - 'packaging/**'
       - 'package.json'

@@ -1,0 +1,40 @@
+# One-command self-host for the browser client's page on an origin of its own.
+#
+# This is the page-only shape: the bundle this image carries dials the `selvaged`
+# named in the share link (or built into the page), and this service answers the
+# page and nothing else. The one-origin default — `selvaged --serve-page` wearing
+# this same `dist/` — is the reference server's own compose file, and stays the
+# default. README.md §Serving the page owns the choice and what the second shape
+# costs.
+#
+# The image is not on a registry yet: this repository has no `v*` tag, and its
+# publish job is gated on one, so `build: .` builds the page from this checkout
+# and names it locally. Once a `v*` tag exists, `.github/workflows/image.yml`
+# publishes `ghcr.io/selvage-protocol/selvage-web` and the `image:` line below can
+# name a tag instead (compose still builds from the checkout when it is absent).
+#
+# No volumes: the image carries the page it serves and nginx's only writable paths
+# — the pid file and its five temp directories — are already moved onto
+# `/dev/shm`, the tmpfs the container runtime mounts itself, by
+# `packaging/nginx.conf`. That is what lets the run below be read-only with no
+# writable mount at all, so it needs no `tmpfs:` entry of its own; the same flags
+# run unmounted in `scripts/container-smoke.sh`, which reads them back off the
+# daemon's record of the container and asserts this file too.
+services:
+  selvage-web:
+    build: .
+    image: selvage-web:0.1.0
+    ports:
+      # The container listens on 8080 and must: it runs as uid 101
+      # (nginx-unprivileged) with every capability dropped, and a non-root
+      # process cannot bind below 1024. The host side is free to be the standard
+      # web port — the daemon's own proxy binds 80 — so the default deployment
+      # simply answers on it. Rebind to `127.0.0.1:8080:8080` for a local
+      # evaluation that must not be reachable beyond this machine.
+      - "80:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
