@@ -1,0 +1,217 @@
+name: image
+
+# The page image: the browser client's `dist/` on an origin of its own, served by
+# nginx-unprivileged, published as `ghcr.io/selvage-protocol/selvage-web`.
+#
+# Three jobs, following the reference server's image workflow. `container` builds the
+# image with this repository's own Dockerfile, runs it hardened and asserts the page it
+# serves, which is the whole proof a pull request gets and needs no cluster or server.
+# `publish-rehearsal` runs the publish path's own buildx steps — the
+# multi-architecture build, the tag computation and the read-back — with the image
+# pushed to a loopback registry and nothing leaving the runner. `publish` pushes the
+# three tags, on a release tag only: a pull request rehearses the release path and
+# publishes nothing.
+#
+# The GitHub-hosted `ubuntu-24.04` runner is chosen for the daemon and for egress:
+# these jobs need `docker build`, `docker run`, buildx and Docker Hub, and this
+# repository has no nix flake whose cache another runner would buy. The other half of
+# the CI, the node checks, is `.github/workflows/ci.yml`, and that job's own comments
+# name the tests a single checkout cannot run.
+#
+# A pull request runs this workflow only when it changes something the image is built
+# from (or a script one of these jobs reads): a prose edit does not build an image.
+# There is no `push: branches: [main]`, because the merge commit carries the content
+# the pull request already proved. `workflow_dispatch` is the manual re-run.
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'dist/**'
+      - 'packaging/**'
+      - 'package.json'
+      - 'scripts/release-tags.sh'
+      - 'scripts/check-page.sh'
+      - 'scripts/container-smoke.sh'
+      - 'scripts/assert-image-page.sh'
+      - '.github/workflows/image.yml'
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    # `docker build`, `docker run` under the hardening a public deployment needs, and
+    # the assertions of `scripts/check-page.sh` — every file's media type, the bytes
+    # against the committed `dist/`, the headers, and the shape (a write refused,
+    # `/meta` and `/session` absent). The daemon is the runner's own: no buildx, one
+    # architecture, nothing pushed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # The smoke's assertions run on the host and one of them is the page's own
+      # `scripts/check-content-types.mjs`, so this job needs node as well as the
+      # daemon's `docker`.
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22.18.0'
+
+      # The smoke asserts on the host (curl, node) and against the daemon, and it
+      # annotates its own failures; this wrapper catches the ones it cannot, because a
+      # job's transcript is not readable from the API without a signed-in session.
+      #
+      # `set -o pipefail` is not optional here: without it the pipeline's status is
+      # `tee`'s, which succeeds, and this wrapper would report a green job over a smoke
+      # that failed (it did, once, until this line was added).
+      - name: build the image, run it hardened, and assert the page it serves
+        run: |
+          set -o pipefail
+          if ! scripts/container-smoke.sh 2>&1 | tee container-smoke.log; then
+            echo "::error::$(tail -n 6 container-smoke.log | tr '\n' '|' | cut -c1-900)"
+            exit 1
+          fi
+
+  publish-rehearsal:
+    # The publish path with nothing published: the same multi-architecture buildx
+    # build, the tag computation from the same script, and the same read-back against
+    # the image that was built. `container` cannot prove any of that — it builds one
+    # architecture and never exercises the tags — so without this job the first proof
+    # the release path works would be the release itself. `publish` waits on it for
+    # that reason.
+    #
+    # There is no GHCR credential here and no elevated permission: the image goes to a
+    # `registry:2` container on the runner's own loopback. A manifest list cannot be
+    # loaded into the Docker daemon, so a loopback registry is what lets the read-back
+    # run against the image that was built instead of against a second, differently
+    # built one. Nothing leaves the runner.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22.18.0'
+
+      # The arm64 leg of the read-back runs the arm64 image, which is emulation on an
+      # amd64 runner; the build itself needs none, because this Dockerfile compiles
+      # nothing.
+      - uses: docker/setup-qemu-action@v3
+
+      # The builder pushes to `localhost:5000`, which is insecure-registry plaintext
+      # and, by default, the build container's own loopback: the host network
+      # namespace is what makes it the runner's.
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+
+      # Bound to loopback: the builder above pushes to `localhost:5000` over the host
+      # network namespace its driver was given, and a registry listening on every
+      # interface is not what this job needs.
+      - name: start a loopback registry
+        run: docker run --detach --name rehearsal-registry --publish 127.0.0.1:5000:5000 registry:2
+
+      - name: compute the release tags
+        id: tags
+        run: scripts/release-tags.sh >> "$GITHUB_OUTPUT"
+
+      # The same build the publish job runs, including the moving `<version>` and
+      # `latest` aliases, so a malformed tag name cannot reach a release.
+      - name: build both architectures
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            localhost:5000/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}
+            localhost:5000/selvage-protocol/selvage-web:${{ steps.tags.outputs.version }}
+            localhost:5000/selvage-protocol/selvage-web:latest
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+            REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: assert the built page on both architectures
+        run: |
+          scripts/assert-image-page.sh \
+            "localhost:5000/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}" \
+            "${{ steps.tags.outputs.version }}"
+
+  publish:
+    needs: [container, publish-rehearsal]
+    # Release tags only. `publish-rehearsal` above has just run this job's buildx steps
+    # on this same commit without pushing anywhere, so a tag is not permission to
+    # assume the release path works. The page is this repository's own work under
+    # `MIT OR Apache-2.0`, so publishing it redistributes no licence that the
+    # reference server's image carries: the FSL-1.1-MIT binary is not in this image.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22.18.0'
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The release tag that triggered this job must name the package.json version,
+      # because the registry tags derive from it — the check lives in the script so the
+      # rehearsal computes them the same way.
+      - name: compute the release tags
+        id: tags
+        run: scripts/release-tags.sh "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}
+            ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.version }}
+            ghcr.io/selvage-protocol/selvage-web:latest
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+            REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # The pushed image must report the version it is tagged with, on both
+      # architectures, and serve the page — the read-back the rehearsal asserted
+      # against the local registry.
+      - name: assert the published page on both architectures
+        run: |
+          scripts/assert-image-page.sh \
+            "ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}" \
+            "${{ steps.tags.outputs.version }}"

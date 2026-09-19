@@ -1,0 +1,79 @@
+name: ci
+
+# No `push: branches: [main]`: a pull request already runs the whole job, and the
+# merge commit carries the content it proved. `workflow_dispatch` is the re-run for a
+# commit that reached `main` without one.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    # `npm run build` shells out to ImageMagick 7's `magick` for the sized icons, and
+    # `ubuntu-24.04` ships ImageMagick 6 (`convert` alone). So this job runs in the
+    # image the reference server's page stage builds the same bundle in —
+    # `node:22-trixie-slim`, whose trixie imagemagick is 7 — which also makes the step
+    # that asserts a build reproduces the committed `dist/` run in the environment the
+    # page is built in everywhere else.
+    #
+    # A job container's own filesystem is the image's, so `git` and an `/etc/ssl` have
+    # to be installed first; see the step below.
+    runs-on: ubuntu-24.04
+    container: node:22-trixie-slim
+    timeout-minutes: 20
+    steps:
+      # Before the checkout: the slim image carries no git and, more to the point, no
+      # `/etc/ssl` at all, because the official node images install `ca-certificates`
+      # and purge it as auto-removable in the same layer. Node carries its own trusted
+      # roots; git, which the checkout uses over HTTPS, does not. ImageMagick 7's
+      # `magick` is here because `npm run build` shells out to it for the sized icons.
+      - name: install git, ca-certificates and ImageMagick 7
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git imagemagick
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run typecheck
+
+      # The commit's own `dist/`, which the next step rebuilds over: a copy rather than a
+      # git reference, so the comparison below needs no git in this container.
+      - name: keep the committed dist/ to compare against
+        run: cp -r dist "$RUNNER_TEMP/dist-committed"
+
+      - run: npm run build
+
+      # The image ships the committed `dist/` rather than rebuilding it (see the
+      # Dockerfile), so this is where a source change that was never built is caught,
+      # rather than in an image that would carry a stale page. `scripts/check-dist.sh`
+      # owns the rule and `scripts/ci-local.sh` runs the same script, so there is one
+      # place to keep it: every file the bundler writes byte for byte, and the six
+      # icons, which are rendered at build time, at their six sizes — an ImageMagick
+      # version decides both a PNG encoder's choices and its resampler, and this job
+      # carries trixie's 7.1.1.x where the committed icons came from a 7.1.2.
+      #
+      # The copy it compares against is the one the step above took, so this needs no
+      # git either: the container's `git` could not read the workspace here.
+      - name: the build reproduces the committed dist/
+        run: scripts/check-dist.sh "$RUNNER_TEMP/dist-committed"
+
+      # `test/identity.test.ts` compares the page's mark with the `site` checkout
+      # beside this one, which a single-checkout job does not have; it is excluded
+      # there, and named so the exclusion cannot go stale (scripts/test-ci.mjs).
+      # `test/serve-types.test.ts` needs no sibling and runs. The checks that do need
+      # something live — `npm run check:types` (a deployed page) and `npm run prove*`
+      # (a `selvaged`) — run locally; the image workflow's smoke is the served-page
+      # assertion CI has.
+      - name: the suite CI can run
+        run: npm run test:ci
