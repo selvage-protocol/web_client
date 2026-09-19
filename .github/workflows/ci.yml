@@ -63,12 +63,8 @@ jobs:
       # choices are the ImageMagick version's, and this job carries trixie's 7.1.1.x
       # where the committed icons came from 7.1.2.
       #
-      # The copy is taken before the build because it is the commit's own `dist/`:
-      # comparing against a copy rather than against git also keeps this step out of
-      # the container's `git`, which could not read the workspace here.
-      - name: keep the committed dist/ to compare against
-        run: cp -r dist "$RUNNER_TEMP/dist-committed"
-
+      # The copy it compares against is the one the step above took, so this needs no
+      # git either: the container's `git` could not read the workspace here.
       - name: the build reproduces the committed dist/
         run: scripts/check-dist.sh "$RUNNER_TEMP/dist-committed"
 
