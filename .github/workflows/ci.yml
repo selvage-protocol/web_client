@@ -61,21 +61,19 @@ jobs:
       # it is excluded from `test:ci` for the unrelated reason that it needs a sibling
       # checkout. A difference anywhere else is named in an annotation, because a
       # job's transcript is not readable from the API without a signed-in session.
+      #
+      # This is `sh`, not bash: a `run:` step in a job container is executed by the
+      # container's own shell, so no arrays and no bashisms belong here.
       - name: the build reproduces the committed dist/
         run: |
-          icons=(
-            ':(exclude)dist/favicon-16x16.png'
-            ':(exclude)dist/favicon-32x32.png'
-            ':(exclude)dist/icon-48.png'
-            ':(exclude)dist/apple-touch-icon.png'
-            ':(exclude)dist/icon-192.png'
-            ':(exclude)dist/icon-512.png'
-          )
-          if ! git diff --exit-code -- dist/ "${icons[@]}"; then
-            echo "::error::a build differs from the committed dist/ in: $(git diff --name-only -- dist/ | head -n 20 | tr '\n' ' ')"
+          changed="$(git status --porcelain -- dist/ || true)"
+          rendered='dist/(favicon-16x16|favicon-32x32|icon-48|apple-touch-icon|icon-192|icon-512)\.png$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$rendered" || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::a build differs from the committed dist/ in: $(printf '%s' "$unexpected" | tr '\n' ' ' | cut -c1-800)"
             exit 1
           fi
-          echo "reproduced, the rendered icons aside: $(git diff --name-only -- dist/ | tr '\n' ' ')"
+          echo "reproduced; the icons this job's renderer re-rendered: $(printf '%s' "$changed" | tr '\n' ' ')"
 
       # `test/identity.test.ts` compares the page's mark with the `site` checkout
       # beside this one, which a single-checkout job does not have; it is excluded
