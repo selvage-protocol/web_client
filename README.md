@@ -109,7 +109,7 @@ default.
 The page's own `/` takes the room and its token as query parameters:
 
 ```text
-http://host:8081/?room=<room>&token=<token>&server=<ws-base>
+http://host/?room=<room>&token=<token>&server=<ws-base>
 ```
 
 A host produces that link with the editor clients' copy-invite command
