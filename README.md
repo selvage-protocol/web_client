@@ -39,6 +39,49 @@ the reconnect grace it carries — while the WebSocket handshake still proceeds 
 compatibility. The demo is one origin, where the page, `/meta` and `/session` share it and
 the read lands.
 
+### Serving the page
+
+Two shapes, and the first is the default.
+
+**One origin.** `selvaged --serve-page <dir>` answers the page, `/meta` and `/session`
+from one listener, which is what the demo and the published server image run:
+`reference_server` bakes this bundle into `/page` and starts with `--serve-page /page`.
+A share link then needs no `server`, the page's `/meta` read is same-origin and lands,
+and one terminator in front of the one port is enough for TLS. `npm run serve` is the
+local stand-in for the page half of it: a plain static server with no session protocol
+beside it.
+
+**The page-only image.** This repository publishes the bundle on its own, so the page
+can live on an origin of its own, one page in front of several `selvaged` instances, or
+a page host separate from the servers:
+
+```sh
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  --publish 127.0.0.1:8080:8080 ghcr.io/selvage-protocol/selvage-web:0.1.0
+```
+
+The tags are `<version>-<sha>`, `<version>` and `latest`, published from a `v*` tag by
+`.github/workflows/image.yml` and carrying this repository's committed `dist/` (the
+checks job proves a build of `src/` reproduces it byte for byte, so the image cannot
+fall behind its source). The runtime is `nginx-unprivileged` as uid 101 on port 8080,
+and it answers the media types, the cache policy and the content-security policy that
+`selvaged`'s own page handler decides for the one-origin shape: a hashed chunk pinned
+for a year, everything else revalidating, `no-referrer`, `nosniff`. It holds nothing
+writable: nginx's pid file and temp directories are the runtime's own `/dev/shm`, so
+the flags above run it with no mount at all, which `scripts/container-smoke.sh` reads
+back off the daemon's record of the container.
+
+**What the second shape costs, plainly.** The page becomes a second origin. That works,
+because the WebSocket is not CORS-bound: the page dials whatever server the link names,
+and the handshake is where compatibility is enforced. Two things follow, and both are
+paid per link and per page. The `/meta` read is a cross-origin fetch and this project
+emits no `access-control-*` headers, so it is skipped, which costs the wire versions
+and the reconnect grace it carries and nothing else. And the page's built-in default
+names one particular endpoint, so a split deployment needs `?server=<ws-base>` in every
+link, or a page built with another `DEFAULT_SERVER`; the editor clients add `server` to
+a copied invite only for a room that lives off their default. One origin stays the
+default.
+
 ### Join a room
 
 The page's own `/` takes the room and its token as query parameters:
@@ -63,8 +106,10 @@ reload rejoins from it.
 
 ```sh
 npm run typecheck   # tsc --noEmit over src/
-npm test            # the suite; no server needed
+npm test            # the whole suite; no server needed
+npm run test:ci     # the suite CI runs: test/identity.test.ts excluded, see below
 npm run check:types # Content-Type of every dist/ file, against a live page
+scripts/ci-local.sh checks   # what .github/workflows/ci.yml runs, in one command
 ```
 
 `typecheck` covers `src/`, which is all `tsconfig.json` includes.
@@ -73,7 +118,11 @@ npm run check:types # Content-Type of every dist/ file, against a live page
 follow, roster, grants, tree refresh, share links, the join card, mobile, identity, and
 the serve-types contract. `identity` reads files outside this repository, and fails when
 it is checked out alone or in a worktree: it compares the marks with the `site` checkout
-beside this one.
+beside this one. It is the one test that needs a sibling, and CI runs `test:ci`,
+`scripts/test-ci.mjs`, which excludes that file by name. An exclusion whose file has
+been renamed is an error rather than a suite that covers less than it says, and every
+other file, `serve-types` included, runs. The checks that need something live,
+`check:types` (a deployed page) and the proofs (a `selvaged`), run locally only.
 
 `check:types` is live, and tests a deployment rather than the local static server. It
 defaults to the Pi page on :8444 and takes another base as an argument,
@@ -81,7 +130,23 @@ defaults to the Pi page on :8444 and takes another base as an argument,
 files as `application/octet-stream` and fails that check, which is about the serving
 layer the page is deployed behind. There is no CORS check: the one origin (2026-09-19)
 made `selvaged` serve the page, `/meta` and `/session` together, so nothing emits the
-`access-control-*` headers a check used to ask for.
+`access-control-*` headers a check used to ask for. Against the page-only image the same
+script is what `scripts/check-page.sh` runs, together with the served bytes and headers.
+
+### CI
+
+The repository's two workflows. `ci.yml` is the node checks, on a pull request:
+`npm ci`, `typecheck`, `build`, a step asserting that build leaves
+`git diff --exit-code -- dist/` clean, and `test:ci`. It runs in `node:22-trixie-slim`
+because the build shells out to ImageMagick 7's `magick` for the sized icons and the
+GitHub runner image ships ImageMagick 6. `image.yml` is the image: on a pull request
+that changes what the image is built from, `docker build` and a hardened `docker run`
+with the assertions above (`scripts/container-smoke.sh`), plus a rehearsal of the
+publish path against a registry on the runner's own loopback; on a `v*` tag it
+publishes the three tags and reads the version and the page back off them.
+
+The container steps need a Docker daemon, so `scripts/ci-local.sh container` and both
+smoke scripts are CI runs on a machine without one, which is where they were proved.
 
 ## The build
 
@@ -195,6 +260,13 @@ render of `mark-transparent.png` inlined in the shell so no frame waits on an im
 record kept as-is; `prove-fb2.mjs`, the owner-feedback proof; `prove-tls.mjs` and
 `prove-flow2.mjs`) and the live check (`check-content-types.mjs`).
 `test/` holds the suite.
+
+`Dockerfile`, `.dockerignore` and `packaging/` are the page-only image: nginx's own
+configuration, with the media types, the cache policy and the page's policy the
+one-origin deployment decides, and the bundle copied from the committed `dist/`. The
+scripts CI reads live beside the proofs: `test-ci.mjs` (the suite a single checkout can
+run), `release-tags.sh` (the release identity), `check-page.sh` (the served bytes, types
+and headers), `container-smoke.sh`, `assert-image-page.sh` and `ci-local.sh`.
 
 ## Languages and peer markers
 

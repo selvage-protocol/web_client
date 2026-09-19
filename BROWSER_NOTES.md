@@ -1914,6 +1914,53 @@ Open questions:
   decoration no longer second-guesses it: while the local person types exactly
   at a peer's offset the peer's caret can appear one line away until their own
   frame arrives. The desktop client tracks a caret the same way.
+
+## The page on its own origin (2026-09-19)
+
+This repository now publishes its bundle by itself, as
+`ghcr.io/selvage-protocol/selvage-web`, for a deployment that wants the page on an
+origin of its own (one page in front of several `selvaged` instances, or a page host
+separate from the servers). One origin stays the default and is what the server image
+runs. The decisions, since a second origin of the same bundle is where they matter:
+
+- **The image copies the committed `dist/` instead of rebuilding it.** The reference
+  server's page stage proved a fresh `npm ci && npm run build` reproduces it byte for
+  byte, and CI now re-proves that on every pull request (`npm run build`, then
+  `git diff --exit-code -- dist/`), so the COPY takes the reviewed bytes and the image
+  needs no node toolchain, no network fetch and no ImageMagick 7 in its build. What a
+  rebuild in the image would add is what the checks job already asserts.
+- **The runtime is `nginxinc/nginx-unprivileged` (uid 101, port 8080).** It is the
+  well-known unprivileged static base, one image and no plugin; the alternatives a
+  static page could run on (`python3 -m http.server`, busybox's `httpd`) would each
+  need the media-type table written into the build or would answer the wrong type for
+  a `.map`, which is the S1 defect this page already paid for.
+- **`packaging/nginx.conf` mirrors `page.rs`.** The media-type table carries the whole
+  header value, charset included, exactly as the handler's `content_type` returns it;
+  the cache policy is the name's (a content hash pins for a year, everything else
+  revalidates, so `lang-255Y2KCL.js` is pinned and `lang-255Y2KCL.js.map` is not,
+  because the dot is in the hash's way, which is what the same rule says in Rust);
+  and the page's policy, `no-referrer` and `nosniff` ride on every response.
+  `scripts/check-page.sh` runs the page's own `scripts/check-content-types.mjs` plus
+  byte and header assertions against the running container, so the table, the bytes
+  and the policy are checked from outside rather than restated.
+- **It runs with no writable mount.** nginx's pid file and its five temp directories
+  are declared onto `/dev/shm`, the tmpfs the container runtime mounts itself, so
+  `--read-only --cap-drop ALL --security-opt no-new-privileges:true` needs nothing
+  mounted. `scripts/container-smoke.sh` reads those flags back off `docker inspect`
+  and asserts the container runs as uid 101.
+- **Two things a split deployment pays.** The `/meta` read is cross-origin and nothing
+  here emits `access-control-*`, so it is skipped (the wire versions and the
+  reconnect grace, nothing more), and the page's built-in default names one endpoint,
+  so every link needs `?server=`. The socket itself is not CORS-bound, so this works
+  and the handshake still enforces compatibility.
+- **The repository has CI now**, which it had none of before:
+  `.github/workflows/ci.yml` (install, typecheck, build, the build reproduces
+  `dist/`, and the suite a single checkout can run) and `.github/workflows/image.yml`
+  (build and hardened run on a pull request, a non-pushing rehearsal of the release
+  path, and the three tags published on a `v*` tag only). `test/identity.test.ts` is
+  the one test that reads a sibling checkout and is excluded by name in
+  `scripts/test-ci.mjs`; `test/serve-types.test.ts` reads only `dist/` and runs.
+
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and
