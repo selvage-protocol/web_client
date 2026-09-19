@@ -74,6 +74,10 @@ jobs:
             exit 1
           fi
           echo "reproduced; the icons this job's renderer re-rendered: $(printf '%s' "$changed" | tr '\n' ' ')"
+          # The run is read from the API, where the transcript is not: this is the
+          # evidence, as an annotation, of what a build re-rendered and why none of it
+          # was this repository's own work.
+          echo "::notice::a build reproduced dist/; re-rendered by this job's ImageMagick: $(printf '%s' "$changed" | tr '\n' ' ' | cut -c1-800)"
 
       # `test/identity.test.ts` compares the page's mark with the `site` checkout
       # beside this one, which a single-checkout job does not have; it is excluded
