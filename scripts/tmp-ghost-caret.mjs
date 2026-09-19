@@ -6,12 +6,13 @@
 //
 // Usage: node scripts/tmp-ghost-caret.mjs [ghost|caret|all]
 // Env:   GHOST_PORT   (default 8095)     the port selvaged and the page are served on
-//        SELVAGED     (default the checkout's debug binary)
+//        SELVAGED     (default the `reference_server` checkout beside this one)
 //        GHOST_TAG    (default after-fix) the shot directory under .tmp/ghost-caret/
 
-import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 import { launch } from './tmp-cdp.mjs';
 import { SelvageEngine as Engine } from '../src/engine/index.ts';
@@ -24,8 +25,21 @@ const TAG = process.env.GHOST_TAG ?? 'after-fix';
 const PORT = Number(process.env.GHOST_PORT ?? 8095);
 const BASE = `ws://127.0.0.1:${PORT}`;
 const PAGE = `http://127.0.0.1:${PORT}/`;
-const SELVAGED =
-  process.env.SELVAGED ?? '/home/user/projects/selvage/reference_server/target/debug/selvaged';
+/**
+ * The sibling checkout's debug server. The five repositories sit side by side, and this
+ * driver runs from a nested worktree as often as from the checkout itself, so the
+ * sibling is found through the shared git directory rather than by climbing a fixed
+ * number of levels. `SELVAGED` names it outright where it lives elsewhere.
+ */
+function siblingSelvaged() {
+  const commonDir = execFileSync(
+    'git',
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    { cwd: ROOT, encoding: 'utf8' },
+  ).trim();
+  return path.resolve(commonDir, '../../reference_server/target/debug/selvaged');
+}
+const SELVAGED = process.env.SELVAGED ?? siblingSelvaged();
 
 mkdirSync(`${SHOTS}/${TAG}`, { recursive: true });
 mkdirSync(`${SHOTS}/profiles-${TAG}`, { recursive: true });
@@ -61,6 +75,11 @@ async function waitFor(label, predicate, timeoutMs = 20_000) {
 }
 
 async function serve() {
+  if (!existsSync(SELVAGED)) {
+    throw new Error(
+      `no selvaged at ${SELVAGED}: build the sibling reference_server (cargo build) or point SELVAGED at one`,
+    );
+  }
   const child = spawn(
     SELVAGED,
     ['--listen', `127.0.0.1:${PORT}`, '--serve-page', `${ROOT}/dist`, '--room-grace-ms', '120000'],
@@ -207,89 +226,93 @@ async function ghostRooms() {
   const listedInvite = listedHost.inviteUrl();
   await listedHost.grant(['todo.txt']);
 
-  const cdp = await launch({
-    port: 9351,
-    profile: `${SHOTS}/profiles-${TAG}/ghost`,
-    width: 1280,
-    height: 900,
-  });
-  cdp.on('Runtime.exceptionThrown', (params) =>
-    console.log(`EXC ${JSON.stringify(params.exceptionDetails).slice(0, 300)}`),
-  );
+  let cdp;
+  try {
+    cdp = await launch({
+      port: 9351,
+      profile: `${SHOTS}/profiles-${TAG}/ghost`,
+      width: 1280,
+      height: 900,
+    });
+    cdp.on('Runtime.exceptionThrown', (params) =>
+      console.log(`EXC ${JSON.stringify(params.exceptionDetails).slice(0, 300)}`),
+    );
 
-  for (const [label, host, invite] of [
-    ['no-listing', emptyHost, emptyHost.inviteUrl()],
-    ['listing-no-open-document', listedHost, listedInvite],
-  ]) {
-    if (invite === undefined) throw new Error(`${label}: the host minted no invite`);
-    await joinPage(cdp, pageUrlFor(invite), `guest-${label}`);
-    const state = await cdp.evaluate(DOM.state);
-    console.log(
-      `[ghost ${label}] state ${JSON.stringify({
-        tree: state.tree,
-        viewText: state.viewText,
-        documents: host.session().documents,
-      })}`,
-    );
-    check(
-      `ghost/${label}: the tree says where the room stands`,
-      label === 'no-listing'
-        ? state.tree.includes('The room shares no listing yet.')
-        : state.tree.includes('todo.txt'),
-      state.tree,
-    );
-    await cdp.shot(`${SHOTS}/${TAG}/ghost-${label}-before-typing.png`);
-    // The person types into what looks like a file: it must not land.
-    await cdp.evaluate(DOM.focusEditor);
-    await cdp.typeText('ghost text nobody sees');
-    await cdp.pressKey('Enter', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
-    await sleep(600);
-    const after = await cdp.evaluate(DOM.state);
-    await cdp.shot(`${SHOTS}/${TAG}/ghost-${label}-after-typing.png`);
-    check(
-      `ghost/${label}: the buffer still holds no text`,
-      after.viewText === state.viewText,
-      `before=${JSON.stringify(state.viewText)} after=${JSON.stringify(after.viewText)}`,
-    );
-    check(
-      `ghost/${label}: nothing reached the room`,
-      host.session().documents.length === 0,
-      JSON.stringify(host.session().documents),
-    );
-    // A listed file is the way out: opening it puts a document in front of the editor
-    // and the editor takes text again the moment it opens.
-    if (label === 'listing-no-open-document') {
-      await cdp.evaluate(
-        `[...document.querySelectorAll('#tree button.row')].find((row) => row.textContent.includes('todo.txt')).click()`,
+    for (const [label, host, invite] of [
+      ['no-listing', emptyHost, emptyHost.inviteUrl()],
+      ['listing-no-open-document', listedHost, listedInvite],
+    ]) {
+      if (invite === undefined) throw new Error(`${label}: the host minted no invite`);
+      await joinPage(cdp, pageUrlFor(invite), `guest-${label}`);
+      const state = await cdp.evaluate(DOM.state);
+      console.log(
+        `[ghost ${label}] state ${JSON.stringify({
+          tree: state.tree,
+          viewText: state.viewText,
+          documents: host.session().documents,
+        })}`,
       );
+      check(
+        `ghost/${label}: the tree says where the room stands`,
+        label === 'no-listing'
+          ? state.tree.includes('The room shares no listing yet.')
+          : state.tree.includes('todo.txt'),
+        state.tree,
+      );
+      await cdp.shot(`${SHOTS}/${TAG}/ghost-${label}-before-typing.png`);
+      // The person types into what looks like a file: it must not land.
       await cdp.evaluate(DOM.focusEditor);
-      const opened = await waitFor(
-        'the opened file to take text',
-        async () => {
-          await cdp.typeText('x');
-          const state = await cdp.evaluate(DOM.state);
-          return state.viewText.includes('x') ? state : undefined;
-        },
-        15_000,
-      );
-      await cdp.shot(`${SHOTS}/${TAG}/ghost-listing-opened-takes-text.png`);
+      await cdp.typeText('ghost text nobody sees');
+      await cdp.pressKey('Enter', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+      await sleep(600);
+      const after = await cdp.evaluate(DOM.state);
+      await cdp.shot(`${SHOTS}/${TAG}/ghost-${label}-after-typing.png`);
       check(
-        'ghost/listing-no-open-document: opening a listed file makes the editor editable again',
-        opened.viewText.includes('x'),
-        JSON.stringify(opened.viewText),
+        `ghost/${label}: the buffer still holds no text`,
+        after.viewText === state.viewText,
+        `before=${JSON.stringify(state.viewText)} after=${JSON.stringify(after.viewText)}`,
       );
       check(
-        'ghost/listing-no-open-document: the open reaches the tree',
-        (
-          await cdp.evaluate(`document.querySelector('#tree button.row.open')?.textContent ?? ''`)
-        ).includes('todo.txt'),
-        await cdp.evaluate(`document.querySelector('#tree button.row.open')?.textContent ?? 'no open row'`),
+        `ghost/${label}: nothing reached the room`,
+        host.session().documents.length === 0,
+        JSON.stringify(host.session().documents),
       );
+      // A listed file is the way out: opening it puts a document in front of the editor
+      // and the editor takes text again the moment it opens.
+      if (label === 'listing-no-open-document') {
+        await cdp.evaluate(
+          `[...document.querySelectorAll('#tree button.row')].find((row) => row.textContent.includes('todo.txt')).click()`,
+        );
+        await cdp.evaluate(DOM.focusEditor);
+        const opened = await waitFor(
+          'the opened file to take text',
+          async () => {
+            await cdp.typeText('x');
+            const state = await cdp.evaluate(DOM.state);
+            return state.viewText.includes('x') ? state : undefined;
+          },
+          15_000,
+        );
+        await cdp.shot(`${SHOTS}/${TAG}/ghost-listing-opened-takes-text.png`);
+        check(
+          'ghost/listing-no-open-document: opening a listed file makes the editor editable again',
+          opened.viewText.includes('x'),
+          JSON.stringify(opened.viewText),
+        );
+        check(
+          'ghost/listing-no-open-document: the open reaches the tree',
+          (
+            await cdp.evaluate(`document.querySelector('#tree button.row.open')?.textContent ?? ''`)
+          ).includes('todo.txt'),
+          await cdp.evaluate(`document.querySelector('#tree button.row.open')?.textContent ?? 'no open row'`),
+        );
+      }
     }
+  } finally {
+    await cdp?.close();
+    await emptyHost.disconnect();
+    await listedHost.disconnect();
   }
-  await cdp.close();
-  await emptyHost.disconnect();
-  await listedHost.disconnect();
 }
 
 async function caretRoom() {
@@ -302,126 +325,133 @@ async function caretRoom() {
   await host.grant(['notes.md']);
 
   const url = pageUrlFor(invite);
-  const peer = await launch({
-    port: 9352,
-    profile: `${SHOTS}/profiles-${TAG}/peer`,
-    width: 1280,
-    height: 900,
-  });
-  const local = await launch({
-    port: 9353,
-    profile: `${SHOTS}/profiles-${TAG}/local`,
-    width: 1280,
-    height: 900,
-  });
+  let peer;
+  let local;
+  try {
+    peer = await launch({
+      port: 9352,
+      profile: `${SHOTS}/profiles-${TAG}/peer`,
+      width: 1280,
+      height: 900,
+    });
+    local = await launch({
+      port: 9353,
+      profile: `${SHOTS}/profiles-${TAG}/local`,
+      width: 1280,
+      height: 900,
+    });
 
-  await joinPage(peer, url, 'peer');
-  const peerState = await peer.evaluate(DOM.state);
-  check(
-    'caret: the peer page opened the room document',
-    DOM.read(peerState.viewText).includes('line 11'),
-    peerState.viewText,
-  );
-  // The peer's caret onto line 11, where the owner's screenshot had it.
-  const peerLine = await clickLine(peer, 11);
-  console.log(`[caret] peer caret on the line at ${peerLine}`);
+      await joinPage(peer, url, 'peer');
+    const peerState = await peer.evaluate(DOM.state);
+    check(
+      'caret: the peer page opened the room document',
+      DOM.read(peerState.viewText).includes('line 11'),
+      peerState.viewText,
+    );
+    // The peer's caret onto line 11, where the owner's screenshot had it.
+    const peerLine = await clickLine(peer, 11);
+    console.log(`[caret] peer caret on the line at ${peerLine}`);
 
-  await joinPage(local, url, 'local');
-  const localState = await local.evaluate(DOM.state);
-  check(
-    'caret: the local page opened the room document',
-    DOM.read(localState.viewText).includes('line 11'),
-    localState.viewText,
-  );
-  // Go to the peer: the local caret lands exactly at the peer's own offset, so the
-  // Enters below are pressed at the peer's position — the owner's reproduction.
-  const row = await local.evaluate(
-    `[...document.querySelectorAll('#roster li')].findIndex((li) => (li.querySelector('.name')?.textContent ?? '').includes('peer'))`,
-  );
-  check('caret: the peer is in the roster', row >= 0, `row ${row}`);
-  await local.evaluate(
-    `[...document.querySelectorAll('#roster li')][${row}].querySelectorAll('button')[0].click()`,
-  );
-  const landed = await waitFor(
-    'the peer caret to be drawn on the peer line',
-    async () => {
-      const state = await local.evaluate(DOM.state);
-      return state.badges.length > 0 ? state : undefined;
-    },
-    15_000,
-  );
-  console.log(`[caret] landed: ${JSON.stringify({ badges: landed.badges, bars: landed.caretBars })}`);
-  check(
-    'caret: one badge before typing, on the peer word',
-    landed.badges.length === 1 && landed.badges[0].line === peerLine,
-    `${JSON.stringify(landed.badges)} against the peer line at ${peerLine}`,
-  );
-  await local.shot(`${SHOTS}/${TAG}/caret-before-typing.png`);
+    await joinPage(local, url, 'local');
+    const localState = await local.evaluate(DOM.state);
+    check(
+      'caret: the local page opened the room document',
+      DOM.read(localState.viewText).includes('line 11'),
+      localState.viewText,
+    );
+    // Go to the peer: the local caret lands exactly at the peer's own offset, so the
+    // Enters below are pressed at the peer's position — the owner's reproduction.
+    const row = await local.evaluate(
+      `[...document.querySelectorAll('#roster li')].findIndex((li) => (li.querySelector('.name')?.textContent ?? '').includes('peer'))`,
+    );
+    check('caret: the peer is in the roster', row >= 0, `row ${row}`);
+    await local.evaluate(
+      `[...document.querySelectorAll('#roster li')][${row}].querySelectorAll('button')[0].click()`,
+    );
+    const landed = await waitFor(
+      'the peer caret to be drawn on the peer line',
+      async () => {
+        const state = await local.evaluate(DOM.state);
+        return state.badges.length > 0 ? state : undefined;
+      },
+      15_000,
+    );
+    console.log(`[caret] landed: ${JSON.stringify({ badges: landed.badges, bars: landed.caretBars })}`);
+    check(
+      'caret: one badge before typing, on the peer word',
+      landed.badges.length === 1 && landed.badges[0].line === peerLine,
+      `${JSON.stringify(landed.badges)} against the peer line at ${peerLine}`,
+    );
+    await local.shot(`${SHOTS}/${TAG}/caret-before-typing.png`);
 
-  // Three Enters at the peer's own position, the owner's reproduction.
-  await local.evaluate(DOM.focusEditor);
-  for (let index = 0; index < 3; index += 1) {
-    await local.pressKey('Enter', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
-    await sleep(400);
+    // Three Enters at the peer's own position, the owner's reproduction.
+    await local.evaluate(DOM.focusEditor);
+    for (let index = 0; index < 3; index += 1) {
+      await local.pressKey('Enter', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+      await sleep(400);
+    }
+    // The peer's page walks with the room: its caret is where the room put it now.
+    const peerNow = await waitFor(
+      'the peer caret to move with the room',
+      async () => {
+        const state = await peer.evaluate(DOM.state);
+        return state.caretTop !== peerLine ? state.caretTop : undefined;
+      },
+      15_000,
+    );
+    const typed = await local.evaluate(DOM.state);
+    await local.shot(`${SHOTS}/${TAG}/caret-after-three-enters.png`);
+    console.log(
+      `[caret] after three Enters: ${JSON.stringify({
+        badges: typed.badges,
+        bars: typed.caretBars,
+        peerCaret: peerNow,
+      })}`,
+    );
+    check(
+      'caret: one badge per peer after typing',
+      typed.badges.length === 1,
+      `${typed.badges.length} badges on ${JSON.stringify(typed.badges.map((badge) => badge.line))}`,
+    );
+    check(
+      'caret: the caret bar stays on one line',
+      typed.caretBars.length === 1,
+      `${typed.caretBars.length} bars on ${JSON.stringify(typed.caretBars.map((bar) => bar.line))}`,
+    );
+    check(
+      "caret: the badge is on the peer's own line",
+      typed.badges.length === 1 && typed.badges[0].line === peerNow,
+      `badge ${JSON.stringify(typed.badges.map((badge) => badge.line))} against the peer at ${peerNow}`,
+    );
+
+    // The next frame draws the same point again, wherever the room puts the peer.
+    await clickLine(peer, 13);
+    const moved = await waitFor(
+      'the badge to follow the peer to the new line',
+      async () => {
+        const state = await local.evaluate(DOM.state);
+        return state.badges.length === 1 && state.badges[0].line !== typed.badges[0].line ? state : undefined;
+      },
+      15_000,
+    );
+    await local.shot(`${SHOTS}/${TAG}/caret-after-cursor-move.png`);
+    console.log(`[caret] after the peer moved: ${JSON.stringify({ badges: moved.badges, bars: moved.caretBars })}`);
+    check(
+      'caret: a fresh frame draws one point again',
+      moved.badges.length === 1 && moved.caretBars.length === 1,
+      `${JSON.stringify(moved.badges)} and ${JSON.stringify(moved.caretBars)}`,
+    );
+  } finally {
+    await peer?.close();
+    await local?.close();
+    await host.disconnect();
   }
-  // The peer's page walks with the room: its caret is where the room put it now.
-  const peerNow = await waitFor(
-    'the peer caret to move with the room',
-    async () => {
-      const state = await peer.evaluate(DOM.state);
-      return state.caretTop !== peerLine ? state.caretTop : undefined;
-    },
-    15_000,
-  );
-  const typed = await local.evaluate(DOM.state);
-  await local.shot(`${SHOTS}/${TAG}/caret-after-three-enters.png`);
-  console.log(
-    `[caret] after three Enters: ${JSON.stringify({
-      badges: typed.badges,
-      bars: typed.caretBars,
-      peerCaret: peerNow,
-    })}`,
-  );
-  check(
-    'caret: one badge per peer after typing',
-    typed.badges.length === 1,
-    `${typed.badges.length} badges on ${JSON.stringify(typed.badges.map((badge) => badge.line))}`,
-  );
-  check(
-    'caret: the caret bar stays on one line',
-    typed.caretBars.length === 1,
-    `${typed.caretBars.length} bars on ${JSON.stringify(typed.caretBars.map((bar) => bar.line))}`,
-  );
-  check(
-    "caret: the badge is on the peer's own line",
-    typed.badges.length === 1 && typed.badges[0].line === peerNow,
-    `badge ${JSON.stringify(typed.badges.map((badge) => badge.line))} against the peer at ${peerNow}`,
-  );
-
-  // The next frame draws the same point again, wherever the room puts the peer.
-  await clickLine(peer, 13);
-  const moved = await waitFor(
-    'the badge to follow the peer to the new line',
-    async () => {
-      const state = await local.evaluate(DOM.state);
-      return state.badges.length === 1 && state.badges[0].line !== typed.badges[0].line ? state : undefined;
-    },
-    15_000,
-  );
-  await local.shot(`${SHOTS}/${TAG}/caret-after-cursor-move.png`);
-  console.log(`[caret] after the peer moved: ${JSON.stringify({ badges: moved.badges, bars: moved.caretBars })}`);
-  check(
-    'caret: a fresh frame draws one point again',
-    moved.badges.length === 1 && moved.caretBars.length === 1,
-    `${JSON.stringify(moved.badges)} and ${JSON.stringify(moved.caretBars)}`,
-  );
-
-  await peer.close();
-  await local.close();
-  await host.disconnect();
 }
 
 const mode = process.argv[2] ?? 'all';
+if (!['ghost', 'caret', 'all'].includes(mode)) {
+  throw new Error(`unsupported mode: ${mode} (ghost, caret or all)`);
+}
 const server = await serve();
 try {
   if (mode === 'ghost' || mode === 'all') await ghostRooms();
