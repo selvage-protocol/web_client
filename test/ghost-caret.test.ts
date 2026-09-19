@@ -1,14 +1,25 @@
 /**
+ * Two owner-reported defects, each pinned where its mechanism lives.
+ *
  * A ghost document: a room that shares no document left the editor editable, so
  * the person typed into a buffer bound to no room document — text nobody saw and
  * nothing published. The binding locks the editor whenever no document is in
  * front of it, and unlocks it the moment one opens.
+ *
+ * A ghost caret: a peer's zero-width caret decoration was tracked with Monaco's
+ * default stickiness, which widens it over text the local person inserts at the
+ * peer's own position — a bar across every line the newlines created, with its
+ * glyph-margin badge repeated on each. `renderCursors` now mints the stickiness
+ * the desktop client draws with, and the caret is applied to Monaco's own
+ * tracked-range function so the pin is on the behaviour, not on the option name.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MonacoBinding } from '../src/browser/editor.ts';
+import { IntervalNode, nodeAcceptEdit } from 'monaco-editor/esm/vs/editor/common/model/intervalTree.js';
+
+import { CURSOR_STICKINESS, MonacoBinding } from '../src/browser/editor.ts';
 
 // Minimal DOM: the binding owns one <style> element for peer colours.
 globalThis.document = {
@@ -109,6 +120,34 @@ function setup(texts) {
   return { engine, editor, binding };
 }
 
+function cursor(peerId, label, head, anchor = head) {
+  return {
+    peerId,
+    label,
+    role: 'guest',
+    path: 'a.txt',
+    anchor,
+    head,
+    colour: '#e06c75',
+    fill: '#e06c7540',
+  };
+}
+
+/**
+ * One decoration's range as Monaco tracks it through a local insert at the
+ * caret's own offset: the same function the editor's interval tree calls for
+ * every decoration when the buffer changes (`intervalTree.js`).
+ */
+function trackThroughInserts(options, start, end, at, inserts) {
+  const node = new IntervalNode(1, start, end);
+  node.setOptions(options);
+  node.reset(1, start, end, null);
+  for (let index = 0; index < inserts; index += 1) {
+    nodeAcceptEdit(node, at, at, 1, false);
+  }
+  return { start: node.start, end: node.end };
+}
+
 describe('a room that shares no document', () => {
   it('leaves the editor read-only until a document opens', async () => {
     const { binding, editor } = setup(new Map());
@@ -130,5 +169,64 @@ describe('a room that shares no document', () => {
     await binding.openDocument('a.txt');
     assert.equal(editor.readOnly, true, 'a document arriving after the room is over unlocked the editor');
     binding.dispose();
+  });
+});
+
+describe("a peer's caret, while the local person types at it", () => {
+  const PEER_OFFSET = 10; // The peer's head, on line 2 of the buffer below.
+  const PEER_SELECTION = 5; // The peer's anchor: a selection from here to the head.
+
+  function caretAndFill() {
+    const { binding, editor } = setup(new Map([['a.txt', 'ab\ncdef\nghijkl\nmn\n']]));
+    return binding.openDocument('a.txt').then(() => {
+      binding.renderCursors([cursor('peer-a', 'amy', PEER_OFFSET, PEER_SELECTION)]);
+      const caret = editor.decorations.find((entry) => entry.options.hoverMessage !== undefined);
+      const fill = editor.decorations.find((entry) => entry.options.inlineClassName !== undefined);
+      return { binding, caret, fill };
+    });
+  }
+
+  it('is drawn as a point, on one line, so one badge can paint', async () => {
+    const { binding, caret } = await caretAndFill();
+    assert.ok(caret !== undefined, 'no caret decoration was minted');
+    assert.equal(caret.range.startLineNumber, caret.range.endLineNumber, 'the caret is not a point');
+    assert.equal(caret.range.startColumn, caret.range.endColumn, 'the caret is not a point');
+    assert.equal(caret.options.stickiness, CURSOR_STICKINESS);
+    binding.dispose();
+  });
+
+  it('does not widen over the lines three Enters at it create', async () => {
+    const { binding, caret, fill } = await caretAndFill();
+    const tracked = trackThroughInserts(caret.options, PEER_OFFSET, PEER_OFFSET, PEER_OFFSET, 3);
+    assert.equal(
+      tracked.start,
+      tracked.end,
+      `the caret stretched to ${tracked.start}..${tracked.end} over the typed text`,
+    );
+    assert.ok(fill !== undefined, 'a selection fill was expected to carry the same rule');
+    assert.equal(fill.options.stickiness, CURSOR_STICKINESS);
+    const selection = trackThroughInserts(fill.options, PEER_SELECTION, PEER_OFFSET, PEER_OFFSET, 3);
+    assert.equal(
+      selection.end,
+      PEER_OFFSET,
+      `the peer's selection swallowed the typed text, ending at ${selection.end}`,
+    );
+    binding.dispose();
+  });
+
+  it('is what Monaco widens without it: the mechanism', () => {
+    // The same caret tracked as Monaco tracks one that names no stickiness — the
+    // default, `AlwaysGrowsWhenTypingAtEdges`. Three Enters at its position leave the
+    // range spanning three offsets, which paints a bar over four lines and one
+    // glyph-margin badge for each of them.
+    const stretched = trackThroughInserts(
+      { className: 'x', stickiness: 0 },
+      PEER_OFFSET,
+      PEER_OFFSET,
+      PEER_OFFSET,
+      3,
+    );
+    assert.equal(stretched.start, PEER_OFFSET);
+    assert.equal(stretched.end, PEER_OFFSET + 3, 'Monaco no longer widens a range typed at its edge');
   });
 });

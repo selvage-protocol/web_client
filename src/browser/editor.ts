@@ -616,6 +616,7 @@ export class MonacoBinding implements EditorHost {
             color: cursor.colour,
             position: 4 as monaco.editor.OverviewRulerLane,
           },
+          stickiness: CURSOR_STICKINESS,
         };
         if (badged.get(line)?.peerId === cursor.peerId) {
           caretOptions.glyphMarginClassName = this.badgeClass(cursor);
@@ -637,6 +638,7 @@ export class MonacoBinding implements EditorHost {
                 `fill:${cursor.fill}`,
                 `background-color: ${cursor.fill};`,
               ),
+              stickiness: CURSOR_STICKINESS,
             },
           },
         ];
@@ -750,6 +752,19 @@ function peerName(displayName: string, peerId: string): string {
 
 /** How many badge classes a rename loop may mint before the cache restarts. */
 const MAX_BADGE_CLASSES = 64;
+
+/**
+ * The stickiness a peer's caret bar and selection fill are tracked with.
+ *
+ * Monaco's default (`AlwaysGrowsWhenTypingAtEdges`, `0`) widens a decoration whose
+ * edge the local person types at, and three Enters pressed at a peer's own position
+ * stretch their zero-width caret over lines 11–14: a bar across all four and its
+ * glyph-margin badge repeated on each. The desktop client draws both decorations
+ * with `DecorationRangeBehavior.ClosedClosed`, the value Monaco names
+ * `NeverGrowsWhenTypingAtEdges` (`1`), so a peer's caret stays the point it is
+ * between frames. Named numerically because this module imports Monaco's types only.
+ */
+export const CURSOR_STICKINESS = 1;
 
 function toRange(model: monaco.editor.ITextModel, from: number, to: number): monaco.IRange {
   const start = model.getPositionAt(Math.min(from, to));
