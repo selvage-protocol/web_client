@@ -1,5 +1,5 @@
 /**
- * Content-Type regression for the static page deploy (S1, 2026-09-18): a
+ * Content-Type regression for the deployed page (S1, 2026-09-18): a
  * hashed chunk answered with text/html blocks the module load, so every
  * extension the bundler emits must serve its type — including a chunk the Pi
  * dist is missing (a stale sync answers 404 text/html, which fails here as a
@@ -10,8 +10,10 @@
  *
  * Every file in the local dist/ is checked, so a new emitted file or
  * extension is covered without editing this script — but the serving layer
- * (`serve.py` on the Pi) must learn it too; test/serve-types.test.ts pins
- * that the table below and serve.py agree.
+ * must learn it too. The one origin (2026-09-19) made `selvaged` answer the
+ * page itself, so the table to keep in step is `content_type` in
+ * `reference_server/crates/selvaged/src/page.rs`, and a run against the
+ * deployed page is what catches the two drifting apart.
  */
 import { readdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -25,7 +27,10 @@ export const EXPECTED_TYPES = {
   '.map': 'application/json',
   '.wasm': 'application/wasm',
   '.svg': 'image/svg+xml',
-  '.webmanifest': 'application/manifest+json',
+  // `page.rs` answers every JSON family, the manifest included, as
+  // `application/json`; a browser accepts it for `rel=manifest` (verified on
+  // the live page), where a wrong type for a hashed chunk is what S1 was.
+  '.webmanifest': 'application/json',
   '.png': 'image/png',
   '.ttf': 'font/ttf',
   '.woff': 'font/woff',
@@ -50,7 +55,7 @@ export function distFiles() {
     const ext = at === -1 ? '' : file.slice(at);
     const want = EXPECTED_TYPES[ext];
     if (want === undefined) {
-      throw new Error(`dist/${file} emits ${ext || '(no extension)'} — teach EXPECTED_TYPES and serve.py first`);
+      throw new Error(`dist/${file} emits ${ext || '(no extension)'} — teach EXPECTED_TYPES and the serving layer's table first`);
     }
     out.push([ext, file, want]);
   }
@@ -58,7 +63,7 @@ export function distFiles() {
 }
 
 async function main() {
-  const base = (process.argv[2] ?? 'https://lumi-raspberrypi.muskellunge-yo.ts.net:8443').replace(/\/$/, '');
+  const base = (process.argv[2] ?? 'https://lumi-raspberrypi.muskellunge-yo.ts.net:8444').replace(/\/$/, '');
   const reps = distFiles();
   if (reps.length === 0) {
     console.error('no dist/ files found — run npm run build first');
@@ -87,7 +92,7 @@ async function main() {
       console.log(`ok ${ext} ${file}: ${type}`);
     }
   }
-  console.log(failures === 0 ? `TYPES VERDICT: PASS (${reps.length} extensions)` : `TYPES VERDICT: FAIL (${failures}/${reps.length})`);
+  console.log(failures === 0 ? `TYPES VERDICT: PASS (${reps.length} files)` : `TYPES VERDICT: FAIL (${failures}/${reps.length})`);
   process.exit(failures === 0 ? 0 : 1);
 }
 

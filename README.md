@@ -32,6 +32,13 @@ it is used: an absolute `ws`, `wss`, `http` or `https` URL with a host, and no
 credentials, fragment or query (`linkServerBase`). The guest's own browser is what reads
 that server's `/meta` and opens its socket.
 
+If a `server` override names a different origin, that server's `/meta` has to allow the
+page's origin through CORS for the browser to read it. Nothing in this project emits
+`access-control-*`, so an override skips the advisory `/meta` read — the wire versions and
+the reconnect grace it carries — while the WebSocket handshake still proceeds and enforces
+compatibility. The demo is one origin, where the page, `/meta` and `/session` share it and
+the read lands.
+
 ### Join a room
 
 The page's own `/` takes the room and its token as query parameters:
@@ -58,25 +65,23 @@ reload rejoins from it.
 npm run typecheck   # tsc --noEmit over src/
 npm test            # the suite; no server needed
 npm run check:types # Content-Type of every dist/ file, against a live page
-npm run check:cors  # CORS headers on the TLS proxy's /meta, against a live proxy
 ```
 
 `typecheck` covers `src/`, which is all `tsconfig.json` includes.
 
 `test` runs the suite with a fake editor standing in for Monaco: the adapter, languages,
 follow, roster, grants, tree refresh, share links, the join card, mobile, identity, and
-the serve-types contract. Two of them read files outside this repository, and fail when
-it is checked out alone or in a worktree: `identity` compares the marks with the `site`
-checkout beside this one, and `serve-types` reads `ai_notes/.tmp/web-hosting/serve.py`
-from beside it.
+the serve-types contract. `identity` reads files outside this repository, and fails when
+it is checked out alone or in a worktree: it compares the marks with the `site` checkout
+beside this one.
 
-`check:types` and `check:cors` are live, and they test a deployment rather than the local
-static server. `check:types` defaults to the Pi page on :8443 and takes another base as
-an argument, `npm run check:types -- http://127.0.0.1:8081`; a plain static server
-answers the `.map` files as `application/octet-stream` and fails that check, which is
-about the serving layer the page is deployed behind. `check:cors` defaults to the TLS
-proxy on :8444 and takes `SELVAGE_CORS_BASE=`; it needs the proxy that puts the CORS
-headers on `/meta` for an https page on another origin.
+`check:types` is live, and tests a deployment rather than the local static server. It
+defaults to the Pi page on :8444 and takes another base as an argument,
+`npm run check:types -- http://127.0.0.1:8081`; a plain static server answers the `.map`
+files as `application/octet-stream` and fails that check, which is about the serving
+layer the page is deployed behind. There is no CORS check: the one origin (2026-09-19)
+made `selvaged` serve the page, `/meta` and `/session` together, so nothing emits the
+`access-control-*` headers a check used to ask for.
 
 ## The build
 
@@ -188,7 +193,7 @@ render of `mark-transparent.png` inlined in the shell so no frame waits on an im
 
 `scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-pi.mjs`, the M0
 record kept as-is; `prove-fb2.mjs`, the owner-feedback proof; `prove-tls.mjs` and
-`prove-flow2.mjs`) and the live checks (`check-cors.mjs`, `check-content-types.mjs`).
+`prove-flow2.mjs`) and the live check (`check-content-types.mjs`).
 `test/` holds the suite.
 
 ## Languages and peer markers

@@ -14,7 +14,6 @@
     "prove:fb2": "node scripts/prove-fb2.mjs",
     "prove:tls": "node scripts/prove-tls.mjs",
     "prove:flow2": "node scripts/prove-flow2.mjs",
-    "check:cors": "node scripts/check-cors.mjs",
     "check:types": "node scripts/check-content-types.mjs",
     "serve": "python3 -m http.server 8081 --directory dist"
   },
