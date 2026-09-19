@@ -12,7 +12,14 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PHONE_QUERY, TOUCH_QUERY, appHeightFor, editorOptionsFor } from '../src/browser/mobile.ts';
+import {
+  PHONE_QUERY,
+  TOUCH_QUERY,
+  appHeightFor,
+  editorOptionsFor,
+  keyboardInsetFor,
+  watchTouchQuery,
+} from '../src/browser/mobile.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 // Comments removed: a rule's selector list is read off the text, and a comment
@@ -83,6 +90,34 @@ describe('the visual viewport a soft keyboard shrinks', () => {
   it('rounds to whole pixels, which is all a layout can use', () => {
     assert.equal(appHeightFor({ height: 419.6, scale: 1 }, 844), 420);
   });
+
+  it('measures the distance a fixed line has to clear to stay above the keyboard', () => {
+    assert.equal(keyboardInsetFor({ height: 420, scale: 1, offsetTop: 0 }, 844), 424);
+    assert.equal(keyboardInsetFor({ height: 420, scale: 1, offsetTop: 40 }, 844), 384);
+  });
+
+  it('leaves the transient lines where they are when nothing shrank', () => {
+    assert.equal(keyboardInsetFor({ height: 844, scale: 1 }, 844), 0);
+    assert.equal(keyboardInsetFor({ height: 422, scale: 2 }, 844), 0);
+    assert.equal(keyboardInsetFor(undefined, 844), 0);
+  });
+
+  it('re-decides when a pointer is attached or removed mid-session', () => {
+    const listeners: (() => void)[] = [];
+    const query = {
+      matches: false,
+      addEventListener: (type: string, listener: () => void): void => {
+        if (type === 'change') listeners.push(listener);
+      },
+    };
+    const seen: boolean[] = [];
+    watchTouchQuery(query, (touch) => seen.push(touch));
+    assert.deepEqual(seen, [], 'the decision ran before the device changed');
+    assert.equal(listeners.length, 1, 'nothing listens on the touch query');
+    query.matches = true;
+    for (const listener of listeners) listener();
+    assert.deepEqual(seen, [true], 'a pointer attached mid-session never re-applied the decision');
+  });
 });
 
 describe('the shell and the page agree on what a phone is', () => {
@@ -116,6 +151,31 @@ describe('the shell and the page agree on what a phone is', () => {
     assert.match(mediaBlock(PHONE_QUERY), /#join\s*\{[^}]*env\(safe-area-inset-bottom\)/);
     assert.match(mediaBlock(TOUCH_QUERY), /#alert[^{]*\{[^}]*env\(safe-area-inset-bottom\)/);
   });
+
+  it('lifts the transient lines with the visual viewport, like the app', () => {
+    assert.match(declarations(style, '#peek'), /var\(--keyboard-inset/, '#peek is parked under the keyboard');
+    assert.match(declarations(style, '#alert'), /var\(--keyboard-inset/, '#alert is parked under the keyboard');
+  });
+
+  it('puts the failure alert above the tap line where the two collide', () => {
+    const zIndex = (selector: string): number => {
+      const found = /(?:^|;)\s*z-index:\s*(\d+)/.exec(declarations(style, selector));
+      return Number(found?.[1]);
+    };
+    assert.ok(
+      zIndex('#alert') > zIndex('#peek'),
+      `#alert z ${zIndex('#alert')} does not paint over #peek z ${zIndex('#peek')}`,
+    );
+  });
+
+  it('re-reads the touch query as a pointer arrives, not once at load', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.ok(
+      main.includes('watchTouchQuery(touchLayout,'),
+      'the touch decision is never revisited when the device changes',
+    );
+    assert.ok(main.includes('applyTouchMode()'), 'a changed touch query re-applies nothing');
+  });
 });
 
 describe('the sizes a finger needs', () => {
@@ -123,6 +183,7 @@ describe('the sizes a finger needs', () => {
     const touch = mediaBlock(TOUCH_QUERY);
     assert.match(declarations(touch, '#join input'), /font-size:\s*16px/, 'the fields are back under the zoom floor');
     assert.match(declarations(touch, '#join-message'), /font-size:\s*16px/, 'the line that says the room is gone is the smallest thing on the card');
+    assert.match(declarations(touch, '#share'), /font-size:\s*16px/, 'the copy fallback focuses a field under the zoom floor');
   });
 
   it('gives every control a 44 px box to hit', () => {

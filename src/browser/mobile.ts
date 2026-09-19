@@ -67,3 +67,37 @@ export function appHeightFor(
   }
   return Math.round(viewport.height);
 }
+
+/**
+ * How far the visual viewport's bottom edge sits above the layout viewport's,
+ * in whole pixels: where a `position: fixed` line has to sit to stay above a
+ * soft keyboard. The keyboard shrinks the visual viewport alone, and a fixed
+ * line is placed against the layout viewport, so `bottom: 0` there is under
+ * the keyboard; this is the distance back to the floor the guest can see. Zero
+ * when nothing shrank, so the line sits where it always has.
+ */
+export function keyboardInsetFor(
+  viewport: { height: number; scale: number; offsetTop?: number } | undefined,
+  layoutHeight: number,
+): number {
+  if (viewport === undefined || viewport.scale !== 1 || viewport.height >= layoutHeight) {
+    return 0;
+  }
+  return Math.max(0, Math.round(layoutHeight - (viewport.offsetTop ?? 0) - viewport.height));
+}
+
+/** The part of a live media query `watchTouchQuery` needs, so a test can fake one. */
+export interface LiveQuery {
+  readonly matches: boolean;
+  addEventListener(type: 'change', listener: (event: unknown) => void): void;
+}
+
+/**
+ * Re-runs a decision when the device changes under it. A pointer attached or
+ * removed mid-session — a mouse plugged into a tablet, a trackpad in a case —
+ * flips the query with no reload, so the decisions a stylesheet cannot restyle
+ * (Monaco's options, the off-hover wording, the viewport pin) have to be told.
+ */
+export function watchTouchQuery(query: LiveQuery, apply: (touch: boolean) => void): void {
+  query.addEventListener('change', () => apply(query.matches));
+}

@@ -34,7 +34,14 @@ import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
 import { defaultServerForPage, linkServerBase, schemeMatchBase } from './servers.ts';
-import { PHONE_QUERY, TOUCH_QUERY, appHeightFor, editorOptionsFor } from './mobile.ts';
+import {
+  PHONE_QUERY,
+  TOUCH_QUERY,
+  appHeightFor,
+  editorOptionsFor,
+  keyboardInsetFor,
+  watchTouchQuery,
+} from './mobile.ts';
 
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
   getWorkerUrl: (_moduleId: string, label: string) =>
@@ -48,7 +55,9 @@ const DEFAULT_SERVER = 'ws://100.64.0.3:8080';
  * the one question the page asks about the device. A narrow window on a machine
  * with a mouse answers no, and keeps the layout it has — see `mobile.ts`.
  */
-const touchOnly = window.matchMedia(TOUCH_QUERY).matches;
+/** The live touch query; `watchTouchQuery` re-decides when a pointer arrives. */
+const touchLayout = window.matchMedia(TOUCH_QUERY);
+let touchOnly = touchLayout.matches;
 /** The same device, phone-shaped: the panel is a disclosure that starts shut. */
 const phoneLayout = window.matchMedia(PHONE_QUERY);
 /** How far a finger may drift and still count as a tap rather than a scroll. */
@@ -217,6 +226,8 @@ let engine: SelvageEngine | undefined;
 let linkGuard: { dispose(): void } | undefined;
 /** The editor widget the binding drew into, dropped with the session. */
 let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
+/** What the editor was created with on this device, to return to under a pointer. */
+let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
 /** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
 let fullShareLink = '';
@@ -384,9 +395,25 @@ async function join(held: HeldJoin): Promise<void> {
   const editor = monaco.editor.create(editorHost, {
     automaticLayout: true,
     glyphMargin: true,
-    ...editorOptionsFor(touchOnly),
     theme: 'selvage-mocha',
   });
+  // Read the desktop options off the editor it just made rather than restating
+  // them: Monaco's font size default is platform-dependent, and a pointer that
+  // arrives mid-session has to be able to put all three back (see
+  // `applyTouchMode`).
+  const scrollbar = editor.getOption(monaco.editor.EditorOption.scrollbar);
+  desktopEditorOptions = {
+    ...editorOptionsFor(false),
+    wordWrap: editor.getOption(monaco.editor.EditorOption.wordWrap),
+    fontSize: editor.getOption(monaco.editor.EditorOption.fontSize),
+    scrollbar: {
+      verticalScrollbarSize: scrollbar.verticalScrollbarSize,
+      horizontalScrollbarSize: scrollbar.horizontalScrollbarSize,
+    },
+  };
+  if (touchOnly) {
+    editor.updateOptions(editorOptionsFor(true));
+  }
   // Held so the whole session can be dropped, editor and all, when the room ends.
   editorApi = editor;
   binding = new MonacoBinding({
@@ -701,6 +728,7 @@ function leaveSession(sentence: string): void {
   binding = undefined;
   engine = undefined;
   editorApi = undefined;
+  desktopEditorOptions = undefined;
   opening = undefined;
   renderedPath = undefined;
   openDirs.clear();
@@ -835,18 +863,41 @@ window.addEventListener('beforeunload', () => {
  * the element's own size — never hears about it. That is how a caret ends up
  * behind the keyboard. Following the visual viewport is the fix; `appHeightFor`
  * is the rule, and it declines a pinch-zoom, which is a visual-viewport shrink
- * too. A layout that did change gets its editor re-measured.
+ * too. A layout that did change gets its editor re-measured. The transient
+ * lines are fixed against the layout viewport, which the keyboard leaves
+ * alone, so they are told the distance up to the floor the guest can see.
  */
 function fitVisualViewport(): void {
-  if (!touchOnly) {
-    return;
-  }
-  const height = appHeightFor(window.visualViewport ?? undefined, window.innerHeight);
+  const height = touchOnly
+    ? appHeightFor(window.visualViewport ?? undefined, window.innerHeight)
+    : undefined;
   appPane.style.height = height === undefined ? '' : `${height}px`;
+  const inset = touchOnly
+    ? keyboardInsetFor(window.visualViewport ?? undefined, window.innerHeight)
+    : 0;
+  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
   editorApi?.layout();
 }
 
 window.visualViewport?.addEventListener('resize', fitVisualViewport);
+
+/**
+ * The decisions a stylesheet cannot restyle, replayed when a pointer is
+ * attached or removed mid-session: Monaco's options, the off-hover wording,
+ * and the viewport pin handed back to the browser or taken over again.
+ */
+function applyTouchMode(): void {
+  editorApi?.updateOptions(
+    touchOnly ? editorOptionsFor(true) : desktopEditorOptions ?? editorOptionsFor(false),
+  );
+  syncGrant();
+  fitVisualViewport();
+}
+
+watchTouchQuery(touchLayout, (touch) => {
+  touchOnly = touch;
+  applyTouchMode();
+});
 
 /**
  * A finger taps where a pointer hovers. A peer's `label · role` is a decoration
@@ -854,37 +905,38 @@ window.visualViewport?.addEventListener('resize', fitVisualViewport);
  * — or inside their selection — says the same line on the peek row. A drag is a
  * scroll and says nothing.
  */
-if (touchOnly) {
-  let pressedAt: readonly [number, number] | undefined;
-  editorHost.addEventListener(
-    'touchstart',
-    (event) => {
-      const touch = event.changedTouches[0] ?? event.touches[0];
-      pressedAt = touch === undefined ? undefined : [touch.clientX, touch.clientY];
-    },
-    { passive: true },
-  );
-  editorHost.addEventListener('touchend', (event) => {
+let pressedAt: readonly [number, number] | undefined;
+editorHost.addEventListener(
+  'touchstart',
+  (event) => {
     const touch = event.changedTouches[0] ?? event.touches[0];
-    const from = pressedAt;
-    pressedAt = undefined;
-    if (touch === undefined || from === undefined) {
-      return;
-    }
-    if (
-      Math.abs(touch.clientX - from[0]) > TAP_SLOP ||
-      Math.abs(touch.clientY - from[1]) > TAP_SLOP
-    ) {
-      return;
-    }
-    const position = editorApi?.getTargetAtClientPoint(touch.clientX, touch.clientY)?.position;
-    const model = editorApi?.getModel();
-    if (position === undefined || position === null || model === null || model === undefined) {
-      return;
-    }
-    const peer = binding?.peerAt(model.getOffsetAt(position));
-    if (peer !== undefined) {
-      peek.show(`${peer.label} · ${peer.role}`);
-    }
-  });
-}
+    pressedAt = touch === undefined ? undefined : [touch.clientX, touch.clientY];
+  },
+  { passive: true },
+);
+editorHost.addEventListener('touchend', (event) => {
+  if (!touchOnly) {
+    return;
+  }
+  const touch = event.changedTouches[0] ?? event.touches[0];
+  const from = pressedAt;
+  pressedAt = undefined;
+  if (touch === undefined || from === undefined) {
+    return;
+  }
+  if (
+    Math.abs(touch.clientX - from[0]) > TAP_SLOP ||
+    Math.abs(touch.clientY - from[1]) > TAP_SLOP
+  ) {
+    return;
+  }
+  const position = editorApi?.getTargetAtClientPoint(touch.clientX, touch.clientY)?.position;
+  const model = editorApi?.getModel();
+  if (position === undefined || position === null || model === null || model === undefined) {
+    return;
+  }
+  const peer = binding?.peerAt(model.getOffsetAt(position));
+  if (peer !== undefined) {
+    peek.show(`${peer.label} · ${peer.role}`);
+  }
+});
