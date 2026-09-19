@@ -140,6 +140,7 @@ export class MonacoBinding implements EditorHost {
           break;
       }
     });
+    this.applyEditability();
   }
 
   /**
@@ -183,6 +184,7 @@ export class MonacoBinding implements EditorHost {
     if (this.fronted.has(path) && this.models.get(path)?.isDisposed() === false) {
       this.path = path;
       this.editor.setModel(this.models.get(path) ?? null);
+      this.applyEditability();
       this.publishSelection();
       return;
     }
@@ -213,6 +215,7 @@ export class MonacoBinding implements EditorHost {
     }
     this.path = path;
     this.editor.setModel(model);
+    this.applyEditability();
     this.bridge.documentOpened(path);
     this.fronted.add(path);
     this.publishSelection();
@@ -224,6 +227,7 @@ export class MonacoBinding implements EditorHost {
     if (this.path === path) {
       this.path = undefined;
       this.editor.setModel(null);
+      this.applyEditability();
     }
     this.models.get(path)?.dispose();
     this.models.delete(path);
@@ -489,9 +493,25 @@ export class MonacoBinding implements EditorHost {
     if (this.followingPeerId !== undefined) {
       this.clearFollow();
     }
-    const options = this.editor as unknown as { updateOptions?: (options: { readOnly: boolean }) => void };
-    options.updateOptions?.({ readOnly: true });
+    this.applyEditability();
     this.onNotice({ kind: 'roomGone', reason });
+  }
+
+  /**
+   * The editor accepts text only while a room document is in front of it: an
+   * editor with no document bound to the room is a buffer in no document at all,
+   * and anything typed there is a ghost — nothing publishes it and no peer sees
+   * it, while it looks like a file. A room that shares no document therefore
+   * opens nothing and stays read-only until a document arrives (`openDocument`);
+   * closing the last one locks it again and the room being over locks it for
+   * good. No sentence is coined for it: Monaco answers the attempt itself
+   * (`Cannot edit in read-only editor`) and the grant tree already reads
+   * `The room shares no listing yet.` when the room offers nothing.
+   */
+  private applyEditability(): void {
+    const readOnly = this.terminalReason !== undefined || this.path === undefined;
+    const options = this.editor as unknown as { updateOptions?: (next: { readOnly: boolean }) => void };
+    options.updateOptions?.({ readOnly });
   }
 
   /** The name a sentence says: the room's, or the id when the room left it blank. */
