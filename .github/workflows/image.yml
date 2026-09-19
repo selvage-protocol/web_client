@@ -67,8 +67,15 @@ jobs:
         with:
           node-version: '22.18.0'
 
+      # The smoke asserts on the host (curl, node) and against the daemon, and it
+      # annotates its own failures; this wrapper catches the ones it cannot, because a
+      # job's transcript is not readable from the API without a signed-in session.
       - name: build the image, run it hardened, and assert the page it serves
-        run: scripts/container-smoke.sh
+        run: |
+          if ! scripts/container-smoke.sh 2>&1 | tee container-smoke.log; then
+            echo "::error::$(tail -n 6 container-smoke.log | tr '\n' '|' | cut -c1-900)"
+            exit 1
+          fi
 
   publish-rehearsal:
     # The publish path with nothing published: the same multi-architecture buildx

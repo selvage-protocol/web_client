@@ -52,8 +52,30 @@ jobs:
       # The image ships the committed `dist/` rather than rebuilding it (see the
       # Dockerfile), so this is where a source change that was never built is caught,
       # rather than in an image that would carry a stale page.
+      #
+      # Every file the bundler writes has to come back byte-identical. The six sized
+      # icons are excluded by name: their bytes are the renderer's, not this
+      # repository's (this job carries trixie's ImageMagick 7.1.1.x; the checkout the
+      # committed icons came from carried another), so pinning them here would pin a
+      # rendering tool's version. `test/identity.test.ts` is where they are pinned, and
+      # it is excluded from `test:ci` for the unrelated reason that it needs a sibling
+      # checkout. A difference anywhere else is named in an annotation, because a
+      # job's transcript is not readable from the API without a signed-in session.
       - name: the build reproduces the committed dist/
-        run: git diff --exit-code -- dist/
+        run: |
+          icons=(
+            ':(exclude)dist/favicon-16x16.png'
+            ':(exclude)dist/favicon-32x32.png'
+            ':(exclude)dist/icon-48.png'
+            ':(exclude)dist/apple-touch-icon.png'
+            ':(exclude)dist/icon-192.png'
+            ':(exclude)dist/icon-512.png'
+          )
+          if ! git diff --exit-code -- dist/ "${icons[@]}"; then
+            echo "::error::a build differs from the committed dist/ in: $(git diff --name-only -- dist/ | head -n 20 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "reproduced, the rendered icons aside: $(git diff --name-only -- dist/ | tr '\n' ' ')"
 
       # `test/identity.test.ts` compares the page's mark with the `site` checkout
       # beside this one, which a single-checkout job does not have; it is excluded
