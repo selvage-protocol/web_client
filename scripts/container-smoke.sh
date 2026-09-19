@@ -110,8 +110,8 @@ require_none() {  # require_none <format> <what>
     local got
     got="$(field "$1")"
     case "$got" in
-        '' | 'null' | '[]') echo "$3: none" ;;
-        *) fail "$3 is $got, want none" ;;
+        '' | 'null' | '[]') echo "$2: none" ;;
+        *) fail "$2 is $got, want none" ;;
     esac
 }
 

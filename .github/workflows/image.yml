@@ -70,8 +70,13 @@ jobs:
       # The smoke asserts on the host (curl, node) and against the daemon, and it
       # annotates its own failures; this wrapper catches the ones it cannot, because a
       # job's transcript is not readable from the API without a signed-in session.
+      #
+      # `set -o pipefail` is not optional here: without it the pipeline's status is
+      # `tee`'s, which succeeds, and this wrapper would report a green job over a smoke
+      # that failed (it did, once, until this line was added).
       - name: build the image, run it hardened, and assert the page it serves
         run: |
+          set -o pipefail
           if ! scripts/container-smoke.sh 2>&1 | tee container-smoke.log; then
             echo "::error::$(tail -n 6 container-smoke.log | tr '\n' '|' | cut -c1-900)"
             exit 1
@@ -113,8 +118,11 @@ jobs:
         with:
           driver-opts: network=host
 
+      # Bound to loopback: the builder above pushes to `localhost:5000` over the host
+      # network namespace its driver was given, and a registry listening on every
+      # interface is not what this job needs.
       - name: start a loopback registry
-        run: docker run --detach --name rehearsal-registry --publish 5000:5000 registry:2
+        run: docker run --detach --name rehearsal-registry --publish 127.0.0.1:5000:5000 registry:2
 
       - name: compute the release tags
         id: tags

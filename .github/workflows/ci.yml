@@ -63,7 +63,10 @@ jobs:
       # container's own shell, so no arrays and no bashisms belong here.
       - name: the build reproduces the committed dist/
         run: |
-          changed="$(git status --porcelain -- dist/ || true)"
+          if ! changed="$(git status --porcelain -- dist/)"; then
+            echo "::error::git status could not read dist/, so the build is unproven"
+            exit 1
+          fi
           if [ -n "$changed" ]; then
             echo "$changed" >&2
             echo "::error::a build does not reproduce the committed dist/: $(printf '%s' "$changed" | tr '\n' ' ' | cut -c1-800)"
