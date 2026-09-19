@@ -137,7 +137,11 @@ script is what `scripts/check-page.sh` runs, together with the served bytes and 
 
 The repository's two workflows. `ci.yml` is the node checks, on a pull request:
 `npm ci`, `typecheck`, `build`, `scripts/check-dist.sh` (the build reproduces the
-committed `dist/`), and `test:ci`. It runs in `node:22-trixie-slim`
+committed `dist/`: every file the bundler writes, byte for byte, and the six sized
+icons at their six sizes, because an ImageMagick version decides their bytes and their
+pixels and this job carries trixie's 7.1.1.x where the committed icons came from a
+7.1.2; `test/identity.test.ts` is where their bytes are pinned, on a machine that has
+the `site` checkout), and `test:ci`. It runs in `node:22-trixie-slim`
 because the build shells out to ImageMagick 7's `magick` for the sized icons and the
 GitHub runner image ships ImageMagick 6. `image.yml` is the image: on a pull request
 that changes what the image is built from, `docker build` and a hardened `docker run`

@@ -59,9 +59,9 @@ jobs:
       # rather than in an image that would carry a stale page. `scripts/check-dist.sh`
       # owns the rule and `scripts/ci-local.sh` runs the same script, so there is one
       # place to keep it: every file the bundler writes byte for byte, and the six
-      # icons, which are rendered at build time, as the same images — a PNG encoder's
-      # choices are the ImageMagick version's, and this job carries trixie's 7.1.1.x
-      # where the committed icons came from 7.1.2.
+      # icons, which are rendered at build time, at their six sizes — an ImageMagick
+      # version decides both a PNG encoder's choices and its resampler, and this job
+      # carries trixie's 7.1.1.x where the committed icons came from a 7.1.2.
       #
       # The copy it compares against is the one the step above took, so this needs no
       # git either: the container's `git` could not read the workspace here.
