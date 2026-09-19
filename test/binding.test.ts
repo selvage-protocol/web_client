@@ -97,7 +97,7 @@ function makeEditor() {
 
 function makeEngine(texts) {
   return {
-    session: () => ({ role: 'guest', roomId: 'r-test', documents: ['notes.txt'] }),
+    session: () => ({ role: 'guest', roomId: 'r-test', peer: { peer_id: 'self', display_name: 'self', role: 'guest' }, documents: ['notes.txt'] }),
     text: (path) => texts.get(path) ?? '',
     has: (path) => texts.has(path),
     open: async (_path) => {},

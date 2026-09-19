@@ -84,8 +84,8 @@ function makeEngine(texts, overrides = {}) {
     delete: () => {},
     setSelection: () => {},
     setAwareness: () => {},
-    presence: () => [],
-    resolveSelection: () => undefined,
+    presence: () => overrides.presence ?? [],
+    resolveSelection: (_path, _selection) => overrides.resolved,
     peers: () => [],
     documents: () => [...texts.keys()],
     grantedPaths: () => [],
@@ -229,6 +229,39 @@ describe('renderCursors parity', () => {
     for (const rule of appendedRules) {
       assert.ok(!/border-bottom/.test(rule), `underline rule minted: ${rule}`);
     }
+    binding.dispose();
+  });
+});
+
+describe('presence the client already holds is painted when a document opens', () => {
+  /**
+   * Seating delivers the awareness snapshot before anyone opens a file, so at that
+   * moment no model exists and every peer cursor is filtered out. Opening the file is
+   * the first moment the carets can resolve, and nothing repainted them until the
+   * local person clicked or moved — the next peer frame. This drives the open with the
+   * presence already seeded and no frame after it: the open is the whole trigger.
+   */
+  it('draws a peer caret on open, with no later frame and no manual render', async () => {
+    const engine = makeEngine(new Map([['a.txt', 'ab\ncdef\ng']]), {
+      presence: [
+        {
+          peer: { peer_id: 'peer-a', display_name: 'amy', role: 'guest' },
+          state: { path: 'a.txt', selection: { anchor: 4, head: 4 } },
+        },
+      ],
+      resolved: { anchor: 4, head: 4 },
+    });
+    const editor = makeEditor();
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+    });
+    await binding.openDocument('a.txt');
+    const carets = editor.decorations.filter((entry) => entry.options.hoverMessage !== undefined);
+    assert.equal(carets.length, 1, 'a peer already in the file was not painted on open');
+    assert.equal(carets[0].options.hoverMessage.value, 'amy · guest');
     binding.dispose();
   });
 });

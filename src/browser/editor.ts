@@ -126,6 +126,7 @@ export class MonacoBinding implements EditorHost {
           break;
         case 'documentChanged':
           this.backgroundTick();
+          this.renderCursors(this.bridge.cursors());
           break;
         case 'documentsChanged':
           // The listing is the grant unioned with the open documents, so a
@@ -186,6 +187,7 @@ export class MonacoBinding implements EditorHost {
       this.editor.setModel(this.models.get(path) ?? null);
       this.applyEditability();
       this.publishSelection();
+      this.renderCursors(this.bridge.cursors());
       return;
     }
     if (!this.engine.openDocuments().includes(path)) {
@@ -219,6 +221,7 @@ export class MonacoBinding implements EditorHost {
     this.bridge.documentOpened(path);
     this.fronted.add(path);
     this.publishSelection();
+    this.renderCursors(this.bridge.cursors());
   }
 
   closeDocument(path: string): void {
