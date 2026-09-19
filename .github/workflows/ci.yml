@@ -56,33 +56,21 @@ jobs:
 
       # The image ships the committed `dist/` rather than rebuilding it (see the
       # Dockerfile), so this is where a source change that was never built is caught,
-      # rather than in an image that would carry a stale page.
+      # rather than in an image that would carry a stale page. `scripts/check-dist.sh`
+      # owns the rule and `scripts/ci-local.sh` runs the same script, so there is one
+      # place to keep it: every file the bundler writes byte for byte, and the six
+      # icons, which are rendered at build time, as the same images — a PNG encoder's
+      # choices are the ImageMagick version's, and this job carries trixie's 7.1.1.x
+      # where the committed icons came from 7.1.2.
       #
-      # The comparison is against the copy `actions/checkout` left, taken before the
-      # build, so it needs no git: `git status` in this job container could not read the
-      # workspace (the earlier, `|| true`-masked version of this step reported a green
-      # run over exactly that failure), and what the claim needs is the bytes anyway.
-      # Every file and its sha256, so a changed file is caught and so is one the build
-      # emitted that the commit does not carry.
-      #
-      # This is `sh`, not bash: a `run:` step in a job container is executed with the
-      # container's own shell, so no arrays and no bashisms belong here. The evidence
-      # goes out as an annotation, because a job's transcript is not readable from the
-      # API without a signed-in session.
+      # The copy is taken before the build because it is the commit's own `dist/`:
+      # comparing against a copy rather than against git also keeps this step out of
+      # the container's `git`, which could not read the workspace here.
+      - name: keep the committed dist/ to compare against
+        run: cp -r dist "$RUNNER_TEMP/dist-committed"
+
       - name: the build reproduces the committed dist/
-        run: |
-          sums() { (cd "$1" && find . -type f -exec sha256sum {} + | sort); }
-          before="$(sums "$RUNNER_TEMP/dist-committed")"
-          after="$(sums dist)"
-          if [ "$before" != "$after" ]; then
-            printf '%s\n' "$before" > "$RUNNER_TEMP/before.txt"
-            printf '%s\n' "$after" > "$RUNNER_TEMP/after.txt"
-            differing="$(grep -vxF -f "$RUNNER_TEMP/after.txt" "$RUNNER_TEMP/before.txt" || true)"
-            emitted="$(grep -vxF -f "$RUNNER_TEMP/before.txt" "$RUNNER_TEMP/after.txt" || true)"
-            echo "::error::a build does not reproduce the committed dist/; committed but not rebuilt, or different: $(printf '%s' "$differing" | tr '\n' ' ' | cut -c1-400) rebuilt but not committed: $(printf '%s' "$emitted" | tr '\n' ' ' | cut -c1-400)"
-            exit 1
-          fi
-          echo "::notice::a build here reproduces the committed dist/ byte for byte ($(printf '%s\n' "$after" | wc -l) files, all unchanged)"
+        run: scripts/check-dist.sh "$RUNNER_TEMP/dist-committed"
 
       # `test/identity.test.ts` compares the page's mark with the `site` checkout
       # beside this one, which a single-checkout job does not have; it is excluded

@@ -62,8 +62,8 @@ docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true
 
 The tags are `<version>-<sha>`, `<version>` and `latest`, published from a `v*` tag by
 `.github/workflows/image.yml` and carrying this repository's committed `dist/` (the
-checks job proves a build of `src/` reproduces it byte for byte, so the image cannot
-fall behind its source). The runtime is `nginx-unprivileged` as uid 101 on port 8080,
+checks job proves a build of `src/` reproduces it, so the image cannot fall behind its
+source). The runtime is `nginx-unprivileged` as uid 101 on port 8080,
 and it answers the media types, the cache policy and the content-security policy that
 `selvaged`'s own page handler decides for the one-origin shape: a hashed chunk pinned
 for a year, everything else revalidating, `no-referrer`, `nosniff`. It holds nothing
@@ -136,8 +136,8 @@ script is what `scripts/check-page.sh` runs, together with the served bytes and 
 ### CI
 
 The repository's two workflows. `ci.yml` is the node checks, on a pull request:
-`npm ci`, `typecheck`, `build`, a step asserting that build leaves
-`git status --porcelain -- dist/` empty, and `test:ci`. It runs in `node:22-trixie-slim`
+`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh` (the build reproduces the
+committed `dist/`), and `test:ci`. It runs in `node:22-trixie-slim`
 because the build shells out to ImageMagick 7's `magick` for the sized icons and the
 GitHub runner image ships ImageMagick 6. `image.yml` is the image: on a pull request
 that changes what the image is built from, `docker build` and a hardened `docker run`

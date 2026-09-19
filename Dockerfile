@@ -15,13 +15,12 @@
 # rebuilt here. The reference server's image clones this repository at a pinned
 # revision and runs `npm ci && npm run build` inside its own build, and its round
 # recorded that the two are byte-identical; the `checks` job in
-# .github/workflows/ci.yml re-proves that on every pull request (`npm run build`
-# and then asserts the working tree under `dist/` is unchanged), so what this COPY
-# takes is the reviewed bytes. What a rebuild inside the image would add is nothing
-# the checks job does not already assert, and it would add a node toolchain, a fetch
-# and ImageMagick 7 to this build for it. A page that must be built somewhere else
-# is served by mounting a `dist/` over `/usr/share/nginx/html` instead, which
-# needs no command override either.
+# .github/workflows/ci.yml re-proves that on every pull request (`npm run build`, then
+# `scripts/check-dist.sh` against the commit's own copy), so what this COPY takes is the
+# reviewed bytes. What a rebuild inside the image would add is nothing the checks job
+# does not already assert, and it would add a node toolchain, a fetch and ImageMagick 7
+# to this build for it. A page that must be built somewhere else is served by mounting a
+# `dist/` over `/usr/share/nginx/html` instead, which needs no command override.
 #
 # The runtime is `nginxinc/nginx-unprivileged`, nginx with two changes of its own:
 # it runs as uid 101 and it listens on 8080, so nothing in the image needs a

@@ -1926,9 +1926,11 @@ runs. The decisions, since a second origin of the same bundle is where they matt
 - **The image copies the committed `dist/` instead of rebuilding it.** The reference
   server's page stage proved a fresh `npm ci && npm run build` reproduces it byte for
   byte, and CI now re-proves that on every pull request (`npm run build`, then
-  `git status --porcelain -- dist/` empty), so the COPY takes the reviewed bytes and the
-  image needs no node toolchain, no network fetch and no ImageMagick 7 in its build.
-  What a rebuild in the image would add is what the checks job already asserts.
+  `scripts/check-dist.sh`, which compares every file the bundler writes by sha256 and the
+  six build-rendered icons as the same images, their bytes being the renderer's), so the
+  COPY takes the reviewed bytes and the image needs no node toolchain, no network fetch
+  and no ImageMagick 7 in its build. What a rebuild in the image would add is what the
+  checks job already asserts.
 - **The runtime is `nginxinc/nginx-unprivileged` (uid 101, port 8080).** It is the
   well-known unprivileged static base, one image and no plugin; the alternatives a
   static page could run on (`python3 -m http.server`, busybox's `httpd`) would each
