@@ -1778,8 +1778,9 @@ how a fixed line stays above a keyboard the layout viewport never heard about.
 A pointer attached or removed mid-session re-decides the touch mode —
 `watchTouchQuery` re-applies Monaco's options (read off the editor it made,
 because Monaco's font default is platform-dependent), the off-hover pill's words
-and the viewport pin. The guards on top of the round take the driver to **59
-checks** and the suite to **305 tests (303 pass** from a nested worktree).
+and the viewport pin, and a pan of the visual viewport re-runs the inset. The
+guards on top of the round take the driver to **60 checks** and the suite to
+**306 tests (304 pass** from a nested worktree).
 
 Could not verify: a real iOS or Android soft keyboard — the driver emulates the
 layout-viewport shrink and, separately, an installed `visualViewport`; whether
