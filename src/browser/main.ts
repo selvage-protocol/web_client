@@ -880,6 +880,9 @@ function fitVisualViewport(): void {
 }
 
 window.visualViewport?.addEventListener('resize', fitVisualViewport);
+// A pan scrolls the visual viewport without resizing it, and the inset is
+// measured from its offset, so the same rule runs on the scroll too.
+window.visualViewport?.addEventListener('scroll', fitVisualViewport);
 
 /**
  * The decisions a stylesheet cannot restyle, replayed when a pointer is

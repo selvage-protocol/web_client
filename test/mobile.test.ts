@@ -180,6 +180,16 @@ describe('the shell and the page agree on what a phone is', () => {
     );
     assert.ok(main.includes('applyTouchMode()'), 'a changed touch query re-applies nothing');
   });
+
+  it('follows a visual-viewport pan, not only a resize', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /addEventListener\('resize',\s*fitVisualViewport\)/, 'the visual viewport is never watched');
+    assert.match(
+      main,
+      /addEventListener\('scroll',\s*fitVisualViewport\)/,
+      'a pan moves the visual viewport without a resize, and the inset is measured from its offset',
+    );
+  });
 });
 
 describe('the sizes a finger needs', () => {
