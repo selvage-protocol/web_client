@@ -140,6 +140,7 @@ export class MonacoBinding implements EditorHost {
           break;
       }
     });
+    this.applyEditability();
   }
 
   /**
@@ -183,6 +184,7 @@ export class MonacoBinding implements EditorHost {
     if (this.fronted.has(path) && this.models.get(path)?.isDisposed() === false) {
       this.path = path;
       this.editor.setModel(this.models.get(path) ?? null);
+      this.applyEditability();
       this.publishSelection();
       return;
     }
@@ -213,6 +215,7 @@ export class MonacoBinding implements EditorHost {
     }
     this.path = path;
     this.editor.setModel(model);
+    this.applyEditability();
     this.bridge.documentOpened(path);
     this.fronted.add(path);
     this.publishSelection();
@@ -224,6 +227,7 @@ export class MonacoBinding implements EditorHost {
     if (this.path === path) {
       this.path = undefined;
       this.editor.setModel(null);
+      this.applyEditability();
     }
     this.models.get(path)?.dispose();
     this.models.delete(path);
@@ -489,9 +493,25 @@ export class MonacoBinding implements EditorHost {
     if (this.followingPeerId !== undefined) {
       this.clearFollow();
     }
-    const options = this.editor as unknown as { updateOptions?: (options: { readOnly: boolean }) => void };
-    options.updateOptions?.({ readOnly: true });
+    this.applyEditability();
     this.onNotice({ kind: 'roomGone', reason });
+  }
+
+  /**
+   * The editor accepts text only while a room document is in front of it: an
+   * editor with no document bound to the room is a buffer in no document at all,
+   * and anything typed there is a ghost — nothing publishes it and no peer sees
+   * it, while it looks like a file. A room that shares no document therefore
+   * opens nothing and stays read-only until a document arrives (`openDocument`);
+   * closing the last one locks it again and the room being over locks it for
+   * good. No sentence is coined for it: Monaco answers the attempt itself
+   * (`Cannot edit in read-only editor`) and the grant tree already reads
+   * `The room shares no listing yet.` when the room offers nothing.
+   */
+  private applyEditability(): void {
+    const readOnly = this.terminalReason !== undefined || this.path === undefined;
+    const options = this.editor as unknown as { updateOptions?: (next: { readOnly: boolean }) => void };
+    options.updateOptions?.({ readOnly });
   }
 
   /** The name a sentence says: the room's, or the id when the room left it blank. */
@@ -596,6 +616,7 @@ export class MonacoBinding implements EditorHost {
             color: cursor.colour,
             position: 4 as monaco.editor.OverviewRulerLane,
           },
+          stickiness: CURSOR_STICKINESS,
         };
         if (badged.get(line)?.peerId === cursor.peerId) {
           caretOptions.glyphMarginClassName = this.badgeClass(cursor);
@@ -617,6 +638,7 @@ export class MonacoBinding implements EditorHost {
                 `fill:${cursor.fill}`,
                 `background-color: ${cursor.fill};`,
               ),
+              stickiness: CURSOR_STICKINESS,
             },
           },
         ];
@@ -730,6 +752,19 @@ function peerName(displayName: string, peerId: string): string {
 
 /** How many badge classes a rename loop may mint before the cache restarts. */
 const MAX_BADGE_CLASSES = 64;
+
+/**
+ * The stickiness a peer's caret bar and selection fill are tracked with.
+ *
+ * Monaco's default (`AlwaysGrowsWhenTypingAtEdges`, `0`) widens a decoration whose
+ * edge the local person types at, and three Enters pressed at a peer's own position
+ * stretch their zero-width caret over lines 11–14: a bar across all four and its
+ * glyph-margin badge repeated on each. The desktop client draws both decorations
+ * with `DecorationRangeBehavior.ClosedClosed`, the value Monaco names
+ * `NeverGrowsWhenTypingAtEdges` (`1`), so a peer's caret stays the point it is
+ * between frames. Named numerically because this module imports Monaco's types only.
+ */
+export const CURSOR_STICKINESS = 1;
 
 function toRange(model: monaco.editor.ITextModel, from: number, to: number): monaco.IRange {
   const start = model.getPositionAt(Math.min(from, to));

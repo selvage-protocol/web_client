@@ -1800,6 +1800,120 @@ desktop layout, and would still zoom a 14 px field — the query buys the
 touchscreen laptop its desktop and pays for it here; and whether landscape's session bar at 62 px (44 px of it
 the copy control) is worth a shorter variant, given 390 px of height.
 
+## Ghost document, ghost caret (2026-09-19)
+
+Two owner-reported defects, both reproduced live before the fix and pinned by
+tests after it.
+
+**1. A room that shares no document left the editor editable.** `monaco.editor.
+create(host, …)` with no `model` makes itself an empty buffer, `openFirst`
+opens nothing when the room names no document, and the `documents` case opens
+only when the room names one — so the page showed a buffer bound to no room
+document and took text into it. That text is not in the room, nothing
+publishes it and no peer sees it, while it looks like a file. `MonacoBinding`
+now owns the rule *the editor accepts text only while a room document is in
+front of it*: `applyEditability` sets `readOnly` at construction, on every
+`openDocument` (both the fetch and the re-show branch), on `closeDocument` and
+in `enterTerminal`, from the one condition `path === undefined ||
+terminalReason !== undefined`.
+
+Both shapes are covered, and they differ only in what the page already says:
+
+| Room state | Tree | Editor |
+|---|---|---|
+| No listing, nothing open | `The room shares no listing yet.` | read-only, empty |
+| A listing, nothing open | the files, all closed rows | read-only, empty |
+| A file opened by the person | that row wears `open` | editable, fetches the file |
+
+No sentence was coined for it. In the no-listing case the tree's existing
+line is the state, and in the listing case the rows are the invitation; on the
+keystroke Monaco answers for itself — `Cannot edit in read-only editor`, in
+its own words, which the after-fix shots show. Opening a listed file is
+unaffected: the open reaches the room as before and the editor takes text the
+moment the document arrives, which the driver checks by clicking `todo.txt`
+and typing into what opens. The room-gone teardown is unchanged — it is now
+one of `applyEditability`'s two reasons rather than its own `updateOptions`,
+and `test/room-gone.test.ts` still pins it.
+
+**2. A peer's caret stretched over the lines the local person typed, and its
+badge repeated on each of them.** The caret is a *zero-width* decoration, and
+Monaco tracks a decoration's range through edits: by default
+(`AlwaysGrowsWhenTypingAtEdges`, `0`) a range the local person types at its own
+edge widens to swallow the typed text. Three Enters at the peer's position
+therefore left the caret spanning lines 11–14, and a `className` decoration
+over a multi-line range paints on *every* line it covers — one `DIV.cdr`
+caret bar and one glyph-margin widget per line, which is the four `pe` badges
+and the stretched bar in the owner's screenshot. Nothing was stale: the next
+frame drew the peer's caret as the point the room resolves it to (line 14),
+which is why a cursor move appeared to fix it.
+
+`renderCursors` now mints both the caret and the selection fill with
+`CURSOR_STICKINESS` (`NeverGrowsWhenTypingAtEdges`, `1`) — the value the
+desktop client's `DecorationRangeBehavior.ClosedClosed` maps to
+(`vscode_client/src/adapter/decorations.ts`), so the two clients track a peer's
+positions the same way. The value is named numerically because this module
+imports Monaco's types only: a runtime import would put the editor's DOM in the
+tests' path.
+
+**Tests.** `test/ghost-caret.test.ts` is new, 5 checks: the editor read-only
+with no document in front and editable the moment one opens (in both
+directions, including after the room is over), and the caret's tracking. The
+caret pin is behavioural rather than structural: the options `renderCursors`
+mints are handed to Monaco's own `nodeAcceptEdit` (the function its interval
+tree calls for every decoration on an edit), and the range must stay a point
+through three inserts, with the peer's selection end not moving. Removing the
+read-only calls alone leaves *leaves the editor read-only until a document
+opens* and *locks again when the document leaves…* red (`the editor takes text
+the room does not hold`); removing the two `stickiness` lines alone leaves
+*is drawn as a point…* and *does not widen over the lines three Enters at it
+create* red (`the caret stretched to 10..13 over the typed text`, the same
+three offsets the browser painted as four lines).
+
+Suite **310 tests, 309 pass** from this nested worktree — `test/identity.test.ts`
+reads `../../site`, which is not beside a worktree, and passes from the main
+checkout (**305/305**). `npm run typecheck` clean; `npm run build` green with
+its `ws`-absence assert, `dist/` rebuilt in the same commit (this repository
+tracks its built page).
+
+**Proven live** (`GHOST-CARET VERDICT: PASS`, driver
+`scripts/tmp-ghost-caret.mjs`, a real `selvaged --serve-page dist`, real
+Chromium 152 over CDP, two real guests — the local person and the peer — and the
+same driver run twice, under `GHOST_TAG=before-fix` and `after-fix`):
+
+- Ghost, before: `ghost text nobody sees` sat in the buffer in both room shapes
+(the driver's own check red: `before="" after="ghost text nobody sees"`).
+  After: the buffer is unchanged, the room holds no document, and Monaco paints
+  its read-only notice. Shots `ghost-<shape>-{before,after}-typing.png` and
+  `ghost-listing-opened-takes-text.png`.
+- Caret, before: after the local person pressed Enter three times at the peer's
+  own position, 4 badges and 4 bars at lines 11–14 while the peer's own page
+  had its caret on line 14 — the owner's screenshot exactly. After: 1 badge and
+  1 bar, on line 14, the peer's own line; a click that moves the peer to
+  line 13 moves the single badge with it. Shots
+  `caret-{before-typing,after-three-enters,after-cursor-move}.png`.
+
+Nothing outside the checkout is written: the Chromium profiles, the shots and
+the driver's logs live under `.tmp/ghost-caret/`, and the one unix-socket
+directory Chromium insists on per launch goes to `/tmp/gt` (a profile path this
+deep exceeds the 107-byte socket bound). A `rawKeyDown` with no text — `ArrowDown`
+and `Home` — never reaches Monaco in this headless Chromium; the driver moves a
+caret by clicking the line instead, and records that here so a later driver does
+not trust a key batch.
+
+Open questions:
+
+- The listing-but-nothing-open state says nothing in the page's own words. The
+  tree's rows and Monaco's read-only notice cover it; a sentence ("Open a file
+  to edit it") would be new copy, and this round added none. Whether the owner
+  wants one is his call.
+- A document the room *closes* while the page shows it: the buffer stays in
+  front of the editor, so it stays editable — read-only is tied to "a document
+  is in front", not to "the room still holds it". If the room drops a path the
+  guest alone opened, the tree sheds the row while the buffer keeps the text.
+- Between frames, the caret sits where the room resolves the peer, and the
+  decoration no longer second-guesses it: while the local person types exactly
+  at a peer's offset the peer's caret can appear one line away until their own
+  frame arrives. The desktop client tracks a caret the same way.
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and
