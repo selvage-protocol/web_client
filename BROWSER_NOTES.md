@@ -1731,7 +1731,7 @@ that. Driven with an installed `visualViewport` (no CDP call shrinks it — see
 the annotations in `.tmp/mobile-ux/drive.mjs`): `#app` 844 → 420, editor
 710 → 286 px, and back.
 
-**Measured, before → after** (`drive.mjs before|after`, 49 checks, all green
+**Measured, before → after** (`drive.mjs before|after`, 50 checks, all green
 after; the hook is that the driver reports each one and its measurement):
 
 | what | before | after |
@@ -1743,16 +1743,16 @@ after; the hook is that the driver reports each one and its measurement):
 | session bar height (44 px of it the copy control) | 70 px | 90 px |
 | roster `Go to`/`Follow` | 62×26 / 67×26 | 62×44 / 67×44 |
 | tree `summary` / row | 370×32 / 370×34 | 370×44 / 370×44 |
-| `#side` of `#workspace` (open) | 324/774 = 42 % | 279/754 = 37 % |
+| `#side` of `#workspace` (open) | 324/774 = 42 % | 287/754 = 38 % |
 | editor of workspace, kb 390×420 | 187/350 = 53 % | 286/330 = 87 % |
 | Monaco minimap | 38 px | 0 |
 | horizontal page scroll, every state | none | none |
 
-**Everything is green.** `npm run typecheck` clean; `npm test` **297/297** in a
-sibling layout (295 pass and the two that read `../../site` and
-`../../ai_notes/.tmp/` fail from a nested worktree path — both pass where the
-siblings sit at `web_client`'s level, which is the layout they were written
-for); `npm run build` with the `ws`-absence assert, `dist/` rebuilt last.
+**Everything is green.** `npm run typecheck` clean; `npm test` **299 tests, 297
+pass** from a nested worktree — the two that read `../../site` and
+`../../ai_notes/.tmp/` fail there alone, and both pass where the siblings sit at
+`web_client`'s level, which is the layout they were written for; `npm run build`
+with the `ws`-absence assert, `dist/` rebuilt last.
 `test/mobile.test.ts` is new and pins the media queries, the editor options, the
 visual-viewport rule and the 16/44 px sizes at both ends of the query.
 
@@ -1766,6 +1766,20 @@ it now filters the drawn carets by the *current* path, with a test that opens a
 second document between the draw and the tap. And the touch query is
 `(any-hover: none)` rather than `(hover: none)`, which answers for the primary
 input mechanism alone.
+
+**The mobile review's findings, closed.** The masked `#share` readout is a
+readonly field the clipboard fallback focuses, and outside the phone sheet that
+hides it it was still 11.9 px — the one focusable field under the 16 px iOS zoom
+floor — so the touch query raises it too. Where a failure alert and the tap line
+stand at the same anchor the alert now paints over it (`z-index` 6 against
+`#peek`'s 5). Both lines take `--keyboard-inset` from `fitVisualViewport`: the
+distance from the layout viewport's floor up to the visual viewport's, which is
+how a fixed line stays above a keyboard the layout viewport never heard about.
+A pointer attached or removed mid-session re-decides the touch mode —
+`watchTouchQuery` re-applies Monaco's options (read off the editor it made,
+because Monaco's font default is platform-dependent), the off-hover pill's words
+and the viewport pin. The guards on top of the round take the driver to **59
+checks** and the suite to **305 tests (303 pass** from a nested worktree).
 
 Could not verify: a real iOS or Android soft keyboard — the driver emulates the
 layout-viewport shrink and, separately, an installed `visualViewport`; whether
