@@ -1,0 +1,60 @@
+name: ci
+
+# No `push: branches: [main]`: a pull request already runs the whole job, and the
+# merge commit carries the content it proved. `workflow_dispatch` is the re-run for a
+# commit that reached `main` without one.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    # `npm run build` shells out to ImageMagick 7's `magick` for the sized icons, and
+    # `ubuntu-24.04` ships ImageMagick 6 (`convert` alone). So this job runs in the
+    # image the reference server's page stage builds the same bundle in —
+    # `node:22-trixie-slim`, whose trixie imagemagick is 7 — which also makes the step
+    # that asserts a build reproduces the committed `dist/` run in the environment the
+    # page is built in everywhere else.
+    runs-on: ubuntu-24.04
+    container: node:22-trixie-slim
+    timeout-minutes: 20
+    steps:
+      # Before the checkout: the slim image carries no git, and the checkout reads the
+      # repository with it.
+      - name: install git and ImageMagick 7
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git imagemagick
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      # The image ships the committed `dist/` rather than rebuilding it (see the
+      # Dockerfile), so this is where a source change that was never built is caught,
+      # rather than in an image that would carry a stale page.
+      - name: the build reproduces the committed dist/
+        run: git diff --exit-code -- dist/
+
+      # `test/identity.test.ts` compares the page's mark with the `site` checkout
+      # beside this one, which a single-checkout job does not have; it is excluded
+      # there, and named so the exclusion cannot go stale (scripts/test-ci.mjs).
+      # `test/serve-types.test.ts` needs no sibling and runs. The checks that do need
+      # something live — `npm run check:types` (a deployed page) and `npm run prove*`
+      # (a `selvaged`) — run locally; the image workflow's smoke is the served-page
+      # assertion CI has.
+      - name: the suite CI can run
+        run: npm run test:ci
