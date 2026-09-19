@@ -22,6 +22,11 @@ port="${3:-18082}"
 
 fail() {
     printf '%s\n' "$*" >&2
+    # A red run is read from the API, where a job's transcript is not readable without
+    # a signed-in session; an annotation carries the reason to where it can be read.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        printf '::error::%s\n' "$*"
+    fi
     exit 1
 }
 

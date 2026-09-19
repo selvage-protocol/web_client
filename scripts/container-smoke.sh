@@ -48,6 +48,11 @@ hardening=(--read-only --cap-drop ALL --security-opt no-new-privileges:true)
 
 fail() {
     printf '%s\n' "$*" >&2
+    # A red run is read from the API, where a job's transcript is not readable without
+    # a signed-in session; an annotation carries the reason to where it can be read.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        printf '::error::%s\n' "$*"
+    fi
     exit 1
 }
 
@@ -79,17 +84,29 @@ docker run --detach --name "$name" "${hardening[@]}" \
 # came along. A run that silently fell back to a writable root, to the host's user
 # or to the host's namespaces would otherwise pass every HTTP assertion below.
 field() { docker inspect --format "$1" "$name"; }
-same_field() {  # same_field <format> <want> <what>
+require_field() {  # require_field <format> <want> <what>
     local got
     got="$(field "$1")"
     [ "$got" = "$2" ] || fail "$3 is $got, want $2"
+    echo "$3: $got"
 }
 
-same_field '{{.HostConfig.ReadonlyRootfs}}' 'true' 'the read-only root filesystem'
-same_field '{{json .HostConfig.CapDrop}}' '["ALL"]' 'the dropped capabilities'
-same_field '{{json .HostConfig.CapAdd}}' '[]' 'the added capabilities'
-same_field '{{.HostConfig.Privileged}}' 'false' 'the privileged flag'
-same_field '{{json .Mounts}}' '[]' 'the mounts'
+# A flag that was not passed reports as `null` or as an empty list, depending on the
+# field, and both mean none was set: what must not happen is a value.
+require_none() {  # require_none <format> <what>
+    local got
+    got="$(field "$1")"
+    case "$got" in
+        '' | 'null' | '[]') echo "$3: none" ;;
+        *) fail "$3 is $got, want none" ;;
+    esac
+}
+
+require_field '{{.HostConfig.ReadonlyRootfs}}' 'true' 'the read-only root filesystem'
+require_field '{{json .HostConfig.CapDrop}}' '["ALL"]' 'the dropped capabilities'
+require_none '{{json .HostConfig.CapAdd}}' 'the added capabilities'
+require_field '{{.HostConfig.Privileged}}' 'false' 'the privileged flag'
+require_none '{{json .Mounts}}' 'the mounts'
 field '{{json .HostConfig.SecurityOpt}}' | grep -q 'no-new-privileges' \
     || fail "the security options are $(field '{{json .HostConfig.SecurityOpt}}'), want no-new-privileges among them"
 # The base image's own user, which the daemon reports either way it was written.
