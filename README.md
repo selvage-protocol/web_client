@@ -32,6 +32,13 @@ it is used: an absolute `ws`, `wss`, `http` or `https` URL with a host, and no
 credentials, fragment or query (`linkServerBase`). The guest's own browser is what reads
 that server's `/meta` and opens its socket.
 
+If a `server` override names a different origin, that server's `/meta` has to allow the
+page's origin through CORS for the browser to read it. Nothing in this project emits
+`access-control-*`, so an override skips the advisory `/meta` read — the wire versions and
+the reconnect grace it carries — while the WebSocket handshake still proceeds and enforces
+compatibility. The demo is one origin, where the page, `/meta` and `/session` share it and
+the read lands.
+
 ### Join a room
 
 The page's own `/` takes the room and its token as query parameters:
