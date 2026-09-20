@@ -3,7 +3,7 @@ name: image
 # The page image: the browser client's `dist/` on an origin of its own, served by
 # nginx-unprivileged, published as `ghcr.io/selvage-protocol/selvage-web`.
 #
-# Three jobs, following the reference server's image workflow. `container` builds the
+# Four jobs, following the reference server's image workflow plus a release. `container` builds the
 # image with this repository's own Dockerfile, runs it hardened and asserts the page it
 # serves, which is the whole proof a pull request gets and needs no cluster or server.
 # `publish-rehearsal` runs the publish path's own buildx steps — the
@@ -130,7 +130,14 @@ jobs:
         run: scripts/release-tags.sh >> "$GITHUB_OUTPUT"
 
       # The same build the publish job runs, including the moving `<version>` and
-      # `latest` aliases, so a malformed tag name cannot reach a release.
+      # `latest` aliases, so a malformed tag name cannot reach a release. `release` then
+# files the GitHub Release for the tag, so a version is notes as well as bytes —
+# no release exists anywhere in the organisation today, only bare tags. `publish`
+# and `release` both stay gated on a `v*` tag: a pull request rehearses the
+# release path and publishes nothing, and `workflow_dispatch` stays the manual
+# re-run, deliberately unable to publish — a button that can push a public image
+# is a button an ordinary pull request can reach, and the gate that matters is
+# the tag.
       - name: build both architectures
         uses: docker/build-push-action@v6
         with:
@@ -216,3 +223,39 @@ jobs:
           scripts/assert-image-page.sh \
             "ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}" \
             "${{ steps.tags.outputs.version }}"
+
+  release:
+    needs: [publish]
+    # The release is notes as well as bytes: a GitHub Release for the tag, created
+    # only after the image is pushed and read back, so the notes never name an
+    # image that is not on the registry. Tag-gated like `publish` for the same
+    # reason: a pull request or a manual dispatch must not be able to file one.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: compute the release tags
+        id: tags
+        run: scripts/release-tags.sh "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      # The release is idempotent: a re-run of the tag updates the notes rather
+      # than failing over an existing release.
+      - name: file the GitHub Release for the tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "selvage-web $GITHUB_REF_NAME" \
+              --notes "The browser client's page image: ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }} (also tagged ${{ steps.tags.outputs.version }} and latest), multi-arch linux/amd64+linux/arm64, read back on both."
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "selvage-web $GITHUB_REF_NAME" \
+              --notes "The browser client's page image: ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }} (also tagged ${{ steps.tags.outputs.version }} and latest), multi-arch linux/amd64+linux/arm64, read back on both."
+          fi
