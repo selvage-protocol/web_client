@@ -70,18 +70,19 @@ hardening as `reference_server`'s — `read_only`, `cap_drop: [ALL]`, `no-new-pr
 no volumes — and `scripts/container-smoke.sh` asserts it. To evaluate on this machine
 only, rebind the published port to `127.0.0.1:8080:8080` there.
 
-**The image is not on a registry yet.** This repository has no `v*` tag, and
-`.github/workflows/image.yml` publishes only on one, so there is nothing to pull: the
-compose file builds the image from this checkout. That changes when a tag is cut; until
-then, building and running it by hand is the same page:
+**The image is on the registry.** `v0.1.0` published
+`ghcr.io/selvage-protocol/selvage-web` with the tags `<version>-<sha>`, `<version>`
+and `latest`, so `docker compose pull` (or the hand run below with the registry
+name) fetches the published page; the compose file still builds from this
+checkout when the registry name is absent. Building and running it by hand is
+the same page:
 
 ```sh
-docker build --tag selvage-web:0.1.0 .
 docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-  --publish 80:8080 selvage-web:0.1.0
+  --publish 80:8080 ghcr.io/selvage-protocol/selvage-web:0.1.0
 ```
 
-On a tag, `.github/workflows/image.yml` publishes
+On every `v*` tag, `.github/workflows/image.yml` republishes
 `ghcr.io/selvage-protocol/selvage-web` with the tags `<version>-<sha>`, `<version>` and
 `latest`, and the image carries this repository's committed `dist/` (the
 checks job proves a build of `src/` reproduces it, so the image cannot fall behind its

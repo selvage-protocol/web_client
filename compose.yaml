@@ -7,11 +7,10 @@
 # default. README.md §Serving the page owns the choice and what the second shape
 # costs.
 #
-# The image is not on a registry yet: this repository has no `v*` tag, and its
-# publish job is gated on one, so `build: .` builds the page from this checkout
-# and names it locally. Once a `v*` tag exists, `.github/workflows/image.yml`
-# publishes `ghcr.io/selvage-protocol/selvage-web` and the `image:` line below can
-# name a tag instead (compose still builds from the checkout when it is absent).
+# `v0.1.0` published `ghcr.io/selvage-protocol/selvage-web`, so the page can be
+# pulled from the registry; `build: .` still builds it from this checkout and
+# names it locally, and the `image:` line below can name a registry tag instead
+# (compose still builds from the checkout when it is absent).
 #
 # No volumes: the image carries the page it serves and nginx's only writable paths
 # — the pid file and its five temp directories — are already moved onto
