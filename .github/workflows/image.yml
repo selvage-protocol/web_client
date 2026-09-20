@@ -21,7 +21,21 @@ name: image
 # A pull request runs this workflow only when it changes something the image is built
 # from (or a script one of these jobs reads): a prose edit does not build an image.
 # There is no `push: branches: [main]`, because the merge commit carries the content
-# the pull request already proved. `workflow_dispatch` is the manual re-run.
+# the pull request already proved — but a release tag does run it, and `publish` is
+# gated on the ref being a release tag, checked against package.json with
+# `scripts/release-tags.sh` — not on the triggering event — so a pull request
+# rehearses the same build and the same assertions and pushes nothing, and this
+# workflow's own `workflow_dispatch` (no inputs below) still cannot publish unless the
+# ref it is run against already is a matching tag. The button that creates that tag
+# lives in `release.yml`: a `workflow_dispatch` there validates a version input
+# against package.json, refuses one that already has a tag, pushes the tag it
+# creates, and asks the API to dispatch this workflow against it, because GitHub does
+# not start a new run for an event produced with a workflow's own `GITHUB_TOKEN` —
+# which is what that tag push is — except `workflow_dispatch` itself. That is why
+# `publish` and `release` below check the ref and not `github.event_name == 'push'`:
+# the two paths that can reach a `v*` tag ref are a hand push from a terminal and
+# `release.yml`'s dispatch, and both name a commit whose own package.json the script
+# re-checks against the tag.
 on:
   pull_request:
     paths:
@@ -39,6 +53,9 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    # No inputs: a dispatch run builds and smokes only. Publish stays gated on the ref
+    # being a `v*` tag, which this event reaches only when it is run against one —
+    # `release.yml` is the path that creates one.
 
 concurrency:
   group: image-${{ github.ref }}
@@ -130,14 +147,7 @@ jobs:
         run: scripts/release-tags.sh >> "$GITHUB_OUTPUT"
 
       # The same build the publish job runs, including the moving `<version>` and
-      # `latest` aliases, so a malformed tag name cannot reach a release. `release` then
-# files the GitHub Release for the tag, so a version is notes as well as bytes —
-# no release exists anywhere in the organisation today, only bare tags. `publish`
-# and `release` both stay gated on a `v*` tag: a pull request rehearses the
-# release path and publishes nothing, and `workflow_dispatch` stays the manual
-# re-run, deliberately unable to publish — a button that can push a public image
-# is a button an ordinary pull request can reach, and the gate that matters is
-# the tag.
+      # `latest` aliases, so a malformed tag name cannot reach a release.
       - name: build both architectures
         uses: docker/build-push-action@v6
         with:
@@ -164,12 +174,14 @@ jobs:
     needs: [container, publish-rehearsal]
     # Release tags only. `publish-rehearsal` above has just run this job's buildx steps
     # on this same commit without pushing anywhere, so a tag is not permission to
-    # assume the release path works. The page is this repository's own work under
-    # `MIT OR Apache-2.0`, so publishing it redistributes no licence that the
-    # reference server's image carries: the FSL-1.1-MIT binary is not in this image.
-    # Tag push only, not a manual dispatch aimed at a tag: a dispatch is a second
-    # publish path, and the tag stays the only gate.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # assume the release path works — it is the one run where the image is
+    # redistributed. The page is this repository's own work under `MIT OR
+    # Apache-2.0`, so publishing it redistributes no licence that the reference
+    # server's image carries: the FSL-1.1-MIT binary is not in this image. The gate is
+    # the ref, not the event: a pull request's ref is never a tag, and this workflow's
+    # own `workflow_dispatch` reaches here only when it is run against a ref that
+    # already is one — which `release.yml` is the one path that creates.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -230,9 +242,9 @@ jobs:
     needs: [publish]
     # The release is notes as well as bytes: a GitHub Release for the tag, created
     # only after the image is pushed and read back, so the notes never name an
-    # image that is not on the registry. Tag push only like `publish`, for the
-    # same reason: a pull request or a manual dispatch must not be able to file one.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # image that is not on the registry. Same gate as `publish`: the ref names an
+    # existing, package.json-agreeing tag, never a pull request's branch.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
