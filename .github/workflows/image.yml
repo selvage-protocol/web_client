@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -167,14 +167,16 @@ jobs:
     # assume the release path works. The page is this repository's own work under
     # `MIT OR Apache-2.0`, so publishing it redistributes no licence that the
     # reference server's image carries: the FSL-1.1-MIT binary is not in this image.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tag push only, not a manual dispatch aimed at a tag: a dispatch is a second
+    # publish path, and the tag stays the only gate.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -228,15 +230,15 @@ jobs:
     needs: [publish]
     # The release is notes as well as bytes: a GitHub Release for the tag, created
     # only after the image is pushed and read back, so the notes never name an
-    # image that is not on the registry. Tag-gated like `publish` for the same
-    # reason: a pull request or a manual dispatch must not be able to file one.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # image that is not on the registry. Tag push only like `publish`, for the
+    # same reason: a pull request or a manual dispatch must not be able to file one.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
