@@ -698,10 +698,12 @@ function onNotice(notice: BindingNotice): void {
       if (binding !== undefined) {
         const present = binding.participants();
         // The membership report is the room's own word on who is here, so a
-        // report that names the host clears the warning the attach frame may
-        // never have delivered (S1, 2026-09-18).
+        // report that names the host ends the warning the attach frame may
+        // never have delivered (S1, 2026-09-18). It ends the countdown and
+        // not the line: the host's return may be standing there, and the
+        // strip is the only place the guest reads it.
         if (hostPresent(present)) {
-          sessionNote.hide();
+          sessionNote.endCountdown();
         }
         syncRoster(present);
         // Where someone is reads on the tree, so presence moves re-render it.
@@ -710,7 +712,7 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'roster':
       if (hostPresent(notice.participants)) {
-        sessionNote.hide();
+        sessionNote.endCountdown();
       }
       syncRoster(notice.participants);
       // Where someone is reads on the tree, so presence moves re-render it.
