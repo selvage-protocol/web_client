@@ -203,17 +203,25 @@
         margin: 0 0 0.5em; border-bottom: 1px solid var(--border); }
       #tree button.row:disabled { cursor: not-allowed; }
       #editor { flex: 1; min-height: 0; min-width: 0; }
-      #preview { position: fixed; inset: 0; display: flex; min-height: 0; }
+      /* The editor the card stands over, drawn rather than described: a file
+         tree beside a few lines of code, in the page's own tokens. Bars where
+         text should be read as content that failed to load (2026-09-21), so
+         this is a picture of an editor and nothing more: it takes no pointer,
+         no cursor and no selection, and holds nothing a person could reach. */
+      #preview { position: fixed; inset: 0; display: flex; min-height: 0;
+        pointer-events: none; user-select: none; }
       #preview .fake-side { width: 19rem; flex: none; background: var(--card);
-        border-right: 1px solid var(--border); padding: 0.7em 0.8em 1em; }
-      #preview .fake-bar { border-radius: var(--radius); background: var(--muted); margin: 0.45em 0;
-        height: 0.9em; }
-      #preview .fake-side .fake-bar:nth-child(odd) { width: 82%; }
-      #preview .fake-side .fake-bar:nth-child(even) { width: 64%; }
-      #preview .fake-main { flex: 1; min-width: 0; padding: 1.2em 1.6em; }
-      #preview .fake-main .fake-bar:nth-child(3n) { width: 68%; }
-      #preview .fake-main .fake-bar:nth-child(3n+1) { width: 92%; }
-      #preview .fake-main .fake-bar:nth-child(3n+2) { width: 79%; }
+        border-right: 1px solid var(--border); padding: 0.9em 0.8em 1em;
+        font: 0.85em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      #preview .fake-side .fake-dir { color: var(--foreground); font-weight: 600; }
+      #preview .fake-side .fake-file { color: var(--muted-foreground); padding-left: 1.15em;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #preview .fake-side .fake-caret { color: var(--muted-foreground); margin-right: 0.4em; }
+      #preview .fake-main { flex: 1; min-width: 0; padding: 1.1em 1.6em; overflow: hidden; }
+      #preview .fake-main .fake-code { margin: 0; color: var(--foreground); white-space: pre;
+        font: 0.88em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      #preview .fake-main .tok-key { color: var(--primary); }
+      #preview .fake-main .tok-lit { color: var(--warning); }
       #veil { position: fixed; inset: 0; background: rgba(17, 17, 27, 0.6);
         backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px); }
       #join { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -252,6 +260,10 @@
         #side { width: auto; border-right: none; border-bottom: 1px solid var(--border);
           max-height: 38%; box-sizing: border-box; }
         #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
+        /* Two panes do not fit behind a card at this width: 19rem of tree
+           leaves a sliver of code, cut by the card, which is the bars again.
+           A phone gets the veil over the plain background instead. */
+        #preview { display: none; }
       }
       /* A finger, not a pointer. Everything here is behind `(any-hover: none)`,
          true only where no input mechanism the device has can hover, so a
@@ -312,16 +324,23 @@
       </div>
       <div id="session-note" aria-live="polite"></div>
       <div id="follow-banner" hidden></div>
-      <div id="preview" aria-hidden="true">
+      <!-- A picture of an editor for the card to stand over: none of it is
+           real and nothing in it is reachable, so `inert` and `aria-hidden`
+           between them keep a screen reader from reading a file tree that
+           does not exist. -->
+      <div id="preview" aria-hidden="true" inert>
         <div class="fake-side">
-          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
-          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+          <div class="fake-dir"><span class="fake-caret">▾</span>src/</div>
+          <div class="fake-file">main.rs</div>
+          <div class="fake-file">room.rs</div>
+          <div class="fake-dir"><span class="fake-caret">▾</span>tests/</div>
+          <div class="fake-file">join.rs</div>
         </div>
         <div class="fake-main">
-          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
-          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
-          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
-          <div class="fake-bar"></div><div class="fake-bar"></div><div class="fake-bar"></div>
+          <pre class="fake-code"><span class="tok-key">fn</span> main() {
+    <span class="tok-key">let</span> room = Room::new();
+    room.join(<span class="tok-lit">invite</span>);
+}</pre>
         </div>
       </div>
       <div id="veil" aria-hidden="true"></div>

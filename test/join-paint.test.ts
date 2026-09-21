@@ -197,3 +197,101 @@ describe('the mark is painted by the shell, never fetched', () => {
     }
   });
 });
+
+/**
+ * The backdrop behind the card is a drawing of an editor, never content.
+ *
+ * Owner defect (2026-09-21): grey bars of arbitrary widths stood where text
+ * should be, and read as a document that had failed to load rather than as
+ * decoration. It is a file tree and a few lines of code now — and this block is
+ * what keeps it a picture: nothing in it reachable, nothing in it a claim, no
+ * element that is not a drawing, and no colour that is not one of the page's
+ * own tokens. The state it guards is the first painted frame, which is why it
+ * lives here beside the mark: a backdrop that silently became unstyled, or
+ * became something a reader is asked to read, is the defect coming back.
+ */
+describe('the pre-join backdrop is a picture of an editor', () => {
+  const preview = html.slice(html.indexOf('<div id="preview"'), html.indexOf('<div id="veil"'));
+  const openingTag = preview.slice(0, preview.indexOf('>') + 1);
+  const classNames = [
+    ...new Set(
+      [...preview.matchAll(/class="([^"]*)"/g)].flatMap((match) => (match[1] ?? '').split(/\s+/)),
+    ),
+  ].filter((name) => name !== '');
+  /** The backdrop's own rules, read off the inline block that paints it. */
+  const rules = style.match(/#preview[^{}]*\{[^{}]*\}/g) ?? [];
+  const code = preview.slice(
+    preview.indexOf('<pre class="fake-code">'),
+    preview.indexOf('</pre>'),
+  );
+
+  it('is inline HTML the parser has read before any script, so first paint is final', () => {
+    const at = html.indexOf('<div id="preview"');
+    assert.ok(at !== -1, 'no pre-join backdrop in the shell');
+    assert.ok(at < html.indexOf('<script'), 'the backdrop renders only after a script runs');
+    assert.ok(!html.includes('fake-bar'), 'the grey bars where text should be are back');
+  });
+
+  it('is a file tree and a code excerpt, not bars of arbitrary widths', () => {
+    assert.ok((preview.match(/class="fake-dir"/g) ?? []).length >= 2, 'the tree carries no folder');
+    assert.ok((preview.match(/class="fake-file"/g) ?? []).length >= 3, 'the tree names no file');
+    assert.ok(code !== '', 'no code excerpt beside the tree');
+    assert.ok(code.split('\n').length >= 4, `the excerpt is one line: ${code}`);
+    assert.ok(
+      (preview.match(/class="tok-(?:key|lit)"/g) ?? []).length >= 3,
+      'the excerpt is not syntax-coloured',
+    );
+  });
+
+  it('nothing in it is reachable by tab, by a screen reader or by a pointer', () => {
+    assert.match(openingTag, /\saria-hidden="true"/, 'a screen reader is read a fake file tree');
+    assert.match(openingTag, /\sinert[\s>]/, 'the backdrop is never inert');
+    assert.ok(!/tabindex|contenteditable/i.test(preview), 'the backdrop takes focus');
+    // The elements a drawing is allowed: boxes, spans and one code block. A
+    // control, a link or a heading here is content wearing decoration's name.
+    const tags = [...new Set([...preview.matchAll(/<\/?([a-z]+)/g)].map((match) => match[1] ?? ''))]
+      .sort();
+    assert.deepEqual(tags, ['div', 'pre', 'span'], `the backdrop carries ${tags.join(', ')}`);
+    assert.match(rules.join(' '), /pointer-events:\s*none/, 'the backdrop takes a click');
+    assert.match(rules.join(' '), /user-select:\s*none/, 'the backdrop can be selected');
+  });
+
+  it('claims nothing: no address, no credential, no material to act on', () => {
+    for (const pattern of [
+      /:\/\//,
+      /\bwss?:/i,
+      /\btoken\b/i,
+      /[?&]room=/,
+      /\d+\.\d+\.\d+\.\d+/,
+    ]) {
+      assert.ok(!pattern.test(preview), `the backdrop carries ${String(pattern)}`);
+    }
+  });
+
+  it('paints in the page’s own tokens, so it cannot start a palette of its own', () => {
+    const declared = new Set([...style.matchAll(/--([a-z-]+):\s*#/g)].map((match) => match[1] ?? ''));
+    const painted = rules.flatMap((rule) =>
+      [...rule.matchAll(/(?:^|[\s;{])(?:color|background):\s*([^;}]+)/g)].map((match) =>
+        (match[1] ?? '').trim(),
+      ),
+    );
+    // The scan has to reach the rules it claims to cover: a `#preview` block that
+    // moved out from under it would otherwise report a clean palette.
+    assert.ok(painted.length >= 5, `the backdrop declares ${painted.length} colours`);
+    for (const value of painted) {
+      const named = /^var\(--([a-z-]+)\)$/.exec(value);
+      assert.ok(named !== null, `the backdrop paints a colour of its own: ${value}`);
+      assert.ok(declared.has(named[1] ?? ''), `--${named[1]} is not one of the page's tokens`);
+    }
+  });
+
+  it('is styled by the inline block, so no class of it waits on app.css to arrive', () => {
+    assert.ok(classNames.length >= 5, `the backdrop wears ${classNames.length} classes`);
+    for (const name of classNames) {
+      assert.ok(
+        new RegExp(`#preview[^{}]*\\.${name}(?![\\w-])`).test(style),
+        `#preview .${name} is not styled inline`,
+      );
+    }
+  });
+});
