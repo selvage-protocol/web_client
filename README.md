@@ -36,11 +36,11 @@ The page derives the server from its own address for a link it was opened with, 
 the link's address for one pasted into a bare open. So a page served from one origin,
 given an invite naming another, talks to the room's server and never to its own. With no
 link there is no server: the card asks for one, and a page served from no server at all
-(a `file://` open) is told so rather than pointed at a default. An https page must never
+(a `file://` open) is told so. An https page must never
 emit a `ws://` or `http://` subrequest, so a link's `ws://` base is dialled as `wss://`
 there (`schemeMatchBase`). The other shape the page takes is a whole wire invite
 (`ws://host:8080/session?room=…&token=…`), for a room whose server serves no page: its
-base comes from whoever sent the link, so it is bounded before it is used — an absolute
+base comes from whoever sent the link, so it is bounded before it is used: an absolute
 `ws`, `wss`, `http` or `https` URL with a host, and no credentials, fragment or query
 (`linkServerBase`). The guest's own browser is what reads that server's `/meta` and opens
 its socket.
@@ -153,10 +153,8 @@ other file, `serve-types` included, runs. The checks that need something live,
 defaults to the demo page and takes another base as an argument,
 `npm run check:types -- http://127.0.0.1:8081`; a plain static server answers the `.map`
 files as `application/octet-stream` and fails that check, which is about the serving
-layer the page is deployed behind. There is no CORS check: the one origin (2026-09-19)
-made `selvaged` serve the page, `/meta` and `/session` together, so nothing emits the
-`access-control-*` headers. Against the page-only image the same
-script is what `scripts/check-page.sh` runs, together with the served bytes and headers.
+layer the page is deployed behind. Against the page-only image the same script is what
+`scripts/check-page.sh` runs, together with the served bytes and headers.
 
 ### CI
 
@@ -219,15 +217,14 @@ open a document.
 Following shows a banner in the followed peer's colour with the stop control on it, and
 ends when you type, navigate (open a file from the tree or go to someone), stop it, or
 the peer leaves. When the host's socket drops, the session note names the grace window
-and counts it down to the room's own deadline, and clears — saying the host is back —
-when the host returns. When the room ends, because the host does not return before the
+and counts it down to the room's own deadline; when the host returns it says so for a few
+seconds and then clears. When the room ends, because the host does not return before the
 grace expires, the page leaves the session: the socket closes, the binding and the editor
 are dropped, the chrome comes down, and the card returns over the blurred preview carrying
 `The room is gone (host did not return). Nothing in the room was saved. Paste a fresh
-invite link to join another session.` — a page has no disk to leave a copy on, so it says
-so rather than promising one. Nothing of the dead room stays on screen, the name stays
-typed, and pasting a fresh link joins the next room from there. There is no manual rejoin
-and no reclaim: the page never hellos as host and never rebuilds a room on its own.
+invite link to join another session.` A page has no disk to leave a copy on. Nothing of
+the dead room stays on screen, the name stays typed, and pasting a fresh link joins the
+next room from there. The page never hellos as host and never rebuilds a room on its own.
 
 ## What is in the tree
 

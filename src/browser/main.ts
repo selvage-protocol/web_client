@@ -274,7 +274,7 @@ interface HeldJoin {
 }
 
 // A submit that landed before this bundle armed the card (the inline guard
-// held it) still joins now, once, instead of dying silently.
+// held it) still joins, once.
 window.__selvageJoinArmed = true;
 if (window.__selvagePendingJoin === true) {
   window.__selvagePendingJoin = false;
