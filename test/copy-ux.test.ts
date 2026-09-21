@@ -118,22 +118,22 @@ describe('link privacy', () => {
 });
 
 describe('abbreviated host', () => {
-  it('short hosts show whole; long tailnet names truncate in the middle', () => {
+  it('short hosts show whole; long hostnames truncate in the middle', () => {
     assert.equal(abbreviateHost('edit.example'), 'edit.example');
-    const long = 'lumi-raspberrypi.muskellunge-yo.ts.net';
+    const long = 'a-very-long-share-hostname.example.org';
     const short = abbreviateHost(long);
     assert.ok(short.length < long.length, `nothing truncated: ${short}`);
     assert.ok(short.includes('…'), `no ellipsis: ${short}`);
-    assert.ok(short.startsWith('lumi-rasp'), `head lost: ${short}`);
-    assert.ok(short.endsWith('ts.net'), `tail lost: ${short}`);
+    assert.ok(short.startsWith('a-very-long-'), `head lost: ${short}`);
+    assert.ok(short.endsWith('example.org'), `tail lost: ${short}`);
   });
 
   it('the display keeps path and query while the full link stays intact', () => {
-    const full = 'https://lumi-raspberrypi.muskellunge-yo.ts.net/?room=r-1&token=tok';
+    const full = 'https://a-very-long-share-hostname.example.org/?room=r-1&token=tok';
     const shown = displayShareLink(full);
     assert.ok(shown.startsWith('https://'), `not a page link: ${shown}`);
     assert.ok(shown.includes('room=r-1') && shown.includes('token=tok'), `query lost: ${shown}`);
-    assert.ok(!shown.includes('muskellunge-yo'), `host untruncated: ${shown}`);
+    assert.ok(!shown.includes('share-hostname'), `host untruncated: ${shown}`);
     assert.ok(shown.length < full.length, 'display equals the full credential');
   });
 

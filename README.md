@@ -26,11 +26,13 @@ deployed page's port. The image listens on 8080 and `compose.yaml` publishes it 
 
 The page reads its server from the link it was opened with and from nowhere else:
 `?server=<ws-base>` in the URL, or the invite pasted into a bare open. With no server
-named, the built-in default follows the page's own scheme,
-`wss://lumi-raspberrypi.muskellunge-yo.ts.net:8444` on an https page and
-`ws://100.64.0.3:8080` on an http one (`src/browser/servers.ts`, and `DEFAULT_SERVER` in
-`src/browser/main.ts`). An https page must never emit a `ws://` or `http://` subrequest,
-so a link's `ws://` base is dialled as `wss://` there. A `server` value is bounded before
+named, the built-in default is the public demo, `https://selvage.dontblameme.dev`, on a
+page of either scheme: `DEFAULT_SERVER_BASE` in `src/browser/servers.ts` is already a
+`wss://` base, so an https page has nothing to upgrade, and the demo answers the page,
+`/meta` and `/session` from that one origin. A link that names no server therefore means
+the demo wherever it is opened, and the link the page makes omits the parameter for it.
+An https page must never emit a `ws://` or `http://` subrequest, so a link's `ws://` base
+is dialled as `wss://` there (`schemeMatchBase`). A `server` value is bounded before
 it is used: an absolute `ws`, `wss`, `http` or `https` URL with a host, and no
 credentials, fragment or query (`linkServerBase`). The guest's own browser is what reads
 that server's `/meta` and opens its socket.
@@ -142,7 +144,7 @@ other file, `serve-types` included, runs. The checks that need something live,
 `check:types` (a deployed page) and the proofs (a `selvaged`), run locally only.
 
 `check:types` is live, and tests a deployment rather than the local static server. It
-defaults to the Pi page on :8444 and takes another base as an argument,
+defaults to the demo page and takes another base as an argument,
 `npm run check:types -- http://127.0.0.1:8081`; a plain static server answers the `.map`
 files as `application/octet-stream` and fails that check, which is about the serving
 layer the page is deployed behind. There is no CORS check: the one origin (2026-09-19)
