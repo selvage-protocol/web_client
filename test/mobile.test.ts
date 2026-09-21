@@ -135,6 +135,18 @@ describe('the shell and the page agree on what a phone is', () => {
     assert.match(declarations(style, '#app'), /box-sizing:\s*border-box/, 'the inset pushes the app past 100dvh');
   });
 
+  it('hides the pre-join backdrop where two panes no longer fit behind the card', () => {
+    // The backdrop draws the desktop layout: 19rem of tree beside a code pane.
+    // At this width the card's sheet covers what is left of the code, which is
+    // the grey-bars failure again — so the phone gets the veil over the plain
+    // background, and the card alone.
+    assert.match(
+      declarations(mediaBlock('(max-width: 640px)'), '#preview'),
+      /display:\s*none/,
+      'the backdrop still paints a code pane too narrow to read on a phone',
+    );
+  });
+
   it('lets the layout viewport follow the browser chrome and the keyboard', () => {
     const app = declarations(style, '#app');
     assert.ok(app.includes('height: 100dvh'), `#app does not use the dynamic viewport: ${app}`);

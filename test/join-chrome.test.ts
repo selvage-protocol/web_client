@@ -251,6 +251,29 @@ describe('the landing page language', () => {
     }
   });
 
+  it('keeps the pre-join backdrop legible on the pane it is drawn on', () => {
+    // The backdrop is a picture of an editor drawn in these tokens, so the
+    // pairs that matter are the ones its own rules name, over the pane each
+    // rule is scoped to: the tree on the card, the code on the page. Read out
+    // of the shell, so recolouring the picture is measured — a table of token
+    // names would go on passing after the picture stopped using them.
+    const backdrop = style.slice(style.indexOf('#preview {'), style.indexOf('#veil {'));
+    const scoped = [
+      ...backdrop.matchAll(/(#preview \.fake-(?:side|main)[^{}]*)\{([^{}]*)\}/g),
+    ];
+    assert.ok(scoped.length >= 6, `the scan reached ${scoped.length} backdrop rules`);
+    let measured = 0;
+    for (const [, selector = '', body = ''] of scoped) {
+      const ground = selector.includes('.fake-side') ? 'card' : 'background';
+      for (const [, name = ''] of body.matchAll(/color:\s*var\(--([a-z-]+)\)/g)) {
+        measured += 1;
+        const ratio = contrast(token(name), token(ground));
+        assert.ok(ratio >= 4.5, `${selector.trim()} is ${ratio.toFixed(2)}:1 (--${name} on --${ground})`);
+      }
+    }
+    assert.ok(measured >= 5, `the scan measured ${measured} text colours`);
+  });
+
   it('keeps the peer palette legible on every ground it is used on', () => {
     // The peer palette is One Dark's, reached by hashing a peer id, and it is
     // used twice: black initials on the colour (the tree badge) and the colour
