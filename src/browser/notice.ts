@@ -1,9 +1,9 @@
 /**
- * The two message homes the page keeps now that the status line is gone.
+ * The two message homes the page keeps: a failure alert and a session note.
  *
  * Neither is a ticker. The failure alert is an error surface: it appears only
  * when an action a guest took refused, stands a few seconds, and leaves on its
- * own — progress, success and connection chatter never reach it. The session
+ * own. Progress, success and connection chatter never reach it. The session
  * note is the one warning about the room itself: the host's socket detached
  * and the grace window is running, so it stays for as long as that is true.
  * When the room actually ends the page leaves and says so on the card.
