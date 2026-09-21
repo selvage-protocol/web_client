@@ -105,8 +105,11 @@ describe('the server a wire invite may name', () => {
     assert.equal(linkServerBase('WS://other:8080'), 'ws://other:8080');
     assert.equal(linkServerBase('WSS://other:8443/'), 'wss://other:8443/');
     assert.equal(linkServerBase('Ws://other:8080/proxy'), 'ws://other:8080/proxy');
-    // Nothing else about the text moves, and a value without the `//` is left
-    // as the link wrote it rather than rebuilt.
-    assert.equal(linkServerBase('ws:/other'), 'ws:/other');
+    // A value without the `//` is a URL the parser reads by inserting them, and a
+    // base handed on as written would reach the socket as a cleartext `ws://` dial
+    // from an `https:` page: it is rebuilt in the shape the page's rules read.
+    assert.equal(linkServerBase('ws:/other'), 'ws://other/');
+    assert.equal(linkServerBase('WSS:other:8443'), 'wss://other:8443/');
+    assert.equal(linkServerBase('ws:other:8080/proxy'), 'ws://other:8080/proxy');
   });
 });
