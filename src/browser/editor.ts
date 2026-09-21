@@ -754,24 +754,26 @@ function peerName(displayName: string, peerId: string): string {
 }
 
 /**
- * How long the grace window reads to a guest. The window is the server's own
- * number (`room_grace_ms`, echoed on the detach frame), so it can be anything
- * from nothing to an hour; a raw second count makes the reader divide it.
- * Rounded up, so the warning never promises less time than the room has left.
+ * How long the grace window reads to a guest: the largest whole unit the window
+ * still has one of, rounded down, so the warning never gives the guest more time
+ * than the room has. The window is the server's own number (`room_grace_ms`,
+ * echoed on the detach frame), so it can be anything up to an hour, and a raw
+ * second count makes the reader divide it.
  */
 export function graceWording(graceMs: number): string {
-  const seconds = Math.max(0, Math.round(graceMs / 1000));
+  const ms = Math.max(0, graceMs);
+  const seconds = Math.floor(ms / 1000);
   if (seconds === 0) {
     return 'a moment';
   }
   if (seconds < 60) {
     return `${seconds} second${seconds === 1 ? '' : 's'}`;
   }
-  const minutes = Math.ceil(seconds / 60);
+  const minutes = Math.floor(ms / 60_000);
   if (minutes < 60) {
     return `${minutes} minute${minutes === 1 ? '' : 's'}`;
   }
-  const hours = Math.ceil(minutes / 60);
+  const hours = Math.floor(ms / 3_600_000);
   return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
