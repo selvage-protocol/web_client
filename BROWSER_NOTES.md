@@ -1980,3 +1980,20 @@ runs. The decisions, since a second origin of the same bundle is where they matt
 - The empty public `web_client` repo decision from M0 still stands with the
   owner (keep as the future home, or remove); nothing is published until code
   lands there.
+
+## The pre-join backdrop is a picture (2026-09-21)
+
+Grey bars of arbitrary widths read as content that failed to load, not as
+decoration — the owner lifted `#veil` to check and said so. `#preview` draws an
+editor instead: a file tree beside four lines of code, monospace, syntax
+coloured from the page's own tokens (`--primary` for keywords, `--warning` for
+the literal, the tree on `--card` and the code on `--background`). Nothing in
+it is real and nothing in it is a claim — no address, no credential, no
+element but boxes, spans and one code block — and `aria-hidden` plus `inert`
+keep a screen reader out of a file tree that does not exist, with
+`pointer-events: none` and `user-select: none` so a picture takes no click and
+no selection. Below 640 px it is hidden rather than squeezed: 19rem of tree
+leaves a sliver of code, cut by the card, which is the bars again. The shell's
+own two tests hold the shape (`test/join-paint.test.ts` for what it is and is
+not, `test/join-chrome.test.ts` for each token on the pane it draws it on) and
+`test/mobile.test.ts` pins the 640 px cut.
