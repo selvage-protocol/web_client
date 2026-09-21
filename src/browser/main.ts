@@ -1,4 +1,4 @@
-import { SelvageEngine, sessionUrl } from '../engine/index.ts';
+import { SelvageEngine, sessionBase, sessionUrl } from '../engine/index.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
@@ -462,7 +462,8 @@ async function join(held: HeldJoin): Promise<void> {
  * page) yields none, and the diagnostic names none.
  */
 function fallbackBase(): string {
-  return schemeMatchBase(serverBaseOf(window.location.href), pageProtocol);
+  const page = sessionBase(serverBaseOf(window.location.href));
+  return page === undefined ? '' : schemeMatchBase(page, pageProtocol);
 }
 
 async function openFirst(session: SessionInfo): Promise<void> {

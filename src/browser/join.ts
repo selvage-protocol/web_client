@@ -8,7 +8,8 @@
  * here touches the DOM; `main.ts` wires it to the card.
  */
 
-import { MAX_DISPLAY_NAME_UNITS, parseSessionUrl } from '../engine/index.ts';
+import { MAX_DISPLAY_NAME_UNITS, parseSessionUrl, sessionBase } from '../engine/index.ts';
+import type { SessionBase } from '../engine/index.ts';
 
 import { parsePageLink } from './share.ts';
 import { linkServerBase, serverBaseOf } from './servers.ts';
@@ -37,9 +38,13 @@ export function validateDisplayName(raw: string): string {
   return name;
 }
 
-/** Where a join goes: the server, the room, and its token. */
+/**
+ * Where a join goes: the server, the room, and its token. The base is read the one way the
+ * engine reads a base (`sessionBase`), so what the page dials from it is what the page says
+ * it dialled.
+ */
 export interface JoinTarget {
-  base: string;
+  base: SessionBase;
   room: string;
   token: string;
 }
@@ -124,9 +129,9 @@ export function resolveJoin(
  * either scheme — a `file://` page, which no server serves — is refused in the
  * card's words, because there is nothing to derive a room's server from.
  */
-function serverOfPage(pageAddress: string): string {
-  const base = serverBaseOf(pageAddress);
-  if (base === '') {
+function serverOfPage(pageAddress: string): SessionBase {
+  const base = sessionBase(serverBaseOf(pageAddress));
+  if (base === undefined) {
     throw new Error('This page names no server to join. Open the link the host sent you.');
   }
   return base;
@@ -138,8 +143,9 @@ function serverOfPage(pageAddress: string): string {
  * bounded — see `linkServerBase`; the guest's browser is what would have made
  * the request.
  */
-function serverOfWire(raw: string): string {
-  const base = linkServerBase(raw);
+function serverOfWire(raw: string): SessionBase {
+  const bounded = linkServerBase(raw);
+  const base = bounded === undefined ? undefined : sessionBase(bounded);
   if (base === undefined) {
     throw new Error('That invite link names a server this page cannot reach. Ask the host for a fresh link.');
   }
