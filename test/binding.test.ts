@@ -296,6 +296,50 @@ describe('MonacoBinding', () => {
     binding.dispose();
   });
 
+  it('does not publish the selection a remote apply leaves behind', async () => {
+    const engine = makeEngine(new Map([['notes.txt', 'ab\ncdef\ng']]));
+    const selections = [];
+    engine.setSelection = (path, selection) => void selections.push([path, selection]);
+    const editor = makeEditor();
+    let publish;
+    editor.onDidChangeCursorSelection = (listener) => {
+      publish = listener;
+      return { dispose: () => {} };
+    };
+    const timers = new ManualTimers();
+    const model = makeModel('ab\ncdef\ng');
+    const push = model.pushEditOperations;
+    // Monaco raises the selection event from inside the apply: the caret the room's edit
+    // moved is this binding's own doing, not the person's.
+    model.pushEditOperations = (...args) => {
+      const out = push(...args);
+      editor.selection = {
+        selectionStartLineNumber: 2,
+        selectionStartColumn: 1,
+        positionLineNumber: 2,
+        positionColumn: 1,
+      };
+      publish();
+      return out;
+    };
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: () => model,
+      timers,
+    });
+    await binding.openDocument('notes.txt');
+    timers.fire();
+    selections.length = 0;
+
+    await binding.applyChange('notes.txt', { start: 3, end: 4, text: 'C' });
+    assert.equal(timers.armed(), 0, 'the apply armed a caret flush of its own echo');
+    timers.fire();
+    assert.deepEqual(selections, []);
+    binding.dispose();
+  });
+
   it('leaves no caret timer behind when it is disposed', async () => {
     const engine = makeEngine(new Map([['notes.txt', 'ab\ncdef\ng']]));
     const selections = [];

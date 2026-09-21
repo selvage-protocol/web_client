@@ -137,7 +137,15 @@ export class MonacoBinding implements EditorHost {
     this.style = document.createElement('style');
     document.head.appendChild(this.style);
     this.bridge = new SessionBridge({ engine: this.engine, host: this });
-    const selection = this.editor.onDidChangeCursorSelection(() => this.scheduleSelection());
+    // The selection events this binding's own remote apply raises are that apply's echo, and
+    // nothing else can fire while it runs — no input is processed inside a synchronous
+    // `pushEditOperations` — so they are not what the room is told. An interval a local move
+    // already armed still flushes the position the caret holds when it runs.
+    const selection = this.editor.onDidChangeCursorSelection(() => {
+      if (this.applying === 0) {
+        this.scheduleSelection();
+      }
+    });
     this.stops.push(() => selection.dispose());
     // The follow and the pending go-to re-resolve on every room event: a caret move
     // and a document arrival both land, and membership changes refresh the roster.
