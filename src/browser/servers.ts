@@ -14,7 +14,14 @@
  * matches whatever base a link names to the page that dials it, and
  * `linkServerBase` bounds what a pasted wire invite may name before it is
  * used.
+ *
+ * What comes out of `serverBaseOf` and `serverOfWire` is a base the engine has
+ * read (`sessionBase`), so the page and the engine that dials for it name one
+ * server: a spelling without the `//` a special scheme does not need, or the
+ * http(s) form of the same address, is read here as it is dialled.
  */
+
+import type { SessionBase } from '../engine/index.ts';
 
 /**
  * The page a room's server is linked at, over the scheme a browser speaks:
@@ -65,11 +72,16 @@ export function serverBaseOf(page: string): string {
  * read derived from it (the engine maps `wss://` to `https://`) both speak
  * TLS. Anything else — including an http page — passes through untouched.
  */
-export function schemeMatchBase(base: string, pageProtocol: string): string {
+export function schemeMatchBase(base: SessionBase, pageProtocol: string): SessionBase {
   if (pageProtocol !== 'https:') {
     return base;
   }
-  return base.replace(/^ws:\/\//, 'wss://').replace(/^https?:\/\//, 'wss://');
+  // A base is read into the engine's one spelling — a socket scheme written with `//`, then
+  // an authority and at most a path — so matching it to the page changes the scheme and
+  // nothing else, and what comes out is a base of that same shape. The `http(s)` spelling
+  // is kept for an address that has not been through `sessionBase`: it names the same
+  // server, and the socket still needs a socket's scheme.
+  return base.replace(/^ws:\/\//, 'wss://').replace(/^https?:\/\//, 'wss://') as SessionBase;
 }
 
 /** The schemes a pasted wire invite may name: a socket, or the http(s) form of the same server. */

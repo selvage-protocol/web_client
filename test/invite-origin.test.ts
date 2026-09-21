@@ -120,6 +120,35 @@ describe('the server a link names', () => {
     assert.equal(schemeMatchBase(joined.base, 'https:'), 'wss://other:8080');
   });
 
+  it('a wire invite the engine reads to one base is joined on that server', () => {
+    // The spelling a special scheme does not need, and the http(s) form of the same
+    // address: the engine reads each into one base (`sessionBase`), so the server the
+    // link named is the server the page dials, and the `/meta` read and the socket are
+    // derived from one spelling rather than from two.
+    for (const [text, base, meta] of [
+      ['ws:other:8080/session?room=r-1&token=tok', 'ws://other:8080', 'https://other:8080/meta'],
+      ['wss:other:8080/session?room=r-1&token=tok', 'wss://other:8080', 'https://other:8080/meta'],
+      ['http://other:8080/session?room=r-1&token=tok', 'ws://other:8080', 'https://other:8080/meta'],
+      ['https://other:8080/session?room=r-1&token=tok', 'wss://other:8080', 'https://other:8080/meta'],
+      [
+        'ws://other:8080/prefix/session?room=r-1&token=tok',
+        'ws://other:8080/prefix',
+        'https://other:8080/prefix/meta',
+      ],
+    ] as const) {
+      assert.deepEqual(
+        resolveJoin(new URLSearchParams(), text, PAGE),
+        { base, room: 'r-1', token: 'tok' },
+        text,
+      );
+      // And on the page the room is served from, the socket the base derives is TLS, and
+      // the `/meta` read is the same base's own path over TLS.
+      const matched = schemeMatchBase(base, 'https:');
+      assert.equal(new URL(sessionUrl(matched, 'r-1', 'tok')).protocol, 'wss:', text);
+      assert.equal(metaUrl(matched), meta, text);
+    }
+  });
+
   it('an https page dials the room\'s server over TLS, whatever the page derived', () => {
     const own = resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'https://edit.example/');
     assert.equal(schemeMatchBase(own.base, 'https:'), own.base);
@@ -138,11 +167,12 @@ describe('the server a link names', () => {
       'ws:\\other:8080/session?room=r-1&token=tok',
     ]) {
       const joined = resolveJoin(new URLSearchParams(), text, PAGE);
-      // The base is what the parser read: the two slashes it inserted, and the path
-      // `session` was stripped from, which leaves the empty one.
-      assert.equal(joined.base, 'ws://other:8080/', text);
+      // The base is the engine's reading of what the parser read: the two slashes it
+      // inserted, the path `session` was stripped from, and no trailing slash left on
+      // the authority — one base, and one a socket would dial.
+      assert.equal(joined.base, 'ws://other:8080', text);
       const base = schemeMatchBase(joined.base, 'https:');
-      assert.equal(base, 'wss://other:8080/', text);
+      assert.equal(base, 'wss://other:8080', text);
       assert.equal(new URL(sessionUrl(base, joined.room, joined.token)).protocol, 'wss:', text);
       assert.equal(metaUrl(base), 'https://other:8080/meta', text);
     }
