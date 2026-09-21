@@ -164,13 +164,12 @@ export function saveDisplayName(storage: Pick<Storage, 'setItem'>, name: string)
 }
 
 /**
- * A join attempted before the page finishes loading (S2, 2026-09-18). The
- * old code ran the join straight into the still-arriving editor stack and
- * failed it with `the page did not finish loading — reload the page and
- * retry`. The gate holds the attempt instead: one queued join at most, run
- * once the `load` event fires, while the card reads `Joining…` throughout.
- * A second submit while queued or running is a duplicate, never a second
- * join; a refused join releases the gate so the guest can retry.
+ * A join attempted before the page finishes loading (S2, 2026-09-18): the
+ * bundle's own code is still arriving, so the gate holds the attempt. One
+ * queued join at most, run once the `load` event fires, while the card reads
+ * `Joining…` throughout. A second submit while queued or running is a
+ * duplicate, never a second join; a refused join releases the gate so the
+ * guest can retry.
  */
 export interface JoinGate {
   /**

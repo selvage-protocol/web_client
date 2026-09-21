@@ -17,8 +17,7 @@ export function roomGoneMessage(reason: string): string {
 /**
  * What became of the room's content when it closed. The desktop clients keep the guest's copy
  * and say where it is; a page has no disk to leave a mirror on, so the room, the text in it
- * and the guest's own unsent keystrokes go with it, and the card says so rather than leaving
- * the guest to find out.
+ * and the guest's own unsent keystrokes go with it.
  */
 export const NOTHING_KEPT = 'Nothing in the room was saved.';
 
