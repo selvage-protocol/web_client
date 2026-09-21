@@ -91,6 +91,8 @@
         font-weight: 600; color: var(--warning); }
       #session-note::before { content: ''; flex: none; width: 0.5em; height: 0.5em;
         border-radius: 50%; background: currentColor; }
+      /* The countdown is the warning; the host's return is news, not a warning. */
+      #session-note[data-tone="plain"] { color: var(--foreground); }
       #session-note:empty { display: none; }
       #share-group { display: flex; align-items: center; gap: 0.4em; flex: 0 1 auto;
         min-width: 0; max-width: 100%; padding: 0.3em 0.45em 0.3em 0.7em;

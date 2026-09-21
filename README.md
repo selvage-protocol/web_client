@@ -213,13 +213,15 @@ open a document.
 Following shows a banner in the followed peer's colour with the stop control on it, and
 ends when you type, navigate (open a file from the tree or go to someone), stop it, or
 the peer leaves. When the host's socket drops, the session note names the grace window
-and clears when the host is back. When the room ends, because the host does not return
-before the grace expires, the page leaves the session: the socket closes, the binding
-and the editor are dropped, the chrome comes down, and the card returns over the blurred
-preview carrying `The room is gone (host did not return). Paste a fresh invite link to
-join another session.` Nothing of the dead room stays on screen, the name stays typed,
-and pasting a fresh link joins the next room from there. There is no manual rejoin and no
-reclaim: the page never hellos as host and never rebuilds a room on its own.
+and counts it down to the room's own deadline, and clears — saying the host is back —
+when the host returns. When the room ends, because the host does not return before the
+grace expires, the page leaves the session: the socket closes, the binding and the editor
+are dropped, the chrome comes down, and the card returns over the blurred preview carrying
+`The room is gone (host did not return). Nothing in the room was saved. Paste a fresh
+invite link to join another session.` — a page has no disk to leave a copy on, so it says
+so rather than promising one. Nothing of the dead room stays on screen, the name stays
+typed, and pasting a fresh link joins the next room from there. There is no manual rejoin
+and no reclaim: the page never hellos as host and never rebuilds a room on its own.
 
 ## What is in the tree
 
@@ -264,14 +266,16 @@ The page's own modules:
 - `src/browser/mobile.ts`: what a touch-only browser is given, the two media queries the
   phone layout keys on, the editor options a phone needs (no minimap, wrapped lines,
   16 px), and how tall the app is when a soft keyboard shrinks the visual viewport.
-- `src/browser/notice.ts`: the message homes the page keeps, the session note in the
-  chrome (the host-leave warning while the grace runs), the failure alert that shows an
-  action that refused, and the line a tap reveals where a `title` would have shown a
-  pointer. The last two are one mechanism, standing a few seconds and leaving on their
-  own.
-- `src/browser/ended.ts`: the end of a session, the sentence for it (the desktop clients'
-  `The room is gone (<reason>).`), the one next step, and `dropSession`, the order in
-  which the page leaves a dead room.
+- `src/browser/notice.ts`: the message homes the page keeps: the session note in the
+  chrome (the host-leave warning while the grace runs, counting its window down to the
+  room's deadline, and the host's return for a few seconds), the failure alert that shows
+  an action that refused, and the line a tap reveals where a `title` would have shown a
+  pointer. The countdown's number is an element of its own with the live region off, so
+  the sentence is announced once and the count never is; the alert and the tap line are
+  one mechanism, standing a few seconds and leaving on their own.
+- `src/browser/ended.ts`: the end of a session, the sentences for it (the desktop clients'
+  `The room is gone (<reason>).` plus what a page cannot keep) and the one next step, and
+  `dropSession`, the order in which the page leaves a dead room.
 - `src/browser/share.ts`: the guest link shape, built from the page's own origin
   (`?room=&token=`, plus `?server=` off the default) and read back the same way when
   pasted. The bar shows it with the page's own origin dropped and the host, the room id

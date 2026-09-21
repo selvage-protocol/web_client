@@ -3,15 +3,28 @@
  *
  * The page does not stand on a dead session. When the room is gone it leaves —
  * the socket closed, the binding and the editor dropped, the chrome gone — and
- * says why on the card, the way both desktop clients dispose of a room that
- * ended. So the copy here is the desktop clients' own sentence plus the one
- * next step, and `dropSession` is the order the page leaves in.
+ * says why on the card. So the copy here is the desktop clients' own sentence,
+ * the one thing this client has to say which they do not, and the one next step;
+ * `dropSession` is the order the page leaves in.
  */
 
 /** The room is gone, in the desktop clients' words, naming the cause. */
 export function roomGoneMessage(reason: string): string {
   const why = reason.trim() === '' ? 'no reason given' : reason.trim();
   return `The room is gone (${why}).`;
+}
+
+/**
+ * What became of the room's content when it closed. The desktop clients keep the guest's copy
+ * and say where it is; a page has no disk to leave a mirror on, so the room, the text in it
+ * and the guest's own unsent keystrokes go with it, and the card says so rather than leaving
+ * the guest to find out.
+ */
+export const NOTHING_KEPT = 'Nothing in the room was saved.';
+
+/** The room-gone card's sentence: what happened, and what became of everything in it. */
+export function roomGoneSentence(reason: string): string {
+  return `${roomGoneMessage(reason)} ${NOTHING_KEPT}`;
 }
 
 /**

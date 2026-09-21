@@ -20,10 +20,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  NOTHING_KEPT,
   REJOIN_PROMPT,
   SESSION_ENDED_MESSAGE,
   dropSession,
   roomGoneMessage,
+  roomGoneSentence,
   sessionOverMessage,
 } from '../src/browser/ended.ts';
 import { addressBarInvite, resolveJoin, showRejoinCard } from '../src/browser/join.ts';
@@ -44,11 +46,25 @@ describe('the words for the end of a session', () => {
     assert.equal(SESSION_ENDED_MESSAGE, 'The session ended.');
   });
 
+  it('says what became of the room, which is the one thing a page cannot keep', () => {
+    // The desktop clients keep the guest's copy and name where it is; there is no disk here,
+    // so the card says the work went with the room rather than leaving the guest to wonder.
+    assert.equal(NOTHING_KEPT, 'Nothing in the room was saved.');
+    assert.equal(
+      roomGoneSentence('host did not return'),
+      'The room is gone (host did not return). Nothing in the room was saved.',
+    );
+    assert.equal(
+      roomGoneSentence('  '),
+      'The room is gone (no reason given). Nothing in the room was saved.',
+    );
+  });
+
   it('carries the one next step on the card that comes back', () => {
     assert.equal(REJOIN_PROMPT, 'Paste a fresh invite link to join another session.');
     assert.equal(
-      sessionOverMessage(roomGoneMessage('host did not return')),
-      'The room is gone (host did not return). Paste a fresh invite link to join another session.',
+      sessionOverMessage(roomGoneSentence('host did not return')),
+      'The room is gone (host did not return). Nothing in the room was saved. Paste a fresh invite link to join another session.',
     );
     assert.equal(
       sessionOverMessage(SESSION_ENDED_MESSAGE),
@@ -115,7 +131,7 @@ describe('leaving the session', () => {
   it('the page leaves on the room-gone notice, and on a terminal disconnect', () => {
     assert.match(
       main,
-      /case 'roomGone':[\s\S]{0,80}?leaveSession\(roomGoneMessage\(notice\.reason\)\)/,
+      /case 'roomGone':[\s\S]{0,80}?leaveSession\(roomGoneSentence\(notice\.reason\)\)/,
       'the room-gone notice never leaves the session',
     );
     assert.match(
@@ -191,7 +207,8 @@ describe('the card the page comes back to', () => {
   }
 
   it('comes back over the preview, with the paste box open and the button ready', () => {
-    const gone = 'The room is gone (host did not return). Paste a fresh invite link to join another session.';
+    const gone =
+      'The room is gone (host did not return). Nothing in the room was saved. Paste a fresh invite link to join another session.';
     const elementsUnderTest = elements();
     showRejoinCard(elementsUnderTest, gone);
     assert.equal(elementsUnderTest.join.hidden, false, 'the card never came back');
