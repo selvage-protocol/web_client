@@ -192,8 +192,8 @@ describe('plain-words copy', () => {
         for (const fn of [
           () => validateDisplayName('   '),
           () => validateDisplayName('a'.repeat(33)),
-          () => resolveJoin(new URLSearchParams(), 'just some words', 'ws://h'),
-          () => resolveJoin(new URLSearchParams(), '  ', 'ws://h'),
+          () => resolveJoin(new URLSearchParams(), 'just some words', 'http://127.0.0.1:8080/'),
+          () => resolveJoin(new URLSearchParams(), '  ', 'http://127.0.0.1:8080/'),
         ]) {
           try {
             fn();

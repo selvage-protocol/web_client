@@ -101,13 +101,13 @@ async function serve() {
   return child;
 }
 
-/** The page URL for a room's invite, as a guest's link. */
+/** The page URL for a room's invite, as a guest's link. The page is served from
+ * the same origin as the server, so the link's origin is the server it names. */
 function pageUrlFor(invite) {
   const url = new URL(invite);
   const query = new URLSearchParams({
     room: url.searchParams.get('room') ?? '',
     token: url.searchParams.get('token') ?? '',
-    server: BASE,
   });
   return `${PAGE}?${query.toString()}`;
 }

@@ -1,9 +1,14 @@
 // wf2b: join and dump state robustly.
 import { launch } from './tmp-cdp.mjs';
 const SHOT = '/home/user/projects/selvage/ai_notes/.tmp/vision-webflow';
-const PAGE = 'http://127.0.0.1:8081/?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5&server=ws%3A%2F%2F100.64.0.3%3A8080';
+const PAGE = 'http://127.0.0.1:8081/';
+// The page is on :8081 and the room's server is the Pi, two origins: a page link names
+// its own origin's server now, so the room is handed on as the wire invite and pasted
+// into the bare card. The reads below this join are from an earlier round's chrome.
+const INVITE = 'ws://100.64.0.3:8080/session?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5';
 const cdp = await launch({ port: 9345, profile: '/tmp/selvage-prof-wf2b' });
 await cdp.navigate(PAGE);
+await cdp.evaluate(`document.querySelector('#invite').value = ${JSON.stringify(INVITE)}`);
 await cdp.evaluate(`document.querySelector('#name').value = 'webflow-guest'; document.querySelector('#join-button').click()`);
 await cdp.sleep(6000);
 console.log('STATE', JSON.stringify(await cdp.evaluate(`({

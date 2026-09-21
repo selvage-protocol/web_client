@@ -1,81 +1,55 @@
 /**
  * Page-origin share links: what the guest flow offers is the page URL, never
- * the bare wire URL. The link carries the room and its token, plus `server`
- * only when the room lives somewhere other than the default.
+ * the bare wire URL. The link *is* the server — it opens the page the room's
+ * own server serves, carrying the room and its token — so it names no server
+ * in its query and a page cannot be linked at an address that dials another.
  */
 
-/** Public page origin for share links while the page itself is on loopback. */
-export const PUBLIC_PAGE_ORIGIN = '';
+import { pageOriginOf } from './servers.ts';
 
-/** The origin a share link uses: the page's own, unless it is loopback-only. */
-export function shareOrigin(pageOrigin: string, publicOrigin: string = PUBLIC_PAGE_ORIGIN): string {
-  if (publicOrigin === '') {
-    return pageOrigin;
-  }
-  try {
-    const host = new URL(pageOrigin).hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
-      return publicOrigin;
-    }
-  } catch {
-    return publicOrigin;
-  }
-  return pageOrigin;
-}
-
-/** Builds the guest link: `pageOrigin + path + ?room=&token=[&server=]`. */
-export function buildShareLink(
-  pageOrigin: string,
-  pagePath: string,
-  room: string,
-  token: string,
-  server: string,
-  defaultServer: string,
-): string {
-  const path = pagePath === '' ? '/' : pagePath;
-  let link =
-    `${shareOrigin(pageOrigin)}${path}` +
-    `?room=${encodeURIComponent(room)}&token=${encodeURIComponent(token)}`;
-  if (server !== defaultServer) {
-    link += `&server=${encodeURIComponent(server)}`;
-  }
-  return link;
+/** Builds the guest link: the room's own page, `?room=&token=`. */
+export function buildShareLink(serverBase: string, room: string, token: string): string {
+  return (
+    `${pageOriginOf(serverBase)}/?room=${encodeURIComponent(room)}&token=${encodeURIComponent(token)}`
+  );
 }
 
 /**
- * Reads a query string with real param semantics: `room`/`token`/`server`
- * (and `debug`) as independent params, everything else ignored, values
- * decoded once. A literal `?` past the first is a separator, not data —
- * share-link values are percent-encoded, so appending `?debug=1` to a link
- * that already has a query must split params, never glue into the token.
+ * Reads a query string with real param semantics: `room`/`token` (and
+ * `debug`) as independent params, everything else ignored, values decoded
+ * once. A literal `?` past the first is a separator, not data — share-link
+ * values are percent-encoded, so appending `?debug=1` to a link that already
+ * has a query must split params, never glue into the token.
  */
 export function pageQueryParams(search: string): URLSearchParams {
   const query = search.startsWith('?') ? search.slice(1) : search;
   return new URLSearchParams(query.replace(/\?/g, '&'));
 }
 
-/** Reads a pasted page link back into the room, its token, and any server. */
-export function parsePageLink(text: string): { room: string; token: string; server?: string } | undefined {
+/**
+ * Reads a pasted page link back into the room, its token, and the page it
+ * names. That page's address is the server — nothing in the query names one,
+ * so a `server` parameter from a link written before this shape is an unknown
+ * parameter and is ignored, exactly as `PROTOCOL.md` §5.1 says any unknown one
+ * is.
+ */
+export function parsePageLink(text: string): { room: string; token: string; origin: string } | undefined {
   let url: URL;
   try {
     url = new URL(text.trim());
   } catch {
     return undefined;
   }
-  const params = pageQueryParams(url.search);
-  const room = params.get('room');
-  const token = params.get('token');
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return undefined;
   }
+  const params = pageQueryParams(url.search);
+  const room = params.get('room');
+  const token = params.get('token');
   if (room === null || room === '' || token === null || token === '') {
     return undefined;
   }
-  const server = params.get('server');
-  if (server === null || server === '') {
-    return { room, token };
-  }
-  return { room, token, server };
+  return { room, token, origin: `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}` };
 }
 
 /**
@@ -108,8 +82,7 @@ export function abbreviateHost(host: string, maxLength = 24): string {
  * host at all: the guest is looking at the page the link points to, and the
  * pill only has room for something that reads at a glance. Display only: the
  * caller keeps the full link for the element's title and for the clipboard, so
- * the abbreviation is a paint, never a credential. The `server` parameter
- * stays whole: it names where the room is, not a permission.
+ * the abbreviation is a paint, never a credential.
  */
 export function displayShareLink(link: string, pageOrigin = '', maxHost = 24): string {
   try {
@@ -160,9 +133,11 @@ export function fitReadout(readout: { size: number }, shown: string): void {
 const READOUT_SIZE_SLACK = 1.15;
 
 /**
- * Keeps a manual room/token join across reloads: after joining, the page URL
- * already has the share-link shape, so replacing it means a reload rejoins
- * from the address bar instead of losing what was typed.
+ * Keeps a room/token join across reloads. After joining, the address bar is
+ * replaced with the room's own page link, so a reload rejoins from the address
+ * bar instead of losing what was typed. `replaceState` refuses another origin,
+ * so a page that is not the room's own page leaves the bar alone and the link
+ * stays in the session bar.
  */
 export function persistJoinUrl(history: Pick<History, 'replaceState'>, url: string): void {
   history.replaceState(null, '', url);

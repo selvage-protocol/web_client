@@ -7,7 +7,6 @@ const state = await cdp.evaluate(`({
   title: document.title,
   h1: document.querySelector('#join h1')?.textContent,
   invite: document.querySelector('#invite')?.placeholder,
-  server: document.querySelector('#server')?.value,
   room: document.querySelector('#room')?.value,
   token: document.querySelector('#token')?.value,
   name: document.querySelector('#name')?.value,

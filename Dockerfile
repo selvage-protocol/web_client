@@ -8,8 +8,9 @@
 # page, `/meta` and `/session` together, which is what makes a single terminator
 # enough for TLS and what lets the page's advisory `/meta` read land. This image
 # is the second shape. The README owns the choice between them and says plainly
-# what the second one costs — a `?server=` in every link, because the socket is
-# not CORS-bound while `/meta` is a cross-origin read the page then skips.
+# what the second one costs — the cross-origin `/meta` read the page then skips,
+# and a link shape that always names the room's own page — because the socket is
+# not CORS-bound while `/meta` is.
 #
 # The bundle is the `dist/` committed in this repository, copied rather than
 # rebuilt here. The reference server's image clones this repository at a pinned

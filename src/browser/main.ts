@@ -40,7 +40,7 @@ import {
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
-import { DEFAULT_SERVER_BASE, linkServerBase, schemeMatchBase } from './servers.ts';
+import { schemeMatchBase, serverBaseOf } from './servers.ts';
 import {
   PHONE_QUERY,
   TOUCH_QUERY,
@@ -290,7 +290,7 @@ function attemptJoin(): void {
       figured: resolveJoin(
         addressBarInvite(linkIsTheInvite, params),
         linkIsTheInvite ? '' : inviteInput.value,
-        DEFAULT_SERVER_BASE,
+        window.location.href,
       ),
     };
   } catch (error: unknown) {
@@ -373,14 +373,7 @@ async function join(held: HeldJoin): Promise<void> {
   });
   const session = engine.session();
   selfName = displayName;
-  fullShareLink = buildShareLink(
-    window.location.origin,
-    window.location.pathname,
-    figured.room,
-    figured.token,
-    base,
-    DEFAULT_SERVER_BASE,
-  );
+  fullShareLink = buildShareLink(base, figured.room, figured.token);
   // The bar shows the link with the page's own origin dropped and its long
   // parts shortened, and sized to what it shows; the title and the clipboard
   // below keep the full bytes.
@@ -448,10 +441,14 @@ async function join(held: HeldJoin): Promise<void> {
   // short id that tells the two apart, so no sentence is needed here.
 }
 
-/** The server a failure message names before any attempt resolved one. */
+/**
+ * The server a failure message names before any attempt resolved one: this
+ * page's own address read back as the server, which is where the room's link
+ * would have pointed. A page that names no server of its own (a `file://`
+ * page) yields none, and the diagnostic names none.
+ */
 function fallbackBase(): string {
-  const named = linkServerBase(params.get('server') ?? '') ?? DEFAULT_SERVER_BASE;
-  return schemeMatchBase(named, pageProtocol);
+  return schemeMatchBase(serverBaseOf(window.location.href), pageProtocol);
 }
 
 async function openFirst(session: SessionInfo): Promise<void> {

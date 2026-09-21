@@ -24,10 +24,10 @@ const invite = hostEngine.inviteUrl();
 const session = hostEngine.session();
 console.log(`ROOM=${session.roomId}`);
 console.log(`INVITE=${invite}`);
-const u = new URL(invite);
-const room = u.searchParams.get('room');
-const token = u.searchParams.get('token');
-console.log(`PAGE=http://127.0.0.1:8081/?room=${room}&token=${token}&server=${encodeURIComponent('ws://100.64.0.3:8080')}`);
+// The page is served from an origin of its own here, and a page link names the
+// server of its own origin now: this room is handed on as the wire invite
+// above, pasted into the card a bare page open shows.
+console.log(`PAGE=http://127.0.0.1:8081/`);
 
 const hostFiles = new MemHost();
 hostFiles.texts.set('notes.md', '# Room notes\nA shared markdown file for the review.\n\n- item one\n- item two\n');

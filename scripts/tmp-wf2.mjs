@@ -1,7 +1,14 @@
 // wf2: link landing -> empty-name validation -> join -> first sight of tree+editor.
+//
+// The room's server is the Pi and the page is `dist/` on :8081, two origins: a
+// page link names its own origin's server now, so the room is handed on as the
+// wire invite and pasted into the bare card. The reads below this join are from
+// the round this driver was written for and have not been kept up with the
+// join card since.
 import { launch } from './tmp-cdp.mjs';
 const SHOT = '/home/user/projects/selvage/ai_notes/.tmp/vision-webflow';
-const PAGE = 'http://127.0.0.1:8081/?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5&server=ws%3A%2F%2F100.64.0.3%3A8080';
+const PAGE = 'http://127.0.0.1:8081/';
+const INVITE = 'ws://100.64.0.3:8080/session?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5';
 
 const cdp = await launch({ port: 9344, profile: '/tmp/selvage-prof-wf2' });
 const errors = [];
@@ -9,9 +16,9 @@ cdp.on('Log.entryAdded', (p) => errors.push('LOG: ' + JSON.stringify(p.entry).sl
 cdp.on('Runtime.exceptionThrown', (p) => errors.push('EXC: ' + JSON.stringify(p.exceptionDetails).slice(0, 300)));
 
 await cdp.navigate(PAGE);
+await cdp.evaluate(`document.querySelector('#invite').value = ${JSON.stringify(INVITE)}`);
 await cdp.shot(`${SHOT}/02-landing-with-link.png`);
 console.log('PREFILL', JSON.stringify(await cdp.evaluate(`({
-  server: document.querySelector('#server').value,
   room: document.querySelector('#room').value,
   token: document.querySelector('#token').value,
   name: document.querySelector('#name').value,
