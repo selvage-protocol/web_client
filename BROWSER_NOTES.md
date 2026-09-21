@@ -5,6 +5,11 @@ left out.
 
 ## Link shape
 
+**Superseded in part** by *The link is the server (2026-09-21)* below: the link is now the
+room's own page and carries no `server`, the page's server is derived from the link's own
+origin rather than read from the query or from a built-in default, and `PUBLIC_PAGE_ORIGIN`
+went with the page origin that was configured separately.
+
 The share link is the page URL: `location.origin + path +
 ?room=<id>&token=<tok>`, with `&server=<ws-base>` only when the room lives
 off the default instance (`src/browser/share.ts`). Query params read with
@@ -2036,3 +2041,92 @@ leaves a sliver of code, cut by the card, which is the bars again. The shell's
 own two tests hold the shape (`test/join-paint.test.ts` for what it is and is
 not, `test/join-chrome.test.ts` for each token on the pane it draws it on) and
 `test/mobile.test.ts` pins the 640 px cut.
+
+## The link is the server (2026-09-21)
+
+Owner, on a room hosted on `wss://selvage.dontblameme.dev` whose copied page half pointed at
+the retired Pi origin: "There should **only** be the link, no extra `server` attribute in the
+link. **The link is the server.**" And on compatibility: "remove the old useless server= thing.
+nobody is using this, so leaving artifacts right now isn't worth it." `server` is deleted, not
+deprecated — not read, not written, and no branch is kept for it — and the same change landed in
+`nvim_client` (`#70`) and `vscode_client` (`#77`) first. This is the page's half, and the third
+implementation of the same format.
+
+**The shape now.** An invite is `https://<host>[<path>]/?room=…&token=…`: the page the room's own
+server serves, carrying the room and its token and nothing else. The guest derives the socket
+from that same origin, so one address decides the page a guest opens and the server they join on.
+`src/browser/servers.ts` holds the two halves of the derivation, the same rule as the desktop
+clients':
+
+```
+pageOriginOf: wss://host[:port][/prefix]  ->  https://host[:port][/prefix]
+              ws://host[:port]            ->  http://host[:port]
+serverBaseOf: https://host[/prefix]       ->  wss://host[/prefix]
+              http://host[/prefix]        ->  ws://host[/prefix]
+```
+
+`serverBaseOf` takes this page's own address for a link it was opened with and the link's own
+address for one pasted in, and takes the host and the path and nothing else out of either — so
+the address the page reads `<server>/meta` from and opens its socket at cannot be one the link
+does not read as naming, and a page link needs no bound of its own. A whole wire invite
+(`ws://host:8080/session?room=…&token=…`) is the other shape the page takes, for a room whose
+server serves no page; its base comes from whoever sent the link and still is bounded by
+`linkServerBase`, which is a security check and not the parameter being removed.
+
+**Once the origin carries the server, four things with no job left went with it.**
+
+- `DEFAULT_SERVER_BASE` (`servers.ts`) — the built-in demo server. Every link names its own
+  server now, so a page that kept a default would be a page that can still point somewhere wrong.
+  Nothing else needed it: the three uses in `main.ts` (the join's fallback base, the share link's
+  `defaultServer`, the failure message's base) are the page's own origin or gone.
+- `PUBLIC_PAGE_ORIGIN` and `shareOrigin` (`share.ts`) — the configured public page origin, for
+  linking a loopback page elsewhere. Substituting a page now mints a link whose origin dials a
+  different server than the room's, which is the defect being removed.
+- `resolveJoin`'s `server` read (`join.ts`) and `buildShareLink`'s `server` write (`share.ts`). A
+  link that still carries a `server=` is joined at its own origin, because the parameter is then
+  unknown to the page and unknown query parameters are ignored (`PROTOCOL.md` §5.1). Pinned in
+  `test/invite-origin.test.ts` and `test/share.test.ts` so the path cannot creep back.
+- `test/default-server.test.ts`, whose whole subject was the default. It is `git mv`'d to
+  `test/invite-origin.test.ts` and states the rule instead: the demo's one origin round-trips
+  through `buildShareLink`/`parsePageLink`/`resolveJoin`, the address bar takes the page's own
+  origin, a pasted link takes its own.
+
+**The case worth care.** A page served from origin A, opened with an invite naming origin B, must
+talk to B. It does: the pasted page link's origin is the base (`resolveJoin`), where before the
+link carried `server=` precisely so the paste worked from anywhere. An address bar link takes the
+page's own origin, because the page was served by the room's server — the one-origin shape that
+makes one address enough — and a page that names no server of its own at all (a `file://` open)
+is refused in the card's words (`This page names no server to join. Open the link the host sent
+you.`) rather than pointed at a default.
+
+**This section supersedes, in part, earlier ones.** *Link shape* above is marked at its head: the
+link is no longer `location.origin + path` with `?server=` off the default, and the page origin
+is no longer configured. *The one unverified layer* item 1 still says to join from a
+`?room=&token=&server=` link: the parameter is ignored now, so that recipe runs unchanged and
+proves nothing about it. *TLS: the https page speaks only wss/https* names "the default server
+…:8444" and "an explicit `?server=`": the scheme-match rule is unchanged and still pinned, and
+those two values are gone. *The server a link may name* stays true of a pasted wire invite;
+`?server=` no longer reaches `linkServerBase`, so the sentence is about one shape now, and its
+open question — whether the bound belongs in the protocol — has that one shape as its subject.
+*The serve round*'s split-deployment cost ("every link needs `?server=`") is now the opposite
+way round: an invite is a page link, so a room whose server serves no page is handed on as a
+`ws://` invite, and this image exists for fronting such servers.
+
+**Seen in a browser.** Chromium 152 over CDP, the built bundle, a real `selvaged` on one origin
+serving the page with `--serve-page dist` and a plain static server on another, the driver at
+`.tmp/invite-origin/drive.mjs`, shots beside it. 13/13 checks: the join page served by the room's
+server takes only the name and the share bar offers `http://127.0.0.1:8117/?room=…&token=…` with
+no `server=`; the *same* link pasted into the page on `127.0.0.1:8119` joins the room on 8117 and
+its bar keeps 8117 — the guest's page never dials its own origin — with no page exception on
+either join. Both the join landing and the link the bar shows were read off the rendered page
+(`own-origin-joined.png`, `cross-origin-joined.png`).
+
+**Red and green.** `node --test test/invite-origin.test.ts` — 10/10 green. Reverting the read
+alone (the pasted page link deriving the page's own origin, the naive implementation) turns *a
+link pasted into a page on another origin talks to the link's server* red with
+`actual: { base: 'wss://page.example', … } / expected: { base: 'wss://room.example', … }`, and
+`test/share.test.ts`'s *offers the room's own page, with no server in the query* stays green under
+it, so the read has a test of its own. Restored: green. Reverting the write alone (the link
+appending `&server=` again) turns three of `test/share.test.ts` red with the parameter back in the
+actual link. Restored: the whole CI suite green, 327/327, and `tsc --noEmit` clean.
+`scripts/ci-local.sh all` green on the committed tree.

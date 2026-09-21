@@ -24,35 +24,43 @@ deployed page's port. The image listens on 8080 and `compose.yaml` publishes it 
 
 ### Where the server comes from
 
-The page reads its server from the link it was opened with and from nowhere else:
-`?server=<ws-base>` in the URL, or the invite pasted into a bare open. With no server
-named, the built-in default is the public demo, `https://selvage.dontblameme.dev`, on a
-page of either scheme: `DEFAULT_SERVER_BASE` in `src/browser/servers.ts` is already a
-`wss://` base, so an https page has nothing to upgrade, and the demo answers the page,
-`/meta` and `/session` from that one origin. A link that names no server therefore means
-the demo wherever it is opened, and the link the page makes omits the parameter for it.
-An https page must never emit a `ws://` or `http://` subrequest, so a link's `ws://` base
-is dialled as `wss://` there (`schemeMatchBase`). A `server` value is bounded before
-it is used: an absolute `ws`, `wss`, `http` or `https` URL with a host, and no
-credentials, fragment or query (`linkServerBase`). The guest's own browser is what reads
-that server's `/meta` and opens its socket.
+**The link is the server.** An invite is `https://<host>/?room=…&token=…`: the page the
+room's own server serves, carrying the room and its token, and nothing else. The server
+is read from that link's own origin and from nowhere else, so a room cannot be linked at
+a page that dials a different server. `src/browser/servers.ts` holds the two halves of
+the derivation — `pageOriginOf` (the server as the page a browser opens: `wss://` as
+`https://`, `ws://` as `http://`) and `serverBaseOf` (the page read back as the server) —
+and the same rule is in both editor clients.
 
-If a `server` override names a different origin, that server's `/meta` has to allow the
+The page derives the server from its own address for a link it was opened with, and from
+the link's address for one pasted into a bare open. So a page served from one origin,
+given an invite naming another, talks to the room's server and never to its own. With no
+link there is no server: the card asks for one, and a page served from no server at all
+(a `file://` open) is told so rather than pointed at a default. An https page must never
+emit a `ws://` or `http://` subrequest, so a link's `ws://` base is dialled as `wss://`
+there (`schemeMatchBase`). The other shape the page takes is a whole wire invite
+(`ws://host:8080/session?room=…&token=…`), for a room whose server serves no page: its
+base comes from whoever sent the link, so it is bounded before it is used — an absolute
+`ws`, `wss`, `http` or `https` URL with a host, and no credentials, fragment or query
+(`linkServerBase`). The guest's own browser is what reads that server's `/meta` and opens
+its socket.
+
+If a link names another origin than the page's own, that server's `/meta` has to allow the
 page's origin through CORS for the browser to read it. Nothing in this project emits
-`access-control-*`, so an override skips the advisory `/meta` read (the wire versions and
+`access-control-*`, so such a join skips the advisory `/meta` read (the wire versions and
 the reconnect grace it carries) while the WebSocket handshake still proceeds and enforces
-compatibility. The demo is one origin, where the page, `/meta` and `/session` share it and
-the read lands.
+compatibility. `selvaged --serve-page` is one origin, where the page, `/meta` and
+`/session` share it and the read lands.
 
 ### Serving the page
 
 **One origin.** `selvaged --serve-page <dir>` answers the page, `/meta` and `/session`
 from one listener, which is what the demo and the published server image run:
 `reference_server` bakes this bundle into `/page` and starts with `--serve-page /page`.
-A share link then needs no `server`, the page's `/meta` read is same-origin and lands,
-and one terminator in front of the one port is enough for TLS. `npm run serve` is the
-local stand-in for the page half of it: a plain static server with no session protocol
-beside it.
+A share link is then the page's own origin and nothing else, the `/meta` read is
+same-origin and lands, and one terminator in front of the one port is enough for TLS.
+`npm run serve` is the local stand-in for the page half of it: a plain static server
+with no session protocol beside it.
 
 **The page-only image.** This repository publishes the bundle on its own, so the page
 can live on an origin of its own, in front of several `selvaged` instances. The
@@ -92,29 +100,27 @@ the flags above run it with no mount at all, which `scripts/container-smoke.sh` 
 back off the daemon's record of the container.
 
 **What the second shape costs.** The page becomes a second origin. The WebSocket is not
-CORS-bound, so the page dials whatever server the link names and the handshake is where
-compatibility is enforced. The `/meta` read is a cross-origin fetch, though, and this
-project emits no `access-control-*` headers, so it is skipped, which costs the wire
-versions and the reconnect grace it carries and nothing else. The page's built-in default
-also names one particular endpoint, so a split deployment needs `?server=<ws-base>` in
-every link, or a page built with another `DEFAULT_SERVER_BASE`; the editor clients add `server`
-to a copied invite only for a room that lives off their default. One origin is the
-default.
+CORS-bound, so the page dials whatever server a pasted wire invite names and the handshake
+is where compatibility is enforced. The `/meta` read is a cross-origin fetch, though, and
+this project emits no `access-control-*` headers, so it is skipped, which costs the wire
+versions and the reconnect grace it carries and nothing else. An invite is a page link,
+though, so a guest handed one is sent to the room's own page, wherever it is served from;
+this image is for fronting servers that cannot serve a page themselves, handed on as
+`ws://` invites. One origin is the default.
 
 ### Join a room
 
 The page's own `/` takes the room and its token as query parameters:
 
 ```text
-http://host/?room=<room>&token=<token>&server=<ws-base>
+http://host/?room=<room>&token=<token>
 ```
 
 A host produces that link with the editor clients' copy-invite command
 (`Selvage: Copy the invite link` in VS Code, `:SelvageCopyInvite` in Neovim), which
-builds it from the configured page origin and adds `server` only when the room lives
-somewhere other than the default. The default demo instance needs no `server`. A
-`ws://host:8080/session?room=…&token=…` invite is the other shape the page takes,
-pasted into the box a bare open shows.
+builds it from the room's own server. A `ws://host:8080/session?room=…&token=…` invite is
+the other shape the page takes, pasted into the box a bare open shows, for a room whose
+server serves no page.
 
 Either way the card carries a heading, one question (the name other participants see) and
 one confirm, over a blurred preview of the editor. Type the name and press Join or Enter,
@@ -276,10 +282,10 @@ The page's own modules:
 - `src/browser/ended.ts`: the end of a session, the sentences for it (the desktop clients'
   `The room is gone (<reason>).` plus what a page cannot keep) and the one next step, and
   `dropSession`, the order in which the page leaves a dead room.
-- `src/browser/share.ts`: the guest link shape, built from the page's own origin
-  (`?room=&token=`, plus `?server=` off the default) and read back the same way when
-  pasted. The bar shows it with the page's own origin dropped and the host, the room id
-  and the token shortened middle-first, sized to what it shows.
+- `src/browser/share.ts`: the guest link shape — the page the room's own server serves,
+  carrying `?room=&token=` and nothing else — read back the same way when pasted. The bar
+  shows it with the page's own origin dropped and the host, the room id and the token
+  shortened middle-first, sized to what it shows.
 
 `public/` is the page shell, which carries the site's mark as its own pixels, a 104 px
 render of `mark-transparent.png` inlined in the shell so no frame waits on an image.
