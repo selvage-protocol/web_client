@@ -84,7 +84,7 @@ function selfRow(view: RosterView): HTMLElement {
   const go = document.createElement('button');
   go.type = 'button';
   go.append(iconSpan('go'), labelSpan('Go to'));
-  const whyGo = dead(go, 'This is you. There is nowhere to go to');
+  const whyGo = dead(go, 'This is you.');
   actions.appendChild(go);
   const follow = document.createElement('button');
   follow.type = 'button';
@@ -126,7 +126,7 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   go.append(iconSpan('go'), labelSpan('Go to'));
   // Disabled, never mysteriously: the row says why, the way the self row's dead
   // actions do.
-  const whyGo = peer.path === undefined ? dead(go, 'They are not in a document yet') : undefined;
+  const whyGo = peer.path === undefined ? dead(go, 'They have not opened a file yet.') : undefined;
   go.addEventListener('click', () => view.onGoTo(peer.peerId));
   actions.appendChild(go);
   const follow = document.createElement('button');

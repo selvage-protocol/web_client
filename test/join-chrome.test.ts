@@ -15,6 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
+import { graceWording } from '../src/browser/editor.ts';
 import { peerColour } from '../src/bridge/index.ts';
 import { sessionNoteSignal, hostPresent, wireFailureAlert, wireSessionNote, wireTapPeek } from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
@@ -327,8 +328,8 @@ describe('the message homes', () => {
     const element = makeElement();
     const note = wireSessionNote(element as unknown as HTMLElement);
     assert.equal(element.textContent, '', 'an untouched note paints nothing');
-    note.show('host left — the room closes in 30s unless the host returns');
-    assert.match(element.textContent, /host left/);
+    note.show('The host left. The room closes in 30 seconds unless the host returns.');
+    assert.match(element.textContent, /The host left/);
     note.hide();
     assert.equal(element.textContent, '');
   });
@@ -369,9 +370,22 @@ describe('the message homes', () => {
 });
 
 describe('the host leaving and coming back', () => {
+  it('the grace window reads in the largest whole unit, rounded up', () => {
+    // The window is the server's number, so the sentence has to hold any of
+    // them without asking the guest to divide seconds.
+    assert.equal(graceWording(30_000), '30 seconds');
+    assert.equal(graceWording(1_000), '1 second');
+    assert.equal(graceWording(600_000), '10 minutes');
+    assert.equal(graceWording(60_000), '1 minute');
+    assert.equal(graceWording(90_000), '2 minutes');
+    assert.equal(graceWording(3_600_000), '1 hour');
+    assert.equal(graceWording(0), 'a moment');
+    assert.ok(!/\d+s\b/.test(graceWording(600_000)), 'a raw second count survives');
+  });
+
   it('only the detach and the return are note signals; the rest is chatter', () => {
     assert.equal(
-      sessionNoteSignal('host left — the room closes in 30s unless the host returns'),
+      sessionNoteSignal('The host left. The room closes in 30 seconds unless the host returns.'),
       'grace',
     );
     assert.equal(sessionNoteSignal('host demo-host is back'), 'back');
@@ -446,6 +460,11 @@ describe('the host leaving and coming back', () => {
     binding.report({ kind: 'hostDetached', graceMs: 30000 } as never);
     const warned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'grace');
     assert.ok(warned, `no host-left signal in ${JSON.stringify(notices)}`);
+    assert.equal(
+      warned.text,
+      'The host left. The room closes in 30 seconds unless the host returns.',
+      'the warning the guest reads is not the sentence the routing knows',
+    );
 
     binding.report({ kind: 'hostAttached', peer: { display_name: 'demo-host' } } as never);
     const returned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'back');

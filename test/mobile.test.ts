@@ -232,6 +232,23 @@ describe('the panel on a phone', () => {
     assert.match(stacked, /max-height:\s*38%/, 'the cap left the stacked layout');
     assert.match(stacked, /box-sizing:\s*border-box/, 'the padding and border sit outside the cap again');
   });
+
+  it('opens for a room that shares nothing, so the blank editor is explained', () => {
+    // Nothing else on a phone says the room is empty: the editor shows line 1
+    // and the panel, shut, holds the one sentence that does.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const openFirst = main.slice(main.indexOf('async function openFirst'), main.indexOf('async function openPath'));
+    const opened = openFirst.indexOf('showPanel(true)');
+    assert.ok(opened !== -1, 'a phone opening an empty room gets a blank editor and nothing else');
+    assert.ok(
+      openFirst.indexOf('phoneLayout.matches') < opened,
+      'the panel opens for a room that did name a document too',
+    );
+    assert.ok(
+      /if \(first !== undefined\) \{[\s\S]*?return;[\s\S]*?\}/.test(openFirst.slice(0, opened)),
+      'the panel opens even when a file was just opened into the editor',
+    );
+  });
 });
 
 describe('what a phone cannot hover', () => {

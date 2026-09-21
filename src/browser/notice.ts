@@ -86,7 +86,8 @@ export type SessionNoteSignal = 'grace' | 'back';
  * The host's socket detaching — the sentence that opens the grace window — and
  * the host coming back inside it. The binding has no notice kind for either,
  * so both arrive as transient text; every other transient sentence (a drop, a
- * reconnect, a follow landing) is chatter and maps to nothing.
+ * reconnect, a follow landing) is chatter and maps to nothing. The return
+ * sentence is never shown: it only has to take the warning down.
  */
 export function sessionNoteSignal(text: string): SessionNoteSignal | undefined {
   if (text.startsWith(HOST_LEFT)) {
@@ -114,10 +115,10 @@ export function hostPresent(members: readonly { role: string }[]): boolean {
  * The binding's own opening words, kept as the contract the routing reads:
  * `test/join-chrome.test.ts` drives the binding that emits them, so a reworded
  * sentence cannot drop the warning (or leave it standing) silently. The name
- * between the two words may be empty: the engine's own validation accepts an
- * empty `display_name`, and the binding prints whatever the peer carries.
+ * between `host` and `is back` may be empty: the engine's own validation accepts
+ * an empty `display_name`, and the binding prints whatever the peer carries.
  */
-const HOST_LEFT = 'host left';
+const HOST_LEFT = 'The host left';
 const HOST_BACK = /^host (.*) is back$/;
 /** The one role that means the host. */
 const HOST_ROLE = 'host';

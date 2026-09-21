@@ -68,7 +68,7 @@ describe('identity', () => {
     assert.match(html, /property="og:title" content="Selvage — shared editing in the browser"/);
     assert.match(
       html,
-      /property="og:description" content="This page joins a live editing session as a guest/,
+      /property="og:description" content="Join a live editing session in your browser/,
     );
     assert.match(html, /property="og:image" content="mark-opaque\.png"/);
   });

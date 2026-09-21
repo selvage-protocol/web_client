@@ -55,9 +55,9 @@ local stand-in for the page half of it: a plain static server with no session pr
 beside it.
 
 **The page-only image.** This repository publishes the bundle on its own, so the page
-can live on an origin of its own, one page in front of several `selvaged` instances, or
-a page host separate from the servers. The preferred way to run it is `compose.yaml`,
-which builds the page from this checkout and answers on the standard web port:
+can live on an origin of its own, in front of several `selvaged` instances. The
+preferred way to run it is `compose.yaml`, which builds the page from this checkout
+and answers on the standard web port:
 
 ```sh
 docker compose up --build --detach   # http://localhost/
@@ -71,22 +71,19 @@ no volumes — and `scripts/container-smoke.sh` asserts it. To evaluate on this 
 only, rebind the published port to `127.0.0.1:8080:8080` there.
 
 **The image is on the registry.** `v0.1.0` published
-`ghcr.io/selvage-protocol/selvage-web` with the tags `<version>-<sha>`, `<version>`
-and `latest`, so `docker compose pull` (or the hand run below with the registry
-name) fetches the published page; the compose file still builds from this
-checkout when the registry name is absent. Building and running it by hand is
-the same page:
+`ghcr.io/selvage-protocol/selvage-web`, and every `v*` tag republishes it
+(`.github/workflows/image.yml`) with the tags `<version>-<sha>`, `<version>` and
+`latest`. `docker compose pull` fetches the published page; the compose file builds
+from this checkout when the registry name is absent. The hand run is the same page:
 
 ```sh
 docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --publish 80:8080 ghcr.io/selvage-protocol/selvage-web:0.1.0
 ```
 
-On every `v*` tag, `.github/workflows/image.yml` republishes
-`ghcr.io/selvage-protocol/selvage-web` with the tags `<version>-<sha>`, `<version>` and
-`latest`, and the image carries this repository's committed `dist/` (the
-checks job proves a build of `src/` reproduces it, so the image cannot fall behind its
-source). The runtime is `nginx-unprivileged` as uid 101 on port 8080,
+The image carries this repository's committed `dist/` (the checks job proves a build
+of `src/` reproduces it, so the image cannot fall behind its source). The runtime is
+`nginx-unprivileged` as uid 101 on port 8080,
 and it answers the media types, the cache policy and the content-security policy that
 `selvaged`'s own page handler decides for the one-origin shape: a hashed chunk pinned
 for a year, everything else revalidating, `no-referrer`, `nosniff`. It holds nothing
@@ -159,18 +156,20 @@ script is what `scripts/check-page.sh` runs, together with the served bytes and 
 ### CI
 
 The repository's two workflows. `ci.yml` is the node checks, on a pull request:
-`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh` (the build reproduces the
-committed `dist/`: every file the bundler writes, byte for byte, and the six sized
-icons at their six sizes, because an ImageMagick version decides their bytes and their
-pixels and this job carries trixie's 7.1.1.x where the committed icons came from a
-7.1.2; `test/identity.test.ts` is where their bytes are pinned, on a machine that has
-the `site` checkout), and `test:ci`. It runs in `node:22-trixie-slim`
-because the build shells out to ImageMagick 7's `magick` for the sized icons and the
-GitHub runner image ships ImageMagick 6. `image.yml` is the image: on a pull request
-that changes what the image is built from, `docker build` and a hardened `docker run`
-with the assertions above (`scripts/container-smoke.sh`), plus a rehearsal of the
-publish path against a registry on the runner's own loopback; on a `v*` tag it
-publishes the three tags and reads the version and the page back off them.
+`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh` and `test:ci`. It runs in
+`node:22-trixie-slim`, because the build shells out to ImageMagick 7's `magick` and
+the GitHub runner image ships ImageMagick 6.
+
+`scripts/check-dist.sh` is the build reproducing the committed `dist/`: every file the
+bundler writes, byte for byte, and the six sized icons at their six sizes. The icons
+are the one part an ImageMagick version decides, so `test/identity.test.ts` pins their
+bytes, on a machine that has the `site` checkout beside this one.
+
+`image.yml` is the image. On a pull request that changes what the image is built from,
+it runs `docker build` and a hardened `docker run` with the assertions above
+(`scripts/container-smoke.sh`), plus a rehearsal of the publish path against a registry
+on the runner's own loopback. On a `v*` tag it publishes the three tags and reads the
+version and the page back off them.
 
 The container steps need a Docker daemon, so `scripts/ci-local.sh container` and both
 smoke scripts are CI runs on a machine without one, which is where they were proved.

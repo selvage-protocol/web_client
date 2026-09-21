@@ -141,9 +141,9 @@ describe('roster rows', () => {
     // The self row's two dead verbs, and the host's unavailable go-to: the same
     // sentences the `titles` carry, on screen for a phone (`#roster .why`).
     assert.deepEqual(reasons, [
-      'This is you. There is nowhere to go to',
+      'This is you.',
       "You can't follow yourself.",
-      'They are not in a document yet',
+      'They have not opened a file yet.',
     ]);
   });
 
