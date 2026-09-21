@@ -63,7 +63,7 @@ export function distFiles() {
 }
 
 async function main() {
-  const base = (process.argv[2] ?? 'https://lumi-raspberrypi.muskellunge-yo.ts.net:8444').replace(/\/$/, '');
+  const base = (process.argv[2] ?? 'https://selvage.dontblameme.dev').replace(/\/$/, '');
   const reps = distFiles();
   if (reps.length === 0) {
     console.error('no dist/ files found — run npm run build first');

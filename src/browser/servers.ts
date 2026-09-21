@@ -1,21 +1,24 @@
 /**
  * Which server the page talks to, and over which scheme.
  *
- * A page loaded over https must never emit a ws:// or http:// subrequest:
- * Firefox blocks those as mixed active content (Chromium merely warns, so
- * Chromium proofs of the ws:// default passed and lied). The rule is
- * scheme-match: on an https page every base speaks TLS, and the default is
- * the Pi's TLS endpoint (a reverse proxy over the same selvaged); an http
- * page keeps the plaintext default.
+ * The built-in default is the public demo, one origin: its page, `/meta` and
+ * `/session` are all answered from `https://selvage.dontblameme.dev`, so the
+ * base the page names is that origin and the engine derives the two paths
+ * from it. A page loaded over https must never emit a ws:// or http://
+ * subrequest: Firefox blocks those as mixed active content (Chromium merely
+ * warns, so Chromium proofs of a ws:// default passed and lied). The default
+ * is already a `wss://` base, so it is right on a page of either scheme, and
+ * the rule below still matches whatever server a link names.
  */
 
-/** The TLS endpoint for the demo room: the proxy in front of the Pi selvaged. */
-export const DEFAULT_TLS_SERVER = 'wss://lumi-raspberrypi.muskellunge-yo.ts.net:8444';
-
-/** The default server for a page loaded under `pageProtocol`. */
-export function defaultServerForPage(pageProtocol: string, defaultServer: string): string {
-  return pageProtocol === 'https:' ? DEFAULT_TLS_SERVER : defaultServer;
-}
+/**
+ * The default room's base: the public demo. A link that names no server means
+ * this base wherever it is opened, so the room a link names does not depend
+ * on the page that made it; the engine derives
+ * `wss://selvage.dontblameme.dev/session` and
+ * `https://selvage.dontblameme.dev/meta` from it.
+ */
+export const DEFAULT_SERVER_BASE = 'wss://selvage.dontblameme.dev';
 
 /**
  * Matches a server base to the page that dials it: on an https page the

@@ -33,7 +33,7 @@ import {
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
-import { defaultServerForPage, linkServerBase, schemeMatchBase } from './servers.ts';
+import { DEFAULT_SERVER_BASE, linkServerBase, schemeMatchBase } from './servers.ts';
 import {
   PHONE_QUERY,
   TOUCH_QUERY,
@@ -47,8 +47,6 @@ import {
   getWorkerUrl: (_moduleId: string, label: string) =>
     label === 'typescript' || label === 'javascript' ? 'ts.worker.js' : 'editor.worker.js',
 };
-
-const DEFAULT_SERVER = 'ws://100.64.0.3:8080';
 
 /**
  * Whether this browser has no pointer that can hover: a phone or a tablet, and
@@ -65,8 +63,6 @@ const TAP_SLOP = 12;
 
 /** The page's own scheme: an https page speaks TLS to the server, always. */
 const pageProtocol = window.location.protocol;
-/** The default room for this page: the TLS proxy over https, plaintext otherwise. */
-const pageDefaultServer = defaultServerForPage(pageProtocol, DEFAULT_SERVER);
 
 /** The editor runtime, loaded on join — never before, so the card never waits on it. */
 let monacoReady: typeof monacoApi | undefined;
@@ -287,7 +283,7 @@ function attemptJoin(): void {
       figured: resolveJoin(
         addressBarInvite(linkIsTheInvite, params),
         linkIsTheInvite ? '' : inviteInput.value,
-        pageDefaultServer,
+        DEFAULT_SERVER_BASE,
       ),
     };
   } catch (error: unknown) {
@@ -376,7 +372,7 @@ async function join(held: HeldJoin): Promise<void> {
     figured.room,
     figured.token,
     base,
-    pageDefaultServer,
+    DEFAULT_SERVER_BASE,
   );
   // The bar shows the link with the page's own origin dropped and its long
   // parts shortened, and sized to what it shows; the title and the clipboard
@@ -447,7 +443,7 @@ async function join(held: HeldJoin): Promise<void> {
 
 /** The server a failure message names before any attempt resolved one. */
 function fallbackBase(): string {
-  const named = linkServerBase(params.get('server') ?? '') ?? pageDefaultServer;
+  const named = linkServerBase(params.get('server') ?? '') ?? DEFAULT_SERVER_BASE;
   return schemeMatchBase(named, pageProtocol);
 }
 

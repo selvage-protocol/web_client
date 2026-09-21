@@ -224,11 +224,11 @@ describe('the share bar shows the link, not a prefix of it', () => {
 
   it('keeps a shortened host when the link is somewhere else', () => {
     const shown = displayShareLink(
-      'https://lumi-raspberrypi.muskellunge-yo.ts.net/?room=r-1&token=tok',
+      'https://a-very-long-share-hostname.example.org/?room=r-1&token=tok',
       'http://127.0.0.1:8081',
     );
-    assert.ok(shown.startsWith('https://lumi-rasp'), `host lost: ${shown}`);
-    assert.ok(!shown.includes('muskellunge-yo'), `host untruncated: ${shown}`);
+    assert.ok(shown.startsWith('https://a-very-long-'), `host lost: ${shown}`);
+    assert.ok(!shown.includes('share-hostname'), `host untruncated: ${shown}`);
   });
 
   it('leaves the link alone when there is no page to compare it against', () => {

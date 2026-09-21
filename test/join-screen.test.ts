@@ -29,6 +29,7 @@ import {
   describeJoinErrorForDisplay,
   joinFailureDetail,
 } from '../src/browser/transport.ts';
+import { DEFAULT_SERVER_BASE } from '../src/browser/servers.ts';
 import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
 
 const BASE = 'ws://127.0.0.1:9';
@@ -220,7 +221,7 @@ describe('join targets', () => {
       'http://other:8080',
       'https://other:8443/proxy',
       'ws://127.0.0.1:8117',
-      'ws://100.64.0.3:8080',
+      DEFAULT_SERVER_BASE,
     ]) {
       assert.deepEqual(
         resolveJoin(new URLSearchParams(`room=r-1&token=tok&server=${encodeURIComponent(server)}`), '', BASE),

@@ -7,13 +7,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { DEFAULT_SERVER_BASE } from '../src/browser/servers.ts';
 import { buildShareLink, pageQueryParams, parsePageLink, shareOrigin } from '../src/browser/share.ts';
-
-const DEFAULT_SERVER = 'ws://100.64.0.3:8080';
 
 describe('share links', () => {
   it('offers a page-origin https link with no server for the default room', () => {
-    const link = buildShareLink('https://edit.example', '/', 'r-1', 'tok', DEFAULT_SERVER, DEFAULT_SERVER);
+    const link = buildShareLink('https://edit.example', '/', 'r-1', 'tok', DEFAULT_SERVER_BASE, DEFAULT_SERVER_BASE);
     assert.ok(link.startsWith('https://'));
     assert.equal(link, 'https://edit.example/?room=r-1&token=tok');
   });
@@ -25,7 +24,7 @@ describe('share links', () => {
       'r-1',
       'tok',
       'ws://other:8080',
-      DEFAULT_SERVER,
+      DEFAULT_SERVER_BASE,
     );
     assert.equal(link, 'https://edit.example/?room=r-1&token=tok&server=ws%3A%2F%2Fother%3A8080');
   });
@@ -40,9 +39,9 @@ describe('share links', () => {
   });
 
   it('a pasted page link round-trips back into a join', () => {
-    const link = buildShareLink('https://edit.example', '/', 'r-1', 'tok', 'ws://other:8080', DEFAULT_SERVER);
+    const link = buildShareLink('https://edit.example', '/', 'r-1', 'tok', 'ws://other:8080', DEFAULT_SERVER_BASE);
     assert.deepEqual(parsePageLink(link), { room: 'r-1', token: 'tok', server: 'ws://other:8080' });
-    const bare = buildShareLink('https://edit.example', '/', 'r-1', 'tok', DEFAULT_SERVER, DEFAULT_SERVER);
+    const bare = buildShareLink('https://edit.example', '/', 'r-1', 'tok', DEFAULT_SERVER_BASE, DEFAULT_SERVER_BASE);
     assert.deepEqual(parsePageLink(bare), { room: 'r-1', token: 'tok' });
     assert.equal(parsePageLink('ws://host:8080/session?room=r-1&token=tok'), undefined);
     assert.equal(parsePageLink('not a link'), undefined);

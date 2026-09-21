@@ -1,22 +1,22 @@
 /**
  * Live TLS proof: the page's own code over `wss://` + `https://` only.
  *
- * Hosts a room and joins a guest through the Pi TLS proxy (wss on :8444 in
- * front of the plaintext selvaged), with the real `/meta` check over https —
- * the exact URLs an https page derives by the scheme-match rule. Edits
- * converge both ways, and every derived URL is asserted TLS: an https page
- * must never emit a ws:// or http:// subrequest.
+ * Hosts a room on a TLS origin and joins a guest through it, with the real
+ * `/meta` check over https — the exact URLs an https page derives by the
+ * scheme-match rule, against the deployed origin by default (the demo's, see
+ * `DEFAULT_SERVER_BASE`). Edits converge both ways, and every derived URL is
+ * asserted TLS: an https page must never emit a ws:// or http:// subrequest.
  *
- * Usage: SELVAGE_TLS_BASE=wss://lumi-raspberrypi.muskellunge-yo.ts.net:8444 node scripts/prove-tls.mjs
+ * Usage: SELVAGE_TLS_BASE=wss://selvage.dontblameme.dev node scripts/prove-tls.mjs
  */
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { fetchMeta, SelvageEngine as Engine } from '../src/engine/index.ts';
 import { metaUrl } from '../src/engine/index.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
-import { DEFAULT_TLS_SERVER } from '../src/browser/servers.ts';
+import { DEFAULT_SERVER_BASE } from '../src/browser/servers.ts';
 
-const BASE = process.env.SELVAGE_TLS_BASE ?? DEFAULT_TLS_SERVER;
+const BASE = process.env.SELVAGE_TLS_BASE ?? DEFAULT_SERVER_BASE;
 const NOTES = 'notes.md';
 const SEED = '# room notes\nline two\n';
 

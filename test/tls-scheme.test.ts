@@ -2,28 +2,25 @@
  * The scheme-match rule: a page loaded over https must never emit a
  * ws:// or http:// subrequest — Firefox blocks those as mixed active
  * content while Chromium merely warns. So on an https page every server
- * base speaks TLS (ws:// -> wss://, http:// -> https://) and the default
- * is the TLS endpoint; an http page keeps the plaintext default.
+ * base speaks TLS (ws:// -> wss://, http:// -> https://), while the built-in
+ * default is one `wss://` base, the demo's, on a page of either scheme.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { metaUrl, sessionUrl } from '../src/engine/index.ts';
 import {
-  DEFAULT_TLS_SERVER,
-  defaultServerForPage,
+  DEFAULT_SERVER_BASE,
   linkServerBase,
   schemeMatchBase,
 } from '../src/browser/servers.ts';
 
-const WS_DEFAULT = 'ws://100.64.0.3:8080';
-
 describe('scheme-match rule', () => {
   it('an https page upgrades ws:// and http(s):// bases to a TLS socket', () => {
-    assert.equal(schemeMatchBase('ws://100.64.0.3:8080', 'https:'), 'wss://100.64.0.3:8080');
+    assert.equal(schemeMatchBase('ws://plain:8080', 'https:'), 'wss://plain:8080');
     // An http(s):// base names the same server: the socket still needs a
     // ws(s):// base, and the engine derives https:// meta from wss://.
-    assert.equal(schemeMatchBase('http://100.64.0.3:8080', 'https:'), 'wss://100.64.0.3:8080');
+    assert.equal(schemeMatchBase('http://plain:8080', 'https:'), 'wss://plain:8080');
     assert.equal(schemeMatchBase('https://other:8443', 'https:'), 'wss://other:8443');
     assert.equal(
       schemeMatchBase('ws://other:8080', 'https:'),
@@ -32,27 +29,27 @@ describe('scheme-match rule', () => {
   });
 
   it('TLS bases pass through untouched', () => {
-    assert.equal(schemeMatchBase(DEFAULT_TLS_SERVER, 'https:'), DEFAULT_TLS_SERVER);
+    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'https:'), DEFAULT_SERVER_BASE);
     assert.equal(schemeMatchBase('wss://other:8080', 'https:'), 'wss://other:8080');
   });
 
   it('an http page keeps whatever base it was given', () => {
-    assert.equal(schemeMatchBase('ws://100.64.0.3:8080', 'http:'), 'ws://100.64.0.3:8080');
-    assert.equal(schemeMatchBase(DEFAULT_TLS_SERVER, 'http:'), DEFAULT_TLS_SERVER);
+    assert.equal(schemeMatchBase('ws://plain:8080', 'http:'), 'ws://plain:8080');
+    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'http:'), DEFAULT_SERVER_BASE);
   });
 
-  it('the https default is the TLS endpoint, the http default the plaintext one', () => {
-    assert.equal(defaultServerForPage('https:', WS_DEFAULT), DEFAULT_TLS_SERVER);
-    assert.equal(defaultServerForPage('http:', WS_DEFAULT), WS_DEFAULT);
-    assert.ok(DEFAULT_TLS_SERVER.startsWith('wss://'), DEFAULT_TLS_SERVER);
+  it('the one default is the demo, TLS, and identical on a page of either scheme', () => {
+    assert.ok(DEFAULT_SERVER_BASE.startsWith('wss://'), DEFAULT_SERVER_BASE);
+    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'https:'), DEFAULT_SERVER_BASE);
+    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'http:'), DEFAULT_SERVER_BASE);
   });
 
   it('an https page never derives a ws:// or http:// subrequest URL', () => {
     for (const base of [
-      'ws://100.64.0.3:8080',
+      'ws://plain:8080',
       'ws://other:8080',
-      'http://100.64.0.3:8080',
-      DEFAULT_TLS_SERVER,
+      'http://plain:8080',
+      DEFAULT_SERVER_BASE,
       'https://other:8443',
     ]) {
       const matched = schemeMatchBase(base, 'https:');
