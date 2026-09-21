@@ -397,7 +397,12 @@ describe('MonacoBinding', () => {
       { kind: 'roomGone', reason: 'host left' },
     ]);
     assert.equal(await binding.save('a.txt'), true);
-    assert.equal(await binding.readGrantedFile('a.txt'), undefined);
+    // The page shares no folder: a read for a peer is refused in the cause that carries no
+    // sentence, so even a path guessed at would buy no words confirming it exists.
+    assert.deepEqual(await binding.readGrantedFile('a.txt'), {
+      kind: 'refused',
+      cause: 'not-granted',
+    });
     binding.dispose();
   });
 });
