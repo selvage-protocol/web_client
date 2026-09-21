@@ -23,11 +23,18 @@ import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { initials } from './presence.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
-import { wireFailureAlert, wireSessionNote, wireTapPeek, hostPresent, sessionNoteSignal } from './notice.ts';
+import {
+  HOST_BACK_STAND_MS,
+  hostBackSentence,
+  hostPresent,
+  wireFailureAlert,
+  wireSessionNote,
+  wireTapPeek,
+} from './notice.ts';
 import {
   SESSION_ENDED_MESSAGE,
   dropSession,
-  roomGoneMessage,
+  roomGoneSentence,
   sessionOverMessage,
 } from './ended.ts';
 import type { ShareBox } from './share-box.ts';
@@ -143,8 +150,8 @@ const sidePane = document.getElementById('side') as HTMLElement;
 const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 
 /**
- * The chrome's lifecycle line: the host-leave warning while the grace runs.
- * Every other transient sentence either has a home of its own or is dropped
+ * The chrome's lifecycle line: the host-leave warning while the grace runs, counting its
+ * window down. Every other transient sentence either has a home of its own or is dropped
  * (see `onNotice`).
  */
 const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
@@ -772,7 +779,7 @@ function onNotice(notice: BindingNotice): void {
   syncTreeIfMoved();
   switch (notice.kind) {
     case 'roomGone':
-      leaveSession(roomGoneMessage(notice.reason));
+      leaveSession(roomGoneSentence(notice.reason));
       break;
     case 'disconnected':
       // No room-gone reason came with it (reconnection gave up): the session is
@@ -812,27 +819,18 @@ function onNotice(notice: BindingNotice): void {
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();
       break;
+    case 'grace':
+      sessionNote.countdown(notice.graceMs);
+      break;
+    case 'hostBack':
+      sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
+      break;
     case 'grant':
       syncGrant();
       break;
     case 'follow':
       syncFollow(notice.following);
       break;
-    case 'status': {
-      // Exactly two binding sentences have a home here: the grace window the
-      // host's detach opens, and the host coming back inside it (which has to
-      // clear the warning — the sentence would otherwise stand and lie). The
-      // rest of the transient text (a drop, a reconnect, a follow landing)
-      // asks the guest to do nothing and is dropped rather than moved: the
-      // editor keeps working locally and the room converges again on its own.
-      const signal = sessionNoteSignal(notice.text);
-      if (signal === 'grace') {
-        sessionNote.show(notice.text);
-      } else if (signal === 'back') {
-        sessionNote.hide();
-      }
-      break;
-    }
   }
 }
 

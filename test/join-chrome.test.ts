@@ -15,9 +15,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { graceWording } from '../src/browser/editor.ts';
 import { peerColour } from '../src/bridge/index.ts';
-import { sessionNoteSignal, hostPresent, wireFailureAlert, wireSessionNote, wireTapPeek } from '../src/browser/notice.ts';
+import {
+  graceWording,
+  hostBackSentence,
+  hostPresent,
+  wireFailureAlert,
+  wireSessionNote,
+  wireTapPeek,
+} from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -53,6 +59,70 @@ function luminance(hex: string): number {
 function contrast(foreground: string, background: string): number {
   const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
   return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+}
+
+/** A clock and a scheduler a test owns, so no tick of the countdown is a real timer. */
+function ticking(): {
+  runs: Array<() => void>;
+  schedule: (run: () => void) => number;
+  cancel: () => void;
+} {
+  const runs: Array<() => void> = [];
+  return {
+    runs,
+    schedule: (run) => runs.push(run),
+    cancel: () => {},
+  };
+}
+
+function makeElement() {
+  const runs: unknown[] = [];
+  let text = '';
+  // The fake wears the DOM's own rule, which the countdown depends on: what the runs say is
+  // what `textContent` reads, and writing `textContent` takes the runs away.
+  return {
+    hidden: false,
+    dataset: {} as Record<string, string>,
+    get replaced(): unknown[] {
+      return runs;
+    },
+    replaceChildren(...nodes: unknown[]): void {
+      runs.length = 0;
+      runs.push(...nodes);
+      text = '';
+    },
+    get textContent(): string {
+      if (runs.length === 0) {
+        return text;
+      }
+      return runs
+        .map((run) =>
+          typeof run === 'string' ? run : String((run as { textContent: unknown }).textContent),
+        )
+        .join('');
+    },
+    set textContent(value: string) {
+      text = value;
+      runs.length = 0;
+    },
+  };
+}
+
+/**
+ * The number's own element, as the page builds it. Stubbed rather than a real span, because
+ * what the suite has to see is that the count moves while the sentence's own two runs do not:
+ * a polite region whose text changed every second would read the count out thirty times.
+ */
+function countStub() {
+  return (lead: string, tail: string) => {
+    const number = { textContent: '' };
+    return {
+      parts: [lead, number, tail] as unknown[],
+      number: (text: string): void => {
+        number.textContent = text;
+      },
+    };
+  };
 }
 
 describe('the status element is gone for good', () => {
@@ -299,13 +369,6 @@ describe('the landing page language', () => {
 });
 
 describe('the message homes', () => {
-  function makeElement() {
-    return {
-      textContent: '',
-      hidden: false,
-      dataset: {} as Record<string, string>,
-    };
-  }
 
   it('a failure alert stands a few seconds, then leaves on its own', () => {
     const element = makeElement();
@@ -349,18 +412,42 @@ describe('the message homes', () => {
 
   it('the session note carries the host-leave warning and nothing else', () => {
     const element = makeElement();
-    const note = wireSessionNote(element as unknown as HTMLElement);
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
     assert.equal(element.textContent, '', 'an untouched note paints nothing');
-    note.show('The host left. The room closes in 30 seconds unless the host returns.');
-    assert.match(element.textContent, /The host left/);
+    note.countdown(30_000);
+    assert.match(element.textContent, /^The host left\. The room closes in 30 seconds/);
+    // The host's return replaces the countdown and leaves on its own, the way a notice does.
+    note.say('demo-host is back — the session continues.', 5000);
+    assert.equal(element.textContent, 'demo-host is back — the session continues.');
+    timer.runs.at(-1)?.();
+    assert.equal(element.textContent, '', 'the return stood for ever');
     note.hide();
-    assert.equal(element.textContent, '');
+  });
+
+  it('a sentence that stands takes itself down, and the countdown is not one', () => {
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.say('demo-host is back — the session continues.', 5000);
+    assert.equal(timer.runs.length, 1, 'the return never leaves on its own');
+    timer.runs[0]?.();
+    assert.equal(element.textContent, '', 'the return stood for ever');
   });
 
   it('the end of the room comes back as the card, not as a strip', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(
-      main.includes('leaveSession(roomGoneMessage(notice.reason))'),
+      main.includes('leaveSession(roomGoneSentence(notice.reason))'),
       'the terminal sentence has no home',
     );
     assert.ok(!main.includes('setStatus'), 'the status line is still called');
@@ -417,25 +504,75 @@ describe('the host leaving and coming back', () => {
     }
   });
 
-  it('only the detach and the return are note signals; the rest is chatter', () => {
+  it('the grace warning counts the window down against the room\'s deadline', () => {
+    const element = makeElement();
+    const timer = ticking();
+    let clock = 1_000_000;
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => clock,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.countdown(3000);
     assert.equal(
-      sessionNoteSignal('The host left. The room closes in 30 seconds unless the host returns.'),
-      'grace',
+      element.textContent,
+      'The host left. The room closes in 3 seconds unless the host returns.',
     );
-    assert.equal(sessionNoteSignal('host demo-host is back'), 'back');
-    // The engine's own validation accepts an empty display name, so the
-    // all-clear can arrive as two words and a gap.
-    assert.equal(sessionNoteSignal('host  is back'), 'back');
-    for (const chatter of [
-      'Connection dropped. Reconnecting…',
-      'disconnected',
-      'Reconnected.',
-      'room closed: host did not return',
-      'Following sam in a.txt',
-      "'sam' left the room, so following stopped",
-    ]) {
-      assert.equal(sessionNoteSignal(chatter), undefined, `${chatter} became a note signal`);
-    }
+    // Every tick reads the clock again rather than lowering a value of its own, so the reading
+    // is the room's remaining time even for a tab that missed a hundred ticks.
+    clock += 1000;
+    timer.runs[0]?.();
+    assert.equal(
+      element.textContent,
+      'The host left. The room closes in 2 seconds unless the host returns.',
+    );
+    clock += 1000;
+    timer.runs[0]?.();
+    assert.equal(
+      element.textContent,
+      'The host left. The room closes in 1 second unless the host returns.',
+    );
+    clock += 1000;
+    timer.runs[0]?.();
+    assert.equal(
+      element.textContent,
+      'The host left. The room closes in a moment unless the host returns.',
+    );
+  });
+
+  it('the count is in an element of its own, which the live region does not announce', (t) => {
+    const attributes: Record<string, string> = {};
+    const number = {
+      textContent: '',
+      setAttribute: (name: string, value: string): void => void (attributes[name] = value),
+    };
+    const runs: unknown[] = [];
+    (globalThis as { document?: unknown }).document = {
+      createElement: () => number,
+      createTextNode: (text: string) => ({ textContent: text }),
+    };
+    t.after(() => {
+      delete (globalThis as { document?: unknown }).document;
+    });
+    const element = makeElement();
+    let clock = 0;
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      now: () => clock,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.countdown(2000);
+    // The strip stays a polite region for the sentence; the number carries `role="timer"`,
+    // whose own live setting is off, so the count is never read out.
+    assert.deepEqual(attributes, { role: 'timer', 'aria-live': 'off' });
+    runs.push(...element.replaced);
+    assert.equal(number.textContent, '2 seconds');
+    clock += 1000;
+    timer.runs[0]?.();
+    assert.equal(number.textContent, '1 second', 'the number does not move');
+    assert.deepEqual(element.replaced, runs, 'the sentence around the number changed with it');
   });
 
   it('a membership report that names the host is the all-clear too', () => {
@@ -492,32 +629,36 @@ describe('the host leaving and coming back', () => {
     } as never);
 
     binding.report({ kind: 'hostDetached', graceMs: 30000 } as never);
-    const warned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'grace');
-    assert.ok(warned, `no host-left signal in ${JSON.stringify(notices)}`);
-    assert.equal(
-      warned.text,
-      'The host left. The room closes in 30 seconds unless the host returns.',
-      'the warning the guest reads is not the sentence the routing knows',
+    assert.deepEqual(
+      notices.find((notice) => notice.kind === 'grace'),
+      { kind: 'grace', graceMs: 30000 },
+      `the grace window is not reported as a window: ${JSON.stringify(notices)}`,
     );
 
     binding.report({ kind: 'hostAttached', peer: { display_name: 'demo-host' } } as never);
-    const returned = notices.find((notice) => sessionNoteSignal(notice.text ?? '') === 'back');
-    assert.ok(returned, `no host-back signal in ${JSON.stringify(notices)}`);
-
-    // The same attach with a name the engine's validation allows to be empty:
-    // the sentence is still the all-clear.
-    binding.report({ kind: 'hostAttached', peer: { display_name: '' } } as never);
-    assert.ok(
-      notices.some((notice) => notice.text === 'host  is back'),
-      `an unnamed host produced no all-clear: ${JSON.stringify(notices)}`,
+    assert.deepEqual(
+      notices.find((notice) => notice.kind === 'hostBack'),
+      { kind: 'hostBack', name: 'demo-host' },
+      `the host's return is not reported: ${JSON.stringify(notices)}`,
     );
+    // The engine's own validation accepts an empty display name, so the sentence names the
+    // role rather than leaving a gap.
+    assert.equal(hostBackSentence(''), 'the host is back — the session continues.');
+    assert.equal(hostBackSentence('demo-host'), 'demo-host is back — the session continues.');
 
     // And the membership the page reads for the same news: the host's role.
     assert.equal(hostPresent(binding.participants()), true, 'the roster hid the host');
     binding.dispose();
 
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(main.includes('sessionNoteSignal(notice.text)'), 'the page routes no note signal');
+    assert.ok(
+      main.includes('sessionNote.countdown(notice.graceMs)'),
+      'the grace window never reaches the clock',
+    );
+    assert.ok(
+      main.includes('sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS)'),
+      "the host's return is never said",
+    );
     assert.ok(main.includes('sessionNote.hide()'), 'the grace warning never clears');
     // Both membership notices carry the host, so both are all-clears: the
     // attach sentence is not the only way the warning comes down.

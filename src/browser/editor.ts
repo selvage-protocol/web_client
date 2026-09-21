@@ -33,6 +33,10 @@ export type BindingNotice =
   | { kind: 'grant'; paths: string[] }
   | { kind: 'follow'; following: Following | undefined }
   | { kind: 'roomGone'; reason: string }
+  /** The host's socket detached and the grace window is running, in milliseconds. */
+  | { kind: 'grace'; graceMs: number }
+  /** The host came back inside the grace; the name is the room's, and may be blank. */
+  | { kind: 'hostBack'; name: string }
   | { kind: 'disconnected' }
   | { kind: 'status'; text: string };
 
@@ -665,13 +669,12 @@ export class MonacoBinding implements EditorHost {
         });
         break;
       case 'hostDetached':
-        this.onNotice({
-          kind: 'status',
-          text: `The host left. The room closes in ${graceWording(report.graceMs)} unless the host returns.`,
-        });
+        // The window, not a sentence: the page is where the sentence and the number counting
+        // in it live, and a duration on this side would have to be re-derived from prose.
+        this.onNotice({ kind: 'grace', graceMs: report.graceMs });
         break;
       case 'hostAttached':
-        this.onNotice({ kind: 'status', text: `host ${report.peer.display_name} is back` });
+        this.onNotice({ kind: 'hostBack', name: report.peer.display_name });
         break;
       case 'roomGone':
         this.onNotice({ kind: 'status', text: `room closed: ${report.reason}` });
@@ -751,30 +754,6 @@ export class MonacoBinding implements EditorHost {
 
 function peerName(displayName: string, peerId: string): string {
   return displayName === '' ? peerId : displayName;
-}
-
-/**
- * How long the grace window reads to a guest: the largest whole unit the window
- * still has one of, rounded down, so the warning never gives the guest more time
- * than the room has. The window is the server's own number (`room_grace_ms`,
- * echoed on the detach frame), so it can be anything up to an hour, and a raw
- * second count makes the reader divide it.
- */
-export function graceWording(graceMs: number): string {
-  const ms = Math.max(0, graceMs);
-  const seconds = Math.floor(ms / 1000);
-  if (seconds === 0) {
-    return 'a moment';
-  }
-  if (seconds < 60) {
-    return `${seconds} second${seconds === 1 ? '' : 's'}`;
-  }
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) {
-    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-  }
-  const hours = Math.floor(ms / 3_600_000);
-  return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
 /** How many badge classes a rename loop may mint before the cache restarts. */

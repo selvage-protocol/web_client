@@ -1963,6 +1963,45 @@ runs. The decisions, since a second origin of the same bundle is where they matt
   the one test that reads a sibling checkout and is excluded by name in
   `scripts/test-ci.mjs`; `test/serve-types.test.ts` reads only `dist/` and runs.
 
+## The host-away window counts down, and the room takes its copy (2026-09-21)
+
+Owner, on the host-away state: "the timer of 30s in the browser is static and
+not counting down — same in vscode. this is not great ux." The desktop clients
+already tick (a status-bar item and a Neovim window row); the page worked its
+sentence out once, when `host.detached` arrived, and never looked at the clock
+again.
+
+This supersedes two claims in **Join card and chrome (2026-09-18)** and the
+coupling paragraph under it:
+
+- **The strip is a ticker.** `wireSessionNote` takes the grace window, builds the
+  number's own element and redraws it once a second from the deadline, so a
+  backgrounded tab that missed a dozen ticks shows the room's remaining time the
+  moment it paints again. The number counts in a `<span role="timer"
+  aria-live="off">` inside the strip: `role="timer"` carries `aria-live: off`,
+  so the sentence is announced once when the host leaves and the count is never
+  read out — a polite region whose text changed every second would read the count
+  out thirty times. `test/join-chrome.test.ts` drives it against an injected
+  clock, so nothing in the suite sleeps and only the reading moves.
+- **The binding has a notice kind now.** `{ kind: 'grace', graceMs }` and
+  `{ kind: 'hostBack', name }` replace the two sentences the page matched by their
+  opening words; `sessionNoteSignal` is gone. The membership all-clear stays: a
+  `roster` or `peers` report naming the host still clears the strip, because the
+  attach frame is the only thing that says the host is back.
+- **The return is said, not silent.** Clearing the countdown was the whole
+  announcement before; now the strip carries `demo-host is back — the session
+  continues.` for five seconds, in the sentence both desktop clients use and in
+  `--foreground` rather than the strip's warning yellow (`#session-note[data-tone
+  = "plain"]`).
+- **The room-gone card says what became of the room.** A page has no disk to leave
+  a mirror on, so `roomGoneSentence` adds `Nothing in the room was saved.` to the
+  desktop clients' sentence: they keep the guest's copy and name where it is, and
+  this client cannot, which is the one end state the three cannot word alike.
+
+Not done here: keeping the guest's text anywhere on the way out (a download, or a
+stash in `localStorage`). That is what would let the page say `your copy is kept`
+with the desktop clients.
+
 ## M2 needs (polish / publish-readiness)
 
 - A real browser pass of the checklist above, on light and dark, narrow and
