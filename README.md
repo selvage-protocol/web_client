@@ -97,7 +97,7 @@ compatibility is enforced. The `/meta` read is a cross-origin fetch, though, and
 project emits no `access-control-*` headers, so it is skipped, which costs the wire
 versions and the reconnect grace it carries and nothing else. The page's built-in default
 also names one particular endpoint, so a split deployment needs `?server=<ws-base>` in
-every link, or a page built with another `DEFAULT_SERVER`; the editor clients add `server`
+every link, or a page built with another `DEFAULT_SERVER_BASE`; the editor clients add `server`
 to a copied invite only for a room that lives off their default. One origin is the
 default.
 
