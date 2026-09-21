@@ -86,6 +86,12 @@ const LINK_SCHEMES = new Set(['ws:', 'wss:', 'http:', 'https:']);
  * request than the link reads as naming — no credentials, no fragment, no
  * query. A path is kept: a server behind a prefix is addressed, not spoofed.
  *
+ * The scheme is returned in the one case the page's own rules are written in,
+ * because this text becomes the base of a `wss://` socket and of an
+ * `https://` read: a link that spells `WS://` names the same server, and every
+ * consumer downstream decides by the scheme's spelling whether the page would
+ * be making a cleartext subrequest. Nothing else about the text moves.
+ *
  * A page link needs no bound of its own: its base is built from the link's own
  * host and path by `serverBaseOf`, so it carries no credentials, query or
  * fragment to begin with.
@@ -110,5 +116,9 @@ export function linkServerBase(raw: string): string | undefined {
   if (url.hash !== '' || url.search !== '') {
     return undefined;
   }
-  return text;
+  const mark = text.indexOf('://');
+  if (mark === -1) {
+    return text;
+  }
+  return `${url.protocol}//${text.slice(mark + 3)}`;
 }

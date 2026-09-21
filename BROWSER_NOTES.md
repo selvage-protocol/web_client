@@ -2070,8 +2070,13 @@ address for one pasted in, and takes the host and the path and nothing else out 
 the address the page reads `<server>/meta` from and opens its socket at cannot be one the link
 does not read as naming, and a page link needs no bound of its own. A whole wire invite
 (`ws://host:8080/session?room=…&token=…`) is the other shape the page takes, for a room whose
-server serves no page; its base comes from whoever sent the link and still is bounded by
-`linkServerBase`, which is a security check and not the parameter being removed.
+server serves no page: its base comes from whoever sent the link and is still bounded by
+`linkServerBase`, which is a security check and not the parameter being removed. That function
+now returns the scheme in the one case the page's rules are written in, because a link that
+spells `WS://` names the same server while the `wss://` socket, the `https://` read and the
+mixed-content rule all decide by the scheme's spelling; without it a `WS://` invite reached the
+share bar as a wire URL and skipped the TLS upgrade (found on review, pinned in
+`test/tls-scheme.test.ts` and `test/invite-origin.test.ts`).
 
 **Once the origin carries the server, four things with no job left went with it.**
 
@@ -2114,12 +2119,14 @@ way round: an invite is a page link, so a room whose server serves no page is ha
 
 **Seen in a browser.** Chromium 152 over CDP, the built bundle, a real `selvaged` on one origin
 serving the page with `--serve-page dist` and a plain static server on another, the driver at
-`.tmp/invite-origin/drive.mjs`, shots beside it. 13/13 checks: the join page served by the room's
+`.tmp/invite-origin/drive.mjs`, shots beside it. 16/16 checks: the join page served by the room's
 server takes only the name and the share bar offers `http://127.0.0.1:8117/?room=…&token=…` with
 no `server=`; the *same* link pasted into the page on `127.0.0.1:8119` joins the room on 8117 and
-its bar keeps 8117 — the guest's page never dials its own origin — with no page exception on
-either join. Both the join landing and the link the bar shows were read off the rendered page
-(`own-origin-joined.png`, `cross-origin-joined.png`).
+its bar keeps 8117 — the guest's page never dials its own origin — and a wire invite pasted into
+that bare page joins too, with the bar then offering 8117's own page and never the wire URL.
+No page exception on any of the three joins. The join landings and the links the bar shows were
+read off the rendered page (`own-origin-joined.png`, `cross-origin-joined.png`,
+`wire-invite-joined.png`).
 
 **Red and green.** `node --test test/invite-origin.test.ts` — 10/10 green. Reverting the read
 alone (the pasted page link deriving the page's own origin, the naive implementation) turns *a

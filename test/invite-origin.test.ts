@@ -107,6 +107,19 @@ describe('the server a link names', () => {
     );
   });
 
+  it('a wire invite spelled in another case names the same server, and links back as a page', () => {
+    // The base becomes the page's `https://` read and its socket URL, so the
+    // scheme is read in the one case those rules are written in; the share link
+    // the bar offers is the room's own page and never the wire URL.
+    const joined = resolveJoin(new URLSearchParams(), 'WS://other:8080/session?room=r-1&token=tok', PAGE);
+    assert.deepEqual(joined, { base: 'ws://other:8080', room: 'r-1', token: 'tok' });
+    assert.equal(
+      buildShareLink(joined.base, joined.room, joined.token),
+      'http://other:8080/?room=r-1&token=tok',
+    );
+    assert.equal(schemeMatchBase(joined.base, 'https:'), 'wss://other:8080');
+  });
+
   it('an https page dials the room\'s server over TLS, whatever the page derived', () => {
     const own = resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'https://edit.example/');
     assert.equal(schemeMatchBase(own.base, 'https:'), own.base);

@@ -97,4 +97,16 @@ describe('the server a wire invite may name', () => {
       assert.equal(linkServerBase(base), undefined, `${base} was admitted`);
     }
   });
+
+  it('reads the scheme in one case, whatever the link wrote', () => {
+    // The base becomes the page's `https://` read and its `wss://` socket, and
+    // both rules decide by the scheme's spelling, so a link that spells the
+    // same scheme in another case is read in the case the page writes.
+    assert.equal(linkServerBase('WS://other:8080'), 'ws://other:8080');
+    assert.equal(linkServerBase('WSS://other:8443/'), 'wss://other:8443/');
+    assert.equal(linkServerBase('Ws://other:8080/proxy'), 'ws://other:8080/proxy');
+    // Nothing else about the text moves, and a value without the `//` is left
+    // as the link wrote it rather than rebuilt.
+    assert.equal(linkServerBase('ws:/other'), 'ws:/other');
+  });
 });
