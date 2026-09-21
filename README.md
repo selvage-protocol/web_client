@@ -37,14 +37,12 @@ that server's `/meta` and opens its socket.
 
 If a `server` override names a different origin, that server's `/meta` has to allow the
 page's origin through CORS for the browser to read it. Nothing in this project emits
-`access-control-*`, so an override skips the advisory `/meta` read — the wire versions and
-the reconnect grace it carries — while the WebSocket handshake still proceeds and enforces
+`access-control-*`, so an override skips the advisory `/meta` read (the wire versions and
+the reconnect grace it carries) while the WebSocket handshake still proceeds and enforces
 compatibility. The demo is one origin, where the page, `/meta` and `/session` share it and
 the read lands.
 
 ### Serving the page
-
-Two shapes, and the first is the default.
 
 **One origin.** `selvaged --serve-page <dir>` answers the page, `/meta` and `/session`
 from one listener, which is what the demo and the published server image run:
@@ -66,8 +64,8 @@ docker compose up --build --detach   # http://localhost/
 The service publishes `80:8080`: the host answers on port 80 while the container keeps
 listening on 8080, which it must, because `nginx-unprivileged` runs as uid 101 with every
 capability dropped and cannot bind a port below 1024. `compose.yaml` carries the same
-hardening as `reference_server`'s — `read_only`, `cap_drop: [ALL]`, `no-new-privileges`,
-no volumes — and `scripts/container-smoke.sh` asserts it. To evaluate on this machine
+hardening as `reference_server`'s (`read_only`, `cap_drop: [ALL]`, `no-new-privileges`,
+no volumes) and `scripts/container-smoke.sh` asserts it. To evaluate on this machine
 only, rebind the published port to `127.0.0.1:8080:8080` there.
 
 **The image is on the registry.** `v0.1.0` published
@@ -91,15 +89,14 @@ writable: nginx's pid file and temp directories are the runtime's own `/dev/shm`
 the flags above run it with no mount at all, which `scripts/container-smoke.sh` reads
 back off the daemon's record of the container.
 
-**What the second shape costs, plainly.** The page becomes a second origin. That works,
-because the WebSocket is not CORS-bound: the page dials whatever server the link names,
-and the handshake is where compatibility is enforced. Two things follow, and both are
-paid per link and per page. The `/meta` read is a cross-origin fetch and this project
-emits no `access-control-*` headers, so it is skipped, which costs the wire versions
-and the reconnect grace it carries and nothing else. And the page's built-in default
-names one particular endpoint, so a split deployment needs `?server=<ws-base>` in every
-link, or a page built with another `DEFAULT_SERVER`; the editor clients add `server` to
-a copied invite only for a room that lives off their default. One origin stays the
+**What the second shape costs.** The page becomes a second origin. The WebSocket is not
+CORS-bound, so the page dials whatever server the link names and the handshake is where
+compatibility is enforced. The `/meta` read is a cross-origin fetch, though, and this
+project emits no `access-control-*` headers, so it is skipped, which costs the wire
+versions and the reconnect grace it carries and nothing else. The page's built-in default
+also names one particular endpoint, so a split deployment needs `?server=<ws-base>` in
+every link, or a page built with another `DEFAULT_SERVER`; the editor clients add `server`
+to a copied invite only for a room that lives off their default. One origin is the
 default.
 
 ### Join a room
@@ -150,7 +147,7 @@ defaults to the Pi page on :8444 and takes another base as an argument,
 files as `application/octet-stream` and fails that check, which is about the serving
 layer the page is deployed behind. There is no CORS check: the one origin (2026-09-19)
 made `selvaged` serve the page, `/meta` and `/session` together, so nothing emits the
-`access-control-*` headers a check used to ask for. Against the page-only image the same
+`access-control-*` headers. Against the page-only image the same
 script is what `scripts/check-page.sh` runs, together with the served bytes and headers.
 
 ### CI
@@ -172,7 +169,7 @@ on the runner's own loopback. On a `v*` tag it publishes the three tags and read
 version and the page back off them.
 
 The container steps need a Docker daemon, so `scripts/ci-local.sh container` and both
-smoke scripts are CI runs on a machine without one, which is where they were proved.
+smoke scripts are CI runs on a machine without one.
 
 ## The build
 
@@ -320,11 +317,7 @@ site's copy byte-identical, inlined in the shell. The tab is the rasters `npm ru
 renders from `mark-opaque.png` at the sizes the site serves (16, 32, 48, 180) and the two
 the manifest names (192, 512). `node scripts/inline-mark.mjs` prints the data URI to paste
 if the site's master changes, and `test/identity.test.ts` holds the two together byte for
-byte. The mark is the owner's `svp` monogram in Mocha/mauve, nothing redrawn or
-approximated.
-
-The site's `app/icon.svg`, once copied here as `favicon.svg`, drew nothing but its
-background plate, because its `clipPath` pointed at a `<g>`. Both are gone.
+byte. The mark is the owner's `svp` monogram in Mocha/mauve.
 
 ## Proofs
 

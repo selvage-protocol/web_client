@@ -148,8 +148,8 @@ const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement
 
 /**
  * The chrome's lifecycle line: the host-leave warning while the grace runs.
- * Anything transient the page used to announce either has a home of its own
- * or is dropped (see `onNotice`).
+ * Every other transient sentence either has a home of its own or is dropped
+ * (see `onNotice`).
  */
 const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
 /** Failures of an action the guest took: shown, then gone on their own. */
