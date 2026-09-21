@@ -158,8 +158,8 @@ describe('leaving the session', () => {
     const afterClosing = addressBarInvite(false, dead);
     assert.equal(afterClosing.get('room'), null, 'the dead room still won the join');
     assert.deepEqual(
-      resolveJoin(afterClosing, 'https://edit.example/?room=r-fresh&token=u', 'ws://127.0.0.1:9'),
-      { base: 'ws://127.0.0.1:9', room: 'r-fresh', token: 'u' },
+      resolveJoin(afterClosing, 'https://edit.example/?room=r-fresh&token=u', 'http://127.0.0.1:9/'),
+      { base: 'wss://edit.example', room: 'r-fresh', token: 'u' },
       'the fresh link pasted on the card did not land',
     );
   });

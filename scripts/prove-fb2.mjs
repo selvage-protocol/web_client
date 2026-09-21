@@ -16,6 +16,7 @@ import { sessionUrl } from '../src/engine/index.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
+import { pageOriginOf, serverBaseOf } from '../src/browser/servers.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
 const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
@@ -182,19 +183,20 @@ check(
 );
 check('moved entry opens from the new path', (await binding.openDocument(MOVED), guestEngine.text(MOVED).includes('moved into docs')));
 
-// Share-link shape: a page-origin https link — never a bare ws:// — carrying
+// Share-link shape: the room's own page link — never a bare ws:// — carrying
 // a join that lands back in the room.
 const inviteUrl = new URL(invite);
 const room = inviteUrl.searchParams.get('room');
 const token = inviteUrl.searchParams.get('token');
 if (room === null || token === null) throw new Error('invite names no room');
-const share = buildShareLink('https://edit.example', '/', room, token, BASE, BASE);
+const share = buildShareLink(BASE, room, token);
 console.log(`share: ${share}`);
-check('share link starts with https://', share.startsWith('https://'));
+check('share link is the room\'s own page', share.startsWith(`${pageOriginOf(BASE)}/?`));
 check('share link names no ws://', !share.includes('ws://'));
 const back = parsePageLink(share);
 check('share link round-trips into room and token', back?.room === room && back?.token === token);
-const rejoin = await Engine.join(sessionUrl(BASE, back.room, back.token), 'prove-fb2-rejoin', {
+check('share link reads back as the room\'s own server', serverBaseOf(back.origin) === BASE);
+const rejoin = await Engine.join(sessionUrl(serverBaseOf(back.origin), back.room, back.token), 'prove-fb2-rejoin', {
   webSocketFactory: nativeWebSocketFactory,
   client: 'web_client/0.1.0',
 });

@@ -2,18 +2,17 @@
  * The scheme-match rule: a page loaded over https must never emit a
  * ws:// or http:// subrequest — Firefox blocks those as mixed active
  * content while Chromium merely warns. So on an https page every server
- * base speaks TLS (ws:// -> wss://, http:// -> https://), while the built-in
- * default is one `wss://` base, the demo's, on a page of either scheme.
+ * base speaks TLS (ws:// -> wss://, http:// -> https://), on a page of
+ * either scheme.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { metaUrl, sessionUrl } from '../src/engine/index.ts';
-import {
-  DEFAULT_SERVER_BASE,
-  linkServerBase,
-  schemeMatchBase,
-} from '../src/browser/servers.ts';
+import { linkServerBase, schemeMatchBase } from '../src/browser/servers.ts';
+
+/** The server an https page's own origin derives: TLS already, nothing to upgrade. */
+const TLS_BASE = 'wss://selvage.dontblameme.dev';
 
 describe('scheme-match rule', () => {
   it('an https page upgrades ws:// and http(s):// bases to a TLS socket', () => {
@@ -29,19 +28,13 @@ describe('scheme-match rule', () => {
   });
 
   it('TLS bases pass through untouched', () => {
-    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'https:'), DEFAULT_SERVER_BASE);
+    assert.equal(schemeMatchBase(TLS_BASE, 'https:'), TLS_BASE);
     assert.equal(schemeMatchBase('wss://other:8080', 'https:'), 'wss://other:8080');
   });
 
   it('an http page keeps whatever base it was given', () => {
     assert.equal(schemeMatchBase('ws://plain:8080', 'http:'), 'ws://plain:8080');
-    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'http:'), DEFAULT_SERVER_BASE);
-  });
-
-  it('the one default is the demo, TLS, and identical on a page of either scheme', () => {
-    assert.ok(DEFAULT_SERVER_BASE.startsWith('wss://'), DEFAULT_SERVER_BASE);
-    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'https:'), DEFAULT_SERVER_BASE);
-    assert.equal(schemeMatchBase(DEFAULT_SERVER_BASE, 'http:'), DEFAULT_SERVER_BASE);
+    assert.equal(schemeMatchBase(TLS_BASE, 'http:'), TLS_BASE);
   });
 
   it('an https page never derives a ws:// or http:// subrequest URL', () => {
@@ -49,7 +42,7 @@ describe('scheme-match rule', () => {
       'ws://plain:8080',
       'ws://other:8080',
       'http://plain:8080',
-      DEFAULT_SERVER_BASE,
+      TLS_BASE,
       'https://other:8443',
     ]) {
       const matched = schemeMatchBase(base, 'https:');
@@ -62,7 +55,7 @@ describe('scheme-match rule', () => {
   });
 });
 
-describe('the server a link may name', () => {
+describe('the server a wire invite may name', () => {
   it('takes the schemes a room can live on, and nothing else', () => {
     for (const base of [
       'ws://other:8080',

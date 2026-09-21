@@ -29,10 +29,11 @@ import {
   describeJoinErrorForDisplay,
   joinFailureDetail,
 } from '../src/browser/transport.ts';
-import { DEFAULT_SERVER_BASE } from '../src/browser/servers.ts';
-import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
+import { buildShareLink, pageQueryParams, parsePageLink } from '../src/browser/share.ts';
 
 const BASE = 'ws://127.0.0.1:9';
+/** The page a guest is standing on when it is not the room's own page. */
+const PAGE = 'http://127.0.0.1:9/';
 
 /** Owner standard: no plumbing in anything the guest can see. */
 function assertNoPlumbing(output: string, where: string): void {
@@ -84,24 +85,26 @@ describe('display-name validation', () => {
 });
 
 describe('join targets', () => {
-  it('a link in the address bar wins with the default server', () => {
+  it('a link in the address bar names the page\'s own server', () => {
     assert.deepEqual(
-      resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', BASE),
+      resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', PAGE),
       { base: BASE, room: 'r-1', token: 'tok' },
     );
   });
 
-  it('an off-default link keeps its server', () => {
+  it('a server= parameter in the address bar is an unknown parameter', () => {
+    // The page was served by the room's server, so its origin is the server;
+    // `server` names nothing the page reads.
     assert.deepEqual(
-      resolveJoin(new URLSearchParams('room=r-1&token=tok&server=ws://other:8080'), '', BASE),
-      { base: 'ws://other:8080', room: 'r-1', token: 'tok' },
+      resolveJoin(new URLSearchParams('room=r-1&token=tok&server=ws://other:8080'), '', PAGE),
+      { base: BASE, room: 'r-1', token: 'tok' },
     );
   });
 
-  it('a bare open joins from a pasted page link', () => {
+  it('a bare open joins from a pasted page link, at the link\'s own server', () => {
     assert.deepEqual(
-      resolveJoin(new URLSearchParams(), 'https://edit.example/?room=r-1&token=tok', BASE),
-      { base: BASE, room: 'r-1', token: 'tok' },
+      resolveJoin(new URLSearchParams(), 'https://edit.example/?room=r-1&token=tok', PAGE),
+      { base: 'wss://edit.example', room: 'r-1', token: 'tok' },
     );
   });
 
@@ -109,7 +112,7 @@ describe('join targets', () => {
     const parsed = parseSessionUrl('ws://other:8080/session?room=r-1&token=tok');
     assert.ok(parsed?.join.room === 'r-1' && parsed?.join.token === 'tok');
     assert.deepEqual(
-      resolveJoin(new URLSearchParams(), 'ws://other:8080/session?room=r-1&token=tok', BASE),
+      resolveJoin(new URLSearchParams(), 'ws://other:8080/session?room=r-1&token=tok', PAGE),
       { base: 'ws://other:8080', room: 'r-1', token: 'tok' },
     );
   });
@@ -123,7 +126,7 @@ describe('join targets', () => {
       'ws://other:8080/session?room=r-1&token=tok#frag',
       'ws://other:8080/session?room=r-1&token=tok?debug=1',
     ]) {
-      assert.deepEqual(resolveJoin(new URLSearchParams(), invite, BASE), {
+      assert.deepEqual(resolveJoin(new URLSearchParams(), invite, PAGE), {
         base: 'ws://other:8080',
         room: 'r-1',
         token: 'tok',
@@ -133,100 +136,78 @@ describe('join targets', () => {
 
   it('a pasted fragment keeps the paste-it-whole copy', () => {
     assert.throws(
-      () => resolveJoin(new URLSearchParams(), 'just some words', BASE),
+      () => resolveJoin(new URLSearchParams(), 'just some words', PAGE),
       /That invite link does not name a session\. Paste the whole link\./,
     );
   });
 
   it('a bare open with nothing pasted asks for the link', () => {
     assert.throws(
-      () => resolveJoin(new URLSearchParams(), '  ', BASE),
+      () => resolveJoin(new URLSearchParams(), '  ', PAGE),
       /Paste an invite link to join\./,
     );
   });
 
   it('a room without a token is not a link', () => {
     assert.throws(
-      () => resolveJoin(new URLSearchParams('room=r-1'), '', BASE),
+      () => resolveJoin(new URLSearchParams('room=r-1'), '', PAGE),
       /Paste an invite link to join\./,
     );
   });
 
-  it('a link may name a server, and only one this page can dial', () => {
-    // The `server` in a link arrives from whoever sent the link, and the
-    // guest's own browser is what would read `<server>/meta` and open a socket
-    // at `<server>/session`, so only the schemes a room can live on are used.
-    const refused = [
-      'ws://user:secret@other:8080',
-      'file:///etc/passwd',
-      'javascript:alert(1)',
-      'data:text/html,<script>alert(1)</script>',
-      'other:8080',
-      '127.0.0.1:8099',
-      '//other:8080',
-      '/session',
-      'ws://other:8080#frag',
-      'ws://other:8080/session?room=r-1',
-    ];
-    for (const server of refused) {
-      for (const attempt of [
-        () =>
-          resolveJoin(
-            new URLSearchParams(`room=r-1&token=tok&server=${encodeURIComponent(server)}`),
-            '',
-            BASE,
-          ),
-        () =>
-          resolveJoin(
-            new URLSearchParams(),
-            `https://edit.example/?room=r-1&token=tok&server=${encodeURIComponent(server)}`,
-            BASE,
-          ),
-      ]) {
-        let thrown: Error | undefined;
-        try {
-          attempt();
-        } catch (error: unknown) {
-          thrown = error as Error;
-        }
-        assert.ok(thrown !== undefined, `${server} was admitted`);
-        assertPlain(thrown.message);
-      }
-    }
-    // A pasted wire invite names its server in the authority: credentials and
-    // an unlisted scheme are the two shapes that reach the base from there.
-    for (const invite of [
-      'ws://user:secret@other:8080/session?room=r-1&token=tok',
-      'ftp://other:8080/session?room=r-1&token=tok',
+  it('a page link is bounded by its own origin, so nothing else can reach the socket', () => {
+    // A page link's base is built from the link's own host and path, so the
+    // request address is the one the link reads as naming: credentials, a
+    // query or a fragment cannot put another address in it.
+    for (const link of [
+      'https://user:secret@edit.example/?room=r-1&token=tok',
+      'https://edit.example/?room=r-1&token=tok#frag',
+      'https://edit.example/?token=tok&room=r-1&server=file:///etc/passwd',
     ]) {
-      assert.throws(
-        () => resolveJoin(new URLSearchParams(), invite, BASE),
-        /Ask the host for a fresh link\./,
-        `${invite} was admitted`,
-      );
+      assert.deepEqual(resolveJoin(new URLSearchParams(), link, PAGE), {
+        base: 'wss://edit.example',
+        room: 'r-1',
+        token: 'tok',
+      });
     }
   });
 
-  it('a link with no server, or a dialable one, is untouched', () => {
-    assert.deepEqual(resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', BASE), {
-      base: BASE,
-      room: 'r-1',
-      token: 'tok',
-    });
-    // `http(s)://` names the same server and is upgraded on the page that
-    // needs TLS (`schemeMatchBase`), so the rule admits it here too.
-    for (const server of [
-      'ws://other:8080',
-      'wss://other:8443',
-      'http://other:8080',
-      'https://other:8443/proxy',
-      'ws://127.0.0.1:8117',
-      DEFAULT_SERVER_BASE,
+  it('a wire invite may name a server, and only one this page can dial', () => {
+    // A pasted wire invite names its server in its authority, and the guest's
+    // own browser is what would read `<server>/meta` and open a socket at
+    // `<server>/session` from it, so only the schemes a room can live on are
+    // used: credentials and an unlisted scheme are the two shapes that reach
+    // the base from there.
+    for (const invite of [
+      'ws://user:secret@other:8080/session?room=r-1&token=tok',
+      'ws://user@other:8080/session?room=r-1&token=tok',
+      'ftp://other:8080/session?room=r-1&token=tok',
+      'data:text/html,x/session?room=r-1&token=tok',
     ]) {
-      assert.deepEqual(
-        resolveJoin(new URLSearchParams(`room=r-1&token=tok&server=${encodeURIComponent(server)}`), '', BASE),
-        { base: server, room: 'r-1', token: 'tok' },
-      );
+      let thrown: Error | undefined;
+      try {
+        resolveJoin(new URLSearchParams(), invite, PAGE);
+      } catch (error: unknown) {
+        thrown = error as Error;
+      }
+      assert.ok(thrown !== undefined, `${invite} was admitted`);
+      assertPlain(thrown.message);
+    }
+  });
+
+  it('a wire invite on a scheme a room can live on is untouched', () => {
+    for (const invite of [
+      'ws://other:8080/session?room=r-1&token=tok',
+      'wss://other:8443/session?room=r-1&token=tok',
+      'ws://127.0.0.1:8117/session?room=r-1&token=tok',
+      'wss://other:8443/proxy/session?room=r-1&token=tok',
+    ]) {
+      const parsed = parseSessionUrl(invite);
+      assert.deepEqual(resolveJoin(new URLSearchParams(), invite, PAGE), {
+        base: parsed?.base ?? '',
+        room: 'r-1',
+        token: 'tok',
+      });
     }
   });
 });
@@ -438,9 +419,9 @@ describe('joinOnEnter', () => {
 });
 
 describe('share-link bar', () => {
-  it('offers the page link only, never the wire URL', () => {
-    const link = buildShareLink('https://edit.example', '/', 'r-1', 'tok', BASE, BASE);
-    assert.ok(link.startsWith('https://edit.example/?room='), `not a page link: ${link}`);
+  it('offers the room\'s own page link only, never the wire URL', () => {
+    const link = buildShareLink(BASE, 'r-1', 'tok');
+    assert.ok(link.startsWith('http://127.0.0.1:9/?room='), `not a page link: ${link}`);
     assert.ok(!/ws:\/\//i.test(link), `wire URL in the share bar: ${link}`);
     assert.ok(!/socket|engine/i.test(link), `mechanism wording in the share bar: ${link}`);
     // The token rides inside the page link itself — it is the permission, as
@@ -448,9 +429,14 @@ describe('share-link bar', () => {
   });
 
   it('a pasted page link round-trips without wire material', () => {
-    const link = buildShareLink('https://edit.example', '/', 'r-1', 'tok', BASE, BASE);
+    const link = buildShareLink(BASE, 'r-1', 'tok');
     const page = parsePageLink(link);
-    assert.deepEqual(page, { room: 'r-1', token: 'tok' });
+    assert.deepEqual(page, { room: 'r-1', token: 'tok', origin: 'http://127.0.0.1:9' });
+    assert.deepEqual(resolveJoin(pageQueryParams(new URL(link).search), '', link), {
+      base: BASE,
+      room: 'r-1',
+      token: 'tok',
+    });
   });
 });
 

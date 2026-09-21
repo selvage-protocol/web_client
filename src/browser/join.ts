@@ -1,17 +1,17 @@
 /**
  * The pre-join helpers: what the join card asks, and what it remembers.
  *
- * A share link carries the room, its token, and the server when off the
- * default — so the card asks one thing, the display name. A bare page open
- * has no link, so the card asks for the link itself (one paste box taking
- * either a page link or a wire invite) plus the name. Nothing here touches
- * the DOM; `main.ts` wires it to the card.
+ * An invite link is the page the room's own server serves, so the card asks one
+ * thing, the display name: the link in the address bar or pasted into the box
+ * brings its room, its token and its server with it. A bare page open has no
+ * link, so the card asks for one (either a page link or a wire invite). Nothing
+ * here touches the DOM; `main.ts` wires it to the card.
  */
 
 import { MAX_DISPLAY_NAME_UNITS, parseSessionUrl } from '../engine/index.ts';
 
 import { parsePageLink } from './share.ts';
-import { linkServerBase } from './servers.ts';
+import { linkServerBase, serverBaseOf } from './servers.ts';
 
 export { MAX_DISPLAY_NAME_UNITS };
 
@@ -76,28 +76,28 @@ export function addressBarInvite(isTheInvite: boolean, search: URLSearchParams):
  *
  * `search` must already carry param semantics (`pageQueryParams` in
  * `share.ts` reads the address bar that way); pasted wire invites are
- * normalised here. A link may name the server the room lives on, and only the
- * schemes `linkServerBase` admits reach the socket and the `/meta` read.
+ * normalised here. The server is the link's own origin — the page the room's
+ * server serves *is* the address the guest dials — so nothing in the query
+ * names one: `pageAddress` is this page's own address, and a link that names
+ * another server makes the guest talk to that one instead. Only a `ws://`
+ * hand-over's base reaches the socket from the link's own text, and only the
+ * schemes `linkServerBase` admits.
  */
 export function resolveJoin(
   search: URLSearchParams,
   pasted: string,
-  defaultServer: string,
+  pageAddress: string,
 ): JoinTarget {
   const room = (search.get('room') ?? '').trim();
   const token = (search.get('token') ?? '').trim();
   if (room !== '' && token !== '') {
-    return { base: namedServer((search.get('server') ?? '').trim(), defaultServer), room, token };
+    return { base: serverOfPage(pageAddress), room, token };
   }
   const text = pasted.trim();
   if (text !== '') {
     const page = parsePageLink(text);
     if (page !== undefined) {
-      return {
-        base: namedServer(page.server ?? '', defaultServer),
-        room: page.room,
-        token: page.token,
-      };
+      return { base: serverOfPage(page.origin), room: page.room, token: page.token };
     }
     // The engine splits its invite on the raw `?` and `&`, so a fragment or
     // an appended second `?` would glue into the token: normalise first.
@@ -107,11 +107,7 @@ export function resolveJoin(
       parsed.join.room !== undefined &&
       parsed.join.token !== undefined
     ) {
-      return {
-        base: namedServer(parsed.base, defaultServer),
-        room: parsed.join.room,
-        token: parsed.join.token,
-      };
+      return { base: serverOfWire(parsed.base), room: parsed.join.room, token: parsed.join.token };
     }
     throw new Error('That invite link does not name a session. Paste the whole link.');
   }
@@ -119,15 +115,30 @@ export function resolveJoin(
 }
 
 /**
- * The server a link names, or the page's own default when it names none.
+ * The server a page address names, over the socket's scheme.
  *
- * A link that names one it may not — see `linkServerBase` — is refused in the
- * card's words: the guest's browser is what would have made the request.
+ * A page link's own address is the server, and it needs no bound before it is
+ * used: `serverBaseOf` takes the host and the path and nothing else, so what
+ * the page reads `<server>/meta` from and opens its socket at cannot be an
+ * address the link does not read as naming. An address that names no page of
+ * either scheme — a `file://` page, which no server serves — is refused in the
+ * card's words, because there is nothing to derive a room's server from.
  */
-function namedServer(raw: string, defaultServer: string): string {
-  if (raw === '') {
-    return defaultServer;
+function serverOfPage(pageAddress: string): string {
+  const base = serverBaseOf(pageAddress);
+  if (base === '') {
+    throw new Error('This page names no server to join. Open the link the host sent you.');
   }
+  return base;
+}
+
+/**
+ * The server a `ws://` invite names, or the card's own refusal. Its base comes
+ * from whoever sent the link and is read as a request address, so it is
+ * bounded — see `linkServerBase`; the guest's browser is what would have made
+ * the request.
+ */
+function serverOfWire(raw: string): string {
   const base = linkServerBase(raw);
   if (base === undefined) {
     throw new Error('That invite link names a server this page cannot reach. Ask the host for a fresh link.');

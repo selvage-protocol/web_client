@@ -1,7 +1,7 @@
 // wf2: link landing -> empty-name validation -> join -> first sight of tree+editor.
 import { launch } from './tmp-cdp.mjs';
 const SHOT = '/home/user/projects/selvage/ai_notes/.tmp/vision-webflow';
-const PAGE = 'http://127.0.0.1:8081/?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5&server=ws%3A%2F%2F100.64.0.3%3A8080';
+const PAGE = 'http://127.0.0.1:8081/?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5';
 
 const cdp = await launch({ port: 9344, profile: '/tmp/selvage-prof-wf2' });
 const errors = [];
@@ -11,7 +11,6 @@ cdp.on('Runtime.exceptionThrown', (p) => errors.push('EXC: ' + JSON.stringify(p.
 await cdp.navigate(PAGE);
 await cdp.shot(`${SHOT}/02-landing-with-link.png`);
 console.log('PREFILL', JSON.stringify(await cdp.evaluate(`({
-  server: document.querySelector('#server').value,
   room: document.querySelector('#room').value,
   token: document.querySelector('#token').value,
   name: document.querySelector('#name').value,
