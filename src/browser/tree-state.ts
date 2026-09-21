@@ -1,4 +1,29 @@
 /**
+ * Everything the tree's rows are drawn from beside where everyone is: the listing, which
+ * file is open, whether that file's text has arrived, and whether this device has a
+ * pointer to read the unpublished pill's short form with.
+ *
+ * A re-render is owed when this changes and not when only the presence on the rows moved,
+ * which is every frame a peer's cursor takes — on a listing of thousands of paths that
+ * re-render is the whole cost of watching someone else type.
+ *
+ * A granted path carries no line feed and no NUL (a name with a control character is not a
+ * granted path), so joining the listing is unambiguous: two listings that read the same
+ * have the same key.
+ */
+export function rowsKey(
+  listing: readonly string[],
+  chrome: { current: string | undefined; unpublished: boolean; touch: boolean },
+): string {
+  return [
+    chrome.current ?? '',
+    chrome.unpublished ? '1' : '0',
+    chrome.touch ? '1' : '0',
+    listing.join('\n'),
+  ].join('\u0000');
+}
+
+/**
  * Whether a grant-tree directory renders expanded: pinned open by the guest, or
  * holding the open file. Re-renders consult this instead of deriving openness
  * from the open file alone, so untouched folders stay as the guest left them.

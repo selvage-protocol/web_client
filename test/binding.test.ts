@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MonacoBinding } from '../src/browser/editor.ts';
+import { MonacoBinding, SELECTION_INTERVAL_MS } from '../src/browser/editor.ts';
 
 // Minimal DOM: the binding owns one <style> element for peer colours.
 const appended = [];
@@ -93,6 +93,39 @@ function makeEditor() {
     },
     setModel: () => {},
   };
+}
+
+/**
+ * The caret interval, driven by the test instead of by the clock: a burst of events is
+ * checked without waiting 100 ms for each of them.
+ */
+class ManualTimers {
+  private readonly pending = new Set<() => void>();
+  private readonly delays: number[] = [];
+
+  after(delayMs: number, run: () => void): () => void {
+    this.delays.push(delayMs);
+    this.pending.add(run);
+    return () => void this.pending.delete(run);
+  }
+
+  /** How many deadlines are waiting. */
+  armed(): number {
+    return this.pending.size;
+  }
+
+  /** Every delay ever asked for, so the interval can be pinned. */
+  intervals(): number[] {
+    return [...this.delays];
+  }
+
+  /** Runs everything waiting, as the clock would. */
+  fire(): void {
+    for (const run of [...this.pending]) {
+      this.pending.delete(run);
+      run();
+    }
+  }
 }
 
 function makeEngine(texts) {
@@ -189,13 +222,17 @@ describe('MonacoBinding', () => {
       publish = listener;
       return { dispose: () => {} };
     };
+    const timers = new ManualTimers();
     const binding = new MonacoBinding({
       engine,
       editor,
       onNotice: () => {},
       createModel: (text) => makeModel(text),
+      timers,
     });
     await binding.openDocument('notes.txt');
+    timers.fire();
+    selections.length = 0;
     // Line 2, columns 2..4 is offsets 4..6.
     editor.selection = {
       selectionStartLineNumber: 2,
@@ -204,8 +241,137 @@ describe('MonacoBinding', () => {
       positionColumn: 4,
     };
     publish();
+    timers.fire();
     assert.deepEqual(selections, [['notes.txt', { anchor: 4, head: 6 }]]);
     binding.dispose();
+  });
+
+  it('a burst of caret events costs one read of the buffer and one presence frame', async () => {
+    const engine = makeEngine(new Map([['notes.txt', 'ab\ncdef\ng']]));
+    const selections = [];
+    engine.setSelection = (path, selection) => void selections.push([path, selection]);
+    const editor = makeEditor();
+    let publish;
+    editor.onDidChangeCursorSelection = (listener) => {
+      publish = listener;
+      return { dispose: () => {} };
+    };
+    const timers = new ManualTimers();
+    const model = makeModel('ab\ncdef\ng');
+    const inner = model.getValue;
+    let reads = 0;
+    model.getValue = () => {
+      reads += 1;
+      return inner();
+    };
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: () => model,
+      timers,
+    });
+    await binding.openDocument('notes.txt');
+    timers.fire();
+    // A held arrow key is a selection event per step, and each one used to copy the whole
+    // buffer and put a frame on the wire.
+    reads = 0;
+    selections.length = 0;
+    for (const column of [1, 2, 3, 4, 5]) {
+      editor.selection = {
+        selectionStartLineNumber: 2,
+        selectionStartColumn: column,
+        positionLineNumber: 2,
+        positionColumn: column,
+      };
+      publish();
+    }
+    assert.equal(reads, 0, 'a caret event read the buffer before the interval passed');
+    assert.deepEqual(selections, [], 'a caret event published before the interval passed');
+    assert.deepEqual(timers.intervals().slice(-1), [SELECTION_INTERVAL_MS]);
+    timers.fire();
+    assert.equal(reads, 1, 'the flush did not read the buffer exactly once');
+    // Where the caret ended, not each step on the way: line 2 column 5 is offset 7.
+    assert.deepEqual(selections, [['notes.txt', { anchor: 7, head: 7 }]]);
+    binding.dispose();
+  });
+
+  it('does not publish the selection a remote apply leaves behind', async () => {
+    const engine = makeEngine(new Map([['notes.txt', 'ab\ncdef\ng']]));
+    const selections = [];
+    engine.setSelection = (path, selection) => void selections.push([path, selection]);
+    const editor = makeEditor();
+    let publish;
+    editor.onDidChangeCursorSelection = (listener) => {
+      publish = listener;
+      return { dispose: () => {} };
+    };
+    const timers = new ManualTimers();
+    const model = makeModel('ab\ncdef\ng');
+    const push = model.pushEditOperations;
+    // Monaco raises the selection event from inside the apply: the caret the room's edit
+    // moved is this binding's own doing, not the person's.
+    model.pushEditOperations = (...args) => {
+      const out = push(...args);
+      editor.selection = {
+        selectionStartLineNumber: 2,
+        selectionStartColumn: 1,
+        positionLineNumber: 2,
+        positionColumn: 1,
+      };
+      publish();
+      return out;
+    };
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: () => model,
+      timers,
+    });
+    await binding.openDocument('notes.txt');
+    timers.fire();
+    selections.length = 0;
+
+    await binding.applyChange('notes.txt', { start: 3, end: 4, text: 'C' });
+    assert.equal(timers.armed(), 0, 'the apply armed a caret flush of its own echo');
+    timers.fire();
+    assert.deepEqual(selections, []);
+    binding.dispose();
+  });
+
+  it('leaves no caret timer behind when it is disposed', async () => {
+    const engine = makeEngine(new Map([['notes.txt', 'ab\ncdef\ng']]));
+    const selections = [];
+    engine.setSelection = (path, selection) => void selections.push([path, selection]);
+    const editor = makeEditor();
+    let publish;
+    editor.onDidChangeCursorSelection = (listener) => {
+      publish = listener;
+      return { dispose: () => {} };
+    };
+    const timers = new ManualTimers();
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+      timers,
+    });
+    await binding.openDocument('notes.txt');
+    editor.selection = {
+      selectionStartLineNumber: 1,
+      selectionStartColumn: 2,
+      positionLineNumber: 1,
+      positionColumn: 2,
+    };
+    publish();
+    selections.length = 0;
+    assert.equal(timers.armed(), 1);
+    binding.dispose();
+    assert.equal(timers.armed(), 0, 'the interval outlived the binding');
+    timers.fire();
+    assert.deepEqual(selections, [], 'a disposed binding published a caret');
   });
 
   it('forwards room reports in page vocabulary', async () => {

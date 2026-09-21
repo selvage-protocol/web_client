@@ -23,6 +23,57 @@ export function initials(label: string): string {
 }
 
 /**
+ * One participant's presence, as far as a row's badges are concerned: the two fields the
+ * badge is drawn from, so a signature can be taken without a DOM.
+ */
+export interface RowPresence {
+  peerId: string;
+  displayName: string;
+  colour: string;
+}
+
+/**
+ * What one row's badges look like, as a value: nothing when nobody is in the file, and a
+ * per-peer run otherwise, ordered by peer id so two reads of the same room agree whatever
+ * order the membership report arrived in.
+ *
+ * A badge draws the initials and the colour of a peer and nothing else, so this is all a
+ * repaint has to compare: a peer moving to another file changes the signatures of the two
+ * files it left and entered, and the rest of the tree is untouched.
+ */
+export function badgeSignature(row: readonly RowPresence[]): string {
+  if (row.length === 0) {
+    return '';
+  }
+  return [...row]
+    .sort((left, right) => (left.peerId < right.peerId ? -1 : left.peerId > right.peerId ? 1 : 0))
+    .map((peer) => `${peer.peerId}\u0000${peer.displayName}\u0000${peer.colour}`)
+    .join('\u0001');
+}
+
+/**
+ * The rows whose badges are not what was last drawn for them, each with the signature to
+ * record: the paths a repaint is owed on, which is what a presence frame costs a tree
+ * instead of a rebuild of every row it has.
+ *
+ * A path that has lost every occupant is reported with the empty signature, so the row
+ * that was drawn is the row that gets cleared.
+ */
+export function changedBadgePaths(
+  drawn: ReadonlyMap<string, string>,
+  presence: ReadonlyMap<string, readonly RowPresence[]>,
+): Map<string, string> {
+  const changed = new Map<string, string>();
+  for (const path of new Set([...drawn.keys(), ...presence.keys()])) {
+    const signature = badgeSignature(presence.get(path) ?? []);
+    if (drawn.get(path) !== signature) {
+      changed.set(path, signature);
+    }
+  }
+  return changed;
+}
+
+/**
  * One cursor per line: the lowest peer id among the cursors sharing it.
  * Glyph-margin badges on one line share a lane and would draw over one
  * another, so a shared line shows one badge; the lowest id keeps the choice

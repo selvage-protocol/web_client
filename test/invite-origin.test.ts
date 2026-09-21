@@ -124,6 +124,29 @@ describe('the server a link names', () => {
     const own = resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'https://edit.example/');
     assert.equal(schemeMatchBase(own.base, 'https:'), own.base);
   });
+
+  it('a wire invite left without the `//` does not escape the TLS upgrade', () => {
+    // `ws:/host/session` is a URL the parser reads by inserting the slashes, so a
+    // base handed on as the link wrote it reaches the socket as a cleartext dial:
+    // measured in Chromium on the built page, the invite below dials the plain port
+    // with the room token in its request line. An `https:` page's rule is that it
+    // makes no such subrequest, and this is the spelling that escaped it.
+    for (const text of [
+      'ws:/other:8080/session?room=r-1&token=tok',
+      'ws:other:8080/session?room=r-1&token=tok',
+      'WS:/other:8080/session?room=r-1&token=tok',
+      'ws:\\other:8080/session?room=r-1&token=tok',
+    ]) {
+      const joined = resolveJoin(new URLSearchParams(), text, PAGE);
+      // The base is what the parser read: the two slashes it inserted, and the path
+      // `session` was stripped from, which leaves the empty one.
+      assert.equal(joined.base, 'ws://other:8080/', text);
+      const base = schemeMatchBase(joined.base, 'https:');
+      assert.equal(base, 'wss://other:8080/', text);
+      assert.equal(new URL(sessionUrl(base, joined.room, joined.token)).protocol, 'wss:', text);
+      assert.equal(metaUrl(base), 'https://other:8080/meta', text);
+    }
+  });
 });
 
 describe('a page address read back as a server', () => {

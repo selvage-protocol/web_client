@@ -11,6 +11,8 @@ import { MonacoBinding, literalMarkdown } from '../src/browser/editor.ts';
 import {
   ANONYMOUS_INITIALS,
   badgeCss,
+  badgeSignature,
+  changedBadgePaths,
   escapeCssContent,
   initials,
   onePerLine,
@@ -404,5 +406,39 @@ describe('a peer name is text in the hover, never markup', () => {
   it('a name of letters reaches the hover exactly as it is', () => {
     assert.equal(literalMarkdown('sam'), 'sam');
     assert.equal(literalMarkdown('Ada Lovelace'), 'Ada Lovelace');
+  });
+});
+
+describe('which rows a presence frame repaints', () => {
+  const ada = { peerId: 'p-1', displayName: 'ada', colour: '#112233' };
+  const bo = { peerId: 'p-2', displayName: 'bo', colour: '#445566' };
+
+  it('reads the same for a row nobody moved in', () => {
+    const drawn = new Map([
+      ['a.ts', badgeSignature([ada])],
+      ['b.ts', ''],
+    ]);
+    const presence = new Map([['a.ts', [ada]]]);
+    assert.deepEqual([...changedBadgePaths(drawn, presence)], []);
+  });
+
+  it('reports the row a peer left and the row it entered', () => {
+    const drawn = new Map([
+      ['a.ts', badgeSignature([ada])],
+      ['b.ts', ''],
+    ]);
+    const presence = new Map([['b.ts', [ada]]]);
+    assert.deepEqual(
+      [...changedBadgePaths(drawn, presence)],
+      [
+        ['a.ts', ''],
+        ['b.ts', badgeSignature([ada])],
+      ],
+    );
+  });
+
+  it('reads the same whatever order the membership report arrived in', () => {
+    assert.equal(badgeSignature([ada, bo]), badgeSignature([bo, ada]));
+    assert.notEqual(badgeSignature([ada, bo]), badgeSignature([ada]));
   });
 });
