@@ -1,7 +1,7 @@
 import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
-import type { Cursor, EditorHost, LineEnding, Report, TextChange } from '../bridge/index.ts';
+import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
 import { grantUnion, peerColour, realTimers } from '../bridge/index.ts';
 import type { Timers } from '../bridge/index.ts';
 import { grantLevels } from './tree.ts';
@@ -608,8 +608,12 @@ export class MonacoBinding implements EditorHost {
     return true;
   }
 
-  async readGrantedFile(_path: string): Promise<string | undefined> {
-    return undefined;
+  /**
+   * The page shares no folder, so there is nothing here to read for a peer: the guest role
+   * never serves a path, and the answer says so in the cause that carries no sentence.
+   */
+  async readGrantedFile(_path: string): Promise<GrantedRead> {
+    return { kind: 'refused', cause: 'not-granted' };
   }
 
   /**

@@ -444,6 +444,50 @@ describe('the message homes', () => {
     assert.equal(element.textContent, '', 'the return stood for ever');
   });
 
+  // The attach frame and the membership report that names the host arrive in the same burst,
+  // and the report used to take the whole line down: the sentence the guest has to read was
+  // written and wiped in the same millisecond, so no one could see it. The all-clear ends the
+  // countdown; a sentence standing in its place is what the guest is owed.
+  it("the membership all-clear leaves the host's return standing", () => {
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.countdown(30_000);
+    assert.match(element.textContent, /^The host left\./, 'the countdown never stood');
+    note.say('demo-host is back — the session continues.', 5000);
+    note.endCountdown();
+    assert.equal(
+      element.textContent,
+      'demo-host is back — the session continues.',
+      'the all-clear took the host-is-back sentence down with the countdown',
+    );
+    // The all-clear did not cancel the sentence's own clock either, so it still leaves.
+    timer.runs.at(-1)?.();
+    assert.equal(element.textContent, '', 'the return was left standing for ever');
+  });
+
+  it('the all-clear takes down a countdown and nothing else', () => {
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.endCountdown();
+    assert.equal(element.textContent, '', 'an untouched line was left dirty');
+    note.countdown(30_000);
+    note.endCountdown();
+    assert.equal(element.textContent, '', 'the countdown survived the all-clear');
+    assert.equal(element.dataset.tone, '', 'the countdown left its tone on the line');
+  });
+
   it('the end of the room comes back as the card, not as a strip', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(
@@ -659,9 +703,15 @@ describe('the host leaving and coming back', () => {
       main.includes('sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS)'),
       "the host's return is never said",
     );
-    assert.ok(main.includes('sessionNote.hide()'), 'the grace warning never clears');
+    assert.ok(main.includes('sessionNote.endCountdown()'), 'the grace warning never clears');
+    assert.ok(
+      main.includes('sessionNote.hide()'),
+      'leaving the session never takes the line down',
+    );
     // Both membership notices carry the host, so both are all-clears: the
-    // attach sentence is not the only way the warning comes down.
+    // attach sentence is not the only way the warning comes down. The
+    // all-clear ends the countdown and not the line (the host's return may be
+    // standing there), so the teardown is the one caller of `hide()` left.
     for (const kind of ["case 'peers':", "case 'roster':"]) {
       const at = main.indexOf(kind);
       assert.ok(at !== -1, `${kind} left the notice routing`);
@@ -669,6 +719,14 @@ describe('the host leaving and coming back', () => {
       assert.ok(
         branch.includes('hostPresent('),
         `${kind} does not clear the grace warning when the host is named`,
+      );
+      assert.ok(
+        branch.includes('sessionNote.endCountdown()'),
+        `${kind} still takes the whole line down, so the host's return is wiped`,
+      );
+      assert.ok(
+        !branch.includes('sessionNote.hide()'),
+        `${kind} hides the host-is-back sentence with the countdown`,
       );
     }
   });

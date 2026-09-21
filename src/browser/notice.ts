@@ -175,6 +175,11 @@ export interface SessionNote {
   countdown(graceMs: number): void;
   /** Shows one sentence that stands `standMs` and then takes itself down. */
   say(text: string, standMs: number): void;
+  /**
+   * Takes the countdown down when the countdown is what the line is showing, and leaves a
+   * sentence standing in its place alone: the host's return outlives the all-clear.
+   */
+  endCountdown(): void;
   /** Takes the line down, whatever it was showing. */
   hide(): void;
 }
@@ -211,6 +216,14 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
   };
 
   return {
+    endCountdown(): void {
+      if (element.dataset.tone !== 'grace') {
+        return;
+      }
+      stop();
+      clear();
+    },
+
     countdown(graceMs: number): void {
       stop();
       const count = countParts(HOST_LEFT_LEAD, HOST_LEFT_TAIL);
