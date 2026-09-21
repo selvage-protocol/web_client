@@ -509,7 +509,7 @@ export class MonacoBinding implements EditorHost {
    * closing the last one locks it again and the room being over locks it for
    * good. No sentence is coined for it: Monaco answers the attempt itself
    * (`Cannot edit in read-only editor`) and the grant tree already reads
-   * `The room shares no listing yet.` when the room offers nothing.
+   * `The host has not shared any files yet.` when the room offers nothing.
    */
   private applyEditability(): void {
     const readOnly = this.terminalReason !== undefined || this.path === undefined;
@@ -667,7 +667,7 @@ export class MonacoBinding implements EditorHost {
       case 'hostDetached':
         this.onNotice({
           kind: 'status',
-          text: `host left — the room closes in ${Math.round(report.graceMs / 1000)}s unless the host returns`,
+          text: `The host left. The room closes in ${graceWording(report.graceMs)} unless the host returns.`,
         });
         break;
       case 'hostAttached':
@@ -751,6 +751,30 @@ export class MonacoBinding implements EditorHost {
 
 function peerName(displayName: string, peerId: string): string {
   return displayName === '' ? peerId : displayName;
+}
+
+/**
+ * How long the grace window reads to a guest: the largest whole unit the window
+ * still has one of, rounded down, so the warning never gives the guest more time
+ * than the room has. The window is the server's own number (`room_grace_ms`,
+ * echoed on the detach frame), so it can be anything up to an hour, and a raw
+ * second count makes the reader divide it.
+ */
+export function graceWording(graceMs: number): string {
+  const ms = Math.max(0, graceMs);
+  const seconds = Math.floor(ms / 1000);
+  if (seconds === 0) {
+    return 'a moment';
+  }
+  if (seconds < 60) {
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  }
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+  const hours = Math.floor(ms / 3_600_000);
+  return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
 /** How many badge classes a rename loop may mint before the cache restarts. */

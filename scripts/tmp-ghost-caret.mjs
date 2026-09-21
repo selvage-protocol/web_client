@@ -255,7 +255,7 @@ async function ghostRooms() {
       check(
         `ghost/${label}: the tree says where the room stands`,
         label === 'no-listing'
-          ? state.tree.includes('The room shares no listing yet.')
+          ? state.tree.includes('The host has not shared any files yet.')
           : state.tree.includes('todo.txt'),
         state.tree,
       );

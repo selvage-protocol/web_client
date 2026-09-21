@@ -455,9 +455,15 @@ async function openFirst(session: SessionInfo): Promise<void> {
   const first = session.documents.slice().sort()[0];
   if (first !== undefined) {
     await openPath(first);
+    return;
   }
-  // A room that names no document needs no sentence: the tree already reads
-  // `The room shares no listing yet.`
+  // A room that names no document would leave a phone on a blank editor: the
+  // panel is the one place that says the room shares nothing, and a phone
+  // starts with it shut. Open it for them; the first file that opens shuts it
+  // again (see `collapsePanel`).
+  if (phoneLayout.matches) {
+    showPanel(true);
+  }
 }
 
 async function openPath(path: string): Promise<void> {
@@ -558,7 +564,7 @@ function syncGrant(): void {
   if (listing.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = 'The room shares no listing yet.';
+    empty.textContent = 'The host has not shared any files yet.';
     treePane.appendChild(empty);
     return;
   }
