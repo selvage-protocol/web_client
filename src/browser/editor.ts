@@ -2,8 +2,9 @@ import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, LineEnding, Report, TextChange } from '../bridge/index.ts';
-import { grantUnion, peerColour } from '../bridge/index.ts';
-import { grantChildren } from './tree.ts';
+import { grantUnion, peerColour, realTimers } from '../bridge/index.ts';
+import type { Timers } from '../bridge/index.ts';
+import { grantLevels } from './tree.ts';
 import type { GrantChild } from './tree.ts';
 import type { Role, SelvageEngine } from '../engine/index.ts';
 import { roomGoneMessage } from './ended.ts';
@@ -58,6 +59,15 @@ export interface Following {
   colour: string;
 }
 
+/**
+ * How long a caret event waits before its position reaches the room. Monaco reports a
+ * selection change for every keystroke of its own, and each one would otherwise cost a
+ * read of the whole buffer and a presence frame; a burst — typing, a held arrow key, a
+ * drag — becomes one of each instead. The desktop adapters coalesce on this same
+ * interval, so a peer sees a caret move after the same delay whichever client sent it.
+ */
+export const SELECTION_INTERVAL_MS = 100;
+
 export interface BindingOptions {
   engine: SelvageEngine;
   editor: monaco.editor.IStandaloneCodeEditor;
@@ -68,6 +78,8 @@ export interface BindingOptions {
    * without a DOM. The page passes `monaco.editor.createModel`.
    */
   createModel: (text: string, language: string) => monaco.editor.ITextModel;
+  /** The clock the caret interval runs on; real timers unless a test drives its own. */
+  timers?: Timers;
 }
 
 /**
@@ -91,7 +103,11 @@ export class MonacoBinding implements EditorHost {
   private readonly cursors: monaco.editor.IEditorDecorationsCollection;
   private readonly style: HTMLStyleElement;
   private readonly stopEngine: () => void;
+  private readonly timers: Timers;
   private applying = 0;
+  /** A caret move whose position is waiting for the interval to pass. */
+  private selectionDirty = false;
+  private selectionTimer: (() => void) | undefined;
   /** The carets the last frame drew, for a tap (`peerAt`). */
   private drawn: Cursor[] = [];
   private path: string | undefined;
@@ -103,6 +119,9 @@ export class MonacoBinding implements EditorHost {
   private followingName = '';
   /** A go-to whose document has not arrived yet: re-resolved on every room event. */
   private pendingGoTo: string | undefined;
+  /** The room's listing and the tree derived from it, held until the set they come from moves. */
+  private listing: string[] | undefined;
+  private levels: Map<string, GrantChild[]> | undefined;
   /** The room-gone reason once the session has ended terminally, if it has. */
   private terminalReason: string | undefined;
   /** Every landing stamps the cycle: a newer frame supersedes an older one still opening. */
@@ -113,11 +132,12 @@ export class MonacoBinding implements EditorHost {
     this.editor = options.editor;
     this.onNotice = options.onNotice;
     this.createModel = options.createModel;
+    this.timers = options.timers ?? realTimers;
     this.cursors = this.editor.createDecorationsCollection([]);
     this.style = document.createElement('style');
     document.head.appendChild(this.style);
     this.bridge = new SessionBridge({ engine: this.engine, host: this });
-    const selection = this.editor.onDidChangeCursorSelection(() => this.publishSelection());
+    const selection = this.editor.onDidChangeCursorSelection(() => this.scheduleSelection());
     this.stops.push(() => selection.dispose());
     // The follow and the pending go-to re-resolve on every room event: a caret move
     // and a document arrival both land, and membership changes refresh the roster.
@@ -135,10 +155,12 @@ export class MonacoBinding implements EditorHost {
         case 'documentsChanged':
           // The listing is the grant unioned with the open documents, so a
           // changed set re-renders the tree even when the grant itself is quiet.
+          this.forgetListing();
           this.onNotice({ kind: 'grant', paths: this.grantListing() });
           this.backgroundTick();
           break;
         case 'grantChanged':
+          this.forgetListing();
           this.onNotice({ kind: 'grant', paths: this.grantListing() });
           break;
         default:
@@ -190,7 +212,7 @@ export class MonacoBinding implements EditorHost {
       this.path = path;
       this.editor.setModel(this.models.get(path) ?? null);
       this.applyEditability();
-      this.publishSelection();
+      this.scheduleSelection();
       this.renderCursors(this.bridge.cursors());
       return;
     }
@@ -224,7 +246,7 @@ export class MonacoBinding implements EditorHost {
     this.applyEditability();
     this.bridge.documentOpened(path);
     this.fronted.add(path);
-    this.publishSelection();
+    this.scheduleSelection();
     this.renderCursors(this.bridge.cursors());
   }
 
@@ -246,6 +268,7 @@ export class MonacoBinding implements EditorHost {
     }
     this.disposed = true;
     this.stopEngine();
+    this.cancelSelection();
     this.drawn = [];
     this.followingPeerId = undefined;
     this.pendingGoTo = undefined;
@@ -293,9 +316,21 @@ export class MonacoBinding implements EditorHost {
   /**
    * What the room offers: its grant, unioned with the documents it holds open, so
    * a server older than `doc.grant` still offers everything the room knows.
+   *
+   * Held until the set it comes from moves, which is a room event: the listing is read
+   * once per render rather than once per directory the tree recurses into, and a tree
+   * that is thousands of paths long is the difference between a scan and thousands of
+   * them.
    */
   grantListing(): string[] {
-    return grantUnion(this.engine.grantedPaths(), this.engine.documents());
+    this.listing ??= grantUnion(this.engine.grantedPaths(), this.engine.documents());
+    return this.listing;
+  }
+
+  /** The paths are read from the engine again after the next room event. */
+  private forgetListing(): void {
+    this.listing = undefined;
+    this.levels = undefined;
   }
 
   /**
@@ -311,7 +346,8 @@ export class MonacoBinding implements EditorHost {
 
   /** The immediate children of `directory` in the listing, for one tree level. */
   grantTree(directory = ''): GrantChild[] {
-    return grantChildren(this.grantListing(), directory);
+    this.levels ??= grantLevels(this.grantListing());
+    return this.levels.get(directory) ?? [];
   }
 
   /** Who this window follows, for the indicator. */
@@ -442,7 +478,7 @@ export class MonacoBinding implements EditorHost {
       this.editor.setPosition({ lineNumber: position.lineNumber, column: position.column });
       this.editor.revealPositionInCenter({ lineNumber: position.lineNumber, column: position.column });
     }
-    this.publishSelection();
+    this.scheduleSelection();
     // A follow re-landing says who and where; a go-to landing needs no
     // words — the tree highlight and the editor buffer already name the
     // file, and the status line stays for news.
@@ -696,6 +732,39 @@ export class MonacoBinding implements EditorHost {
   }
 
   // -- local selection out ---------------------------------------------------
+
+  /**
+   * Arms the one flush the interval allows. The flush reads the selection when it runs,
+   * so what a burst publishes is where the caret ended — and a document that closed in
+   * the meantime publishes nothing — rather than every step of the way there.
+   */
+  private scheduleSelection(): void {
+    this.selectionDirty = true;
+    if (this.selectionTimer !== undefined) {
+      return;
+    }
+    this.selectionTimer = this.timers.after(SELECTION_INTERVAL_MS, () => {
+      this.selectionTimer = undefined;
+      this.flushSelection();
+    });
+  }
+
+  /** Drops the armed flush, so a disposed binding leaves no timer behind. */
+  private cancelSelection(): void {
+    if (this.selectionTimer !== undefined) {
+      this.selectionTimer();
+      this.selectionTimer = undefined;
+    }
+    this.selectionDirty = false;
+  }
+
+  private flushSelection(): void {
+    if (!this.selectionDirty) {
+      return;
+    }
+    this.selectionDirty = false;
+    this.publishSelection();
+  }
 
   private publishSelection(): void {
     if (this.disposed || this.applying > 0) {

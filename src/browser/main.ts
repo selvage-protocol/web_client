@@ -18,9 +18,8 @@ import {
 import type { JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
-import { dirOpen, showUnpublishedBadge, unpublishedPillText } from './tree-state.ts';
-import { fileIcon, iconSpan, iconSvg, labelSpan } from './icons.ts';
-import { initials } from './presence.ts';
+import { iconSpan, iconSvg, labelSpan } from './icons.ts';
+import { GrantTreeView } from './tree-view.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
 import {
@@ -242,6 +241,8 @@ let selfName = '';
 const openDirs = new Set<string>();
 /** The path the tree last highlighted, so landings re-render it. */
 let renderedPath: string | undefined;
+/** The room's listing as a tree, built on the first notice after a join. */
+let tree: GrantTreeView | undefined;
 
 joinForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -418,6 +419,19 @@ async function join(held: HeldJoin): Promise<void> {
     onNotice: (notice: BindingNotice) => onNotice(notice),
     createModel: (text: string, language: string) => monaco.editor.createModel(text, language),
   });
+  // The tree reads the binding and the page decides what a row's click means: it is a
+  // deliberate navigation, the same class as typing or going to someone, so the follow
+  // ends instead of landing back over the file just opened.
+  tree = new GrantTreeView({
+    pane: treePane,
+    source: binding,
+    pinned: openDirs,
+    touch: () => touchOnly,
+    open: (path) => {
+      binding?.stopFollowing();
+      void openPath(path);
+    },
+  });
   syncRoster(binding.participants());
   syncGrant();
   await openFirst(session);
@@ -556,122 +570,7 @@ function syncRoster(participants: Participant[]): void {
 
 /** The room's listing as a tree. Directories open and shut; files open and fetch. */
 function syncGrant(): void {
-  if (binding === undefined) {
-    return;
-  }
-  treePane.replaceChildren();
-  const listing = binding.grantListing();
-  if (listing.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'empty';
-    empty.textContent = 'The host has not shared any files yet.';
-    treePane.appendChild(empty);
-    return;
-  }
-  const presence = new Map<string, Participant[]>();
-  for (const participant of binding.participants()) {
-    if (participant.path !== undefined) {
-      const known = presence.get(participant.path) ?? [];
-      known.push(participant);
-      presence.set(participant.path, known);
-    }
-  }
-  treePane.appendChild(treeLevel(binding, '', 0, presence));
-}
-
-/**
- * Who is in one file, as initials badges in peer colours: where someone is
- * reads here, glanceable, instead of path text under roster names.
- */
-function presenceBadges(present: readonly Participant[]): HTMLElement {
-  const wrap = document.createElement('span');
-  wrap.className = 'presence';
-  for (const participant of present) {
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.style.backgroundColor = participant.colour;
-    badge.textContent = initials(participant.displayName);
-    badge.title = participant.displayName;
-    wrap.appendChild(badge);
-  }
-  return wrap;
-}
-
-/**
- * The unpublished marker: a quiet pill on the open file's own row.
- *
- * The short form is what a pointer device reads, with the reason on its `title`;
- * a phone has no hover to read that with, so the pill carries the reason itself.
- * Only the open file may wear it (see `showUnpublishedBadge`).
- */
-function unpublishedBadge(): HTMLElement {
-  const badge = document.createElement('span');
-  badge.className = 'unpub';
-  badge.textContent = unpublishedPillText(touchOnly);
-  badge.title = "The host hasn't shared its text yet";
-  return badge;
-}
-
-function treeLevel(
-  owner: MonacoBinding,
-  directory: string,
-  depth: number,
-  presence: ReadonlyMap<string, readonly Participant[]>,
-): HTMLElement {
-  const list = document.createElement('ul');
-  if (depth === 0) {
-    list.style.paddingLeft = '0';
-  }
-  const current = owner.currentPath();
-  for (const child of owner.grantTree(directory)) {
-    const item = document.createElement('li');
-    if (child.directory) {
-      const details = document.createElement('details');
-      details.dataset.dir = child.path;
-      // Openness is the guest's pin, or an ancestor of the open file — never
-      // the open file alone, so re-renders keep folders as left.
-      details.open = dirOpen(child.path, openDirs, current);
-      // Untrusted toggles are the render above, not the guest: only the
-      // guest's own opening and shutting pins a directory.
-      details.addEventListener('toggle', (event) => {
-        if (!event.isTrusted) {
-          return;
-        }
-        if (details.open) {
-          openDirs.add(child.path);
-        } else {
-          openDirs.delete(child.path);
-        }
-      });
-      const head = document.createElement('summary');
-      head.append(iconSpan('chevron'), iconSpan('folder'), labelSpan(child.name));
-      details.appendChild(head);
-      details.appendChild(treeLevel(owner, child.path, depth + 1, presence));
-      item.appendChild(details);
-    } else {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'row';
-      row.append(iconSpan(fileIcon(child.path)), labelSpan(child.name));
-      row.append(presenceBadges(presence.get(child.path) ?? []));
-      if (showUnpublishedBadge(child.path, current, owner.isUnpublished(child.path))) {
-        row.append(unpublishedBadge());
-      }
-      if (child.path === current) {
-        row.classList.add('open');
-      }
-      row.addEventListener('click', () => {
-        // Opening a file is a deliberate navigation, the same class as
-        // typing or going to someone: the follow ends instead of landing
-        // back over the file just opened.
-        binding?.stopFollowing();
-        void openPath(child.path);
-      });
-      item.appendChild(row);
-    }
-    list.appendChild(item);
-  }
-  return list;
+  tree?.render();
 }
 
 /**
@@ -737,6 +636,7 @@ function leaveSession(sentence: string): void {
   desktopEditorOptions = undefined;
   opening = undefined;
   renderedPath = undefined;
+  tree = undefined;
   openDirs.clear();
   fullShareLink = '';
   shareInput.value = '';

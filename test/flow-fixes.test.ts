@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { persistJoinUrl } from '../src/browser/share.ts';
-import { dirOpen, showUnpublishedBadge, unpublishedPillText } from '../src/browser/tree-state.ts';
+import { dirOpen, rowsKey, showUnpublishedBadge, unpublishedPillText } from '../src/browser/tree-state.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 
 // Minimal DOM: the binding owns one <style> element for peer colours.
@@ -248,5 +248,29 @@ describe('tree directory openness', () => {
     assert.equal(dirOpen('src', pinned, 'src/main.ts'), true);
     assert.equal(dirOpen('src', new Set(), 'notes.md'), false);
     assert.equal(dirOpen('src', new Set(), undefined), false);
+  });
+});
+
+describe('what a tree re-render reads', () => {
+  it('is a function of the listing and the row chrome', () => {
+    const chrome = { current: 'src/main.ts', unpublished: false, touch: false };
+    const key = rowsKey(['src/main.ts', 'src/lib.ts'], chrome);
+    // The same rows and the same chrome read the same, whatever else moved: this is
+    // what lets a presence frame repaint badges instead of rebuilding the tree.
+    assert.equal(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts', 'src/new.ts'], chrome), key);
+    assert.notEqual(rowsKey(['src/lib.ts', 'src/main.ts'], chrome), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, current: 'src/lib.ts' }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, unpublished: true }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, touch: true }), key);
+  });
+
+  it('separates the row chrome from the listing', () => {
+    // The parts cannot be read as one another: a path carries no NUL and no line feed
+    // (a name with a control character is not a granted path), and the chrome's own
+    // fields come before the listing's.
+    const chrome = { current: undefined, unpublished: false, touch: false };
+    assert.notEqual(rowsKey(['a'], chrome), rowsKey([], { ...chrome, current: 'a' }));
+    assert.notEqual(rowsKey([], chrome), rowsKey([], { ...chrome, unpublished: true }));
   });
 });
