@@ -2261,6 +2261,11 @@ all. This one: the address is unchanged, the name stays typed, the flag reads
 `true`, and when the scripts land the bundle replays it — `armed: true`,
 `pending: false`, and the card reads `Paste an invite link to join.` That is the
 same refusal the ordinary case gives, delivered late instead of not at all.
+A run of the same harness with the room server's header set verbatim —
+`form-action 'none'` and all — behaves the same way (`pending: true` at +300 ms,
+the address unchanged, `Paste an invite link to join.` on the card once the
+scripts land), so the hold is not something `script-src 'self'
+'unsafe-inline'` takes away.
 `scripts/ci-local.sh checks` green on the committed tree, 356/356; the same page
 served by a real `selvaged --serve-page` on `127.0.0.1:8096` carries the same
 `form-action 'none'` header.
