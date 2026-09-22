@@ -2431,11 +2431,14 @@ folder (`README.md` read back through the handle at the new text and a new
 `.tmp/run/downloaded-README.md` is 176 bytes of the room's text — including the two guest
 lines the refused write had kept out of the folder, which is what the control is for.
 
-**Red and green.** Three mutations, each run alone. `folder.ts` with the `lastModified`
-comparison removed turns *refuses a write when the file changed on disk since the room
-read it* red (19/20) and restoring it returns 20/20; `editor.ts` with the host's own read
-in `initialText` removed turns the host-half suite red; and with `folder.ts` moved aside,
-`test/folder.test.ts` cannot even load. `scripts/ci-local.sh checks` green on the
+**Red and green.** Three mutations, each run alone, each restored before the next.
+`folder.ts` with the `lastModified` comparison removed: `test/folder.test.ts` 19/20, the
+one red being *refuses a write when the file changed on disk since the room read it*;
+restored, 20/20. `editor.ts` with the host's own read in `initialText` removed:
+`test/host-binding.test.ts` 6/9, the three red being the two that open a listed file and
+the one that reports a refused read; restored, 9/9. And with `folder.ts` moved aside,
+`test/folder.test.ts` cannot load at all — `ERR_MODULE_NOT_FOUND` — so nothing in it can
+pass by accident. `scripts/ci-local.sh checks` green on the
 committed tree, 402/402 (`npm run test:ci`, which excludes the one suite that needs the `site` checkout beside this one).
 
 ### What was cut, and what that leaves out
