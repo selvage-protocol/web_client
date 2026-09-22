@@ -254,6 +254,15 @@ describe('the read', () => {
     assert.deepEqual(await folder.read('broken.txt'), { kind: 'refused', cause: 'missing' });
   });
 
+  it('leaves a failure it cannot name to the caller rather than guessing at one', async () => {
+    // A guess at what an unknown failure meant is a sentence that sends a person looking in
+    // the wrong place, and the bridge already has words for one it was handed.
+    const { folder } = projection(
+      dir({ 'odd.txt': { kind: 'file', text: '', lastModified: 1, fails: 'QuotaExceededError' } }),
+    );
+    await assert.rejects(() => folder.read('odd.txt'), /QuotaExceededError/);
+  });
+
   it('is what a symbolic link gets: not found, as Chromium answers', async () => {
     // Observed on Chromium 152 with a real folder handle: a link is listed by nothing and
     // answers `NotFoundError` when asked for by name, in the folder or out of it. The page
@@ -307,6 +316,39 @@ describe('the write, behind the stale-file guard', () => {
     delete (tree.children['src'] as DirNode).children['a.txt'];
     assert.equal(refusalCause(await folder.write('src/a.txt', 'x')), 'missing');
     assert.deepEqual(log.writes, []);
+  });
+
+  it('leaves an unnamed write failure to the bridge rather than calling it a missing file', async () => {
+    const node = file('a\n', 4);
+    const folder = new FolderWorkingCopy({
+      kind: 'directory',
+      name: 'project',
+      async *values() {
+        yield { name: 'notes.txt', kind: 'file' as const };
+      },
+      async getDirectoryHandle() {
+        throw domError('NotFoundError');
+      },
+      async getFileHandle() {
+        return {
+          kind: 'file',
+          name: 'notes.txt',
+          async getFile() {
+            return {
+              lastModified: node.lastModified,
+              size: new TextEncoder().encode(node.text).length,
+              arrayBuffer: async () => new TextEncoder().encode(node.text).buffer,
+            };
+          },
+          async createWritable(): Promise<FolderWritable> {
+            throw domError('QuotaExceededError');
+          },
+        };
+      },
+    });
+    await folder.read('notes.txt');
+    await assert.rejects(() => folder.write('notes.txt', 'x'), /QuotaExceededError/);
+    assert.equal(node.text, 'a\n', 'a failed write left the file alone');
   });
 
   it('says the person lost write access rather than blaming the file', async () => {

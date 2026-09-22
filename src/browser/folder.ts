@@ -328,13 +328,13 @@ export class FolderWorkingCopy implements FolderWork {
     try {
       handle = await dir.handle.getFileHandle(leafOf(path));
     } catch (error: unknown) {
-      return { kind: 'refused', cause: readRefusal(error) };
+      return { kind: 'refused', cause: namedRefusal(error) };
     }
     let file: FolderFile;
     try {
       file = await handle.getFile();
     } catch (error: unknown) {
-      return { kind: 'refused', cause: readRefusal(error) };
+      return { kind: 'refused', cause: namedRefusal(error) };
     }
     if (file.size > MAX_GRANT_FILE_BYTES) {
       return { kind: 'refused', cause: 'too-large' };
@@ -342,8 +342,8 @@ export class FolderWorkingCopy implements FolderWork {
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(await file.arrayBuffer());
-    } catch {
-      return { kind: 'refused', cause: 'missing' };
+    } catch (error: unknown) {
+      return { kind: 'refused', cause: namedRefusal(error) };
     }
     const text = decodableText(bytes);
     if (text === undefined) {
@@ -391,7 +391,10 @@ export class FolderWorkingCopy implements FolderWork {
       handle = await dir.handle.getFileHandle(leafOf(path));
       file = await handle.getFile();
     } catch (error: unknown) {
-      const cause = readRefusal(error);
+      const cause = refusalOf(error);
+      if (cause === undefined) {
+        throw error;
+      }
       return refuse(cause === 'not-a-file' ? 'not-a-file' : 'missing');
     }
     // The guard: the file the room read is the file this write lands in, or nothing is written.
@@ -402,7 +405,16 @@ export class FolderWorkingCopy implements FolderWork {
     try {
       writable = await handle.createWritable();
     } catch (error: unknown) {
-      return refuse(permissionRefusal(error) ? 'not-permitted' : 'missing');
+      // The two a person can act on are named; anything else is thrown, because a guess at what
+      // an unknown failure meant is a sentence that sends them looking in the wrong place.
+      if (permissionRefusal(error)) {
+        return refuse('not-permitted');
+      }
+      const cause = refusalOf(error);
+      if (cause === undefined) {
+        throw error;
+      }
+      return refuse(cause === 'not-a-file' ? 'not-a-file' : 'missing');
     }
     try {
       await writable.write(text);
@@ -432,7 +444,7 @@ export class FolderWorkingCopy implements FolderWork {
       try {
         dir = await dir.getDirectoryHandle(segments[index] ?? '');
       } catch (error: unknown) {
-        return { cause: readRefusal(error) };
+        return { cause: namedRefusal(error) };
       }
     }
     return { handle: dir };
@@ -457,15 +469,18 @@ function leafOf(path: string): string {
 }
 
 /**
- * The read refusal a `DOMException` names, in the bridge's own vocabulary.
+ * The refusal a `DOMException` names, in the bridge's own vocabulary, or `undefined` for a
+ * failure this module cannot read as one of them.
  *
  * `NotFoundError` is the API's answer for a name that is not there — and, on the platforms
  * Chromium refuses, for a name that is a symbolic link, which its file access layer treats as a
  * hidden item rather than following it. `TypeMismatchError` is a name that is there and is not
- * the kind asked for. A refusal that is about permission is read as `not-granted` here; the
- * caller that is writing says it in its own words.
+ * the kind asked for. A refusal about permission is read as `not-granted` here; the caller that
+ * is writing says it in its own words. Everything else is left unnamed on purpose: a guess at
+ * what an unknown failure meant is a sentence that sends a person looking in the wrong place,
+ * so it is thrown for the caller that can carry the browser's own words.
  */
-function readRefusal(error: unknown): GrantRefusal {
+function refusalOf(error: unknown): GrantRefusal | undefined {
   const name = errorName(error);
   if (name === 'NotFoundError') {
     return 'missing';
@@ -476,7 +491,16 @@ function readRefusal(error: unknown): GrantRefusal {
   if (name === 'NotAllowedError' || name === 'SecurityError') {
     return 'not-granted';
   }
-  return 'missing';
+  return undefined;
+}
+
+/** A refusal this module recognises, or the failure itself when it does not. */
+function namedRefusal(error: unknown): GrantRefusal {
+  const cause = refusalOf(error);
+  if (cause === undefined) {
+    throw error;
+  }
+  return cause;
 }
 
 /** Whether an error is the browser refusing access rather than the file being absent. */
