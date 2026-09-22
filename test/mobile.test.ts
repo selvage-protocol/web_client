@@ -136,7 +136,8 @@ describe('the shell and the page agree on what a phone is', () => {
   });
 
   it('hides the pre-join backdrop where two panes no longer fit behind the card', () => {
-    // The backdrop draws the desktop layout: 19rem of tree beside a code pane.
+    // The backdrop draws the desktop layout: the panel's width of tree beside a
+    // code pane.
     // At this width the card's sheet covers what is left of the code, which is
     // the grey-bars failure again — so the phone gets the veil over the plain
     // background, and the card alone.
@@ -239,10 +240,21 @@ describe('the panel on a phone', () => {
     assert.match(declarations(mediaBlock(PHONE_QUERY), '#panel-toggle'), /display:\s*flex/);
   });
 
-  it('makes its 38% cap the box the panel actually takes', () => {
+  it('makes its cap the box the panel actually takes', () => {
     const stacked = declarations(mediaBlock('(max-width: 640px)'), '#side');
-    assert.match(stacked, /max-height:\s*38%/, 'the cap left the stacked layout');
+    assert.match(stacked, /max-height:\s*60%/, 'the cap changed: a phone cannot reach its files');
     assert.match(stacked, /box-sizing:\s*border-box/, 'the padding and border sit outside the cap again');
+  });
+
+  it('starts the panel high enough for the file it was opened to reach', () => {
+    // Measured in Chromium 152 at 412x915 with one other peer: at a 38% cap the
+    // panel was 314 px of the workspace and every file row sat below its fold
+    // (`#side` bottom 447, the first row's top 428, the last 518) — the
+    // disclosure named files and showed none. At 60% the panel is 404 px, no
+    // row is cut, and the panel stops scrolling (scrollHeight 403 = clientHeight).
+    const cap = /max-height:\s*(\d+)%/.exec(declarations(mediaBlock('(max-width: 640px)'), '#side'));
+    assert.ok(cap, 'the stacked panel has no cap at all');
+    assert.ok(Number(cap[1]) >= 60, `the cap is ${cap[1]}%: the roster pushes the tree out of the panel`);
   });
 
   it('opens for a room that shares nothing, so the blank editor is explained', () => {
@@ -264,6 +276,24 @@ describe('the panel on a phone', () => {
 });
 
 describe('what a phone cannot hover', () => {
+  it('names the copy control where its readout is hidden', () => {
+    // Measured in Chromium 152 at 412x915: the control was 381x44 px holding a
+    // 14x14 icon and no text at all — an empty field with a link glyph in it.
+    const phone = mediaBlock('(max-width: 640px)');
+    assert.match(declarations(style, '#share-group .share-label'), /display:\s*none/, 'the label shows beside the readout');
+    assert.match(declarations(phone, '#share-group .share-label'), /display:\s*inline/);
+    assert.match(declarations(phone, '#share-group #share'), /display:\s*none/, 'the label shows without the readout hidden');
+    assert.match(
+      html,
+      /<span class="share-label" aria-hidden="true">Copy invite link<\/span>/,
+      'the shell carries no words for the narrow copy control',
+    );
+    // The group's own label already names the control, so the visible copy of
+    // those words is what a screen reader must not read out twice.
+    const group = html.slice(html.indexOf('id="share-group"'), html.indexOf('id="share"'));
+    assert.match(group, /aria-label="Copy invite link"/, 'the control lost its accessible name');
+  });
+
   it('shows a dead roster verb’s reason as row text', () => {
     assert.match(declarations(style, '#roster .why'), /display:\s*none/);
     assert.match(declarations(mediaBlock(TOUCH_QUERY), '#roster .why'), /display:\s*block/);

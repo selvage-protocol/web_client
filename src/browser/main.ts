@@ -3,6 +3,7 @@ import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
+import { handCopy } from './hand-copy.ts';
 import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
@@ -263,6 +264,9 @@ let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
 /** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
 let fullShareLink = '';
+/** The abbreviation the bar carries at rest, kept apart from the field's own value because
+ * the clipboard-less fallback fields the whole link there and may leave it. */
+let shareDisplay = '';
 /** The server the last join attempt reached for, for the unreachable-server copy. */
 let lastBase = '';
 /** The joined display name, for the roster's self row. */
@@ -431,9 +435,9 @@ async function seatSession(seat: Seat): Promise<void> {
   fullShareLink = seat.shareLink;
   // The bar shows the link with the page's own origin dropped and its long parts shortened,
   // and sized to what it shows; the title and the clipboard below keep the full bytes.
-  const shown = displayShareLink(fullShareLink, window.location.origin);
-  shareInput.value = shown;
-  fitReadout(shareInput, shown);
+  shareDisplay = displayShareLink(fullShareLink, window.location.origin);
+  shareInput.value = shareDisplay;
+  fitReadout(shareInput, shareDisplay);
   shareInput.title = fullShareLink;
   joinMessage.hidden = true;
   joinPane.hidden = true;
@@ -718,26 +722,31 @@ downloadButton.addEventListener('click', () => {
 });
 
 async function copyShareLink(): Promise<void> {
+  shareGroup.classList.remove('hand-copy');
   try {
     if (navigator.clipboard === undefined) {
       throw new Error('no clipboard');
     }
     await navigator.clipboard.writeText(fullShareLink);
   } catch {
+    // The fallback copies from the field, so it fields the whole link while the
+    // browser's own copy command runs, and the abbreviated display comes back once
+    // that worked. A copy that failed leaves the whole link where the person can
+    // select it: the abbreviation is a paint, and what it would leave behind is a
+    // link no room answers.
     shareInput.focus();
-    // The fallback copies from the field, so it holds the full link while
-    // the guest copies by hand; the abbreviated display returns after.
-    const shown = shareInput.value;
-    shareInput.value = fullShareLink;
-    shareInput.select();
-    let done = false;
-    try {
-      done = document.execCommand('copy');
-    } catch {
-      done = false;
-    }
-    shareInput.value = shown;
+    const done = handCopy({
+      readout: shareInput,
+      full: fullShareLink,
+      shown: shareDisplay,
+      exec: () => document.execCommand('copy'),
+      fit: (value) => fitReadout(shareInput, value),
+    });
     if (!done) {
+      // The bar hides the readout on a narrow screen, where the label stands in
+      // for it; a copy that failed needs the field itself, because that is the
+      // only thing the person has left to select.
+      shareGroup.classList.add('hand-copy');
       failureAlert.show('Select the link and copy it by hand.');
       return;
     }
@@ -893,6 +902,8 @@ function leaveSession(sentence: string): void {
   tree = undefined;
   openDirs.clear();
   fullShareLink = '';
+  shareDisplay = '';
+  shareGroup.classList.remove('hand-copy');
   shareInput.value = '';
   shareInput.title = '';
   rosterList.replaceChildren();
