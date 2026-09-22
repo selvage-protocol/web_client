@@ -15,7 +15,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { handCopy } from '../src/browser/hand-copy.ts';
+import { handCopy, showDisplay } from '../src/browser/hand-copy.ts';
 
 const FULL = 'http://127.0.0.1:8096/?room=r-edb2d9cf8f75&token=4118535a6ba274ae9642c609f0655578';
 const SHOWN = '/?room=r-edb2…f8f75&token=411853…55578';
@@ -90,5 +90,17 @@ describe('copying the invite by hand', () => {
     });
     assert.equal(done, false);
     assert.equal(readout.value, FULL, 'a throwing copy command left the abbreviation behind');
+  });
+
+  it('puts the abbreviation back when the next attempt starts', () => {
+    // A failed fallback left the whole link in the readout; a later copy by either
+    // route must not leave the credential on the bar for the rest of the session.
+    const readout = makeReadout();
+    handCopy({ readout, full: FULL, shown: SHOWN, exec: () => false });
+    const fits = [];
+    showDisplay({ readout, shown: SHOWN, fit: (value) => void fits.push(value) });
+    assert.equal(readout.value, SHOWN, 'the link stayed on the bar');
+    assert.deepEqual(fits, [SHOWN], 'the field is sized for the value it holds');
+    showDisplay({ readout, shown: SHOWN, fit: () => assert.fail('a settled bar is resized') });
   });
 });

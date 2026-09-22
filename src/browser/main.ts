@@ -3,7 +3,7 @@ import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
-import { handCopy } from './hand-copy.ts';
+import { handCopy, showDisplay } from './hand-copy.ts';
 import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
@@ -722,7 +722,12 @@ downloadButton.addEventListener('click', () => {
 });
 
 async function copyShareLink(): Promise<void> {
+  // Every attempt starts from the bar's rest state: a fallback that failed may have
+  // left the whole link in the readout, and the abbreviation is what belongs there
+  // once a copy — by either route — has worked. On a narrow bar this is also what
+  // puts the readout back behind its label.
   shareGroup.classList.remove('hand-copy');
+  showDisplay({ readout: shareInput, shown: shareDisplay, fit: (value) => fitReadout(shareInput, value) });
   try {
     if (navigator.clipboard === undefined) {
       throw new Error('no clipboard');

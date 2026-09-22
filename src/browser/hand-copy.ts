@@ -29,6 +29,20 @@ export interface HandCopyOptions {
 }
 
 /**
+ * Puts the bar back to what it shows at rest. A failed fallback leaves the whole
+ * link in the readout, and it is the display that belongs there once a copy — by
+ * either route — has worked.
+ */
+export function showDisplay(options: Pick<HandCopyOptions, 'readout' | 'shown' | 'fit'>): void {
+  const { readout, shown, fit } = options;
+  if (readout.value === shown) {
+    return;
+  }
+  readout.value = shown;
+  fit?.(shown);
+}
+
+/**
  * Fields the whole link, copies it with the browser's own command, and returns
  * whether the clipboard now holds it. A failed copy leaves the whole link in the
  * readout, which is the only thing the person has left to select.
