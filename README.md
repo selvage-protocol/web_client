@@ -1,9 +1,12 @@
 # web_client
 
 The browser client for the Selvage session protocol. A share link opens the page, a
-guest edits in Monaco and converges with the room, and hosting stays in the editor
-clients. Guest only: it opens what the room shares and publishes what is typed, while
-the host's working copy stays the source of truth.
+guest edits in Monaco and converges with the room, and a Chromium browser can also start
+a room here: pick a folder and the folder itself is what the room shares, with the host's
+working copy staying the source of truth. Joining is one click, in every browser; hosting
+from the page needs the File System Access API, so it is Chrome and Edge and not Firefox
+or Safari, and a page can only host where the server that serves it also answers
+`/meta`.
 
 ## Get it working
 
@@ -128,6 +131,40 @@ one confirm, over a blurred preview of the editor. Type the name and press Join 
 and the first shared file opens focused. A pasted page link lands in the address bar, so a
 reload rejoins from it.
 
+### Start a room from the page
+
+A page with no invite can start one: type the name, press **Start a session here**, and
+the browser asks for a folder. The folder is the room's working copy — the page walks it
+for the listing a guest's tree draws, reads a file out when a guest asks for it, and
+writes the text the room settles on back through it. Nothing is uploaded, and no file
+outside the folder the person picked can be named through the handle. The invite link is
+then the one the session bar carries, and it is the same link an editor host would have
+produced: whoever opens it joins as a guest and edits the folder with them.
+
+Four things that shape it:
+
+- **Chromium only, and only where the page's origin is the server.** `showDirectoryPicker`
+  is Chrome and Edge; Firefox and Safari get a sentence where the button would be, and
+  joining still works there. A page that is not served by a Selvage server (the page-only
+  image in front of other servers, a static dev server) says so instead of offering a
+  control that could only refuse.
+- **Read and write.** The picker asks for both, because the room's settled text has to
+  reach the folder or the room is a scratch pad rather than a working copy.
+- **The stale-file guard.** The page holds a replica and a directory handle and cannot see
+  the file change under it, so before writing it compares the file's `lastModified` with
+  the stamp its last read or write saw. If something else wrote the file — a formatter, a
+  build, a `git checkout`, another editor — the write is **refused** and reported instead
+  of overwriting it, which is what VS Code and Neovim do on save and what a page has no
+  watcher to do any other way. A path the page never read is refused the same way.
+- **The tab is the host, and a reload ends the room.** A host's invite link is not written
+  into the address bar: reloading would rejoin its own room as a guest with no folder
+  while the room's grace ran out underneath it. The card warns before the click, and the
+  load after a reload says the room is over. Reclaiming inside the grace is not built.
+
+**Download** takes the open document out of the room and onto the person's disk — for a
+guest who has just edited a file and cannot keep it, and for a host whose folder refused
+the write. It is the control beside the share bar, and it is off while nothing is open.
+
 ### Checks
 
 ```sh
@@ -225,7 +262,13 @@ are dropped, the chrome comes down, and the card returns over the blurred previe
 `The room is gone (host did not return). Nothing in the room was saved. Paste a fresh
 invite link to join another session.` A page has no disk to leave a copy on. Nothing of
 the dead room stays on screen, the name stays typed, and pasting a fresh link joins the
-next room from there. The page never hellos as host and never rebuilds a room on its own.
+next room from there. A guest never claims host and never rebuilds a room on its own: the
+only mint is the one behind the folder picker, and a test pins that the guest path never
+asks for the host role.
+
+A page-hosted room has one more thing to say. The room lives in its tab, so the card warns
+before the click, and a reload says `This tab was hosting a room, and it is not any
+more…` rather than offering a card that looks like the last one.
 
 ## What is in the tree
 
@@ -358,9 +401,10 @@ offset mapping, which both sides count in UTF-16 code units.
 
 ## What the page does not do
 
-No hosting, no accounts, no stored state beyond the live session plus the remembered
-display name, no analytics, no automatic rejoin or host reclaim. A test pins that no
-browser source ever hellos as host.
+No accounts, no analytics, no stored state beyond the live session, the remembered display
+name and the tab's own note that it was hosting; no automatic rejoin or host reclaim. A
+test pins that the guest path never asks for the host role and that the only mint is the
+one behind the folder picker.
 
 `BROWSER_NOTES.md` has the decisions, the bundle diet, and the one layer a human still
 has to eyeball: Monaco rendering, which the proving host has no display for.

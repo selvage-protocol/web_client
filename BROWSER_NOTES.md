@@ -194,11 +194,14 @@ that. A test pins it.
 
 ## What the page does NOT do
 
-- No hosting: guest joins only. A browser page holding host grants would raise
-  persistence questions the demo does not need — what survives a reload, what
-  the truth is while the tab is closed — so the explicit refusal stands:
-  `readGrantedFile` answers nothing and `save` is a no-op. If hosting from the
-  browser is ever wanted, that stance, not the code, is the thing to revisit.
+- No hosting **without a gesture**: the page mints a room only from the folder
+  picker, so a load, a timer or a replayed submit can never start one, and the
+  guest path never asks for the host role. The stance written here through M1 —
+  "guest joins only" — is the one this file said to revisit if hosting were ever
+  wanted, and it was: see *Starting a room from the page* below. What it was
+  avoiding is answered rather than ignored (a reload, the truth while the tab is
+  closed), and what a browser cannot do — host in Firefox or Safari — is a
+  sentence on the card rather than a control.
 - No accounts, no signup. A reload
   rejoins from the link: arriving via link keeps working, and after a manual
   paste join the page writes the share link back into the address bar
@@ -2269,3 +2272,187 @@ scripts land), so the hold is not something `script-src 'self'
 `scripts/ci-local.sh checks` green on the committed tree, 356/356; the same page
 served by a real `selvaged --serve-page` on `127.0.0.1:8096` carries the same
 `form-action 'none'` header.
+
+## Starting a room from the page (2026-09-22)
+
+The owner's shape, implemented: a person opens the page with no invite, presses **Start a
+session here**, picks a folder, and the room's working copy is that folder. The design is
+`ai_notes/docs/studies/browser-hosted-rooms.md`; this is what landed, what was cut, and
+what was measured rather than assumed.
+
+### What the handle is, and what the page does with it
+
+`src/browser/folder.ts` is the browser's half of `vscode_client/src/adapter/grant.ts`, and
+it is much smaller than that file because `getDirectoryHandle` *is* the walk: a path is
+never a string that resolves somewhere, it is a name asked of a directory the person
+picked, so there is no `..`, no absolute path and no spelling the API can express for
+something outside the folder. What the two hosts still share is the bridge's own rules —
+`GRANT_EXCLUDED_DIRS`, `.env`, the key names, `GRANT_BINARY_SUFFIXES`, the 1 MiB and 5000
+path bounds, the publish order — because the page vendors `src/bridge/`.
+
+`FolderWorkingCopy` is structural over the handle (`values()`, `getDirectoryHandle`,
+`getFileHandle`, `getFile`, `createWritable`), so the suite drives the whole module with
+hand-built doubles and no DOM. The exclusion rules run with an empty platform, which is
+the shared rule's own answer for a host that cannot be read: it folds case, so a
+case-sensitive checkout loses a top-level `Build/` from the listing. That is the residual
+of not knowing whether the folder's volume folds, and sharing less is the safer error.
+
+The listing is the *same* `string[]` a `doc.granted` carries, so a guest's tree, its
+badges and its unpublished pill are untouched; the server and the protocol are untouched,
+as the study verified.
+
+### The stale-file guard
+
+The page holds a replica and a directory handle and cannot see the file change underneath
+it, so before any write it compares the file's `lastModified` — from `getFile()` — with
+the stamp the last read or write of that path saw, and **refuses** when they differ. It
+also refuses a path it has never read (`unread`): the room holds text for a path only
+because this host read that path off this disk, so a write with no read behind it would
+overwrite a file nothing here has looked at. This host therefore never creates a file;
+`getFileHandle` is only ever called for a name the listing already named.
+
+What it does not claim: `getFile()` and `createWritable()` are two steps, and a change
+landing between them is not caught. The API has no compare-and-swap. What the guard turns
+into a sentence is the overwrite a person would otherwise never hear about.
+
+The refusal reaches the person as a failure alert, not a status line: `save` throws the
+folder's own sentence, the bridge reports `saveFailed` with it, and the binding turns that
+into a `failure` notice into `#alert`.
+
+### A reload ends the room, and says so
+
+A page-hosted room lives in its tab, and the join flow is built the other way round — it
+persists the invite link into the address bar so a reload rejoins. For a host that is
+exactly backwards: a reload would rejoin its own room as a *guest*, with no folder and
+nothing to serve, while the dead socket's grace ran out underneath it. So a host does not
+write the link into the address bar. The link lives in the session bar, which is the one
+place a host needs it, and the tab leaves a mark in `sessionStorage`
+(`selvage.hosting`), read once by the next load to say what the reload cost. A room that
+ends cleanly clears the mark instead.
+
+Reclaiming inside the grace was not built: it needs the handle kept in IndexedDB, a
+*Resume hosting* click, and a permission re-prompt, and it is the first thing the study
+would cut. What is on the card instead is the warning before the click — "*This tab is the
+host. Close or reload it and the room ends…*" — and the sentence after it. A host action
+is offered on a page that was not opened with an invite; a page that was is the join flow,
+one action and one click, and nothing is added to it.
+
+### No picker, and not the server's own page
+
+The control is offered only where both are true: this browser can hand a page a folder
+(`folderPickerOf` tests `showDirectoryPicker` and nothing weaker — Firefox and Safari do
+implement the handle interfaces for their own OPFS), and this page's own origin answers
+`/meta` with a wire version this client speaks. `npm run serve` on `:8081`, the page-only
+image in front of another origin, and a `file://` open all get the sentence instead, and
+joining is untouched on every one of them.
+
+The host action is *revealed* by the bundle once `/meta` answers rather than painted by
+the shell, so the first frame is the card this file's *Join card* sections describe and
+the third action arrives a moment later. That is a residual of deciding `/meta` is
+required: a shell cannot make a same-origin request before it paints.
+
+### The symbolic-link probe: Chromium does not follow one, and does not show it
+
+The study left one thing unverified — whether a Chromium `FileSystemDirectoryHandle`
+follows a symbolic link out of the picked folder — and its "the browser's confinement is
+stronger than the desktop's" claim leaned on the answer. Chromium 152.0.7977.82, a real
+folder handle, a real folder:
+
+| what was asked | what Chromium answered |
+|---|---|
+| `escape` → `../outside` (a directory link out of the folder) | absent from `values()`; `getDirectoryHandle('escape')` → `NotFoundError` |
+| `link.txt` → `../outside/secret.txt` (a file link out of the folder) | absent from `values()`; `getFileHandle('link.txt')` → `NotFoundError` |
+| `selflink.txt` → `hello.txt` (a link **inside** the folder) | absent from `values()`; `getFileHandle('selflink.txt')` → `NotFoundError` |
+| a file and two links created on disk *after* the handle was taken | the file appeared in the next listing (the handle is live, not a snapshot); both links did not |
+
+So Chromium does not follow a link out of the folder, and it does not expose a link at
+all: a symbolic link is a "hidden item" in `storage/browser/file_system/local_file_util.cc`,
+whose `IsHiddenItem` is `base::IsLink(path)` — every operation on the path is
+`FILE_ERROR_NOT_FOUND` (`GetLocalFilePath`) and the directory enumerator skips it
+(`LocalFileEnumerator::Next`). That is the storage layer both a *picked* and a *dropped*
+directory handle run through: `FileSystemAccessDirectoryHandleImpl::GetEntries` calls the
+same `FileSystemOperationRunner::ReadDirectory`, and the manager builds the handle with
+the same `CreateDirectoryHandle` for both.
+
+Two honest limits on that evidence. The handle this was probed with was a *dropped* folder
+(`DataTransferItem.getAsFileSystemHandle()`), because `showDirectoryPicker` cannot be
+automated: `Page.setInterceptFileChooserDialog` intercepts the directory chooser in this
+build but hands back no node to fill in, and `DOM.setFileInputFiles` needs one — so the
+picker's own dialog is the one thing no harness can answer, which is why the host flow
+below runs against a real handle from the origin private file system instead. And the rule
+is the *engine's*: a link inside the folder is invisible too, so the browser host shares
+strictly less than a desktop host, which lists no links but will open a file that is not
+one.
+
+Reproduce: `.tmp/symlink-probe/probe.mjs` in a checkout (Chromium 152 over CDP, a static
+page that takes a dropped folder, `run1`/`probe2`/`probe3` logs under `.tmp/symlink-probe/`).
+The study is corrected in the same wave, in `ai_notes`.
+
+### Seen in a browser
+
+Chromium 152.0.7977.82 headless, driven through `agent-browser` over CDP, a real
+`selvaged --serve-page dist` on `127.0.0.1:8090`, and two independent browser sessions for
+the two roles. The picker's dialog is the one thing automation cannot answer, so the host
+page is loaded with a page init script that stands in for `showDirectoryPicker` with the
+**real** `FileSystemDirectoryHandle` the browser hands out for its own origin private file
+system, seeded with a small project; everything after the pick — `values()`, `getFile()`,
+`lastModified`, `createWritable()`, the guard, the write — is the real API. Screenshots in
+`.tmp/run/`, the init script at `.tmp/run/host-init.js`.
+
+- `01-host-bar.png` — the host page after the folder was picked: the session bar with the
+  invite link and the download control, the roster with the host's own row, and the tree
+  drawn from the folder. `.env`, `.git/config`, `node_modules/…`, `logo.png` and
+  `server.pem` are absent from it, by name, which is the shared grant rule running in the
+  browser.
+- `02-guest-sees-the-folder.png` — a second browser, the invite link, one click: the guest
+  sees the browser host's folder tree and Ada in the roster, and never a host action.
+- `03-stale-write-refused.png` — the file rewritten on disk behind the page's back (a
+  fresh handle, as a formatter or a checkout would), a guest edit, and the alert: *"README.md
+  changed on disk since the room read it — something else wrote it (a formatter, a build,
+  another editor, a checkout) — so it was left alone rather than overwritten…"*. The file
+  still held the outside writer's bytes (read back through the handle afterwards).
+- `04-reload-notice.png` — the host tab reloaded: the address bar is bare (no
+  `?room=&token=`), and the card carries *"This tab was hosting a room, and it is not any
+  more…"*, with **Start a session here** and its warning under it.
+- `05-guest-room-gone.png` — the guest's end of it, at the grace: *"The room is gone (host
+  did not return). Nothing in the room was saved."* — the sharpest consequence of a
+  browser host, and the sentence the page already had.
+- `06-not-the-servers-page.png` — the same page served by a plain static server on
+  `:8091`: the sentence, no button, Join untouched.
+- `07-no-directory-picker.png` — the same page with `showDirectoryPicker` removed before
+  the bundle runs, which is what Firefox and Safari look like to the feature test: the
+  sentence, no button, and a join from that page into a browser-hosted room still worked
+  (the same session joined and saw the tree).
+
+The round trip that matters was read back, not inferred: a guest's edit to `README.md`
+arrived in the host's editor and then, through the guard and `createWritable`, in the
+folder (`README.md` read back through the handle at the new text and a new
+`lastModified`). The download was taken with `agent-browser download`, and
+`.tmp/run/downloaded-README.md` is 176 bytes of the room's text — including the two guest
+lines the refused write had kept out of the folder, which is what the control is for.
+
+**Red and green.** Three mutations, each run alone. `folder.ts` with the `lastModified`
+comparison removed turns *refuses a write when the file changed on disk since the room
+read it* red (19/20) and restoring it returns 20/20; `editor.ts` with the host's own read
+in `initialText` removed turns the host-half suite red; and with `folder.ts` moved aside,
+`test/folder.test.ts` cannot even load. `scripts/ci-local.sh checks` green on the
+committed tree, 402/402 (`npm run test:ci`, which excludes the one suite that needs the `site` checkout beside this one).
+
+### What was cut, and what that leaves out
+
+The study's four cuttable items, in its order. **Reclaim on reload** is cut: the warning
+and the post-reload sentence are what landed (above). **The tree-driven open** is not
+cuttable and is not cut — the host's click reads the file out of the folder, which is the
+only way a host can edit its own file at all. **The stale-file guard** is not cut. **The
+download** is not cut: it is in the same wave, because with hosting it is the escape hatch
+for a refused write.
+
+Left out with the resume, and stated: a person who reloads inside the room's grace cannot
+get the same room back, and the guests in it lose what was not already in their replicas.
+The card says so before the click and after the reload.
+
+### Not in this wave
+
+Upload: the study's §7 prices it and declines it for this shape — a folder-shaped host
+already has a way to put a file in the room. The `site`'s copy and `DESIGN.md` are
+handled where they live.
