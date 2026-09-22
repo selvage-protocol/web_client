@@ -44,6 +44,7 @@ interface ShellState {
   inviteWrap: { hidden: boolean };
   nameInput: { value: string };
   armed: boolean;
+  pending: boolean;
 }
 
 /**
@@ -52,7 +53,7 @@ interface ShellState {
  * markup state is read from the shell, never assumed — a card whose paste box
  * is only hidden in the markup is exactly the frame that flashed.
  */
-function runShell(search: string, stored: string): ShellState {
+function runShell(search: string, stored: string, held = false): ShellState {
   const markupHidesInvite = /<label id="invite-wrap"[^>]*\shidden/.test(html);
   const elements = new Map<string, FakeElement>();
   const element = (id: string): FakeElement => {
@@ -73,13 +74,13 @@ function runShell(search: string, stored: string): ShellState {
     location: { search },
     localStorage: { getItem: (key: string) => (key === DISPLAY_NAME_KEY ? stored : null) },
     __selvageJoinArmed: false,
-    __selvagePendingJoin: false,
+    __selvagePendingJoin: held,
   };
   const document = { getElementById: (id: string) => element(id) };
   // eslint-disable-next-line no-new-func
   const run = new Function('window', 'document', 'URLSearchParams', inlineScript());
   run(window, document, URLSearchParams);
-  return { inviteWrap: element('invite-wrap'), nameInput: element('name'), armed: window.__selvageJoinArmed };
+  return { inviteWrap: element('invite-wrap'), nameInput: element('name'), armed: window.__selvageJoinArmed, pending: window.__selvagePendingJoin };
 }
 
 function bundleCard(search: string, stored: string): JoinCardElements {
@@ -142,6 +143,44 @@ describe('the card shell decides the first frame', () => {
     assert.ok(guard !== -1, 'no pre-bundle guard');
     assert.ok(card !== -1, 'no pre-paint card block');
     assert.ok(guard < card, 'the card block runs before the guard that protects the form');
+  });
+
+  it('holds a submit the card gets before any script has run', () => {
+    // A deployment that defers every script — the demo's Cloudflare Rocket
+    // Loader does — has no guard until one runs, and the room's own server
+    // answers a form action with a CSP refusal, so a join made in that window
+    // can neither navigate nor leave a trace. The markup is the only thing
+    // standing there, so the hold is an attribute on the form.
+    const tag = /<form id="join-form"[^>]*>/.exec(html)?.[0];
+    assert.ok(tag !== undefined, 'the shell carries no join form');
+    const handler = /\sonsubmit="([^"]*)"/.exec(tag)?.[1];
+    assert.ok(handler !== undefined, `the form carries no pre-script hold: ${tag}`);
+    const preScript = { __selvageJoinArmed: false, __selvagePendingJoin: false };
+    // eslint-disable-next-line no-new-func
+    const cancel: unknown = new Function('window', handler)(preScript);
+    assert.equal(cancel, false, 'the hold does not cancel the submission it holds');
+    assert.equal(preScript.__selvagePendingJoin, true, 'a held join is never recorded for the bundle');
+    // Once the bundle is armed the hold has no job: the guard's own listener
+    // and the bundle's handler own the submit from there.
+    const armed = { __selvageJoinArmed: true, __selvagePendingJoin: false };
+    // eslint-disable-next-line no-new-func
+    new Function('window', handler)(armed);
+    assert.equal(armed.__selvagePendingJoin, false, 'the hold records a join the bundle already handles');
+  });
+
+  it('leaves a held join alone when the shell script arrives', () => {
+    // The markup held it and the bundle is the only thing that can replay it,
+    // so a shell script that cleared the flag on arrival would drop the join
+    // instead of handing it on.
+    const shell = runShell('', '', true);
+    assert.equal(shell.armed, false, 'the inline script armed the card before the bundle');
+    assert.equal(shell.pending, true, 'the inline script dropped the join the markup held for it');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /__selvagePendingJoin === true[\s\S]{0,120}attemptJoin\(\)/,
+      'nothing in the bundle replays a join the shell held',
+    );
   });
 
   it('the script runs while the parser still holds the shell', () => {

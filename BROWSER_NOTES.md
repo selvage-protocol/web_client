@@ -2196,3 +2196,71 @@ gutter between them, the card covering the middle of the document; with the
 veil lifted the drawing is an editor with a file tree, a gutter and 36 lines of
 syntax-coloured code. `scripts/ci-local.sh checks` green on the committed tree,
 356/356.
+
+## A join before any script has run (2026-09-22)
+
+The owner's second report — "when joining via website — without a room link" —
+does not reproduce as a silent card in the ordinary case. On the demo,
+`https://selvage.dontblameme.dev/` with no `?room=`/`?token=`, a name typed and
+Join pressed refuses with the card's own sentence, `Paste an invite link to
+join.`, in `#join-error`; nothing dials, nothing is minted, the address bar
+keeps its address and the button comes back (`.tmp/web-page/live-bare-join.png`,
+`.tmp/web-page/live2.out`, three submits at 1280×757 with every request and
+console message recorded, the earliest within 100 ms of the navigation). That is the
+right answer and it needed no change: `PROTOCOL.md`
+§5.1 with `specification/NOTES.md` §B.17 says a URL that names no room is a
+*mint*, and the page never claims host — `test/room-gone.test.ts` pins that no
+browser source hellos as host — so a bare page has no session to reach and
+refuses rather than dialling. The sentence is the page's own, pinned in
+`test/join-screen.test.ts` and documented under *Join flow without plumbing*;
+the desktop clients' `an invite link is needed` (`client-command-parity.md` §5)
+is the Neovim `:SelvageJoin` with no argument, and the page's copy is the
+plainer wording the guest standard asks for. Nothing here invents or renames
+one.
+
+What does reproduce is narrower and live only. The demo's Cloudflare Rocket
+Loader defers every script in the page — the deployed HTML carries the rewritten
+`type="…-text/javascript"` the loader evals later — so the card is painted,
+focusable and clickable for a whole round trip with no guard behind it. With the
+loader's own script blocked, the demo is what the parser read: the paste box
+still hidden by its markup, no armed flag, no listener, no script at all
+(`inviteHidden: true`, `.tmp/web-page/prescript-live.json`). A join pressed
+there can neither navigate nor leave a trace: the room's own server answers
+every page with `form-action 'none'`
+(`reference_server/crates/selvaged/src/page.rs`), so the console records
+`Sending form data … violates … "form-action 'none'"` and the person sees a
+button that does nothing at all. On a machine with no CSP in front of it the
+same click is a bare GET submission instead, which reloads the page and wipes
+what was typed. Either way the click was lost, because the only thing that
+could have held it was a script, and the deployment had not run one yet.
+
+The form now carries the hold itself, in the one place a deferred deployment
+cannot take it away:
+`onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingJoin = true; } return false;"`
+records the submit for the bundle's own replay, and the shell's prologue no
+longer clears a flag the markup set — the bundle is the only thing that can
+replay it, so a shell script arriving later must hand it on rather than drop it.
+An armed card is untouched: the attribute then records nothing and cancels a
+default action both listeners cancel anyway.
+
+**Red and green.** Two mutations, run one at a time against
+`test/join-paint.test.ts`. Dropping the `onsubmit` attribute turns *holds a
+submit the card gets before any script has run* red; restoring the
+unconditional `window.__selvagePendingJoin = false;` turns *leaves a held join
+alone when the shell script arrives* red. Each leaves the other green, so each
+half of the hold has a test of its own. Restored: 356/356.
+
+**Seen in a browser.** Chromium 152 over CDP, the driver at
+`.tmp/web-page/deferred-drive.mjs`, which serves the page in the deployment's
+shape — the inline shell script moved to a deferred file, the shell and the
+bundle both 2.5 s late — for the committed shell and for this one, and presses Join
+as soon as the card is on screen — seconds before either script lands.
+Committed shell: the submit is a bare GET (`/before/?#`), the
+typed name is wiped, and once the scripts land the card carries no message at
+all. This one: the address is unchanged, the name stays typed, the flag reads
+`true`, and when the scripts land the bundle replays it — `armed: true`,
+`pending: false`, and the card reads `Paste an invite link to join.` That is the
+same refusal the ordinary case gives, delivered late instead of not at all.
+`scripts/ci-local.sh checks` green on the committed tree, 356/356; the same page
+served by a real `selvaged --serve-page` on `127.0.0.1:8096` carries the same
+`form-action 'none'` header.

@@ -419,7 +419,13 @@
         <span class="mark" aria-hidden="true"></span>
         <h1>Join a shared session</h1>
         <p id="join-message" hidden></p>
-        <form id="join-form" action="#">
+        <!-- The hold that is there before any script is: a deployment that
+             defers every script has no guard until one runs, and the room's
+             own server answers a form action with a CSP refusal, so a join
+             that lands first can neither navigate nor leave a trace. The
+             bundle replays what this records (`src/browser/main.ts`), and a
+             script that then arrives leaves it alone. -->
+        <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingJoin = true; } return false;">
           <label id="invite-wrap" hidden>Paste your invite link
             <input id="invite" type="text" autocomplete="off" spellcheck="false"
               placeholder="/?room=…&token=…" />
@@ -450,9 +456,15 @@
       // Pre-bundle guard, first so nothing below can disarm it: the card shell
       // is usable before app.js arrives, so a submit that lands first is held —
       // never a bare navigation, which would wipe what was typed — and replayed
-      // once the bundle arms the card.
+      // once the bundle arms the card. The form's own `onsubmit` holds the one
+      // submit this line cannot see: a deployment that defers every script
+      // (the demo's Cloudflare Rocket Loader does) has no guard at all until
+      // this runs, and the room's server refuses a form action outright, so a
+      // join made in that window would otherwise do nothing at all.
       window.__selvageJoinArmed = false;
-      window.__selvagePendingJoin = false;
+      if (window.__selvagePendingJoin !== true) {
+        window.__selvagePendingJoin = false;
+      }
       document.getElementById('join-form').addEventListener('submit', function (event) {
         if (!window.__selvageJoinArmed) {
           event.preventDefault();
