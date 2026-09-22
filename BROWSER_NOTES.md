@@ -2459,3 +2459,99 @@ The card says so before the click and after the reload.
 Upload: the study's §7 prices it and declines it for this shape — a folder-shaped host
 already has a way to put a file in the room. The `site`'s copy and `DESIGN.md` are
 handled where they live.
+
+## A polish pass over the whole page (2026-09-22)
+
+A walk of every state a person meets — the bare card, a bad link, a dead room, a real
+guest session with a second guest and a host, follow, the share box, the host's grace
+window, the room's end — at 1440×900 and on a phone (Chromium 152 over CDP at 412×915,
+`mobile: true`, touch emulation). Four defects were fixed, each with a test that fails
+without it; the rest of the walk is recorded below as either fine or still open. The
+driver, its measurements and every shot are kept under
+`.tmp/web-polish-2026-09-22/` in the checkout (outside git, along with the other eyeball
+harnesses).
+
+**The panel was narrower than its own roster row.** At 19rem the name column of a roster
+row was 69 px for a name needing 82 px, so the guest's own `Guest One` painted as
+`Guest ...` while two verbs that can never be pressed took 132 px of a 234 px row, and
+following a nine-character peer elided that name too (`demo-h... Following`). The panel is
+**21rem** now: the same three rows measure 82/82, 100/100 and 69/69 — nothing elided, the
+tightest of them with 5 px to spare — and the editor keeps 1125 px of the 1440 px window.
+The backdrop's own panel went with it, because it is a picture of this layout.
+`test/join-chrome.test.ts` pins the width and that the two agree. This is the same remedy
+the panel already had once (17rem → 19rem), and it postpones rather than removes the
+question: two labelled verbs and a name still need ~250 px, and a long name still elides.
+
+**The phone's disclosure opened onto its people and cut off its files.** Measured at
+412×915 with the driver's touch emulation, one host and two guests: at the 38% cap the
+panel was 314 px of the workspace, ended at y 447, and every file row sat below it (first
+row 428, last 518) with 90 px of panel scroll left — the control is named `Files and
+people` and showed no files. At **60%** the panel is 404 px, no row is cut, and the panel
+stops scrolling at all (scrollHeight 403 = clientHeight). The editor keeps 318 px while
+the disclosure is open and returns to the full workspace when a file opens it shut, which
+is the state the 38% figure was measured for.
+
+**The phone's copy control was an empty box.** Below 640 px the bar hides the readout and
+keeps the icon, so the control measured **381×44 px holding a 14×14 icon and no text at
+all** — an empty field with a link glyph in it. It now carries `Copy invite link` beside
+the icon, shown by exactly the query that hides the readout, and `aria-hidden` because the
+control's own `aria-label` already names it. On a pointer device the label is back to
+`display: none` and the bar is what it was.
+
+**The hand-copy fallback pointed at a link that could not join.** With
+`navigator.clipboard.writeText` refused and `document.execCommand('copy')` answering false
+— both stubbed in the real page, the way the clipboard-less path really fails — the alert
+said `Select the link and copy it by hand.` while `#share` held
+`/?room=r-edb2…f8f75&token=411853…55578`: the *abbreviated display*, with the selection
+collapsed at its end. Selecting what was there and sending it produces an invite no room
+answers. `hand-copy.ts` is the fallback now, and it puts the abbreviation back only when
+the browser's copy command reported success; a failed copy leaves the whole link in the
+field, selected. On a narrow bar, where that field is `display: none`, the failure adds
+`#share-group.hand-copy`, which reveals the readout and stands the label down — otherwise
+the instruction would still point at nothing.
+
+The walk also confirmed four states as correct, unchanged:
+
+- the dead room's refusal (`Nothing answers at that link. …`), the bad paste (`That invite
+  link does not name a session. …`), the empty room's `The host has not shared any files
+  yet.` and the read-only blank editor behind it;
+- the host's grace window counting down in its own strip, and the room-gone card coming
+  back with the reason, the whole link, nothing in the room saved, the pasted name kept
+  and the paste box focused;
+- follow, go-to and the tree's presence badges, with the peer's caret and selection fill on
+  the desktop and the second guest's edit converging after a socket drop;
+- the missing pointer target: at 700×800 the page has no sideways scroll and only Monaco's
+  own oversize nodes cross the edge, exactly as the earlier round recorded.
+
+Two of the three open items from earlier rounds are answered here, and one is left:
+
+- **A dropped socket showing nothing while it reconnects: leave it.** Typing into the room
+  with the browser forced offline and then restored converged on the other guest unchanged
+  (`offline-edit` in `notes.md` on both pages), because what a dropped socket loses is
+  local and §9.1 re-opens what the client held. There is nothing for the guest to act on
+  during a drop it cannot see, and a drop that outlasts the retry budget already ends with
+  the card.
+- **The shortened room id in the share bar: leave it.** The readout is masked at rest,
+  reveals the abbreviation on hover or focus, and the element's title and the clipboard
+  both hold the whole link — proven again here by reading `#share`'s title beside its
+  value. Whether 12 characters still reads as an identifier is the owner's call, not a
+  defect.
+- **The ghost document: reached, and it is not the defect it was thought to be.** A
+  second guest can close a path the page holds `doc.close` for, but the room keeps a path
+  while any peer holds it, and the page holds every document it shows — two closes from
+  another guest left `documents` unchanged. The path leaves the room only while the page's
+  own socket is down (the room forgets that peer's claims), and that is the one window in
+  which the page can neither publish nor hear the close; on the reseat it re-opened the
+  path and the room listed it again (`todo.txt` back in `documents`). What remains true is
+  narrower than the note claimed: during a drop the buffer in front of the editor is still
+  editable though the room no longer holds it, which costs nothing because nothing typed
+  can leave the page — and the page re-opens it the moment the socket is back.
+
+One thing the walk could not check on this host: the clipboard itself. Chromium refuses
+`navigator.clipboard.readText()` here, so the *primary* copy path (API write) is pinned by
+its unit tests and by the fallback it lands in, not by reading the clipboard back; the
+fallback was exercised for real both ways, success and failure, by stubbing the two calls.
+
+Open, and deliberately not touched: whether the roster's two verbs should keep their text
+labels on a pointer device, where the desktop client's inline actions are icons alone —
+that is the other way to give a name its room, and it is a presentation the owner shaped.

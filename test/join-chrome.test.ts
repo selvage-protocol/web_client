@@ -368,6 +368,23 @@ describe('the landing page language', () => {
   });
 });
 
+describe('the side panel holds what a roster row is made of', () => {
+  it('is wide enough for a name beside two labelled verbs', () => {
+    // Measured in Chromium 152 at 1440x900, the real bundle, one host and one
+    // guest: at 19rem the row's name column was 69 px for a name needing 82 px,
+    // so the guest's own `Guest One` painted as `Guest ...` while two dead verbs
+    // took 132 px of a 234 px row; following a nine-character peer elided that
+    // name too (`demo-h... Following`). At 21rem both fit, and the editor keeps
+    // 1125 px of the 1440 px window.
+    const width = /#side\s*\{[^}]*width:\s*([\d.]+)rem/.exec(style);
+    assert.ok(width !== null, 'the panel has no fixed width');
+    assert.ok(Number(width[1]) >= 21, `the panel is ${width[1]}rem: a peer's name elides beside its own verbs`);
+    const backdrop = /#preview \.fake-side\s*\{[^}]*width:\s*([\d.]+)rem/.exec(style);
+    assert.ok(backdrop !== null, 'the backdrop carries no panel width');
+    assert.equal(backdrop[1], width[1], 'the backdrop draws a panel of another width');
+  });
+});
+
 describe('the message homes', () => {
 
   it('a failure alert stands a few seconds, then leaves on its own', () => {

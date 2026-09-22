@@ -115,6 +115,9 @@
       #share-group, #share-group *, #share-group.copied, #share-group.copied * {
         cursor: pointer; }
       #share-group .icon { display: inline-flex; flex: none; }
+      /* Below 640 px the readout is hidden and the icon alone would be an empty box;
+         the words take its place there (the rule in that query, below). */
+      #share-group .share-label { display: none; font-weight: 600; white-space: nowrap; }
       #share-group:hover { border-color: var(--primary); }
       #share-group.copied { border-color: var(--primary); }
       #share-group .confirm { position: absolute; inset: 0; display: inline-flex;
@@ -153,7 +156,7 @@
       #panel-toggle { display: none; }
       #panel-toggle .chev { transition: transform 0.12s ease; }
       #panel-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
-      #side { width: 19rem; flex: none; overflow-y: auto; border-right: 1px solid var(--border);
+      #side { width: 21rem; flex: none; overflow-y: auto; border-right: 1px solid var(--border);
         background: var(--card); padding: 0.9em 0.7em 1.2em; }
       #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
         color: var(--muted-foreground); margin: 1.5em 0 0.5em; padding: 0 0.55em; }
@@ -214,7 +217,7 @@
          turns into an artifact. */
       #preview { position: fixed; inset: 0; display: flex; min-height: 0;
         pointer-events: none; user-select: none; }
-      #preview .fake-side { width: 19rem; flex: none; background: var(--card);
+      #preview .fake-side { width: 21rem; flex: none; background: var(--card);
         border-right: 1px solid var(--border); padding: 0.7em 0 1.4em; overflow: hidden;
         font: 1.15em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
       #preview .fake-side .fake-dir { color: var(--foreground); font-weight: 600;
@@ -282,15 +285,23 @@
         #session { flex-wrap: wrap; row-gap: 0.4em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
         #share-group #share { display: none; }
+        #share-group .share-label { display: inline; }
+        /* A copy the browser refused needs the field itself: it holds the whole link
+           by then, and it is the only thing the person can select by hand. The label
+           stands down for it, having nothing left to name. */
+        #share-group.hand-copy #share { display: block; }
+        #share-group.hand-copy .share-label { display: none; }
         #workspace { flex-direction: column; }
         /* `border-box` so the cap is the panel's own box: without it the padding
-           and the border sat outside the 38% and the panel took 42%. */
+           and the border sat outside the 38% and the panel took 42%. The cap is
+           60% because the panel is the disclosure a phone reads: at 38% a room
+           with one other peer already pushed every file row below its own fold. */
         #side { width: auto; border-right: none; border-bottom: 1px solid var(--border);
-          max-height: 38%; box-sizing: border-box; }
+          max-height: 60%; box-sizing: border-box; }
         #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
-        /* Two panes do not fit behind a card at this width: 19rem of tree
-           leaves a sliver of code, cut by the card. A phone gets the veil
-           over the plain background instead. */
+        /* Two panes do not fit behind a card at this width: the panel's own
+           width of tree leaves a sliver of code, cut by the card. A phone gets
+           the veil over the plain background instead. */
         #preview { display: none; }
       }
       /* A finger, not a pointer. Everything here is behind `(any-hover: none)`,
@@ -348,6 +359,7 @@
         <span id="brand"><span class="mark" aria-hidden="true"></span>Selvage</span>
         <div id="share-group" role="button" tabindex="0" aria-label="Copy invite link" title="Copy invite link">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg></span>
+          <span class="share-label" aria-hidden="true">Copy invite link</span>
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
         <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>

@@ -143,6 +143,36 @@ describe('abbreviated host', () => {
     assert.ok(main.includes('shareInput.title'), 'the full link is not kept as the title');
     assert.ok(main.includes('fullShareLink'), 'the clipboard reads the display text');
   });
+
+  it('the clipboard-less fallback is handed the display, not the field’s own value', () => {
+    // The fallback fields the whole link in the readout and may leave it there,
+    // so reading the display back off the field would put a credential on the
+    // bar for good the first time a copy failed.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.ok(main.includes('handCopy({'), 'the fallback is inlined again');
+    assert.match(main, /shown:\s*shareDisplay\b/, 'the fallback restores whatever the field holds');
+    assert.match(main, /let shareDisplay = ''/, 'nothing keeps the abbreviation the bar shows at rest');
+    assert.match(main, /shareDisplay = displayShareLink\(/, 'the display is never built');
+  });
+
+  it('reveals the readout a narrow bar hides, so the hand copy has something to copy', () => {
+    // Below 640 px the readout is `display: none` and the label stands in for it,
+    // where `Select the link and copy it by hand.` would point at no link at all.
+    const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    assert.match(
+      styleOf(html),
+      /#share-group\.hand-copy #share\s*\{[^}]*display:\s*block/,
+      'a failed copy leaves the phone with an instruction and no link',
+    );
+    assert.match(
+      styleOf(html),
+      /#share-group\.hand-copy \.share-label\s*\{[^}]*display:\s*none/,
+      'the label stands over the link it was standing in for',
+    );
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /shareGroup\.classList\.add\('hand-copy'\)/, 'the failure path reveals nothing');
+    assert.match(main, /shareGroup\.classList\.remove\('hand-copy'\)/, 'the reveal is never put back');
+  });
 });
 
 describe('join button', () => {
