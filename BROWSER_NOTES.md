@@ -2137,3 +2137,62 @@ it, so the read has a test of its own. Restored: green. Reverting the write alon
 appending `&server=` again) turns three of `test/share.test.ts` red with the parameter back in the
 actual link. Restored: the whole CI suite green, 327/327, and `tsc --noEmit` clean.
 `scripts/ci-local.sh all` green on the committed tree.
+
+## The backdrop is drawn at the size an editor is read at (2026-09-22)
+
+Owner, on the public demo: "the code sample in the background (and file tree)
+needs to be larger, currently it mainly looks like an artifact". Reproduced
+against the committed `dist/` at 1440×900 as served
+(`.tmp/web-page/before-desktop-1440x900-as-served.png`): the drawing was five
+tree rows at 11.9 px and four lines of code at 12.3 px, and what came through
+`#veil`'s `blur(11px)` and its `rgba(17, 17, 27, 0.6)` wash was one faint smudge
+in the top-left corner, with the card the only thing in the frame that read
+as anything at all.
+
+The picture is now drawn at the size the editor itself is read at, and the
+document in it is longer than the window:
+
+- `0.85em`/`0.88em` → **`1.15em`** (16.1 px of the page's 14 px root) for the
+  tree, the code and a new line-number gutter, at the 1.75 leading it had. 16 px
+  is the size the page gives its own editor on a touch device
+  (`src/browser/mobile.ts`); a shrunken fraction of the editor's own size is
+  what the blur turns back into a smudge.
+- 5 tree rows → **21**: 19 files under four folders, the one the code pane has
+  open lit with `--muted` and a heavier weight, the way the real tree lights it.
+- 4 lines of code → **36**, with the gutter down the left edge — the shape that
+  reads as an editor first. 1014 px of code against 86 px before, so the card at
+  `top: 50%` cuts lines above and below it instead of standing under the last
+  one.
+- Everything the previous pass pinned is unchanged: the veil and its blur, the
+  page's own tokens (no colour of its own), `aria-hidden`, `inert`,
+  `pointer-events: none`, `user-select: none`, the card's own border and shadow
+  over a busier backdrop, and the 640 px cut — below 640 px it is still
+  `display: none` rather than squeezed (`test/mobile.test.ts`), checked at
+  390×844 (`final-phone-390x844.png`, `display: none`).
+
+`test/join-paint.test.ts` grew the numbers the shrunken version satisfied too:
+every `#preview` font declaration is at least 1em, the gutter names exactly the
+lines the excerpt has and in order, the excerpt stands at least a 900 px window
+tall at its own size, the tree names at least twelve files in at least three
+folders, and every `<div>`, `<pre>` and `<span>` the picture opens is closed.
+That last one is not decoration. The first draft of this change lost two
+`</div>`s, which put `#veil` and the join card inside the `inert`,
+`pointer-events: none` subtree: the card stopped taking clicks, the whole suite
+stayed green, and only the browser pass found it (`elementFromPoint` over
+the Join button answered `#app`).
+
+**Red and green.** `node --test test/join-paint.test.ts` against the committed
+shell: the four new tests in *the pre-join backdrop is drawn at the size an
+editor is read at* all fail — `the scan reached 2 font declarations`, `the code
+pane carries no gutter`, `the excerpt stands 86 px tall, inside a 900 px
+window`, `the tree names 3 files` — and every other test in the file stays
+green. Restoring the change, 36/36 in that file.
+
+**Seen in a browser.** Chromium 152 over CDP, the built `dist/` on
+`127.0.0.1:8123`, the driver at `.tmp/web-page/shoot.mjs`, shots beside it:
+`before-*` is the committed shell's `dist/` served the same way on `:8124`.
+As served at 1440×900 the tree reads as rows and the code as lines with the
+gutter between them, the card covering the middle of the document; with the
+veil lifted the drawing is an editor with a file tree, a gutter and 36 lines of
+syntax-coloured code. `scripts/ci-local.sh checks` green on the committed tree,
+356/356.
