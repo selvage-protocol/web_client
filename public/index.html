@@ -266,6 +266,16 @@
         transition: background-color 0.15s ease,
         border-color 0.15s ease, transform 0.08s ease; }
       #join-button:active:not(:disabled) { transform: translateY(1px); }
+      /* The host action, under a rule that separates it from the join the card already asks:
+         one question, one action, and starting a room is the other answer to it. */
+      #host-wrap { margin-top: 1.3rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
+      #host-button { display: flex; width: 100%; justify-content: center; margin: 0;
+        padding: 0.8em 1.1em; font-size: 1em; }
+      #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
+        line-height: 1.5; }
+      #download { display: flex; align-items: center; justify-content: center; flex: none;
+        padding: 0.4em 0.6em; color: var(--muted-foreground); }
+      #download:hover:not(:disabled) { color: var(--foreground); }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
       @media (max-width: 640px) {
@@ -300,6 +310,7 @@
            the box, not on the content: `min-height` sits inside the padding
            otherwise, which rendered the copy strip 63 px tall. */
         button, summary, #tree button.row { min-height: 44px; }
+        #download { min-width: 44px; }
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
         #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
@@ -339,6 +350,7 @@
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg></span>
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
+        <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
       </div>
       <div id="session-note" aria-live="polite"></div>
       <div id="follow-banner" hidden></div>
@@ -436,6 +448,16 @@
           <button id="join-button" class="primary" type="submit">Join</button>
         </form>
         <p id="join-error" role="alert"></p>
+        <!-- Starting a room from this page. Hidden in the markup and revealed by the bundle
+             only once this page's own origin has answered `/meta` and this browser has been
+             found to have a directory picker: a control that could only refuse is worse than a
+             sentence, and the sentence is what stands here when either is missing. `type`
+             `button` keeps it out of the join form's submission, so the pre-bundle hold on that
+             form has nothing to do with it. -->
+        <div id="host-wrap" hidden>
+          <button id="host-button" type="button" hidden>Start a session here</button>
+          <p id="host-note"></p>
+        </div>
       </div>
       <div id="workspace" hidden>
         <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="side">

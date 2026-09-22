@@ -3,7 +3,8 @@ import type * as monaco from 'monaco-editor';
 import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
 import { grantUnion, peerColour, realTimers } from '../bridge/index.ts';
-import type { Timers } from '../bridge/index.ts';
+import type { GrantRefusal, Timers } from '../bridge/index.ts';
+import type { FolderWork } from './folder.ts';
 import { grantLevels } from './tree.ts';
 import type { GrantChild } from './tree.ts';
 import type { Role, SelvageEngine } from '../engine/index.ts';
@@ -39,7 +40,14 @@ export type BindingNotice =
   /** The host came back inside the grace; the name is the room's, and may be blank. */
   | { kind: 'hostBack'; name: string }
   | { kind: 'disconnected' }
-  | { kind: 'status'; text: string };
+  | { kind: 'status'; text: string }
+  /**
+   * Something the person asked for did not happen, and the sentence says why: a write the
+   * stale-file guard refused, or a path this host could not read out of its own folder. It is
+   * an alert rather than a status line — a refusal that scrolled past in the room's own note
+   * would be the silent overwrite the guard exists to prevent.
+   */
+  | { kind: 'failure'; text: string };
 
 /** Another participant, as the roster draws one row. */
 export interface Participant {
@@ -78,6 +86,11 @@ export interface BindingOptions {
    * without a DOM. The page passes `monaco.editor.createModel`.
    */
   createModel: (text: string, language: string) => monaco.editor.ITextModel;
+  /**
+   * The folder this window was handed, when it was: the page's host half. A guest has none, so
+   * its `save` stays a no-op and its reads stay refusals.
+   */
+  folder?: FolderWork;
   /** The clock the caret interval runs on; real timers unless a test drives its own. */
   timers?: Timers;
 }
@@ -96,6 +109,7 @@ export class MonacoBinding implements EditorHost {
   private readonly editor: monaco.editor.IStandaloneCodeEditor;
   private readonly onNotice: (notice: BindingNotice) => void;
   private readonly createModel: BindingOptions['createModel'];
+  private readonly folder: FolderWork | undefined;
   private readonly models = new Map<string, monaco.editor.ITextModel>();
   private readonly stops: Array<() => void> = [];
   private readonly colours = new Map<string, string>();
@@ -132,6 +146,7 @@ export class MonacoBinding implements EditorHost {
     this.editor = options.editor;
     this.onNotice = options.onNotice;
     this.createModel = options.createModel;
+    this.folder = options.folder;
     this.timers = options.timers ?? realTimers;
     this.cursors = this.editor.createDecorationsCollection([]);
     this.style = document.createElement('style');
@@ -229,7 +244,7 @@ export class MonacoBinding implements EditorHost {
     }
     let model = this.models.get(path);
     if (model === undefined || model.isDisposed()) {
-      model = this.createModel(this.engine.text(path), languageForPath(path));
+      model = this.createModel(await this.initialText(path), languageForPath(path));
       this.models.set(path, model);
       const changed = model.onDidChangeContent(() => {
         if (this.applying === 0 && this.path === path) {
@@ -565,6 +580,31 @@ export class MonacoBinding implements EditorHost {
     options.updateOptions?.({ readOnly });
   }
 
+  /**
+   * The text a document starts with.
+   *
+   * The room's own text when the room has any for the path — a path the room already holds is
+   * the room's, and this window does not put its disk copy over an edit a peer made
+   * (`seed`'s rule in the bridge, read here rather than after the fact). When the room holds
+   * nothing and this window is the host, the file is read out of the folder *now*, because the
+   * open is the host's own click and the disk is the source of truth: `engine.text` is empty
+   * for a path nobody has published, and a model built from it would leave the host looking at
+   * an empty buffer for a file it can plainly see. The text then reaches the replica through
+   * the bridge's ordinary `documentOpened` seed. A refusal is said out loud and the buffer
+   * starts empty, which is what a listing the host cannot serve looks like.
+   */
+  private async initialText(path: string): Promise<string> {
+    if (this.folder === undefined || this.bridge.role() !== 'host' || this.engine.has(path)) {
+      return this.engine.text(path);
+    }
+    const read = await this.folder.read(path);
+    if (read.kind === 'text') {
+      return read.text;
+    }
+    this.onNotice({ kind: 'failure', text: hostReadSentence(read.cause, path) });
+    return this.engine.text(path);
+  }
+
   /** The name a sentence says: the room's, or the id when the room left it blank. */
   private displayLabel(peerId: string): string {
     const peer = this.engine.peers().find((candidate) => candidate.peer_id === peerId);
@@ -604,16 +644,36 @@ export class MonacoBinding implements EditorHost {
     return true;
   }
 
-  async save(_path: string): Promise<boolean> {
+  async save(path: string): Promise<boolean> {
+    const model = this.models.get(path);
+    if (this.folder === undefined || model === undefined || model.isDisposed()) {
+      // A guest's save is a no-op: its document is virtual and there is no file to write. So is
+      // a host's for a path it does not hold — nothing here knows the text to write.
+      return true;
+    }
+    const outcome = await this.folder.write(path, model.getValue());
+    if (outcome.kind === 'refused') {
+      // Thrown rather than `false`, so the sentence reaches the person: the bridge reports a
+      // rejected save with the reason it was given, and a bare `false` would arrive as a
+      // verb-less notice (`write` in the bridge).
+      throw new Error(outcome.sentence);
+    }
     return true;
   }
 
   /**
-   * The page shares no folder, so there is nothing here to read for a peer: the guest role
-   * never serves a path, and the answer says so in the cause that carries no sentence.
+   * Reads a file out of the folder this window was handed, for a path the room asked for.
+   *
+   * The path came from a peer and is not trusted, so the folder's own read applies the shared
+   * grant rule before it resolves anything, and this window's answer is the text or the reason
+   * there is none. A window with no folder shares nothing and says so in the cause that carries
+   * no sentence: the guest role never serves a path.
    */
-  async readGrantedFile(_path: string): Promise<GrantedRead> {
-    return { kind: 'refused', cause: 'not-granted' };
+  async readGrantedFile(path: string): Promise<GrantedRead> {
+    if (this.folder === undefined) {
+      return { kind: 'refused', cause: 'not-granted' };
+    }
+    return this.folder.read(path);
   }
 
   /**
@@ -731,6 +791,12 @@ export class MonacoBinding implements EditorHost {
       case 'sessionError':
         this.onNotice({ kind: 'status', text: `session error ${report.code}: ${report.message}` });
         break;
+      case 'saveFailed':
+        this.onNotice({
+          kind: 'failure',
+          text: report.message ?? `The room's text could not be written to ${report.path}.`,
+        });
+        break;
       case 'reconnecting':
         this.onNotice({ kind: 'status', text: 'Connection dropped. Reconnecting…' });
         break;
@@ -835,6 +901,30 @@ export class MonacoBinding implements EditorHost {
 
 function peerName(displayName: string, peerId: string): string {
   return displayName === '' ? peerId : displayName;
+}
+
+/**
+ * What a refusal to read a path for the host's *own* open says, in the page's words.
+ *
+ * The bridge has its own sentences for a refusal it reports after a *peer* asked for a path
+ * (`refusalSentence`), and they are deliberately anonymous for a name the grant excludes. This
+ * one is for the person who clicked a row in their own tree, so it names the file and says what
+ * they can do; the cause that carries no sentence to a peer is said here, because the host is
+ * not guessing at its own folder.
+ */
+function hostReadSentence(cause: GrantRefusal, path: string): string {
+  switch (cause) {
+    case 'not-granted':
+      return `${path} is not a path this room shares, so it cannot be opened.`;
+    case 'missing':
+      return `${path} is not in the folder any more, so there is nothing to open.`;
+    case 'not-a-file':
+      return `${path} is not a plain file in the folder, so there is nothing to open.`;
+    case 'too-large':
+      return `${path} is larger than the text a session will carry, so it cannot be shared or opened here.`;
+    case 'binary':
+      return `${path} is not text, and a room carries text, so it cannot be opened here.`;
+  }
 }
 
 /** How many badge classes a rename loop may mint before the cache restarts. */

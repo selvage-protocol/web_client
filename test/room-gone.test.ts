@@ -194,17 +194,66 @@ describe('binding past room-gone', () => {
   });
 });
 
-describe('no host hello from this client', () => {
-  it('no browser source hellos as host or mints a room', () => {
-    const base = new URL('../src/browser/', import.meta.url);
+/**
+ * A room is only ever minted from a folder a person picked.
+ *
+ * The page has two ways in and they are not the same act. Joining opens somebody else's room
+ * from a link and never claims a role: the engine's own default is `guest`, and nothing here
+ * overrides it. Starting a room mints one, and the mint is behind the folder picker — a folder
+ * a person chose at the moment the room was made (`DESIGN.md` §4.2), which is what makes the
+ * room's working copy a real directory and what makes the mint impossible without a gesture:
+ * `showDirectoryPicker` needs transient user activation, so no load, timer or replay can reach
+ * the mint at all.
+ *
+ * This pins the shape rather than the outcome: the browser run of the host flow is what shows
+ * the room appearing, and this is what shows there is no second door to it.
+ */
+describe('a room is minted only from a folder a person picked', () => {
+  const dir = new URL('../src/browser/', import.meta.url);
+  const sources = readdirSync(dir)
+    .filter((file) => file.endsWith('.ts'))
+    .map((file) => ({ file, text: readFileSync(new URL(file, dir), 'utf8') }));
+
+  it('the guest path never claims the host role', () => {
     const hits: string[] = [];
-    for (const file of readdirSync(base)) {
-      if (!file.endsWith('.ts')) continue;
-      const text = readFileSync(new URL(file, base), 'utf8');
-      for (const pattern of [/role\s*:\s*['"]host['"]/, /\.host\s*\(/, /Engine\.host/]) {
-        if (pattern.test(text)) hits.push(`${file} matches ${pattern}`);
-      }
+    for (const { file, text } of sources) {
+      if (/role\s*:\s*['"]host['"]/.test(text)) hits.push(`${file} names the host role`);
     }
-    assert.deepEqual(hits, [], `a host-role hello path exists: ${hits.join('; ')}`);
+    assert.deepEqual(hits, [], `a browser source asks to be the host: ${hits.join('; ')}`);
+  });
+
+  it('reads the sources it claims to cover', () => {
+    // A scan that reached no files would report a clean tree.
+    assert.ok(sources.length > 15, `the scan reached ${sources.length} browser sources`);
+    assert.ok(sources.some(({ file }) => file === 'main.ts'), 'the scan missed the page entry');
+  });
+
+  it('mints in exactly one place, and that place takes the picked folder', () => {
+    const mints = sources.filter(({ text }) => /\.host\s*\(/.test(text));
+    assert.deepEqual(
+      mints.map(({ file }) => file),
+      ['main.ts'],
+      'the mint is somewhere other than the page entry',
+    );
+    const main = mints[0]?.text ?? '';
+    const occurrences = main.match(/\.host\s*\(/g) ?? [];
+    assert.equal(occurrences.length, 1, `the page mints from ${occurrences.length} places`);
+    assert.match(
+      main,
+      /async function host\(folder: FolderWorkingCopy, displayName: string\)/,
+      'the mint is not a function that requires the picked folder',
+    );
+  });
+
+  it('a refused or abandoned pick returns before the mint', () => {
+    const main = sources.find(({ file }) => file === 'main.ts')?.text ?? '';
+    const picked = main.indexOf('const picked = await pickFolder(folderPicker)');
+    const refused = main.indexOf("picked.kind === 'refused'");
+    const mint = main.indexOf('await host(picked.folder, displayName)');
+    assert.ok(picked !== -1, 'the host path never asks for a folder');
+    assert.ok(refused !== -1, 'the host path does not read the answer the picker gave');
+    assert.ok(mint !== -1, 'the host path does not start a room');
+    assert.ok(picked < refused, 'the picker\'s answer is read before it is asked for');
+    assert.ok(refused < mint, 'a refused pick still reaches the mint');
   });
 });

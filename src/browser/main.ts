@@ -1,4 +1,4 @@
-import { SelvageEngine, sessionBase, sessionUrl } from '../engine/index.ts';
+import { SelvageEngine, fetchMeta, metaAccepts, sessionBase, sessionUrl } from '../engine/index.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
@@ -19,6 +19,21 @@ import type { JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
 import { iconSpan, iconSvg, labelSpan } from './icons.ts';
+import {
+  FolderWorkingCopy,
+  folderPickerOf,
+  pickFolder,
+} from './folder.ts';
+import {
+  HOST_TAB_WARNING,
+  HOST_NEEDS_THE_SERVERS_PAGE,
+  clearHostingMark,
+  hostAvailability,
+  markHosting,
+  takeHostingNotice,
+} from './host.ts';
+import { downloadDocument } from './download.ts';
+import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
 import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
@@ -139,6 +154,10 @@ const joinError = document.getElementById('join-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
+const downloadButton = document.getElementById('download') as HTMLButtonElement;
+const hostWrap = document.getElementById('host-wrap') as HTMLElement;
+const hostButton = document.getElementById('host-button') as HTMLButtonElement;
+const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
@@ -200,6 +219,17 @@ let linkIsTheInvite = linkRoom !== '' && linkToken !== '';
 // field, and land focus past first paint without stealing a typed-into field.
 const focusTarget = initJoinCard({ inviteWrap, inviteInput, nameInput }, params, window.localStorage);
 settleFocusWhenReady(focusTarget === 'name' ? nameInput : inviteInput);
+/** This browser's directory picker, if it has one: what a browser host needs and what a
+ * Firefox or Safari page does not have. Read once, because it cannot change under a load. */
+const folderPicker = folderPickerOf(window);
+// A reload of a host tab is a room that ended. The mark is the tab's own memory, taken here
+// once so the card says what the reload cost instead of looking like the page before it.
+const hostingNotice = takeHostingNotice(window.sessionStorage);
+if (hostingNotice !== undefined) {
+  joinMessage.textContent = hostingNotice;
+  joinMessage.hidden = false;
+}
+void offerHosting();
 
 /**
  * Offers the card its focus without ever forcing layout before the page loads
@@ -243,6 +273,8 @@ const openDirs = new Set<string>();
 let renderedPath: string | undefined;
 /** The room's listing as a tree, built on the first notice after a join. */
 let tree: GrantTreeView | undefined;
+/** Whether a host start is running: the picker is a single flight, whatever the button says. */
+let hosting = false;
 
 joinForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -253,6 +285,10 @@ joinForm.addEventListener('submit', (event) => {
 // the keydown default is prevented, so no second submit follows it.
 joinForm.addEventListener('keydown', (event) => {
   joinOnEnter(event, attemptJoin);
+});
+
+hostButton.addEventListener('click', () => {
+  void attemptHost();
 });
 
 /**
@@ -340,44 +376,61 @@ async function runJoin(held: HeldJoin): Promise<void> {
   }
 }
 
-async function join(held: HeldJoin): Promise<void> {
-  const { displayName, figured } = held;
-  // Scheme-match: the socket and the `/meta` read derived from this base
-  // both speak TLS on an https page — never a ws:// or http:// subrequest.
-  const base = schemeMatchBase(figured.base, pageProtocol);
-  const invite = sessionUrl(base, figured.room, figured.token);
-  lastBase = base;
-  joinError.textContent = '';
-  // The editor stack loads on join, never before: the card is interactive
-  // while the megabytes it needs are still arriving. A stack that never
-  // arrives throws before the button disables, so the card keeps its copy
-  // and the guest can retry.
+/** The client identity every connection from this page carries. */
+const CLIENT_OPTIONS = {
+  webSocketFactory: nativeWebSocketFactory,
+  client: 'web_client/0.1.0',
+} as const;
+
+/** What the host button says, before and after an attempt. */
+const HOST_BUTTON_LABEL = 'Start a session here';
+
+/**
+ * The editor stack and the shared-text opener guard, both of which a join and a host need
+ * before a socket is opened: the guard must be registered before the first buffer renders, and
+ * the stack is what builds a document's model.
+ */
+async function prepareEditor(): Promise<typeof monacoApi> {
+  // The editor stack loads on join, never before: the card is interactive while the megabytes
+  // it needs are still arriving.
   const monaco = await ensureMonaco();
-  // Shared text may name links the page must never follow: a `file:` target
-  // would drive the page itself at `file:///...`. The guard swallows
-  // everything but web and mail links before the default opener runs.
+  // Shared text may name links the page must never follow: a `file:` target would drive the
+  // page itself at `file:///...`. The guard swallows everything but web and mail links before
+  // the default opener runs.
   const services = await import('./monaco.ts');
-  // The registration lives on the editor's opener service until it is
-  // disposed, so it is held here and dropped with the session — never left
-  // behind for the next join to overwrite.
+  // The registration lives on the editor's opener service until it is disposed, so it is held
+  // here and dropped with the session — never left behind for the next join to overwrite.
   linkGuard = registerLinkGuard(
     services.StandaloneServices.get<GuardableOpenerService>(services.IOpenerService),
   );
-  // The default `/meta` check runs: same-origin it reads the version, and where
-  // the page is cross-origin the read fails like any unreachable endpoint —
-  // advisory, never a refusal — while the handshake negotiates the truth.
-  // The button stays `Joining…` throughout: attemptJoin owns it, and the gate
-  // makes a second submit while this runs a duplicate, never a second join.
-  engine = await SelvageEngine.join(invite, displayName, {
-    webSocketFactory: nativeWebSocketFactory,
-    client: 'web_client/0.1.0',
-  });
-  const session = engine.session();
-  selfName = displayName;
-  fullShareLink = buildShareLink(base, figured.room, figured.token);
-  // The bar shows the link with the page's own origin dropped and its long
-  // parts shortened, and sized to what it shows; the title and the clipboard
-  // below keep the full bytes.
+  return monaco;
+}
+
+/** What a seated session owns, whichever role holds it. */
+interface Seat {
+  monaco: typeof monacoApi;
+  engine: SelvageEngine;
+  session: SessionInfo;
+  displayName: string;
+  /** The link the session bar carries and the clipboard copies. */
+  shareLink: string;
+  /** The folder this window was handed, when it is the host: absent for a guest. */
+  folder?: FolderWorkingCopy;
+}
+
+/**
+ * Everything a session has once the handshake is done and before anyone types: the share bar,
+ * the editor and its binding, the tree, the roster, the first document and the focus.
+ *
+ * A join and a host differ in how the socket was opened and in what the bar's link means, and
+ * in nothing else, so this is one function with one option that differs.
+ */
+async function seatSession(seat: Seat): Promise<void> {
+  const { monaco, engine: seated, session } = seat;
+  selfName = seat.displayName;
+  fullShareLink = seat.shareLink;
+  // The bar shows the link with the page's own origin dropped and its long parts shortened,
+  // and sized to what it shows; the title and the clipboard below keep the full bytes.
   const shown = displayShareLink(fullShareLink, window.location.origin);
   shareInput.value = shown;
   fitReadout(shareInput, shown);
@@ -394,10 +447,9 @@ async function join(held: HeldJoin): Promise<void> {
     glyphMargin: true,
     theme: 'selvage-mocha',
   });
-  // Read the desktop options off the editor it just made rather than restating
-  // them: Monaco's font size default is platform-dependent, and a pointer that
-  // arrives mid-session has to be able to put all three back (see
-  // `applyTouchMode`).
+  // Read the desktop options off the editor it just made rather than restating them: Monaco's
+  // font size default is platform-dependent, and a pointer that arrives mid-session has to be
+  // able to put all three back (see `applyTouchMode`).
   const scrollbar = editor.getOption(monaco.editor.EditorOption.scrollbar);
   desktopEditorOptions = {
     ...editorOptionsFor(false),
@@ -414,8 +466,9 @@ async function join(held: HeldJoin): Promise<void> {
   // Held so the whole session can be dropped, editor and all, when the room ends.
   editorApi = editor;
   binding = new MonacoBinding({
-    engine,
+    engine: seated,
     editor,
+    folder: seat.folder,
     onNotice: (notice: BindingNotice) => onNotice(notice),
     createModel: (text: string, language: string) => monaco.editor.createModel(text, language),
   });
@@ -441,6 +494,32 @@ async function join(held: HeldJoin): Promise<void> {
   if (!touchOnly) {
     editor.focus();
   }
+}
+
+async function join(held: HeldJoin): Promise<void> {
+  const { displayName, figured } = held;
+  // Scheme-match: the socket and the `/meta` read derived from this base
+  // both speak TLS on an https page — never a ws:// or http:// subrequest.
+  const base = schemeMatchBase(figured.base, pageProtocol);
+  const invite = sessionUrl(base, figured.room, figured.token);
+  lastBase = base;
+  joinError.textContent = '';
+  // A stack that never arrives throws before the button disables, so the card keeps its copy
+  // and the guest can retry.
+  const monaco = await prepareEditor();
+  // The default `/meta` check runs: same-origin it reads the version, and where
+  // the page is cross-origin the read fails like any unreachable endpoint —
+  // advisory, never a refusal — while the handshake negotiates the truth.
+  // The button stays `Joining…` throughout: attemptJoin owns it, and the gate
+  // makes a second submit while this runs a duplicate, never a second join.
+  const engine = await SelvageEngine.join(invite, displayName, CLIENT_OPTIONS);
+  await seatSession({
+    monaco,
+    engine,
+    session: engine.session(),
+    displayName,
+    shareLink: buildShareLink(base, figured.room, figured.token),
+  });
   // A typed room/token join lands in the address bar, so a reload rejoins
   // from it instead of losing what was typed. Same-origin only; elsewhere
   // the link stays in the session bar.
@@ -453,6 +532,122 @@ async function join(held: HeldJoin): Promise<void> {
   saveDisplayName(window.localStorage, displayName);
   // A name already in the room is allowed in, and the roster row carries the
   // short id that tells the two apart, so no sentence is needed here.
+}
+
+/**
+ * Starts a room in this tab, with the folder the person just picked as the working copy.
+ *
+ * The order matters twice. The listing goes out before anything is seated, so the first guest
+ * to arrive finds the room's own listing rather than an empty room that fills in a moment
+ * later. And the invite link does *not* go into the address bar: the page persists the link for
+ * a guest so a reload rejoins, and for a host that would reload into its own room as a guest
+ * with no folder and nothing to serve, while the dead socket's grace ran out underneath it. The
+ * link lives in the session bar alone, and the mark in `sessionStorage` is what tells the next
+ * load what the reload cost (`host.ts`).
+ */
+async function host(folder: FolderWorkingCopy, displayName: string): Promise<void> {
+  const base = fallbackBase();
+  if (base === '') {
+    throw new Error(HOST_NEEDS_THE_SERVERS_PAGE);
+  }
+  lastBase = base;
+  const monaco = await prepareEditor();
+  const engine = await SelvageEngine.host(base, displayName, CLIENT_OPTIONS);
+  const session = engine.session();
+  try {
+    await engine.grant(await folder.list());
+  } catch (error) {
+    // A server older than `doc.grant` answers `unknown_method` rather than faulting, and the
+    // room still works: it offers what someone opens and nothing more, which is worth saying.
+    failureAlert.show(
+      `The room could not be told what the folder holds, so it offers only what someone opens: ${describe(error)}`,
+    );
+  }
+  await seatSession({
+    monaco,
+    engine,
+    session,
+    displayName,
+    shareLink: buildShareLink(base, session.roomId, session.token ?? ''),
+    folder,
+  });
+  markHosting(window.sessionStorage, session.roomId);
+  saveDisplayName(window.localStorage, displayName);
+}
+
+/**
+ * The host action: the name, then the folder, then the room.
+ *
+ * The picker is asked before anything that could await, because it needs the click's own
+ * transient user activation: a call made from a timer, a load handler or a promise already in
+ * flight is refused rather than prompted.
+ */
+async function attemptHost(): Promise<void> {
+  if (hosting) {
+    return;
+  }
+  let displayName: string;
+  try {
+    displayName = validateDisplayName(nameInput.value);
+  } catch (error) {
+    joinError.textContent = describe(error);
+    return;
+  }
+  hosting = true;
+  hostButton.disabled = true;
+  hostButton.textContent = 'Opening…';
+  try {
+    const picked = await pickFolder(folderPicker);
+    if (picked.kind === 'refused') {
+      joinError.textContent = picked.sentence;
+      return;
+    }
+    joinError.textContent = '';
+    await host(picked.folder, displayName);
+  } catch (error) {
+    console.error(`[selvage] hosting failed (${describe(error)})`);
+    joinError.textContent = describe(error);
+  } finally {
+    hosting = false;
+    hostButton.disabled = false;
+    hostButton.textContent = HOST_BUTTON_LABEL;
+  }
+}
+
+/**
+ * Reveals the host action, or the sentence that stands where it would be.
+ *
+ * Two facts decide it, and both are settled before any control is offered: this browser can hand
+ * a page a folder, and this page's own origin answers `/meta` as a Selvage server. A page that
+ * is not the server's own page — the page-only image in front of other servers, a bare `file://`
+ * open, a static dev server — gets the sentence instead, because a room started there would
+ * have no server to be seated on and its invite would point at an address the room does not
+ * live at.
+ */
+async function offerHosting(): Promise<void> {
+  if (linkIsTheInvite) {
+    // A page opened with an invite is the join flow: one action, one click, and nothing added.
+    return;
+  }
+  const picker = folderPicker !== undefined;
+  const serverHere = picker && (await pageAnswersMeta());
+  const availability = hostAvailability({ picker, serverHere });
+  hostWrap.hidden = false;
+  hostNote.textContent = availability.kind === 'offered' ? HOST_TAB_WARNING : availability.sentence;
+  hostButton.hidden = availability.kind !== 'offered';
+}
+
+/** Whether this page's own origin answers `/meta`, for a wire version this client speaks. */
+async function pageAnswersMeta(): Promise<boolean> {
+  const base = sessionBase(serverBaseOf(window.location.href));
+  if (base === undefined) {
+    return false;
+  }
+  try {
+    return metaAccepts(await fetchMeta(base));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -515,6 +710,12 @@ async function openPath(path: string): Promise<void> {
 const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
   checkSvg: iconSvg('check'),
 });
+// The download button is icon-only, so its icon is drawn here rather than in the shell: the
+// bar is hidden until a session is seated, so nothing flashes before the bundle puts it in.
+downloadButton.append(iconSpan('download'));
+downloadButton.addEventListener('click', () => {
+  downloadOpen();
+});
 
 async function copyShareLink(): Promise<void> {
   try {
@@ -572,6 +773,58 @@ function syncRoster(participants: Participant[]): void {
 /** The room's listing as a tree. Directories open and shut; files open and fetch. */
 function syncGrant(): void {
   tree?.render();
+  // The one control whose state is the open document re-reads it here, where every event that
+  // can move the open document already lands.
+  syncDownload();
+}
+
+/**
+ * The download control: the file in front of the editor, out of the room and onto the disk.
+ *
+ * It is off while no document is open — an editor with nothing in it has nothing to save — and
+ * its label names the file so a pointer device reads it in the `title` and a finger reads it on
+ * the button's own `aria-label`.
+ */
+function syncDownload(): void {
+  const path = binding?.currentPath();
+  downloadButton.disabled = path === undefined;
+  const label = path === undefined ? 'Download the open file' : `Download ${path}`;
+  downloadButton.title = label;
+  downloadButton.setAttribute('aria-label', label);
+}
+
+/** Where a download goes: the browser's own blob, object URL and anchor, in that order. */
+const downloadSink: DownloadSink = {
+  blob: (text) => new Blob([text], { type: 'text/plain;charset=utf-8' }),
+  url: (blob) => URL.createObjectURL(blob),
+  deliver: (url, name) => {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    // The click hands the browser a URL it reads after the event returns, so it is released on
+    // a later turn rather than under the download's own feet.
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  },
+};
+
+function downloadOpen(): void {
+  const path = binding?.currentPath();
+  if (path === undefined) {
+    return;
+  }
+  // The buffer first: it is what the person is looking at, and it can be a keystroke ahead of
+  // the replica. The replica is the fallback for a path this window has no model for.
+  const text = binding?.text(path) ?? engine?.text(path) ?? '';
+  try {
+    downloadDocument(path, text, downloadSink);
+  } catch (error) {
+    failureAlert.show(`Could not download ${path}: ${describe(error)}`);
+  }
 }
 
 /**
@@ -651,6 +904,9 @@ function leaveSession(sentence: string): void {
   sessionBar.hidden = true;
   workspacePane.hidden = true;
   linkIsTheInvite = false;
+  // The room this tab was hosting is over cleanly, so the next load has nothing to explain.
+  clearHostingMark(window.sessionStorage);
+  syncDownload();
   showRejoinCard(
     {
       join: joinPane,
@@ -730,6 +986,11 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'follow':
       syncFollow(notice.following);
+      break;
+    case 'failure':
+      // Something the person asked for was refused, and the sentence says why: a write the
+      // stale-file guard stopped, or a path this host cannot read out of its own folder.
+      failureAlert.show(notice.text);
       break;
   }
 }
