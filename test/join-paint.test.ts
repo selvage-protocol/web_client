@@ -44,6 +44,7 @@ interface ShellState {
   inviteWrap: { hidden: boolean };
   nameInput: { value: string };
   armed: boolean;
+  pending: boolean;
 }
 
 /**
@@ -52,7 +53,7 @@ interface ShellState {
  * markup state is read from the shell, never assumed — a card whose paste box
  * is only hidden in the markup is exactly the frame that flashed.
  */
-function runShell(search: string, stored: string): ShellState {
+function runShell(search: string, stored: string, held = false): ShellState {
   const markupHidesInvite = /<label id="invite-wrap"[^>]*\shidden/.test(html);
   const elements = new Map<string, FakeElement>();
   const element = (id: string): FakeElement => {
@@ -73,13 +74,13 @@ function runShell(search: string, stored: string): ShellState {
     location: { search },
     localStorage: { getItem: (key: string) => (key === DISPLAY_NAME_KEY ? stored : null) },
     __selvageJoinArmed: false,
-    __selvagePendingJoin: false,
+    __selvagePendingJoin: held,
   };
   const document = { getElementById: (id: string) => element(id) };
   // eslint-disable-next-line no-new-func
   const run = new Function('window', 'document', 'URLSearchParams', inlineScript());
   run(window, document, URLSearchParams);
-  return { inviteWrap: element('invite-wrap'), nameInput: element('name'), armed: window.__selvageJoinArmed };
+  return { inviteWrap: element('invite-wrap'), nameInput: element('name'), armed: window.__selvageJoinArmed, pending: window.__selvagePendingJoin };
 }
 
 function bundleCard(search: string, stored: string): JoinCardElements {
@@ -142,6 +143,44 @@ describe('the card shell decides the first frame', () => {
     assert.ok(guard !== -1, 'no pre-bundle guard');
     assert.ok(card !== -1, 'no pre-paint card block');
     assert.ok(guard < card, 'the card block runs before the guard that protects the form');
+  });
+
+  it('holds a submit the card gets before any script has run', () => {
+    // A deployment that defers every script — the demo's Cloudflare Rocket
+    // Loader does — has no guard until one runs, and the room's own server
+    // answers a form action with a CSP refusal, so a join made in that window
+    // can neither navigate nor leave a trace. The markup is the only thing
+    // standing there, so the hold is an attribute on the form.
+    const tag = /<form id="join-form"[^>]*>/.exec(html)?.[0];
+    assert.ok(tag !== undefined, 'the shell carries no join form');
+    const handler = /\sonsubmit="([^"]*)"/.exec(tag)?.[1];
+    assert.ok(handler !== undefined, `the form carries no pre-script hold: ${tag}`);
+    const preScript = { __selvageJoinArmed: false, __selvagePendingJoin: false };
+    // eslint-disable-next-line no-new-func
+    const cancel: unknown = new Function('window', handler)(preScript);
+    assert.equal(cancel, false, 'the hold does not cancel the submission it holds');
+    assert.equal(preScript.__selvagePendingJoin, true, 'a held join is never recorded for the bundle');
+    // Once the bundle is armed the hold has no job: the guard's own listener
+    // and the bundle's handler own the submit from there.
+    const armed = { __selvageJoinArmed: true, __selvagePendingJoin: false };
+    // eslint-disable-next-line no-new-func
+    new Function('window', handler)(armed);
+    assert.equal(armed.__selvagePendingJoin, false, 'the hold records a join the bundle already handles');
+  });
+
+  it('leaves a held join alone when the shell script arrives', () => {
+    // The markup held it and the bundle is the only thing that can replay it,
+    // so a shell script that cleared the flag on arrival would drop the join
+    // instead of handing it on.
+    const shell = runShell('', '', true);
+    assert.equal(shell.armed, false, 'the inline script armed the card before the bundle');
+    assert.equal(shell.pending, true, 'the inline script dropped the join the markup held for it');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /__selvagePendingJoin === true[\s\S]{0,120}attemptJoin\(\)/,
+      'nothing in the bundle replays a join the shell held',
+    );
   });
 
   it('the script runs while the parser still holds the shell', () => {
@@ -243,6 +282,20 @@ describe('the pre-join backdrop is a picture of an editor', () => {
     );
   });
 
+  it('closes every box it opens, so the card never lands inside the picture', () => {
+    // `#preview` is `inert` and takes no pointer, and the parser closes a box
+    // the markup left open only at the end of the document: one missing
+    // `</div>` here swallows `#veil` and the join card into that subtree, and
+    // the card stops taking a click. A drawing that breaks the page it
+    // decorates is the defect this whole block exists to keep out.
+    for (const tag of ['div', 'pre', 'span']) {
+      const opens = (preview.match(new RegExp(`<${tag}\\b`, 'g')) ?? []).length;
+      const closes = (preview.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
+      assert.ok(opens > 0, `the scan reaches no <${tag}> in the backdrop`);
+      assert.equal(opens, closes, `the backdrop leaves ${opens - closes} <${tag}> unclosed`);
+    }
+  });
+
   it('nothing in it is reachable by tab, by a screen reader or by a pointer', () => {
     assert.match(openingTag, /\saria-hidden="true"/, 'a screen reader is read a fake file tree');
     assert.match(openingTag, /\sinert[\s>]/, 'the backdrop is never inert');
@@ -293,5 +346,80 @@ describe('the pre-join backdrop is a picture of an editor', () => {
         `#preview .${name} is not styled inline`,
       );
     }
+  });
+});
+
+/**
+ * The backdrop is drawn at the size an editor is read at, and the document
+ * in it runs past the bottom of the window.
+ *
+ * Owner defect (2026-09-22, the public demo): behind the card stood an
+ * editor at 0.85em whose code stopped after four lines, and under `#veil`'s
+ * blur a shrunken drawing of nothing in particular reads as an artifact —
+ * the second time this backdrop has been read as decoration that failed
+ * rather than as an editor. Every property the block above pins held of the
+ * four-line version too, so what a later edit has to answer for is here: the
+ * size the panes are set at, the shape of the gutter, how far the document
+ * runs, and whether the tree is a project or a stub.
+ */
+describe('the pre-join backdrop is drawn at the size an editor is read at', () => {
+  const preview = html.slice(html.indexOf('<div id="preview"'), html.indexOf('<div id="veil"'));
+  const rules = style.match(/#preview[^{}]*\{[^{}]*\}/g) ?? [];
+  const codeRule = rules.find((rule) => rule.startsWith('#preview .fake-main .fake-code')) ?? '';
+  const code = preview.slice(preview.indexOf('<pre class="fake-code">'), preview.indexOf('</pre>'));
+  /** The page's own type size, which the drawing is measured against. */
+  const rootPx = Number(/html,\s*body\s*\{[^}]*font:\s*(\d+(?:\.\d+)?)px/.exec(style)?.[1]);
+  const sizeEm = Number(/font:\s*([\d.]+)em/.exec(codeRule)?.[1]);
+  const leading = Number(/font:\s*[\d.]+em\/([\d.]+)/.exec(codeRule)?.[1]);
+
+  it('sets the tree and the code at no less than the page’s own size', () => {
+    const sizes = rules.flatMap((rule) =>
+      [...rule.matchAll(/font:\s*([\d.]+)em/g)].map((match) => Number(match[1])),
+    );
+    assert.ok(sizes.length >= 3, `the scan reached ${sizes.length} font declarations`);
+    for (const size of sizes) {
+      assert.ok(size >= 1, `a pane of the drawing is set at ${size}em, which the veil's blur eats`);
+    }
+  });
+
+  it('numbers every line of the excerpt it draws, in order', () => {
+    const open = '<div class="fake-nums">';
+    const at = preview.indexOf(open);
+    assert.ok(at !== -1, 'the code pane carries no gutter, so it is not read as code');
+    const gutter = preview.slice(at + open.length, preview.indexOf('</div>', at));
+    const lines = code.split('\n').length;
+    assert.deepEqual(
+      gutter.split('&#10;'),
+      Array.from({ length: lines }, (_, index) => String(index + 1)),
+      'the gutter does not name the lines the excerpt has',
+    );
+  });
+
+  it('draws a document longer than the laptop window the card is read in', () => {
+    // The arithmetic is the shell's own: lines, at the size the code pane is
+    // set at, over the leading it is set with. An excerpt that stops inside
+    // the window leaves the card under its last line, with a pane of empty
+    // page below, which is the artifact this defect was.
+    const laptopPx = 900;
+    assert.ok(
+      Number.isFinite(rootPx) && Number.isFinite(sizeEm) && Number.isFinite(leading),
+      `the code pane's size is not declared: ${codeRule}` ,
+    );
+    const heightPx = code.split('\n').length * sizeEm * rootPx * leading;
+    assert.ok(
+      heightPx >= laptopPx,
+      `the excerpt stands ${Math.round(heightPx)} px tall, inside a ${laptopPx} px window` ,
+    );
+  });
+
+  it('draws a project in the tree, not a stub', () => {
+    const files = (preview.match(/class="fake-file/g) ?? []).length;
+    const folders = (preview.match(/class="fake-dir"/g) ?? []).length;
+    assert.ok(files >= 12, `the tree names ${files} files`);
+    assert.ok(folders >= 3, `the tree shows ${folders} folders`);
+    assert.ok(
+      /class="fake-file fake-open"/.test(preview),
+      'no row in the tree is the file the code pane has open',
+    );
   });
 });
