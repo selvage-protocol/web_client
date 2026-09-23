@@ -2794,8 +2794,9 @@ What the change moved:
   name goes there and never to the join path's line. Each attempt clears the other's line, so one
   failure stands on the card at a time, as the single region used to give.
 - Enter is per field rather than on the form: the name field runs the intent's leading action
-  (`runPrimary`: Join on the guest's card, the start action on the bare one, and nothing where
-  `/meta` refused to offer it), and the paste box joins.
+  (`runPrimary`: Join on the guest's card, the start action on the bare one where `/meta` offered
+  it, and the join where it did not offer it and the person has opened the invite path — see the
+  three states below), and the paste box joins.
 - `initJoinCard` returns the intent rather than a focus target, because the name is the question both
   intents ask: focus lands on it either way. It stays off a typed-into field as before.
 
@@ -2823,6 +2824,22 @@ state: `.tmp/start-card/` (driver `.tmp/shots-start-card.mjs`, worktree-local, n
 `site`'s `scripts/check-claims.py` asserts `id="host-wrap"` is in the bytes the demo serves, and it
 is: that check is about the element, not about a word, so hiding or showing the control from the
 wiring never touched it.
+
+### Three states a late bundle can land in (review, 2026-09-23)
+
+Three states the two-intent card above did not consider, fixed after review:
+
+- `showCardIntent` forced the invite path shut on the start intent, so a person who had opened the
+  disclosure in the window before the deferred bundle landed had it collapsed under them, hiding the
+  paste box and dropping the focus they had put there. The wiring now only ever *opens* the path: the
+  join intent forces it open, because there Join lives inside it, and a start card leaves the
+  browser's own state alone.
+- Enter in the name field did nothing where the card could not host — permanent in Firefox and
+  Safari, under `npm run serve`, and for a `file://` page. Where the invite path is open the join is
+  what the person is looking at, so Enter runs it, and the join path reports its own refusal.
+- A join refusal could be written into a shut disclosure after a bare page's early submit was
+  replayed once the bundle landed. Both join failures now open the path before writing the line, so
+  a refusal stands with the field it is about.
 
 Open questions this wave did not settle: whether the start action belongs on the guest's card at all
 (it is offered there because this wave asked for it, against the earlier decision above, and it
