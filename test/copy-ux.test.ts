@@ -195,7 +195,7 @@ describe('placeholders', () => {
     // The field is 1rem tall type in a 24rem card: a hint carrying the whole
     // origin was 300 px wide in a 254 px field, so it read as a clipped prefix.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-    const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+    const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
     const shown = card.slice(card.indexOf('<input id="invite"')).match(/placeholder="([^"]*)"/)?.[1] ?? '';
     assert.ok(shown.includes('?room=…&token=…'), `no schematic: ${shown}`);
     assert.ok(shown.length <= 24, `the hint would clip again: ${shown}`);
@@ -207,7 +207,7 @@ describe('placeholders', () => {
 
   it('the name field shows a real example', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-    const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+    const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
     assert.ok(card.includes('placeholder="Ada"'), 'no name example on the card');
   });
 });

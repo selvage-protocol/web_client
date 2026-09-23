@@ -11,16 +11,19 @@ import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJ
 import { fragmentOf } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
+  cardIntentOf,
   createJoinGate,
   initJoinCard,
   joinOnEnter,
+  primaryActionOf,
   addressBarInvite,
   resolveJoin,
   saveDisplayName,
+  showJoinFailure,
   showRejoinCard,
   validateDisplayName,
 } from './join.ts';
-import type { JoinTarget } from './join.ts';
+import type { CardIntent, JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
 import { iconSpan, iconSvg, labelSpan } from './icons.ts';
@@ -148,15 +151,20 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
 }
 
 const joinPane = document.getElementById('join') as HTMLElement;
+const startHeading = document.getElementById('start-heading') as HTMLElement;
+const joinHeading = document.getElementById('join-heading') as HTMLElement;
 const previewPane = document.getElementById('preview') as HTMLElement;
 const veilPane = document.getElementById('veil') as HTMLElement;
 const joinForm = document.getElementById('join-form') as HTMLFormElement;
+const invitePath = document.getElementById('invite-path') as HTMLDetailsElement;
+const inviteReveal = document.getElementById('invite-reveal') as HTMLElement;
 const inviteWrap = document.getElementById('invite-wrap') as HTMLElement;
 const inviteInput = document.getElementById('invite') as HTMLInputElement;
 const nameInput = document.getElementById('name') as HTMLInputElement;
 const joinButton = document.getElementById('join-button') as HTMLButtonElement;
 const joinMessage = document.getElementById('join-message') as HTMLElement;
 const joinError = document.getElementById('join-error') as HTMLElement;
+const hostError = document.getElementById('host-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
@@ -212,19 +220,24 @@ function collapsePanel(): void {
 }
 
 const params = pageQueryParams(window.location.search);
-const linkRoom = (params.get('room') ?? '').trim();
-const linkToken = (params.get('token') ?? '').trim();
-// A share link carries the room and its token, so the card asks one thing —
-// the name — behind a plain invite line that names no id. A bare page open
-// shows the paste box instead; the link stays the whole guest flow either way.
-// A room that closes takes that link with it: the card comes back and the
-// address-bar link is no longer the way in.
-let linkIsTheInvite = linkRoom !== '' && linkToken !== '';
-// The card shell is inline HTML, so it paints before this bundle arrives: wire
-// only the variant the address bar calls for, prefill only an untouched name
-// field, and land focus past first paint without stealing a typed-into field.
-const focusTarget = initJoinCard({ inviteWrap, inviteInput, nameInput }, params, window.localStorage);
-settleFocusWhenReady(focusTarget === 'name' ? nameInput : inviteInput);
+// Which of the card's two intents this page has: a room and its token in the address bar
+// are the invite the host sent, and the card asks the name alone and joins it. With neither,
+// this page is where a room starts, and the invite path is a disclosure the person opens
+// only if they turn out to have a link. A room the address bar named that is now gone
+// leaves the card in the join shape anyway (`leaveSession`): a fresh link is the way in.
+let cardIntent: CardIntent = cardIntentOf(params);
+// The address bar's invite is the way in until the room it names is over.
+let linkIsTheInvite = cardIntent === 'join';
+// The card shell is inline HTML, so it paints before this bundle arrives: wire only the intent
+// the address bar calls for, prefill only an untouched name field, and land focus past first
+// paint without stealing a field the guest already typed into. The name is the question both
+// intents ask — each action needs it — so focus belongs there either way.
+initJoinCard(
+  { pane: joinPane, startHeading, joinHeading, invitePath, inviteReveal, inviteWrap, inviteInput, nameInput },
+  params,
+  window.localStorage,
+);
+settleFocusWhenReady(nameInput);
 /** This browser's directory picker, if it has one: what a browser host needs and what a
  * Firefox or Safari page does not have. Read once, because it cannot change under a load. */
 const folderPicker = folderPickerOf(window);
@@ -285,16 +298,36 @@ let tree: GrantTreeView | undefined;
 /** Whether a host start is running: the picker is a single flight, whatever the button says. */
 let hosting = false;
 
+// Enter runs the action the field belongs to: the name is the card's own field and runs what
+// the card leads with, while the paste box is the invite path and always joins.
 joinForm.addEventListener('submit', (event) => {
   event.preventDefault();
   attemptJoin();
 });
-
-// Enter joins from any card field without relying on implicit submission:
-// the keydown default is prevented, so no second submit follows it.
-joinForm.addEventListener('keydown', (event) => {
+nameInput.addEventListener('keydown', (event) => {
+  joinOnEnter(event, runPrimary);
+});
+inviteInput.addEventListener('keydown', (event) => {
   joinOnEnter(event, attemptJoin);
 });
+
+/**
+ * The card's own action, for Enter in the name field: the button the intent leads with.
+ *
+ * Starting a room runs only where the card offers it. Where it does not, the sentence
+ * standing where the button would be is the answer, and a folder picked for a page that
+ * cannot host one is worse than none. The one exception is a person who has opened the
+ * invite path: the paste box and Join are what they are looking at, so the name field's
+ * Enter joins, and the join path reports its own refusal in its own line.
+ */
+function runPrimary(): void {
+  const action = primaryActionOf(cardIntent, !hostButton.hidden, invitePath.open);
+  if (action === 'host') {
+    void attemptHost();
+  } else if (action === 'join') {
+    attemptJoin();
+  }
+}
 
 hostButton.addEventListener('click', () => {
   void attemptHost();
@@ -327,6 +360,9 @@ if (window.__selvagePendingJoin === true) {
 }
 
 function attemptJoin(): void {
+  // One failure stands on the card at a time: the line the other action left goes with this
+  // attempt.
+  hostError.textContent = '';
   let held: HeldJoin;
   try {
     // Read at submit time: a queued join holds these until load, so anything
@@ -342,7 +378,10 @@ function attemptJoin(): void {
   } catch (error: unknown) {
     const base = fallbackBase();
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
-    joinError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
+    showJoinFailure(
+      { invitePath, joinError },
+      describeJoinErrorForDisplay(error, base, params.get('debug') === '1'),
+    );
     // Nothing left the page, but a held early submit disabled the button
     // before this bundle arrived: a refused pre-flight (a blank name, a link
     // that names no session) hands the card back the way a refused join does,
@@ -372,7 +411,10 @@ async function runJoin(held: HeldJoin): Promise<void> {
     // The server and the raw cause stay in the console; the card keeps the
     // plain copy unless the owner asked for the diagnostic with `?debug=1`.
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
-    joinError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
+    showJoinFailure(
+      { invitePath, joinError },
+      describeJoinErrorForDisplay(error, base, params.get('debug') === '1'),
+    );
     // A refused join registered the guard before it gave up, so the retry
     // starts from a clean opener service rather than a second registration.
     linkGuard?.dispose();
@@ -627,11 +669,17 @@ async function attemptHost(): Promise<void> {
   if (hosting) {
     return;
   }
+  // One failure stands on the card at a time: the line the other action left goes with this
+  // attempt, and a refusal lands under the button that asked for it.
+  hostError.textContent = '';
+  joinError.textContent = '';
   let displayName: string;
   try {
     displayName = validateDisplayName(nameInput.value);
   } catch (error) {
-    joinError.textContent = describe(error);
+    // The name is asked for here, so the refusal about it stands here: under the button
+    // that needed it, never under the invite path above.
+    hostError.textContent = describe(error);
     return;
   }
   hosting = true;
@@ -640,14 +688,13 @@ async function attemptHost(): Promise<void> {
   try {
     const picked = await pickFolder(folderPicker);
     if (picked.kind === 'refused') {
-      joinError.textContent = picked.sentence;
+      hostError.textContent = picked.sentence;
       return;
     }
-    joinError.textContent = '';
     await host(picked.folder, displayName);
   } catch (error) {
     console.error(`[selvage] hosting failed (${describe(error)})`);
-    joinError.textContent = describe(error);
+    hostError.textContent = describe(error);
   } finally {
     hosting = false;
     hostButton.disabled = false;
@@ -666,12 +713,13 @@ async function attemptHost(): Promise<void> {
  * seated on and its invite would point at an address the room does not live at. So does a page
  * whose room could only be refused (`PROTOCOL.md` §2): the sentence is shown where the control
  * would be, rather than a button whose every click ends in it.
+ *
+ * Both intents are offered it. On a bare page starting a room is the card's own action, and on
+ * a page an invite named it is the quiet one under the join: a person holding a link is still a
+ * person who might want a room of their own, and the action is no more a promise there than it
+ * is here.
  */
 async function offerHosting(): Promise<void> {
-  if (linkIsTheInvite) {
-    // A page opened with an invite is the join flow: one action, one click, and nothing added.
-    return;
-  }
   const picker = folderPicker !== undefined;
   // The one `/meta` read the card makes, and it is not made where no control could use its
   // answer.
@@ -936,7 +984,8 @@ function syncFollow(following: Following | undefined): void {
  * and the guest can join another room from here with one fresh link.
  *
  * The address-bar link named the room that just closed, so it stops being the
- * way in (`linkIsTheInvite`): the paste box is what gets anyone back.
+ * way in (`linkIsTheInvite`): the paste box is what gets anyone back, and the card
+ * leads with the join again (`cardIntent`), which is what its one action runs.
  */
 function leaveSession(sentence: string): void {
   if (binding === undefined) {
@@ -971,17 +1020,23 @@ function leaveSession(sentence: string): void {
   sessionBar.hidden = true;
   workspacePane.hidden = true;
   linkIsTheInvite = false;
+  cardIntent = 'join';
   // The room this tab was hosting is over cleanly, so the next load has nothing to explain.
   clearHostingMark(window.sessionStorage);
   syncDownload();
   showRejoinCard(
     {
-      join: joinPane,
+      pane: joinPane,
+      startHeading,
+      joinHeading,
+      invitePath,
+      inviteReveal,
+      inviteWrap,
       preview: previewPane,
       veil: veilPane,
       message: joinMessage,
-      error: joinError,
-      inviteWrap,
+      joinError,
+      hostError,
       inviteInput,
       joinButton,
     },

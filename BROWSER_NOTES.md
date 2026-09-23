@@ -2757,3 +2757,95 @@ Read from the outside, after the wave, before integration:
   to `<repo>/.worktrees/vscode_client` — not a directory that exists — so it stops with
   `ERR_MODULE_NOT_FOUND` before it dials anything. It is a proof to run from the checkout, with the
   Pi reachable; nothing here changes its code.
+
+## The card is the intent the address bar calls for (2026-09-23)
+
+Owner defect, from a phone-width screenshot of the bare page: the card was titled *Join a shared
+session*, asked for the name inside its join form, and put **Start a session here** under a rule — so
+pressing that with the name empty produced *"Type the name other participants will see."*, which read
+as the join form's error and left the person unsure whether they needed a link, a name, or both. The
+owner's words: *"it should just be insert name -> start a session?"*.
+
+The card now has two intents and the address bar picks between them, by the reading `join.ts` already
+had — a `room` and a `token` together are the invite:
+
+- **no invite** — the start card. `<h1 id="start-heading">Start a shared session</h1>`, the name
+  field, and one primary button, **Start a session here**, with `#host-wrap`'s warning under it. The
+  invite path is a disclosure below the name: `<details id="invite-path">`, its summary reading
+  *Have an invite link?*, and the paste box, Join and `#join-error` inside it.
+- **an invite in the address** — the guest's card, unchanged in shape: the join heading, the name,
+  Join leading, and the start action quiet under the rule. What *is* new there is that the start
+  action is offered at all: `offerHosting` no longer returns early on the invite, so the card reads
+  `/meta` and shows it (a guest holding a link can still want a room of their own). It was decided
+  against once, in *Starting a room from the page* above; this wave reverses that.
+
+What the change moved:
+
+- `#join` wears `card-start` or `card-join`; the stylesheet reads the leading action off the class
+  (`#join.card-start #host-button` carries the primary, `#join.card-start #join-button` stands down).
+  Both buttons are always in the card; the one that is not leading is muted, never hidden.
+- the two headings are both in the markup and only one is ever un-hidden, by the shell's inline
+  script before the first paint and by `initJoinCard` when it takes over. `join-paint.test.ts` now
+  holds the shell and the bundle to the same answer on all six of those decisions, not two.
+- the paste box (`#invite-wrap`) is no longer `hidden` in the markup — the disclosure is what
+  conceals it, natively — and an invite in the address hides it from the wiring instead.
+- `#join-error` moved inside the reveal, so the join path's failure stands under Join. The start
+  action got a line of its own, `#host-error`, inside `#host-wrap` under the button; the refused
+  name goes there and never to the join path's line. Each attempt clears the other's line, so one
+  failure stands on the card at a time, as the single region used to give.
+- Enter is per field rather than on the form: the name field runs the intent's leading action
+  (`runPrimary`: Join on the guest's card, the start action on the bare one where `/meta` offered
+  it, and the join where it did not offer it and the person has opened the invite path — see the
+  three states below), and the paste box joins.
+- `initJoinCard` returns the intent rather than a focus target, because the name is the question both
+  intents ask: focus lands on it either way. It stays off a typed-into field as before.
+
+The invite path is a `<details>` on purpose: it opens with no script at all, so a page whose bundle
+is late — or that never gets one — can still be joined from the card, and the collapsed element keeps
+the paste box out of the first frame and out of the accessibility tree without any marking of ours.
+An invite in the address opens it from the wiring, with the summary hidden, which is how the guest's
+card shows Join alone.
+
+Measured in Chromium 152 (headless, CDP), a `selvaged --serve-page dist` on a loopback seat, at
+1280×900 and 390×844, with touch emulation for the phone width. Shots and the DOM readback of each
+state: `.tmp/start-card/` (driver `.tmp/shots-start-card.mjs`, worktree-local, not committed):
+
+- bare, desktop and phone: heading `Start a shared session`, `card-start`, the invite path shut and
+  the reveal line shown, the start button `rgb(203, 166, 247)` and Join `rgb(49, 50, 68)`;
+- the reveal clicked: the paste box and Join appear inside it, in DOM order *name, reveal, paste,
+  Join, start* — the same order their boxes are drawn in, which is what a keyboard follows;
+- the start button pressed with the name empty: *"Type the name other participants will see."* under
+  **Start a session here**, and an empty join line;
+- the reveal's own paste (`just some words`) with the name filled: *"That invite link does not name a
+  session. Paste the whole link."* inside the reveal under Join, and an empty start line;
+- `?room=…&token=…`: heading `Join a shared session`, `card-join`, Join `rgb(203, 166, 247)`, the
+  start action quiet under the rule, and the reveal and paste box both gone.
+
+`site`'s `scripts/check-claims.py` asserts `id="host-wrap"` is in the bytes the demo serves, and it
+is: that check is about the element, not about a word, so hiding or showing the control from the
+wiring never touched it.
+
+### Three states a late bundle can land in (review, 2026-09-23)
+
+Three states the two-intent card above did not consider, fixed after review:
+
+- `showCardIntent` forced the invite path shut on the start intent, so a person who had opened the
+  disclosure in the window before the deferred bundle landed had it collapsed under them, hiding the
+  paste box and dropping the focus they had put there. The wiring now only ever *opens* the path: the
+  join intent forces it open, because there Join lives inside it, and a start card leaves the
+  browser's own state alone.
+- Enter in the name field did nothing where the card could not host — permanent in Firefox and
+  Safari, under `npm run serve`, and for a `file://` page. Where the invite path is open the join is
+  what the person is looking at, so Enter runs it, and the join path reports its own refusal.
+- A join refusal could be written into a shut disclosure after a bare page's early submit was
+  replayed once the bundle landed. Both join failures now open the path before writing the line, so
+  a refusal stands with the field it is about.
+
+Open questions this wave did not settle: whether the start action belongs on the guest's card at all
+(it is offered there because this wave asked for it, against the earlier decision above, and it
+costs every invite open one same-origin `/meta` read); whether a start from a page whose address still
+carries the old room should drop `?room=&token=` from the bar (it does not — a reload is answered by
+the hosting notice in `sessionStorage`, and rewriting the query would have to preserve `?wire` and
+`?debug`); and whether revealing the invite path on a bare page should hand the primary look to Join
+(it does not — the intent decides, so the start action stays the card's own action and Join is the
+muted one inside the reveal).
