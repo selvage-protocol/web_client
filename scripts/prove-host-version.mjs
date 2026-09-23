@@ -15,6 +15,12 @@
  * server that seats both versions has to carry a fragment (`#k=…&h=…`, the sealed wire's keys)
  * while a page pinned to `selvage/1` has to carry none.
  *
+ * Enter in the name field is pressed too, on both kinds of card, because it is the one act the node
+ * suite cannot drive: the bundle wires its listeners onto the page's elements at import, and a test
+ * environment with no DOM has nothing to dispatch a key at. On a card that cannot host, Enter is
+ * the join — the invite path opens and the line says what the join is missing; on one that can, it
+ * starts the room. Both are driven below, and both fail if the key stops reaching `runPrimary`.
+ *
  * Three more cases come from the final review's findings, and each is a card state a person meets:
  * an origin answering `/meta` with JSON that is not a Selvage server's is offered nothing (M2); a
  * `/meta` that does not answer within the deadline keeps the offer, says what was not read, and is
@@ -453,7 +459,23 @@ const CARD = `(() => {
   };
 })()`;
 
-/** The text the page's editor holds, whichever editor it built. */const PAGE_TEXT = `(() => {
+/**
+ * The invite path and the line under Join: what Enter in the name field moves where the card
+ * cannot host, and what it says about the join it was asked for.
+ */
+const JOIN_PATH = `(() => {
+  const path = document.getElementById('invite-path');
+  const error = document.getElementById('join-error');
+  const note = document.getElementById('host-note');
+  return {
+    open: path === null ? null : path.open,
+    error: error === null ? null : error.textContent ?? '',
+    note: note === null ? null : note.textContent ?? '',
+  };
+})()`;
+
+/** The text the page's editor holds, whichever editor it built. */
+const PAGE_TEXT = `(() => {
   const clean = (text) => text.replace(/\\u200b/g, '').replace(/\\u00a0/g, ' ');
   const editor = document.querySelector('.monaco-editor');
   if (editor !== null) {
@@ -505,6 +527,47 @@ async function joinFromTheCard(page, displayName) {
     }
     button.click();
     return document.getElementById('name').value;
+  })()`);
+}
+
+/**
+ * The card's name field, filled the way a person fills it: the value and the event that goes with
+ * it. A refusal about the invite link is only reachable from here, since a blank name refuses
+ * first.
+ */
+async function typeTheName(page, displayName) {
+  await page.evaluate(`(() => {
+    const name = document.getElementById('name');
+    if (name === null) {
+      throw new Error('the card has no name field');
+    }
+    if (name.value === '') {
+      name.value = ${JSON.stringify(displayName)};
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    return name.value;
+  })()`);
+}
+
+/**
+ * Enter in the name field, the way a person makes it: a keydown on the field the card focuses
+ * itself.
+ *
+ * The bundle wires its own listeners at import, onto the page's elements, so this act cannot be
+ * driven in the node suite — there is no DOM there and the module cannot be imported without one.
+ * It is driven here instead: the key is dispatched for real, and the page's own listener taking it
+ * (`preventDefault`, so the dispatch returns false) is what proves the wiring is live.
+ */
+async function enterInTheNameField(page) {
+  return page.evaluate(`(() => {
+    const name = document.getElementById('name');
+    if (name === null) {
+      throw new Error('the card has no name field');
+    }
+    name.focus();
+    return name.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
   })()`);
 }
 
@@ -710,10 +773,15 @@ async function main() {
     check('the sealed room minted with no error on the card', sealed.error === '');
     await chromium.shot(resolve(IMAGES, 'both-seated-minted.png'));
 
-    // === The same press on the pinned page: the pin reaches the mint, and no fragment is minted.
+    // === The same act, made from the name field on a page that does offer hosting: Enter runs the
+    // action the card leads with, so the pin reaches the mint through the card's own field and the
+    // key never falls through to silence. This is the half of `runPrimary` the button press above
+    // cannot show.
     await chromium.navigate(`${oneOnly.origin}/?wire=1`);
-    await waitForCard(chromium, 'the pinned card before the host press');
-    await hostFromTheCard(chromium, 'Ada');
+    await waitForCard(chromium, 'the pinned card before the host act');
+    await typeTheName(chromium, 'Ada');
+    const pressed = await enterInTheNameField(chromium);
+    check('the page\'s own Enter listener took the key on a page that can host', pressed === false);
     const readable = await waitForShare(chromium, 'the version-1 room the pinned page minted');
     log('the pinned page minted', readable.link);
     check('the pinned page minted a room', readable.link.includes('room='));
@@ -736,6 +804,29 @@ async function main() {
       check(
         'an origin answering {} gets the not-a-Selvage-server sentence',
         stubCard.note === HOST_NEEDS_THE_SERVERS_PAGE,
+      );
+      // === And the other act on this card: Enter in the name field is the card's own action, and
+      // where the card cannot host that action is the join — the invite path opens under the field
+      // and the join's own line says what it is missing, while the reason hosting is not offered
+      // stays standing beside it. Driven here rather than in the node suite, which has no DOM to
+      // dispatch the key at.
+      await typeTheName(chromium, 'Ada');
+      const taken = await enterInTheNameField(chromium);
+      check('the page\'s own Enter listener took the key', taken === false);
+      const entered = await waitForRead(
+        chromium,
+        'Enter to reach the invite path',
+        JOIN_PATH,
+        (read) => read.open === true,
+      );
+      check('Enter in the name field opens the invite path where the card cannot host', entered.open === true);
+      check(
+        '  and the join says what it is missing',
+        entered.error === 'Paste an invite link to join.',
+      );
+      check(
+        '  while the reason hosting is not offered still stands',
+        entered.note === HOST_NEEDS_THE_SERVERS_PAGE,
       );
       await chromium.shot(resolve(IMAGES, 'stub-json-meta.png'));
     } finally {
@@ -830,8 +921,8 @@ async function main() {
     log(
       'a real browser showed the hosting decision: offered where the server seats the encrypted wire, ' +
         'a sentence where it does not, the pin honoured both ways and at the mint, nothing offered on ' +
-        'an origin that is not a Selvage server, the offer kept through a slow /meta, and a version-1 ' +
-        'join still reached',
+        'an origin that is not a Selvage server, the offer kept through a slow /meta, Enter reaching ' +
+        'both halves of the card\'s own action, and a version-1 join still reached',
     );
   } finally {
     await chromium?.stop();
