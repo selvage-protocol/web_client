@@ -41,6 +41,7 @@ describe('share links', () => {
       room: 'r-1',
       token: 'tok',
       origin: 'https://other:8443',
+      fragment: '',
     });
     assert.equal(parsePageLink('ws://host:8080/session?room=r-1&token=tok'), undefined);
     assert.equal(parsePageLink('not a link'), undefined);
@@ -49,11 +50,11 @@ describe('share links', () => {
   it('reads params in any order, extras ignored', () => {
     assert.deepEqual(
       parsePageLink('https://edit.example/?token=tok&room=r-1'),
-      { room: 'r-1', token: 'tok', origin: 'https://edit.example' },
+      { room: 'r-1', token: 'tok', origin: 'https://edit.example', fragment: '' },
     );
     assert.deepEqual(
       parsePageLink('https://edit.example/?room=r-1&token=tok&debug=1&utm_source=x&foo=bar'),
-      { room: 'r-1', token: 'tok', origin: 'https://edit.example' },
+      { room: 'r-1', token: 'tok', origin: 'https://edit.example', fragment: '' },
     );
   });
 
@@ -63,20 +64,25 @@ describe('share links', () => {
     // query parameters are ignored). The link's own origin is the server.
     assert.deepEqual(
       parsePageLink('https://edit.example/?room=r-1&token=tok&server=ws%3A%2F%2Fother%3A8080'),
-      { room: 'r-1', token: 'tok', origin: 'https://edit.example' },
+      { room: 'r-1', token: 'tok', origin: 'https://edit.example', fragment: '' },
     );
   });
 
-  it('ignores fragments', () => {
+  it('carries the fragment, and reads no parameter out of it', () => {
+    // `§5.1`'s fragment is the room key and the host key, and it is carried whole so the link can
+    // be handed on. What it is never read as is a parameter: `#room=nope` does not rename the
+    // room the query named.
     assert.deepEqual(parsePageLink('https://edit.example/?room=r-1&token=tok#frag'), {
       room: 'r-1',
       token: 'tok',
       origin: 'https://edit.example',
+      fragment: '#frag',
     });
     assert.deepEqual(parsePageLink('https://edit.example/?room=r-1&token=tok#room=nope'), {
       room: 'r-1',
       token: 'tok',
       origin: 'https://edit.example',
+      fragment: '#room=nope',
     });
   });
 
@@ -89,6 +95,7 @@ describe('share links', () => {
       room: 'r-1',
       token: 'tok',
       origin: 'https://edit.example',
+      fragment: '',
     });
     assert.deepEqual(pageQueryParams('?room=r-1&token=tok?debug=1').get('token'), 'tok');
     assert.deepEqual(pageQueryParams('?room=r-1&token=tok?debug=1').get('debug'), '1');
@@ -99,11 +106,13 @@ describe('share links', () => {
       room: 'r-1',
       token: 'a&b',
       origin: 'https://edit.example',
+      fragment: '',
     });
     assert.deepEqual(parsePageLink('https://edit.example/?room=r-1&token=a%253Fb'), {
       room: 'r-1',
       token: 'a%3Fb',
       origin: 'https://edit.example',
+      fragment: '',
     });
   });
 });

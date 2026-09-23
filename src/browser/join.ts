@@ -47,6 +47,12 @@ export interface JoinTarget {
   base: SessionBase;
   room: string;
   token: string;
+  /**
+   * `§5.1`'s fragment, `#` included, or empty. It is what makes a join a `selvage/2` one: the
+   * room key and the host key travel on it and nowhere else, so it is carried from whichever
+   * form of the link named the room to the connection URL the engine dials.
+   */
+  fragment: string;
 }
 
 /**
@@ -96,13 +102,20 @@ export function resolveJoin(
   const room = (search.get('room') ?? '').trim();
   const token = (search.get('token') ?? '').trim();
   if (room !== '' && token !== '') {
-    return { base: serverOfPage(pageAddress), room, token };
+    // The address bar's own share link: the fragment is the part of it a version-2 room needs,
+    // and `pageQueryParams` never sees it because it is not a parameter.
+    return { base: serverOfPage(pageAddress), room, token, fragment: fragmentOf(pageAddress) };
   }
   const text = pasted.trim();
   if (text !== '') {
     const page = parsePageLink(text);
     if (page !== undefined) {
-      return { base: serverOfPage(page.origin), room: page.room, token: page.token };
+      return {
+        base: serverOfPage(page.origin),
+        room: page.room,
+        token: page.token,
+        fragment: page.fragment,
+      };
     }
     // The engine splits its invite on the raw `?` and `&`, so a fragment or
     // an appended second `?` would glue into the token: normalise first.
@@ -112,7 +125,12 @@ export function resolveJoin(
       parsed.join.room !== undefined &&
       parsed.join.token !== undefined
     ) {
-      return { base: serverOfWire(parsed.base), room: parsed.join.room, token: parsed.join.token };
+      return {
+        base: serverOfWire(parsed.base),
+        room: parsed.join.room,
+        token: parsed.join.token,
+        fragment: fragmentOf(text),
+      };
     }
     throw new Error('That invite link does not name a session. Paste the whole link.');
   }
@@ -150,6 +168,12 @@ function serverOfWire(raw: string): SessionBase {
     throw new Error('That invite link names a server this page cannot reach. Ask the host for a fresh link.');
   }
   return base;
+}
+
+/** The `#…` a link carries, `#` included, or empty. A fragment is never query data. */
+export function fragmentOf(link: string): string {
+  const hash = link.indexOf('#');
+  return hash === -1 ? '' : link.slice(hash);
 }
 
 /** The last name that joined, for prefill — localStorage only, never the wire. */

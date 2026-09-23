@@ -280,9 +280,32 @@ The copy carries `selvage/2`'s session layer with the rest of the engine: `src/e
 `CANONICAL.md` §6.1's bytes, `src/engine/peer.ts` is `PROTOCOL.md` §13, `src/engine/host.ts` is
 §7.1's producer half — the room state the host key seals, and one rule for each state that goes out
 — and `src/engine/crypto.ts` is the crypto seam a caller supplies — HKDF-SHA256, SHA-256,
-AES-256-GCM and Ed25519 — which this page can implement with WebCrypto. Nothing here drives them
-yet: the page speaks `selvage/1`, and the crypto seam is asynchronous for exactly this client's
-sake, since WebCrypto has no synchronous form.
+AES-256-GCM and Ed25519 — which this page implements with WebCrypto, the engine's own default. The
+seam is asynchronous for exactly this client's sake, since WebCrypto has no synchronous form.
+
+### Sessions at `selvage/2`
+
+The page speaks both versions. A **join** takes the version its link names: `§5.1`'s fragment
+carries the room key and the host key, so a link with both is a `selvage/2` room and a link with
+neither — every link this page has handed on until now — is `selvage/1`, which is what the
+published client speaks. A **host** chooses: `?wire=2` on the page that starts the room mints a
+version-2 one, and unset mints `selvage/1`. The folder is walked *before* that mint, because `§7.1`
+seals the room state from the listing: a host that minted first would put an empty tree in front of
+its first guest. The guest link the bar offers carries the fragment for the same reason a wire
+invite does.
+
+`src/browser/relay.ts` is the version-2 half: the socket wiring is the vendored
+`src/engine/relay.ts`, the vocabulary is `src/bridge/peer-engine.ts`, and what is left for that file
+is the browser's own WebSocket and the `RoomEngine` shape the binding and the session bar ask of
+whichever version is seated. In a version-2 room a document arrives when the guest opens it from the
+shared tree — the room's documents are the paths somebody holds (`§13.4`) — and a connection the
+room seats as `viewer` gets its documents with the editor read-only, since `§13.9` publishes none of
+a viewer's content.
+
+**What is not carried.** The relay runs no resume (`§9.1`), so there is no `HostStore` and no
+returning host; `§13.11`'s per-receiver caps are unimplemented, as they are in the reference client.
+Nothing here asks for the `viewer` role: the room state assigns it, and a client that could ask
+would be inventing a request the protocol does not have.
 
 The page's own modules:
 
@@ -293,6 +316,8 @@ The page's own modules:
 - `src/browser/transport.ts`: the engine's socket from the browser's own WebSocket. The
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
+- `src/browser/relay.ts`: the page's `selvage/2` room — the vendored relay with the page's own
+  WebSocket, and the `RoomEngine` shape that makes the two versions the same thing to drive.
 - `src/browser/node-shim.ts`: the one Node global the synced engine expects,
   `Buffer.byteLength`, defined only when absent.
 - `src/browser/monaco.ts`: the Monaco runtime, the editor core plus the languages the
@@ -340,9 +365,10 @@ The page's own modules:
 render of `mark-transparent.png` inlined in the shell so no frame waits on an image.
 `node scripts/inline-mark.mjs` prints a refreshed one.
 
-`scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-pi.mjs`, the M0
-record kept as-is; `prove-fb2.mjs`, the owner-feedback proof; `prove-tls.mjs` and
-`prove-flow2.mjs`) and the live check (`check-content-types.mjs`).
+`scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-v2.mjs`, the
+`selvage/2` proof in a real browser; `prove-pi.mjs`, the M0 record kept as-is; `prove-fb2.mjs`, the
+owner-feedback proof; `prove-tls.mjs` and `prove-flow2.mjs`) and the live check
+(`check-content-types.mjs`).
 `test/` holds the suite.
 
 `Dockerfile`, `.dockerignore` and `packaging/` are the page-only image: nginx's own
@@ -390,6 +416,7 @@ SELVAGE_BASE=ws://127.0.0.1:8080 npm run prove      # the M1 page stack
 SELVAGE_BASE=ws://127.0.0.1:8080 npm run prove:fb2  # the owner-feedback pass
 npm run prove:flow2                                 # the flow-review fixes
 npm run prove:tls                                   # the same page over TLS
+npm run prove:v2                                    # selvage/2 in a real headless Chromium
 ```
 
 `SELVAGE_BASE` defaults to the Pi demo and `SELVAGE_TLS_BASE` to the Pi TLS proxy, so
@@ -403,6 +430,13 @@ with a round trip back into a join. `prove:flow2` re-walks the three headline fl
 flow review. `prove:tls` hosts and joins through the Pi TLS proxy and asserts that every
 derived URL speaks TLS. `scripts/prove-pi.mjs` is the M0 record kept as-is, and it mints
 its room with the `vscode_client` engine beside this checkout.
+
+`prove:v2` is the one proof that drives a real browser: it starts one `selvaged
+--serve-page dist --serve-version-2` on the room's own origin, hosts from Node with the engine the
+page bundles, opens the page on the guest's fragment link in headless Chromium, joins from the card,
+opens the room's document from the shared tree, and asserts an edit in both directions — with
+`SELVAGE_SELVAGED` and `SELVAGE_CHROMIUM` pointing at a binary and a browser when the defaults are
+not the ones on the machine.
 
 What none of them covers is Monaco itself: the adapter owns no protocol logic beyond
 offset mapping, which both sides count in UTF-16 code units.

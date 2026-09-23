@@ -78,6 +78,13 @@ function makeEditor() {
     decorations: [],
     cleared: 0,
     selection: null,
+    /** The last read-only state the binding gave it, and how many times it was given one. */
+    readOnly: true,
+    optionUpdates: 0,
+    updateOptions: function (next) {
+      this.readOnly = next.readOnly;
+      this.optionUpdates += 1;
+    },
     createDecorationsCollection: function () {
       return {
         set: (next) => void (this.decorations = next),
@@ -129,8 +136,11 @@ class ManualTimers {
 }
 
 function makeEngine(texts) {
-  return {
-    session: () => ({ role: 'guest', roomId: 'r-test', peer: { peer_id: 'self', display_name: 'self', role: 'guest' }, documents: ['notes.txt'] }),
+  const listeners = new Set();
+  const engine = {
+    /** The role the room's state assigns, which a test moves the way a state does. */
+    roomRole: 'guest',
+    session: () => ({ role: engine.roomRole, roomId: 'r-test', peer: { peer_id: 'self', display_name: 'self', role: 'guest' }, documents: ['notes.txt'] }),
     text: (path) => texts.get(path) ?? '',
     has: (path) => texts.has(path),
     open: async (_path) => {},
@@ -141,9 +151,18 @@ function makeEngine(texts) {
     setSelection: () => {},
     setAwareness: () => {},
     presence: () => [],
+    peers: () => [],
+    documents: () => [],
+    grantedPaths: () => [],
     resolveSelection: () => undefined,
-    on: () => () => {},
+    on: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    /** Delivers an engine event, as an applied room state does. */
+    fire: (event) => void [...listeners].forEach((listener) => listener(event)),
   };
+  return engine;
 }
 
 describe('MonacoBinding', () => {
@@ -403,6 +422,42 @@ describe('MonacoBinding', () => {
       kind: 'refused',
       cause: 'not-granted',
     });
+    binding.dispose();
+  });
+
+  // `§13.9`: a viewer keeps its own edit and publishes none of it, so a buffer that accepted a
+  // keystroke would show text the room never receives. The role is the room state's to give, and
+  // it lands after the join, which is why this is read where a state can change it.
+  it("a viewer's editor is read-only, and the room says so once", async () => {
+    const engine = makeEngine(new Map([['notes.txt', 'hello']]));
+    const editor = makeEditor();
+    const notices = [];
+    const binding = new MonacoBinding({
+      engine,
+      editor,
+      onNotice: (notice) => void notices.push(notice),
+      createModel: (text) => makeModel(text),
+    });
+    const said = () => notices.filter((notice) => notice.kind === 'status');
+    await binding.openDocument('notes.txt');
+    assert.equal(editor.readOnly, false, 'a guest edits the room document');
+    assert.deepEqual(said(), []);
+
+    // The state arrived and seated this connection as a viewer.
+    engine.roomRole = 'viewer';
+    engine.fire({ type: 'peersChanged', peers: [] });
+    assert.equal(editor.readOnly, true, "a viewer's document is not editable");
+    assert.deepEqual(said(), [
+      { kind: 'status', text: 'you are a viewer in this room, so its documents are read-only.' },
+    ]);
+
+    // Every state after it says nothing new, and the editor is not re-optioned either.
+    const updates = editor.optionUpdates;
+    engine.fire({ type: 'peersChanged', peers: [] });
+    engine.fire({ type: 'grantChanged', paths: ['notes.txt'] });
+    assert.equal(said().length, 1, 'the room is told once');
+    assert.equal(editor.optionUpdates, updates, 'an unchanged room does not re-option the editor');
+
     binding.dispose();
   });
 });

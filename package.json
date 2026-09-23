@@ -12,6 +12,7 @@
     "test": "node --test test/",
     "test:ci": "node scripts/test-ci.mjs",
     "prove": "node scripts/prove-m1.mjs",
+    "prove:v2": "node scripts/prove-v2.mjs",
     "prove:fb2": "node scripts/prove-fb2.mjs",
     "prove:tls": "node scripts/prove-tls.mjs",
     "prove:flow2": "node scripts/prove-flow2.mjs",

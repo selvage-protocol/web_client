@@ -88,7 +88,7 @@ describe('join targets', () => {
   it('a link in the address bar names the page\'s own server', () => {
     assert.deepEqual(
       resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', PAGE),
-      { base: BASE, room: 'r-1', token: 'tok' },
+      { base: BASE, room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
@@ -97,14 +97,14 @@ describe('join targets', () => {
     // `server` names nothing the page reads.
     assert.deepEqual(
       resolveJoin(new URLSearchParams('room=r-1&token=tok&server=ws://other:8080'), '', PAGE),
-      { base: BASE, room: 'r-1', token: 'tok' },
+      { base: BASE, room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
   it('a bare open joins from a pasted page link, at the link\'s own server', () => {
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'https://edit.example/?room=r-1&token=tok', PAGE),
-      { base: 'wss://edit.example', room: 'r-1', token: 'tok' },
+      { base: 'wss://edit.example', room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
@@ -113,13 +113,16 @@ describe('join targets', () => {
     assert.ok(parsed?.join.room === 'r-1' && parsed?.join.token === 'tok');
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'ws://other:8080/session?room=r-1&token=tok', PAGE),
-      { base: 'ws://other:8080', room: 'r-1', token: 'tok' },
+      { base: 'ws://other:8080', room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
   it('a pasted wire invite keeps working with extras, fragments and a second ?', () => {
     // Foreign params are ignored; a fragment or an appended `?debug=1` must
-    // not glue into the token the way the address-bar `?debug=1` once did.
+    // not glue into the token the way the address-bar `?debug=1` once did. The
+    // fragment itself is carried — it is `§5.1`'s fragment, which is how a
+    // version-2 invite names its two keys — and one that names neither leaves
+    // the join a version-1 one.
     for (const invite of [
       'ws://other:8080/session?room=r-1&token=tok&debug=1&foo=bar',
       'ws://other:8080/session?token=tok&room=r-1&utm_source=x',
@@ -130,6 +133,7 @@ describe('join targets', () => {
         base: 'ws://other:8080',
         room: 'r-1',
         token: 'tok',
+        fragment: invite.includes('#') ? '#frag' : '',
       });
     }
   });
@@ -168,6 +172,7 @@ describe('join targets', () => {
         base: 'wss://edit.example',
         room: 'r-1',
         token: 'tok',
+        fragment: link.includes('#') ? '#frag' : '',
       });
     }
   });
@@ -207,6 +212,7 @@ describe('join targets', () => {
         base: parsed?.base ?? '',
         room: 'r-1',
         token: 'tok',
+        fragment: '',
       });
     }
   });
@@ -431,11 +437,12 @@ describe('share-link bar', () => {
   it('a pasted page link round-trips without wire material', () => {
     const link = buildShareLink(BASE, 'r-1', 'tok');
     const page = parsePageLink(link);
-    assert.deepEqual(page, { room: 'r-1', token: 'tok', origin: 'http://127.0.0.1:9' });
+    assert.deepEqual(page, { room: 'r-1', token: 'tok', origin: 'http://127.0.0.1:9', fragment: '' });
     assert.deepEqual(resolveJoin(pageQueryParams(new URL(link).search), '', link), {
       base: BASE,
       room: 'r-1',
       token: 'tok',
+      fragment: '',
     });
   });
 });
