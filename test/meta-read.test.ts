@@ -71,6 +71,22 @@ function headersOnly(): typeof fetch {
   };
 }
 
+/** A fetch whose body fails part way through, the way a dropped connection does. */
+function brokenBody(): typeof fetch {
+  return () =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"server":'));
+            controller.error(new TypeError('terminated'));
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+}
+
 const BASE = 'ws://127.0.0.1:8133';
 
 describe('what a /meta body has to be to be a Selvage server', () => {
@@ -137,6 +153,37 @@ describe('the three answers a read can give', () => {
     // deadline passes is the same no-answer as a server that never picked up.
     const read = await readServerMeta(BASE, { fetchImpl: headersOnly(), timeoutMs: 20 });
     assert.equal(read.kind, 'no-answer');
+  });
+
+  it('says nothing where a gateway answered in the server’s place', async () => {
+    // The M1 defect through another path: `fetchMeta` does not check the status, so a proxy's
+    // error page parsed as nothing and the offer went for the life of the load — on the page whose
+    // own server was cold or restarting, which the module header names as the case to keep.
+    for (const status of [500, 502, 503, 504]) {
+      const read = await readServerMeta(BASE, {
+        fetchImpl: answering('<html>Service Unavailable</html>', {
+          status,
+          headers: { 'content-type': 'text/html' },
+        }),
+      });
+      assert.equal(read.kind, 'no-answer', `a ${status} was taken for an answer about the server`);
+    }
+  });
+
+  it('says nothing where the body failed after the headers arrived', async () => {
+    // A connection that drops mid-body rejects with a `TypeError`, not the `AbortError` this
+    // module's own deadline raises, and the body is what the read is for: nothing arrived.
+    const read = await readServerMeta(BASE, { fetchImpl: brokenBody() });
+    assert.equal(read.kind, 'no-answer');
+  });
+
+  it('still reads an answered 404 as a server that is not one', async () => {
+    // The other side of it: waiting for the body must not turn an origin that answered and was
+    // something else into an origin that did not answer.
+    const read = await readServerMeta(BASE, {
+      fetchImpl: answering('<html>not found</html>', { status: 404 }),
+    });
+    assert.equal(read.kind, 'not-a-server');
   });
 
   it('says nothing where there is no fetch to make the ask with', async () => {

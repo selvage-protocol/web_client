@@ -37,7 +37,11 @@ export type ServerRead =
   | { kind: 'server'; meta: Meta }
   /** Answered with something that is not a Selvage `/meta`: a 404, a page, another JSON API. */
   | { kind: 'not-a-server' }
-  /** Nothing answered: the deadline passed, the connection was refused, the body never arrived. */
+  /**
+   * Nothing answered for the origin itself: the deadline passed, the connection was refused, the
+   * body never arrived, or what arrived was a gateway's own error rather than the server's answer
+   * about itself.
+   */
   | { kind: 'no-answer' };
 
 /** A JSON object, which is what `/meta` answers with and what nothing else here is. */
@@ -90,6 +94,13 @@ function isAbort(error: unknown): boolean {
  * out to be (a 404, a page, JSON that is not a Selvage `/meta`), while a deadline that passed or a
  * connection that never came up is no answer at all. A body still arriving when the deadline
  * passes is the second of those: the headers are not the server's answer about itself.
+ *
+ * A 5xx is the third case rather than the second. It is the origin's front door failing — a proxy
+ * with nothing yet behind it, a server restarting — and the module header's "slow, cold or behind
+ * a hiccup" is exactly that page: what it says is that nobody could read this origin, not that
+ * this origin is not a Selvage server. `not-a-server` is a claim about the server and it is kept
+ * for the life of the load, so it is worth saying only where the body was read and was something
+ * else.
  */
 export async function readServerMeta(
   base: string,
@@ -102,8 +113,16 @@ export async function readServerMeta(
   }
   const watching: typeof fetch = async (input, init) => {
     const response = await fetchImpl(input, init);
+    if (response.status >= 500) {
+      // A gateway's or a server's own error, which is not this server's answer about itself.
+      throw new Error(`/meta answered ${response.status}`);
+    }
+    // Read under the same deadline, so that `answered` means the whole body arrived and was
+    // read: a body that fails part way through is a failure to read this origin, not an answer
+    // from it, and `fetchMeta` parses the body it is handed here exactly as it would the stream.
+    const body = await response.text();
     answered = true;
-    return response;
+    return new Response(body);
   };
   try {
     const body = await fetchMeta(base, { ...options, fetchImpl: watching });

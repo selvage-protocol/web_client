@@ -74,12 +74,14 @@ interface ShellState {
   arm(): void;
 }
 
-/** What the card holds when the shell has run; `heldSubmit` is the markup's own hold on a submit. */
+/** What the card holds when the shell has run; `heldSubmit` is the markup's own hold on a submit,
+ * and `heldInvitePath` the one thing that hold could read about which action it was. */
 interface ShellOpen {
   search: string;
   stored: string;
   heldJoin?: boolean;
   heldSubmit?: boolean;
+  heldInvitePath?: boolean;
 }
 
 /**
@@ -123,6 +125,7 @@ function runShell(open: ShellOpen): ShellState {
     __selvageJoinArmed: false,
     __selvagePendingJoin: open.heldJoin ?? false,
     __selvagePendingSubmit: open.heldSubmit ?? false,
+    __selvagePendingInvitePath: open.heldInvitePath ?? false,
     __selvageWaiting: false,
   };
   const document = { getElementById: (id: string) => element(id) };
@@ -256,17 +259,27 @@ describe('the card shell decides the first frame', () => {
     // answers a form action with a CSP refusal, so a join made in that window
     // can neither navigate nor leave a trace. The markup is the only thing
     // standing there, so the hold is an attribute on the form — and it records
-    // only that a submit was held: which of the card's two actions it was is
-    // read from the card itself, once the card's own script has painted it.
+    // only that a submit was held and which one thing it could read: whether the
+    // invite path was open when it caught the submit. Which of the card's two
+    // actions it was is settled from that and the card's own paint, once the
+    // card's script has run.
     const tag = /<form id="join-form"[^>]*>/.exec(html)?.[0];
     assert.ok(tag !== undefined, 'the shell carries no join form');
     const handler = /\sonsubmit="([^"]*)"/.exec(tag)?.[1];
     assert.ok(handler !== undefined, `the form carries no pre-script hold: ${tag}`);
-    const preScript = { __selvageJoinArmed: false };
+    const path = { open: true };
+    const preScript: Record<string, unknown> = { __selvageJoinArmed: false };
     // eslint-disable-next-line no-new-func
-    const cancel: unknown = new Function('window', handler)(preScript);
+    const cancel: unknown = new Function('window', 'document', handler)(preScript, {
+      getElementById: () => path,
+    });
     assert.equal(cancel, false, 'the hold does not cancel the submission it holds');
     assert.equal(preScript.__selvagePendingSubmit, true, 'a held submit is never recorded for the shell');
+    assert.equal(
+      preScript.__selvagePendingInvitePath,
+      true,
+      'the one thing the markup could read about the held submit was not recorded',
+    );
     assert.ok(
       !('__selvagePendingJoin' in preScript),
       'the markup decides the intent, which it cannot read before any script has run',
@@ -277,6 +290,22 @@ describe('the card shell decides the first frame', () => {
     // eslint-disable-next-line no-new-func
     new Function('window', handler)(armed);
     assert.equal(armed.__selvagePendingSubmit, undefined, 'the hold records a submit the bundle already handles');
+  });
+
+  it('replays a held submit by the path it was made in, not the one standing when the script runs', () => {
+    // The deferred window this hold exists for: the person opens the invite
+    // path and submits Join, then closes the disclosure. The shell reads the
+    // path once it arrives, and a live reading says the name field's Enter —
+    // so a join the person made is answered with "still loading" and dropped.
+    const held = runShell({ search: '', stored: '', heldSubmit: true, heldInvitePath: true });
+    assert.equal(held.pending, true, 'the held join was not queued as a join');
+    assert.equal(held.waiting, false, 'a held join was answered with the still-loading line');
+    assert.equal(held.joinButton.textContent, 'Joining…', 'the card did not say what it was doing');
+
+    // And a submit the path was shut for stays the card's own action.
+    const shut = runShell({ search: '', stored: '', heldSubmit: true, heldInvitePath: false });
+    assert.equal(shut.pending, false, 'a submit the path was shut for was replayed as a join');
+    assert.equal(shut.waiting, true, 'the held submit was answered with nothing at all');
   });
 
   it('settles a submit the markup held before the script ran, once the intent is readable', () => {

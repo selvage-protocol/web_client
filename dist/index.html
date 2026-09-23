@@ -477,12 +477,16 @@
              defers every script has no guard until one runs, and the room's
              own server answers a form action with a CSP refusal, so a join
              that lands first can neither navigate nor leave a trace. What this
-             records is that a submit was held, not which of the card's two
-             actions it was: this attribute cannot read the address bar's
-             intent (the card's own script paints it, and has not run yet), so
-             the script settles the held submit the moment it does — see the
-             guard and the card block below. The bundle replays a held join. -->
-        <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingSubmit = true; } return false;">
+             records is that a submit was held, and the one thing the markup
+             can read about which of the card's two actions it was: whether the
+             invite path was open at that moment. It cannot read the address
+             bar's intent (the card's own script paints it, and has not run
+             yet), so the script settles the held submit the moment it does —
+             see the guard and the card block below. The disclosure is read
+             here rather than there because the person may close it before the
+             script arrives, and the join they made is the one that has to be
+             replayed. The bundle replays a held join. -->
+        <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingSubmit = true; var path = document.getElementById('invite-path'); window.__selvagePendingInvitePath = path ? path.open === true : false; } return false;">
           <label>The name other participants see
             <input id="name" type="text" maxlength="32" autocomplete="off" placeholder="Ada" />
           </label>
@@ -545,6 +549,9 @@
       if (window.__selvagePendingSubmit !== true) {
         window.__selvagePendingSubmit = false;
       }
+      if (window.__selvagePendingInvitePath !== true) {
+        window.__selvagePendingInvitePath = false;
+      }
       // The hold's own helpers, in a scope of their own: the script is the page's
       // only classic script, and one name is enough to hang off `window` — the
       // settle the card block below needs for a submit the markup caught before
@@ -561,10 +568,22 @@
         // submission this form would make of it. That one is the card's own
         // action, not a join: the bundle decides it from `/meta` once it is here
         // (`runPrimary`).
-        function submitIsTheInvitePath() {
+        //
+        // `held` is what the markup recorded when it caught the submit, and it
+        // wins over the live reading of the disclosure: this script can arrive
+        // after the person has closed the path they submitted from, and the
+        // submit they made is the one to replay. The card's class is the address
+        // bar's intent, which only this script can read, so it decides first.
+        function submitIsTheInvitePath(held) {
           var card = document.getElementById('join');
+          if (card && card.className === 'card-join') {
+            return true;
+          }
+          if (held === true || held === false) {
+            return held;
+          }
           var path = document.getElementById('invite-path');
-          return (card && card.className === 'card-join') || (path && path.open === true);
+          return !!(path && path.open === true);
         }
         // The card's own answer to an action it cannot take yet: it says so. The
         // start action needs a folder picker, which the browser answers only
@@ -592,8 +611,10 @@
           }
         }
         function settleHeldSubmit() {
+          var held =
+            window.__selvagePendingSubmit === true ? window.__selvagePendingInvitePath : undefined;
           window.__selvagePendingSubmit = false;
-          if (submitIsTheInvitePath()) {
+          if (submitIsTheInvitePath(held)) {
             holdJoin();
           } else {
             sayStillLoading();
