@@ -2617,9 +2617,10 @@ prints `src/{engine,bridge} match … (HEAD 700a59e)` and `diff -r` over both di
 the only other thing the script may report is nothing at all, which is what it did for `src/bridge`.
 
 One more thing that revision made false here: `scripts/prove-v2.mjs` started its server with
-`--serve-version-2`, and a server built from this revision seats both versions by default with that
-flag gone. The proof failed to start — an unknown argument — rather than being wrong about a room,
-and it now starts `selvaged --serve-page dist` alone.
+`--serve-version-2`, the flag that seated `selvage/2` alone and has since been replaced by
+`--serve-version-1-only`: a server built from this revision seats both versions by default. The
+proof failed to start — an unknown argument — rather than being wrong about a room, and it now
+starts `selvaged --serve-page dist` alone.
 
 The vendor commit carries a rebuilt `dist/` too, and it has to. The engine gaining a declaration
 shifts esbuild's minified names across the whole bundle even while nothing calls it yet, so a copy
