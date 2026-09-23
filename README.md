@@ -276,6 +276,13 @@ more…` rather than offering a card that looks like the last one.
 edited here. Refresh them with `npm run sync-engine`, which records the upstream SHA in
 `scripts/sync-engine.sh`.
 
+The copy carries `selvage/2`'s peer side with the rest of the engine: `src/engine/sealed.ts` is
+`CANONICAL.md` §6.1's bytes, `src/engine/peer.ts` is `PROTOCOL.md` §13, and
+`src/engine/crypto.ts` is the crypto seam a caller supplies — HKDF-SHA256, SHA-256, AES-256-GCM
+and Ed25519 — which this page can implement with WebCrypto. Nothing here drives them yet: the
+page speaks `selvage/1`, and the crypto seam is asynchronous for exactly this client's sake,
+since WebCrypto has no synchronous form.
+
 The page's own modules:
 
 - `src/browser/main.ts`: the page. Display name, invite, the editable document, the
