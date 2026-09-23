@@ -1904,12 +1904,12 @@ same driver run twice, under `GHOST_TAG=before-fix` and `after-fix`):
   `caret-{before-typing,after-three-enters,after-cursor-move}.png`.
 
 Nothing outside the checkout is written: the Chromium profiles, the shots and
-the driver's logs live under `.tmp/ghost-caret/`, and the one unix-socket
-directory Chromium insists on per launch goes to `/tmp/gt` (a profile path this
-deep exceeds the 107-byte socket bound). A `rawKeyDown` with no text — `ArrowDown`
-and `Home` — never reaches Monaco in this headless Chromium; the driver moves a
-caret by clicking the line instead, and records that here so a later driver does
-not trust a key batch.
+the driver's logs live under `.tmp/ghost-caret/`, and the unix-socket directory
+Chromium insists on per launch is `.tmp/chromium`, relative to the checkout root
+so it stays inside the 108-byte socket bound however deep the checkout sits. A
+`rawKeyDown` with no text — `ArrowDown` and `Home` — never reaches Monaco in this
+headless Chromium; the driver moves a caret by clicking the line instead, and
+records that here so a later driver does not trust a key batch.
 
 Open questions:
 
@@ -3286,6 +3286,3 @@ EXIT=0
   submit held before any script on a page whose address *is* an invite relies on the class, not on
   the snapshot. That is the case the shell's own settle already covers, since it paints the class
   before it settles.
-- **`scripts/tmp-cdp.mjs` still defaults its Chromium profile under `/tmp`**, as the last wave
-  recorded. Both browser proofs use a relative `.tmp/`, and it is a scratch script, so it is left
-  and written down again rather than changed here.

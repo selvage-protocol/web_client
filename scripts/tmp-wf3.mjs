@@ -6,7 +6,7 @@ const PAGE = 'http://127.0.0.1:8081/';
 // its own origin's server now, so the room is handed on as the wire invite and pasted
 // into the bare card. The reads below this join are from an earlier round's chrome.
 const INVITE = 'ws://100.64.0.3:8080/session?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5';
-const cdp = await launch({ port: 9346, profile: '/tmp/selvage-prof-wf3' });
+const cdp = await launch({ port: 9346, profile: '.tmp/selvage-prof-wf3' });
 await cdp.navigate(PAGE);
 await cdp.evaluate(`document.querySelector('#invite').value = ${JSON.stringify(INVITE)}`);
 await cdp.evaluate(`document.querySelector('#name').value = 'follower'; document.querySelector('#join-button').click()`);
