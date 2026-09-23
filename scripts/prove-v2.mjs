@@ -10,9 +10,10 @@
  * `showDirectoryPicker`, which no automation can answer, and a proof that stubbed the picker would
  * be proving the stub.
  *
- * The server is one origin: `selvaged --serve-page dist --serve-version-2` answers `/` with the
- * built page and `/session` with the room, so the link's origin *is* the address the guest dials —
- * `PROTOCOL.md` §5.1's shape, with no second server to point at.
+ * The server is one origin: `selvaged --serve-page dist` answers `/` with the built page and
+ * `/session` with the room, so the link's origin *is* the address the guest dials —
+ * `PROTOCOL.md` §5.1's shape, with no second server to point at. No version flag is needed: a
+ * server built from this revision seats both, and `--serve-version-1-only` is the opt-out.
  *
  * Screenshots go to `.tmp/prove-v2/` — inside the checkout, where `/tmp` is never used, and
  * ignored by git, which keeps a proof run from leaving anything in the tree.
@@ -88,7 +89,7 @@ function selvagedBinary() {
   throw new Error('no selvaged found; set SELVAGE_SELVAGED to one');
 }
 
-/** `selvaged` serving the built page and seating `selvage/2`, on an ephemeral loopback port. */
+/** `selvaged` serving the built page and seating both versions, on an ephemeral loopback port. */
 async function startServer() {
   const binary = selvagedBinary();
   const page = resolve(ROOT, 'dist');
@@ -97,7 +98,7 @@ async function startServer() {
   }
   const child = spawn(
     binary,
-    ['--listen', '127.0.0.1:0', '--serve-page', page, '--serve-version-2'],
+    ['--listen', '127.0.0.1:0', '--serve-page', page],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
   const address = await new Promise((resolve_, reject) => {
@@ -131,14 +132,17 @@ async function startServer() {
 
 /** The smallest CDP driver this proof needs: one page, evaluate, type, screenshot. */
 async function launchChromium(port) {
-  // Chromium puts its process-singleton socket under `TMPDIR`, and such a path is bounded at about
-  // 108 bytes: a temp directory deep enough in the tree fails to launch with "Socket path too
-  // long". The browser is handed a `TMPDIR` inside this checkout for that reason — `/tmp` is never
-  // used here — and `SELVAGE_CHROMIUM_PROFILE` names a profile of its own, for a worktree whose
-  // path is long enough that `.tmp/` plus the socket is already over the limit.
-  const profile = process.env['SELVAGE_CHROMIUM_PROFILE'] ?? resolve(ROOT, '.tmp', 'pv2');
-  rmSync(profile, { recursive: true, force: true });
-  mkdirSync(profile, { recursive: true });
+  // Chromium puts its process-singleton socket under `TMPDIR`, and the path it hands the kernel is
+  // bounded at about 108 bytes: an absolute `.tmp/…` under a worktree checkout with the socket name
+  // on its end is over the bound, and Chromium 153 refuses to start with "Socket path too long"
+  // before it opens a page. The bound is on the string, not on where it resolves, so the browser's
+  // `TMPDIR` is relative and it is spawned with the checkout root as its working directory: `.tmp/`
+  // is already ignored and this directory is removed with the run. `/tmp` is never used here: it is
+  // RAM. `SELVAGE_CHROMIUM_TMPDIR` names another, and `SELVAGE_CHROMIUM_PROFILE` a profile.
+  const tmp = process.env['SELVAGE_CHROMIUM_TMPDIR'] ?? '.tmp/chromium';
+  const profile = process.env['SELVAGE_CHROMIUM_PROFILE'] ?? `${tmp}/pv2`;
+  rmSync(resolve(ROOT, profile), { recursive: true, force: true });
+  mkdirSync(resolve(ROOT, profile), { recursive: true });
   const browser = spawn(
     chromiumBinary(),
     [
@@ -151,7 +155,7 @@ async function launchChromium(port) {
       '--window-size=1280,900',
       'about:blank',
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: resolve(ROOT, '.tmp') } },
+    { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: tmp } },
   );
   let wsUrl;
   try {
@@ -257,6 +261,7 @@ async function launchChromium(port) {
         // Already gone.
       }
       browser.kill('SIGKILL');
+      rmSync(resolve(ROOT, tmp), { recursive: true, force: true });
     },
   };
 }

@@ -20,10 +20,22 @@ import {
   HOST_TAB_WARNING,
   clearHostingMark,
   hostAvailability,
+  hostRefusalSentence,
   markHosting,
   takeHostingNotice,
 } from '../src/browser/host.ts';
-import type { HostStorage } from '../src/browser/host.ts';
+import type { HostRefusal, HostStorage } from '../src/browser/host.ts';
+import { hostDecision } from '../src/browser/relay.ts';
+import type { Meta } from '../src/engine/index.ts';
+
+/** The refusal a decision is, or a failure loud enough to read: every caller here means to refuse. */
+function refusalOf(meta: Meta | undefined, search: string): HostRefusal {
+  const decision = hostDecision(meta, search);
+  if (decision.outcome !== 'refuse') {
+    throw new Error(`not a refusal: ${decision.outcome} at ${decision.version}`);
+  }
+  return decision;
+}
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
@@ -76,25 +88,65 @@ describe('the host action in the shell', () => {
 });
 
 describe('whether the card offers to start a room', () => {
+  /** What a server that seats both versions answers, which is what the card is offered under. */
+  const bothSeated = hostDecision({ wire_versions: ['selvage/1', 'selvage/2'] }, '');
+
   it('offers it only where a folder can be picked and the page is the server', () => {
-    assert.deepEqual(hostAvailability({ picker: true, serverHere: true }), { kind: 'offered' });
+    assert.deepEqual(
+      hostAvailability({ picker: true, serverHere: true, decision: bothSeated }),
+      { kind: 'offered' },
+    );
   });
 
   it('explains a browser that cannot hand over a folder, and says joining still works', () => {
-    const availability = hostAvailability({ picker: false, serverHere: true });
+    const availability = hostAvailability({
+      picker: false,
+      serverHere: true,
+      decision: bothSeated,
+    });
     assert.equal(availability.kind === 'explained' ? availability.sentence : '', HOST_NEEDS_A_BROWSER);
     assert.match(HOST_NEEDS_A_BROWSER, /Joining a room here still works/);
   });
 
   it('explains a page that is not the server\'s own page rather than guessing at one', () => {
-    const availability = hostAvailability({ picker: true, serverHere: false });
+    const availability = hostAvailability({
+      picker: true,
+      serverHere: false,
+      decision: bothSeated,
+    });
     assert.equal(
       availability.kind === 'explained' ? availability.sentence : '',
       HOST_NEEDS_THE_SERVERS_PAGE,
     );
     // A picker that cannot pick is the first answer either way: the /meta read is not worth
     // making where there is nothing to do with its answer.
-    assert.equal(hostAvailability({ picker: false, serverHere: false }).kind, 'explained');
+    assert.equal(
+      hostAvailability({ picker: false, serverHere: false, decision: bothSeated }).kind,
+      'explained',
+    );
+  });
+
+  it('explains a version the server does not seat, instead of a control that could only refuse', () => {
+    // A server that seats `selvage/1` alone, and a page that pins nothing: the room would be one
+    // the server can read, so there is no room to offer and the sentence says why.
+    const refusal = refusalOf({ wire_versions: ['selvage/1'] }, '');
+    const availability = hostAvailability({ picker: true, serverHere: true, decision: refusal });
+    const sentence = availability.kind === 'explained' ? availability.sentence : '';
+    assert.equal(sentence, hostRefusalSentence(refusal));
+    assert.match(sentence, /does not seat selvage\/2/);
+    // `/meta`'s own words: what the server said, not a reading of it.
+    assert.match(sentence, /selvage\/1/);
+    // And the way out, because a person told no has to be able to ask for something else.
+    assert.match(sentence, /\?wire=1/);
+  });
+
+  it('says a pin is the reason where the pin is the reason', () => {
+    const refusal = refusalOf({ wire_versions: ['selvage/2'] }, '?wire=1');
+    assert.equal(refusal.reason, 'pin-not-seated');
+    const sentence = hostRefusalSentence(refusal);
+    assert.match(sentence, /pinned to selvage\/1/);
+    assert.match(sentence, /offers selvage\/2/);
+    assert.match(sentence, /not fallen back from/);
   });
 });
 

@@ -11,12 +11,17 @@
  * `RoomEngine` is what the page's binding and its session bar ask of whichever version is seated.
  * Both versions answer it; the version-1 class satisfies it as it stands, and
  * {@link pageEngine} wraps the version-2 one so that it does too.
+ *
+ * The two versions are also chosen here, from the two things that choose them: `wireVersionOf` is
+ * `§5.1`'s rule for a link, and {@link hostDecision} is `§2`'s for a host.
  */
 
 import { PeerEngine } from '../bridge/index.ts';
 import type { Engine } from '../bridge/index.ts';
 import type { EngineEventListener } from '../engine/events.ts';
-import type { PeerInfo, Role } from '../engine/envelope.ts';
+import type { Meta, PeerInfo, Role } from '../engine/envelope.ts';
+import type { HostDecision, WireVersion } from '../engine/meta.ts';
+import { hostVersion } from '../engine/meta.ts';
 import type { SessionInfo } from '../engine/engine.ts';
 import type { OffsetSelection, Selection } from '../engine/presence.ts';
 
@@ -60,10 +65,37 @@ export function wireVersionOf(invite: string): 'selvage/1' | 'selvage/2' {
   return names.has('k') && names.has('h') ? 'selvage/2' : 'selvage/1';
 }
 
-/** Whether this page was opened asking to host at `selvage/2` (`?wire=2`). */
-export function hostsVersion2(search: string): boolean {
+/**
+ * The version this page's own address pins it to (`?wire=…`), or `undefined` when it pins nothing.
+ *
+ * A pin is a deliberate choice of version, and it is the host's: `?wire=1` asks for a room the
+ * server can read and `?wire=2` for the encrypted one, and the two spellings a person types — the
+ * number and the version — are both read. Nothing else pins: unset, `?wire=auto` and anything no
+ * version grammar accepts leave the server's `/meta` to decide, which is what a published page
+ * does. A join is unaffected — it speaks the version its invite names.
+ */
+export function hostPin(search: string): WireVersion | undefined {
   const wire = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('wire');
-  return wire === '2' || wire === 'selvage/2';
+  if (wire === '2' || wire === WIRE_VERSION_2) {
+    return WIRE_VERSION_2;
+  }
+  if (wire === '1' || wire === 'selvage/1') {
+    return 'selvage/1';
+  }
+  return undefined;
+}
+
+/**
+ * The version this page hosts a room at, from the server's own answer and this page's pin.
+ *
+ * `meta` is what `fetchMeta` answered, and `undefined` is a `/meta` that could not be read at all —
+ * unreachable, not JSON, no fetch — which is *not* an answer about versions: the page attempts
+ * `selvage/2`, and a server that seats only `selvage/1` refuses that hello loudly. The rule itself
+ * is the engine's (`hostVersion`), so every client decides it the same way; what is this client's
+ * is the pin, `?wire=…` on the page's own address.
+ */
+export function hostDecision(meta: Meta | undefined, search: string): HostDecision {
+  return hostVersion(meta, hostPin(search));
 }
 
 /**

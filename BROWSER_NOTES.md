@@ -2555,3 +2555,205 @@ fallback was exercised for real both ways, success and failure, by stubbing the 
 Open, and deliberately not touched: whether the roster's two verbs should keep their text
 labels on a pointer device, where the desktop client's inline actions are icons alone —
 that is the other way to give a name its room, and it is a presentation the owner shaped.
+
+## The hosted version comes from the server (2026-09-23)
+
+Which version a *hosting* client mints at is the server's to seat and the client's to pin
+(`PROTOCOL.md` §2, §10): an unpinned client that can speak `selvage/2` **mints** it, a reachable
+`wire_versions` holding no version at major 2 it can speak is a **local refusal before any socket**
+and never a fall back to the readable wire, and a `/meta` that could not be read is not that answer —
+the attempt is made and the handshake reports the truth. A **join** is not this choice: it speaks
+the version its invite names (§5.1), whatever the page is pinned to.
+
+What the page had was the other rule: `?wire=2` minted version 2 and *anything else, including
+unset*, minted `selvage/1`, so a page on a server that seats both hosted a room the server can read
+unless somebody knew to add a parameter. What it does now:
+
+- the page's own pin is `?wire=…` on its address — `?wire=1`/`?wire=selvage/1` and
+  `?wire=2`/`?wire=selvage/2` pin, while unset, `?wire=auto` and anything that names no version are
+  the auto reading, which is what a published page is (`hostPin`, `src/browser/relay.ts`);
+- `hostDecision(meta, search)` lays that pin over the vendored `hostVersion`, so this page and the
+  VS Code client answer the rule with the same code and the Neovim client has one place to match;
+- the card reads `/meta` once, best effort, and stands a refusal's own sentence where the button
+  would be (`hostAvailability` in `src/browser/host.ts`) rather than offering a control whose every
+  click ends in that sentence. `readMeta` in `main.ts` is where "could not be read" becomes
+  `undefined`, and that `undefined` is what makes an endpoint that never answered an attempt at
+  `selvage/2` instead of a refusal;
+- the host flow decides a second time after the folder picker and throws there, before any engine is
+  built, so a refusal opens no socket. The picker is asked first because `showDirectoryPicker` is
+  answered only under the click's own transient activation, which a `/meta` round trip can spend.
+
+The refusal copy is the page's own voice, in `host.ts`, and it carries the three things a person
+told no needs: the version it could not mint at or the pin that was refused, what the server offered
+in `/meta`'s own words rather than a reading of it, and the way out (`?wire=…`). A page served by a
+`selvage/1`-only server therefore still joins version-1 rooms from a link and cannot host one there
+unless it is pinned to `selvage/1`.
+
+### The vendored engine, re-synced
+
+The rule itself is not written here. `src/{engine,bridge}` are `vscode_client`'s copies, and the
+copy is now that client's `feat/host-version` (`700a59e`), whose whole change to the engine is two
+files: `src/engine/meta.ts` — the new `hostVersion`, with `WireVersion` and `HostDecision` — and
+`src/engine/index.ts`, their export. `scripts/sync-engine.sh /home/user/projects/selvage/vscode_client/.worktrees/host-version`
+prints `src/{engine,bridge} match … (HEAD 700a59e)` and `diff -r` over both directories is empty;
+the only other thing the script may report is nothing at all, which is what it did for `src/bridge`.
+
+One more thing that revision made false here: `scripts/prove-v2.mjs` started its server with
+`--serve-version-2`, and a server built from this revision seats both versions by default with that
+flag gone. The proof failed to start — an unknown argument — rather than being wrong about a room,
+and it now starts `selvaged --serve-page dist` alone.
+
+The vendor commit carries a rebuilt `dist/` too, and it has to. The engine gaining a declaration
+shifts esbuild's minified names across the whole bundle even while nothing calls it yet, so a copy
+of the engine committed without a rebuild stops reproducing its own bundle: `scripts/ci-local.sh
+checks` reports `a build does not reproduce the committed dist/` with the two hashes, which is how
+this was found. The names agree again at every commit since.
+
+One trap for anyone checking a commit out into a scratch directory to build it there: esbuild's
+names follow the *resolved* module paths, so a tree whose `node_modules` is a symlink into another
+checkout builds a different bundle from the same source — every chunk name shifts — while a real
+(a `cp -al` of the real) `node_modules` reproduces the committed `dist/` byte for byte. All six
+commits of this wave were checked that way.
+
+### The browser proof, and the two limits on it
+
+`npm run prove:host-version` (`scripts/prove-host-version.mjs`, new) starts two servers — a default
+one and one with `--serve-version-1-only` — reads each one's live `/meta` into `hostDecision`, and
+then reads the card out of the page *that server serves*, in headless Chromium 153.0.8010.36. Every
+sentence is compared with `hostRefusalSentence(hostDecision(meta, search))` computed from that
+server's own `/meta`, so the copy and the answer cannot drift apart without the proof failing:
+
+```
+the default server advertises ["selvage/1","selvage/2"]
+ok: an unpinned page on a server that seats both mints selvage/2
+ok: the card offers the host action
+ok: the card carries the tab warning, not a refusal
+the version-1-only server advertises ["selvage/1"]
+ok: an unpinned page on a version-1-only server is refused, not fallen back
+ok: the host action is not offered where it could only refuse
+ok: the card shows the refusal the decision words
+ok: the refusal names the version it would need
+ok: the refusal names what the server offers
+ok: a page pinned to selvage/1 mints it
+ok: a pinned page offers the host action
+ok: a pin the server does not seat is refused
+ok: the pin refusal names the pin and what is offered
+ok: an unreadable /meta attempts selvage/2
+ok: a page there still joins a version-1 room
+```
+
+Screenshots: `.tmp/prove-host-version/{both-seated-offered,one-only-refused,one-only-pinned-offered,one-only-guest-joined}.png`.
+
+Two honest limits. **The picker cannot be automated**, so the proof never presses *Start a session
+here*: what it shows is the card's decision, and the page's own refusal inside the host flow — the
+second `readMeta`, the throw before the mint, the picker's place in front of both — is pinned by the
+source-shape tests in `test/v2-adapter.test.ts` and by nothing else. And **the guest join is the
+version-1 half only**: the version-2 join in a browser is `npm run prove:v2`'s, and that proof was
+re-run here unchanged (a real Chromium joined a `selvage/2` room by its fragment link and exchanged
+an edit with the host in both directions).
+
+A third thing this cost, worth recording because it will bite the next browser proof in a worktree:
+Chromium puts its process-singleton socket under `TMPDIR`, the path it hands the kernel is bounded at
+about 108 bytes, and an absolute `<checkout>/.tmp/…` with
+`org.chromium.Chromium.XXXXXX/SingletonSocket` on its end is over the bound in a worktree — Chromium
+153 refuses to start at all, with *Socket path too long*, before it opens a page. Both browser proofs
+now hand the browser a **relative** `TMPDIR` (`.tmp/chromium/`) and spawn it with the checkout root
+as its working directory, which keeps the string short however deep the checkout is, since the bound
+is on the string and not on where it resolves; the directory is removed with the run and
+`SELVAGE_CHROMIUM_TMPDIR` names another. `/tmp` is never used: it is RAM here.
+
+### Red and green
+
+Seven mutations, each run alone on a tree restored before the next, against
+`node --test test/v2-adapter.test.ts test/host-card.test.ts` (34 tests, 34 passing with every guard
+in place, and 34/34 again after each restore):
+
+| guard reverted alone | what went red |
+|---|---|
+| `hostAvailability`'s refusal branch | *explains a version the server does not seat, instead of a control that could only refuse* |
+| `hostPin` returning `undefined` → the encrypted wire | *pins nothing where the address says nothing…* and *is refused where /meta answered without it…* |
+| `hostDecision` passing no pin to `hostVersion` | *is the pin, and a pin the server does not seat…*, *is the encrypted wire where /meta could not be read…*, *says a pin is the reason…* |
+| `readMeta` rethrowing instead of returning `undefined` | *reads /meta best effort, so an endpoint that did not answer is not an answer* |
+| the throw before the mint (a refusal reaching `version2`) | *asks the server for the version before it mints, and refuses without opening a socket* |
+| `readMeta` moved in front of the picker | *asks the folder picker before that read, because the picker needs the click* |
+| the join consulting `hostDecision` | *routes a link that names two keys to the version-2 join…*, *leaves a join to the version its invite names…* |
+
+That last row is the join half of this change, and it is the guard for "nothing a `selvage/1` room
+does may change": the join path reads the invite and nothing else.
+
+The live proof is not vacuous either. With the refusal branch removed from `hostAvailability` **and
+`dist/` rebuilt from it**, `npm run prove:host-version` fails at *the host action is not offered
+where it could only refuse* — the sentence a person would have met as a button.
+
+### Run, and not run
+
+Against a built `selvaged` from the merged revision, on this host:
+
+| run | result |
+|---|---|
+| `scripts/ci-local.sh all` | green: typecheck, the build, `reproduced byte for byte: 110 files, none changed`, 440/440 tests |
+| `npm run prove:host-version` | the eighteen checks above, in headless Chromium |
+| `npm run prove:v2` | a real browser joined a `selvage/2` room by its fragment link and exchanged an edit both directions |
+| `SELVAGE_BASE=ws://127.0.0.1:8123 node scripts/prove-m1.mjs` | `PROOF OK` against a `--serve-version-1-only` server |
+| `SELVAGE_BASE=ws://127.0.0.1:8124 node scripts/prove-fb2.mjs` | `PROOF OK` against the same seat |
+| `SELVAGE_BASE=ws://127.0.0.1:8124 node scripts/prove-flow2.mjs` | `PROOF OK` against the same seat |
+
+Not run here: `prove:tls` and `prove-pi`, which need the Pi (the demo origin and the TLS proxy), and
+`test/identity.test.ts`, which needs the `site` checkout and is excluded from `test:ci` by name. The
+M1, owner-feedback and flow-review proofs default to the Pi demo and were pointed at a local
+`--serve-version-1-only` server instead, which is the seat this change is about.
+
+### Left open
+
+A page served by a server that advertises **only** `selvage/2` still hides the host action: the
+page's "is this my server" gate is `metaAccepts`, which is version-1 compatibility, so such a page
+is given the *not the server's own page* sentence even though this client could host an encrypted
+room there. No server built from this revision is in that shape — the merged one seats both, and
+`--serve-version-1-only` is the only version flag — so nothing observable depends on it yet, and
+changing the gate is a separate decision about what "the page's own origin is a Selvage server"
+means now that a client speaks two versions.
+
+The same gate is what stands in front of a `/meta` that could not be read at all: `offerHosting`
+asks `metaAccepts` of it, gets false, and shows the *not the server's own page* sentence, so the host
+action is never reached and nothing attempts `selvage/2` from that page. The rule is not broken — the
+page never mints `selvage/1` on its own, which is the fall back §2 forbids — but the *an unreadable
+`/meta` is no answer, so the attempt is made* half is reachable through the page only where `/meta`
+answered at load and did not at the click. That is why the proof's check of it is the pure decision
+(`hostDecision(undefined, …)`) and not the card.
+
+### Checked again (2026-09-23)
+
+Read from the outside, after the wave, before integration:
+
+- **The vendored copy is the canonical one, compared at a published ref rather than at a working
+  tree.** `git archive --format=tar 82df98d -- src/engine src/bridge` out of `vscode_client`'s own
+  object store — `origin/feat/host-version`, the canonical branch head — `diff -r` over both
+  directories against this branch's `src/engine` and `src/bridge`: empty, both. So there was nothing
+  to re-sync and `scripts/sync-engine.sh`'s recorded `700a59e` stays, since it names the commit the
+  content came from and the two directories are byte-identical at both. (`82df98d` is *not*
+  docs-only, which the first reading of it had it as: it also touches `src/adapter/extension.ts`,
+  outside the vendored two.)
+- **The engine copy check is about published refs, not about a branch.** `check-workspace.sh` reads
+  each checkout's `origin/main`, so it neither sees nor vouches for this branch; at this writing all
+  six copies agree, verified by `git archive` at each `origin/main` and `diff -rq` over the same six
+  pairs (`vscode_client` `15b50cc`, `web_client` `70542a2`, `specification` `5bbb286`,
+  `reference_server` `ec95be7`, `nvim_client` `c6a2b35`, each at its last fetch, which is what the
+  check itself reads). It goes red in the window between one of the two clients' branches landing
+  and the other's, which is the reason to land them together.
+- **Every distinct `dist/` in the branch reproduces.** `ddf4f33`'s rebuild and `a9b7ed3`'s — the
+  tree the three script-and-docs commits carry — each built from `git archive` in a scratch
+  directory with a real (`cp -a --reflink=auto`) `node_modules`: `reproduced byte for byte: 110
+  files, none changed`.
+- **The proofs, run again.** `prove:host-version` and `prove:v2` pass, and `prove-m1`, `prove-fb2`
+  and `prove-flow2` each print `PROOF OK` against a local `--serve-version-1-only` seat.
+- **`prove:tls` passes too**, against the live demo (`PROOF OK`: the room is minted over `wss`,
+  edits converge both ways), which is the one proof that says the paths this change did not touch
+  still hold against a deployed server. Its output is also the measurement worth carrying: when it
+  ran, the demo's `/meta` answered `["selvage/1"]` alone, so **a page redeployed to that server from
+  this build would refuse to host unless pinned — the demo's `selvaged` has to seat `selvage/2`
+  before its page is replaced.**
+- **`prove-pi` cannot run from a worktree**, for a reason other than the one the wave recorded: it
+  imports `../../vscode_client/src/engine/engine.ts`, which from `<repo>/.worktrees/<name>` resolves
+  to `<repo>/.worktrees/vscode_client` — not a directory that exists — so it stops with
+  `ERR_MODULE_NOT_FOUND` before it dials anything. It is a proof to run from the checkout, with the
+  Pi reachable; nothing here changes its code.
