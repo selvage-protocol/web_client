@@ -17,7 +17,12 @@ import type { JoinCardElements } from '../src/browser/join.ts';
 
 function elements(over: Partial<JoinCardElements> = {}): JoinCardElements {
   return {
-    inviteWrap: { hidden: true },
+    pane: { className: 'card-start' },
+    startHeading: { hidden: false },
+    joinHeading: { hidden: true },
+    invitePath: { open: false },
+    inviteReveal: { hidden: false },
+    inviteWrap: { hidden: false },
     inviteInput: { value: '' },
     nameInput: { value: '' },
     ...over,
@@ -33,9 +38,9 @@ const emptyStorage: Pick<Storage, 'getItem'> = { getItem: () => null };
 describe('initJoinCard preserves typed state under a slow load', () => {
   it('a name typed before the bundle arrives survives the remembered-name prefill', () => {
     const els = elements({ nameInput: { value: 'typed-ahead' } });
-    const target = initJoinCard(els, new URLSearchParams('room=r-1&token=tok'), storageWith('remembered'));
+    const intent = initJoinCard(els, new URLSearchParams('room=r-1&token=tok'), storageWith('remembered'));
     assert.equal(els.nameInput.value, 'typed-ahead');
-    assert.equal(target, 'name');
+    assert.equal(intent, 'join');
   });
 
   it('an untouched name field still prefills the remembered name', () => {
@@ -50,29 +55,40 @@ describe('initJoinCard preserves typed state under a slow load', () => {
     assert.equal(els.nameInput.value, '');
   });
 
-  it('a typed invite on a bare open is kept and focus goes to the name', () => {
+  it('a typed invite on a bare open is kept, and the card stays the one that starts a room', () => {
     const els = elements({ inviteInput: { value: 'https://edit.example/?room=r-1&token=tok' } });
-    const target = initJoinCard(els, new URLSearchParams(), emptyStorage);
+    const intent = initJoinCard(els, new URLSearchParams(), emptyStorage);
     assert.equal(els.inviteInput.value, 'https://edit.example/?room=r-1&token=tok');
-    assert.equal(target, 'name');
+    assert.equal(intent, 'start');
+    assert.equal(els.invitePath.open, false, 'a bare open asked for a link nobody said they had');
   });
 
-  it('a bare open shows the paste box; a link open shows nothing but the question', () => {
-    const linked = elements();
-    initJoinCard(linked, new URLSearchParams('room=r-1&token=tok'), emptyStorage);
-    assert.equal(linked.inviteWrap.hidden, true);
-
+  it('a bare open leaves the invite path shut with its paste box inside; a link open is the invite path', () => {
     const bare = elements();
-    const target = initJoinCard(bare, new URLSearchParams(), emptyStorage);
+    initJoinCard(bare, new URLSearchParams(), emptyStorage);
+    assert.equal(bare.startHeading.hidden, false, 'a bare open does not lead with the start card');
+    assert.equal(bare.joinHeading.hidden, true);
+    assert.equal(bare.invitePath.open, false, 'the disclosure opened itself on a bare open');
+    assert.equal(bare.inviteReveal.hidden, false, 'nothing asks the person whether they have a link');
+    // Inside a shut disclosure: the browser shows it the moment the person opens the path.
     assert.equal(bare.inviteWrap.hidden, false);
-    assert.equal(target, 'invite');
+
+    const linked = elements();
+    const intent = initJoinCard(linked, new URLSearchParams('room=r-1&token=tok'), emptyStorage);
+    assert.equal(intent, 'join');
+    assert.equal(linked.startHeading.hidden, true, 'an invite open still leads with the start card');
+    assert.equal(linked.joinHeading.hidden, false);
+    assert.equal(linked.invitePath.open, true, 'the join path is shut on a page an invite named');
+    assert.equal(linked.inviteReveal.hidden, true, 'a page with a link asks whether it has one');
+    assert.equal(linked.inviteWrap.hidden, true, 'a room the address names leaves a paste box');
   });
 
   it('a room without a token is not a link', () => {
     const els = elements();
-    const target = initJoinCard(els, new URLSearchParams('room=r-1'), emptyStorage);
-    assert.equal(els.inviteWrap.hidden, false);
-    assert.equal(target, 'invite');
+    const intent = initJoinCard(els, new URLSearchParams('room=r-1'), emptyStorage);
+    assert.equal(intent, 'start');
+    assert.equal(els.invitePath.open, false);
+    assert.equal(els.startHeading.hidden, false);
   });
 });
 
@@ -147,10 +163,18 @@ describe('join card wiring in main.ts', () => {
     assert.ok(main.includes('__selvageJoinArmed = true'), 'held early submits are never armed');
   });
 
-  it('Enter joins from the card without relying on implicit submission', () => {
+  it('Enter runs the action the field belongs to, without relying on implicit submission', () => {
     assert.ok(main.includes("from './join.ts'"), 'join helpers are not wired');
-    assert.ok(main.includes('joinOnEnter(event, attemptJoin)'), 'Enter never reaches the join attempt');
-    assert.ok(main.includes("joinForm.addEventListener('keydown'"), 'no keydown listener on the join form');
+    assert.ok(main.includes('joinOnEnter(event, runPrimary)'), 'Enter in the name never reaches an action');
+    assert.ok(main.includes('joinOnEnter(event, attemptJoin)'), 'Enter in the paste box never joins');
+    assert.ok(
+      main.includes("nameInput.addEventListener('keydown'"),
+      'no keydown listener on the name field',
+    );
+    assert.ok(
+      main.includes("inviteInput.addEventListener('keydown'"),
+      'no keydown listener on the paste box',
+    );
   });
 
   it('a refused replay hands the card back after a held submit', () => {

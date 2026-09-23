@@ -3,9 +3,9 @@
  *
  * The shell's inline script runs while the parser is still reading the markup,
  * so what it decides is what paints — and the bundle's `initJoinCard` decides
- * the same two things (which shape the card is, and the remembered name) when
- * it takes over. This file runs both against the same inputs and holds them to
- * the same answer.
+ * the same things (which intent the card has, down to the heading it reads and
+ * the action it leads with, and the remembered name) when it takes over. This
+ * file runs both against the same inputs and holds them to the same answer.
  *
  * Owner defect (2026-09-18): on a bare open the first frame was a card with no
  * paste box and `Selvage mark` as the mark's alt text — the 60 KB PNG had not
@@ -23,7 +23,7 @@ import { pageQueryParams } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
 
 /** The one inline script: every pre-bundle decision the shell makes. */
 function inlineScript(): string {
@@ -34,6 +34,8 @@ function inlineScript(): string {
 
 interface FakeElement {
   hidden: boolean;
+  open: boolean;
+  className: string;
   value: string;
   disabled: boolean;
   textContent: string;
@@ -41,6 +43,11 @@ interface FakeElement {
 }
 
 interface ShellState {
+  pane: { className: string };
+  startHeading: { hidden: boolean };
+  joinHeading: { hidden: boolean };
+  invitePath: { open: boolean };
+  inviteReveal: { hidden: boolean };
   inviteWrap: { hidden: boolean };
   nameInput: { value: string };
   armed: boolean;
@@ -51,17 +58,23 @@ interface ShellState {
  * What the page is at the moment the parser has run the script and has not yet
  * painted: the markup's own state, then whatever the script decides. The
  * markup state is read from the shell, never assumed — a card whose paste box
- * is only hidden in the markup is exactly the frame that flashed.
+ * is only hidden in the markup is exactly the frame that flashed, and so is a
+ * card that paints the other intent and is corrected once the bundle lands.
  */
 function runShell(search: string, stored: string, held = false): ShellState {
-  const markupHidesInvite = /<label id="invite-wrap"[^>]*\shidden/.test(html);
+  const markupClass = /<div id="join"[^>]*\sclass="([^"]*)"/.exec(html)?.[1] ?? '';
+  const markupOpen = /<details id="invite-path"[^>]*\sopen/.test(html);
+  const markupHides = (id: string): boolean =>
+    new RegExp(`<(?:h1|label|summary|div|p) id="${id}"[^>]*\\shidden`).test(html);
   const elements = new Map<string, FakeElement>();
   const element = (id: string): FakeElement => {
     let found = elements.get(id);
     if (found === undefined) {
       found = {
-        hidden: id === 'invite-wrap' ? markupHidesInvite : false,
-        value: id === 'name' ? '' : '',
+        hidden: markupHides(id),
+        open: id === 'invite-path' ? markupOpen : false,
+        className: id === 'join' ? markupClass : '',
+        value: '',
         disabled: false,
         textContent: '',
         addEventListener: () => {},
@@ -80,11 +93,26 @@ function runShell(search: string, stored: string, held = false): ShellState {
   // eslint-disable-next-line no-new-func
   const run = new Function('window', 'document', 'URLSearchParams', inlineScript());
   run(window, document, URLSearchParams);
-  return { inviteWrap: element('invite-wrap'), nameInput: element('name'), armed: window.__selvageJoinArmed, pending: window.__selvagePendingJoin };
+  return {
+    pane: element('join'),
+    startHeading: element('start-heading'),
+    joinHeading: element('join-heading'),
+    invitePath: element('invite-path'),
+    inviteReveal: element('invite-reveal'),
+    inviteWrap: element('invite-wrap'),
+    nameInput: element('name'),
+    armed: window.__selvageJoinArmed,
+    pending: window.__selvagePendingJoin,
+  };
 }
 
 function bundleCard(search: string, stored: string): JoinCardElements {
   const elements: JoinCardElements = {
+    pane: { className: '' },
+    startHeading: { hidden: false },
+    joinHeading: { hidden: false },
+    invitePath: { open: false },
+    inviteReveal: { hidden: false },
     inviteWrap: { hidden: false },
     inviteInput: { value: '' },
     nameInput: { value: '' },
@@ -114,6 +142,11 @@ describe('the card shell decides the first frame', () => {
       it(`${where}: the shell and the bundle agree`, () => {
         const shell = runShell(search, stored);
         const bundle = bundleCard(search, stored);
+        assert.equal(shell.pane.className, bundle.pane.className, `the leading action disagrees on ${where}`);
+        assert.equal(shell.startHeading.hidden, bundle.startHeading.hidden, `the start heading disagrees on ${where}`);
+        assert.equal(shell.joinHeading.hidden, bundle.joinHeading.hidden, `the join heading disagrees on ${where}`);
+        assert.equal(shell.invitePath.open, bundle.invitePath.open, `the invite path disagrees on ${where}`);
+        assert.equal(shell.inviteReveal.hidden, bundle.inviteReveal.hidden, `the invite line disagrees on ${where}`);
         assert.equal(shell.inviteWrap.hidden, bundle.inviteWrap.hidden, `the paste box disagrees on ${where}`);
         assert.equal(shell.nameInput.value, bundle.nameInput.value, `the name field disagrees on ${where}`);
         assert.equal(shell.armed, false, 'the inline script armed the card before the bundle');
@@ -121,13 +154,20 @@ describe('the card shell decides the first frame', () => {
     }
   }
 
-  it('a bare open paints the paste box; a link open paints without it', () => {
-    assert.equal(runShell('', '').inviteWrap.hidden, false, 'a bare open still paints without its paste box');
-    assert.equal(
-      runShell('?room=r-1&token=tok', '').inviteWrap.hidden,
-      true,
-      'a link open still paints a paste box it will take away',
-    );
+  it('a bare open paints the start card with the invite path shut; a link open paints the join card', () => {
+    const bare = runShell('', '');
+    assert.equal(bare.pane.className, 'card-start', 'a bare open paints the other intent');
+    assert.equal(bare.startHeading.hidden, false, 'a bare open paints without its heading');
+    assert.equal(bare.joinHeading.hidden, true, 'a bare open paints the join heading');
+    assert.equal(bare.invitePath.open, false, 'a bare open still paints an open invite path');
+    assert.equal(bare.inviteReveal.hidden, false, 'a bare open asks for a link nobody offered');
+
+    const linked = runShell('?room=r-1&token=tok', '');
+    assert.equal(linked.pane.className, 'card-join', 'a link open paints the start card');
+    assert.equal(linked.joinHeading.hidden, false, 'a link open paints without its heading');
+    assert.equal(linked.startHeading.hidden, true, 'a link open paints the start heading');
+    assert.equal(linked.invitePath.open, true, 'a link open paints the invite path shut');
+    assert.equal(linked.inviteWrap.hidden, true, 'a link open paints a paste box it will take away');
   });
 
   it('the remembered name is on the card before the bundle arrives', () => {
@@ -139,7 +179,7 @@ describe('the card shell decides the first frame', () => {
     // The guard is the safety net: if the card block below it threw, an early
     // submit would navigate away and wipe the fields.
     const guard = html.indexOf('__selvageJoinArmed');
-    const card = html.indexOf("getElementById('invite-wrap')");
+    const card = html.indexOf("getElementById('start-heading')");
     assert.ok(guard !== -1, 'no pre-bundle guard');
     assert.ok(card !== -1, 'no pre-paint card block');
     assert.ok(guard < card, 'the card block runs before the guard that protects the form');
@@ -186,8 +226,9 @@ describe('the card shell decides the first frame', () => {
   it('the script runs while the parser still holds the shell', () => {
     const at = html.indexOf('<script>');
     assert.ok(at !== -1, 'no inline script in the shell');
-    assert.ok(html.indexOf('id="invite-wrap"') < at, 'the script addresses markup the parser has not read yet');
-    assert.ok(html.indexOf('id="name"') < at, 'the script addresses markup the parser has not read yet');
+    for (const id of ['start-heading', 'join-heading', 'invite-path', 'invite-reveal', 'name']) {
+      assert.ok(html.indexOf(`id="${id}"`) < at, `the script addresses ${id} before the markup names it`);
+    }
     assert.ok(at < html.indexOf('<script type="module"'), 'the module script is parsed first');
     assert.ok(
       !/<script[^>]*\ssrc=/.test(html.slice(0, html.indexOf('<script type="module"'))),

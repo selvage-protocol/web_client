@@ -331,7 +331,7 @@ describe('join failures in plain words', () => {
 
 describe('join card markup', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+  const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
 
   it('renders one field over a blurred preview, never the old four', () => {
     for (const gone of ['id="server"', 'id="room"', 'id="token"']) {

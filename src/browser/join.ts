@@ -1,10 +1,12 @@
 /**
- * The pre-join helpers: what the join card asks, and what it remembers.
+ * The pre-join helpers: what the card asks, and what it remembers.
  *
- * An invite link is the page the room's own server serves, so the card asks one
- * thing, the display name: the link in the address bar or pasted into the box
- * brings its room, its token and its server with it. A bare page open has no
- * link, so the card asks for one (either a page link or a wire invite). Nothing
+ * The card has two intents and the address bar decides which one it is. A page
+ * opened with an invite — the room and its token in the query, which is the page
+ * the room's own server serves — is a guest's, so it asks one thing, the display
+ * name, and joins the room the address already names. A page opened bare is where
+ * a room starts, so it asks the same name and starts one here, and the invite path
+ * is a disclosure under it for the person who turns out to have a link. Nothing
  * here touches the DOM; `main.ts` wires it to the card.
  */
 
@@ -15,6 +17,26 @@ import { parsePageLink } from './share.ts';
 import { linkServerBase, serverBaseOf } from './servers.ts';
 
 export { MAX_DISPLAY_NAME_UNITS };
+
+/**
+ * Which of the card's two intents this page has: the room is named by the address
+ * bar, or it is a page a room starts from.
+ */
+export type CardIntent = 'start' | 'join';
+
+/**
+ * The address bar's answer, read the one way the card reads a link: a `room` and a
+ * `token` together are the invite, and anything short of both is a bare page.
+ */
+export function cardIntentOf(search: Pick<URLSearchParams, 'get'>): CardIntent {
+  const room = (search.get('room') ?? '').trim();
+  const token = (search.get('token') ?? '').trim();
+  return room !== '' && token !== '' ? 'join' : 'start';
+}
+
+/** The class the card wears in each intent; the stylesheet reads the leading action off it. */
+export const CARD_START_CLASS = 'card-start';
+export const CARD_JOIN_CLASS = 'card-join';
 
 /** The only key the page keeps: the last name that joined, for prefill. */
 export const DISPLAY_NAME_KEY = 'selvage.displayName';
@@ -252,52 +274,83 @@ export function joinOnEnter(
 }
 
 /**
- * The pre-join card's live controls, addressed structurally so the wiring stays
+ * The card in one of its two intents, addressed structurally so the wiring stays
  * testable without a DOM. The card shell itself is inline HTML: it paints before
- * the bundle arrives, and this wiring only flips `hidden` on the variant the
- * address bar calls for — never a re-render, so nothing typed is lost.
+ * the bundle arrives, and this wiring only flips `hidden` and the browser's own
+ * disclosure — never a re-render, so nothing typed is lost.
  */
-export interface JoinCardElements {
+export interface CardIntentElements {
+  /** The card itself, whose class tells the stylesheet which action leads. */
+  pane: { className: string };
+  /** `Start a shared session`: the heading read on a page that starts one. */
+  startHeading: { hidden: boolean };
+  /** `Join a shared session`: the heading read on a page a link named. */
+  joinHeading: { hidden: boolean };
+  /** The invite path's disclosure: open is the paste box and Join being asked for. */
+  invitePath: { open: boolean };
+  /** The line that asks for a link, read only where there is no link to paste. */
+  inviteReveal: { hidden: boolean };
+  /** The paste box, hidden while the room is already named by the address. */
   inviteWrap: { hidden: boolean };
+}
+
+/** The pre-join card's live controls: its intent, and the two fields it asks in. */
+export interface JoinCardElements extends CardIntentElements {
   inviteInput: { value: string };
   nameInput: { value: string };
 }
 
-/** Which field the card should offer focus to: the first empty question. */
-export type JoinFocusTarget = 'name' | 'invite';
+/**
+ * Puts the card in one of its two intents: which heading is read, which action the
+ * stylesheet leads with, and what the invite path shows.
+ *
+ * `reveal` is a link being pasted rather than one the address bar carried, which is
+ * the card's rejoin shape: the room that just ended took the address-bar link with
+ * it, so the card comes back for a fresh one. It opens the invite path in the
+ * intent that would otherwise keep it shut, and the paste box is the one thing it
+ * shows — a room the address already names leaves nothing to paste. A person
+ * opening the disclosure themselves is the browser's own doing, and is not this.
+ */
+export function showCardIntent(
+  elements: CardIntentElements,
+  intent: CardIntent,
+  reveal = false,
+): void {
+  const join = intent === 'join';
+  elements.pane.className = join ? CARD_JOIN_CLASS : CARD_START_CLASS;
+  elements.startHeading.hidden = join;
+  elements.joinHeading.hidden = !join;
+  elements.invitePath.open = join || reveal;
+  elements.inviteReveal.hidden = join;
+  elements.inviteWrap.hidden = join && !reveal;
+}
 
 /**
- * Wires the pre-join card for `search` without touching the editor stack.
+ * Wires the pre-join card for `search` without touching the editor stack, and says
+ * which intent it landed in.
  *
- * The shell's inline script has already made both decisions once — it runs
- * before the first paint, so the card never grows a paste box or a name under
+ * The shell's inline script has already made these decisions once — it runs before
+ * the first paint, so the card never grows a paste box, a heading or a name under
  * the reader — and this is the same wiring taking over with the same answer.
  *
- * Two guarantees the slow-load defect taught: the remembered name prefills
- * only an untouched field — anything typed before the bundle arrives stays —
- * and the caller's focus decision lands past first paint, never stealing a
- * field the guest already typed into. Returns where focus belongs.
- *
- * The card asks its one question either way: a link open needs nothing but
- * the name, a bare open shows the paste box above it.
+ * One guarantee the slow-load defect taught: the remembered name prefills only an
+ * untouched field, so anything typed before the bundle arrives stays. The name is
+ * the card's own question in either intent — both actions need it — so the caller
+ * offers focus to that field, past first paint, and never to one already typed in.
  */
 export function initJoinCard(
   elements: JoinCardElements,
   search: Pick<URLSearchParams, 'get'>,
   storage: Pick<Storage, 'getItem'>,
-): JoinFocusTarget {
-  const room = (search.get('room') ?? '').trim();
-  const token = (search.get('token') ?? '').trim();
-  const linkMode = room !== '' && token !== '';
-  // Both ways, not just the bare open: the variant is one decision, and a
-  // shell that painted the other one is corrected here rather than trusted.
-  elements.inviteWrap.hidden = linkMode;
-  // A slow first load means the guest may have typed ahead of the bundle:
-  // prefill only the field they left alone.
+): CardIntent {
+  const intent = cardIntentOf(search);
+  // Both ways, not just the bare open: the intent is one decision, and a shell that
+  // painted the other one is corrected here rather than trusted.
+  showCardIntent(elements, intent);
   if (elements.nameInput.value === '') {
     elements.nameInput.value = loadDisplayName(storage);
   }
-  return linkMode || elements.inviteInput.value !== '' ? 'name' : 'invite';
+  return intent;
 }
 
 /**
@@ -308,25 +361,31 @@ export function initJoinCard(
  * fresh link gets anyone in. The name is left as the guest typed it, so the
  * next join is one paste and Enter.
  */
-export interface RejoinCardElements {
-  join: { hidden: boolean };
+export interface RejoinCardElements extends CardIntentElements {
+  /** The card itself: it is shown again, and its class is what decides the leading action. */
+  pane: { className: string; hidden: boolean };
   preview: { hidden: boolean };
   veil: { hidden: boolean };
   message: { hidden: boolean; textContent: string };
-  error: { textContent: string };
-  inviteWrap: { hidden: boolean };
+  /** The join path's own failure line, under the button that asked for the link. */
+  joinError: { textContent: string };
+  /** The start action's, under the button that asked for the name. */
+  hostError: { textContent: string };
   inviteInput: { value: string };
   joinButton: { disabled: boolean; textContent: string };
 }
 
 export function showRejoinCard(elements: RejoinCardElements, message: string): void {
-  elements.join.hidden = false;
+  // The card leads with the join again, and with the paste box open: the link the
+  // address bar carried is the room that just closed, so a fresh one is the way in.
+  showCardIntent(elements, 'join', true);
+  elements.pane.hidden = false;
   elements.preview.hidden = false;
   elements.veil.hidden = false;
   elements.message.textContent = message;
   elements.message.hidden = false;
-  elements.error.textContent = '';
-  elements.inviteWrap.hidden = false;
+  elements.joinError.textContent = '';
+  elements.hostError.textContent = '';
   elements.inviteInput.value = '';
   elements.joinButton.disabled = false;
   elements.joinButton.textContent = 'Join';

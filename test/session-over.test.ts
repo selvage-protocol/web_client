@@ -37,7 +37,7 @@ const shareBox = readFileSync(new URL('../src/browser/share-box.ts', import.meta
 const roster = readFileSync(new URL('../src/browser/roster.ts', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
 
 describe('the words for the end of a session', () => {
   it('names the room gone and the reason, in the desktop clients words', () => {
@@ -194,29 +194,40 @@ describe('leaving the session', () => {
 describe('the card the page comes back to', () => {
   function elements(over: Record<string, unknown> = {}) {
     return {
-      join: { hidden: true },
+      pane: { className: 'card-join', hidden: true },
+      startHeading: { hidden: true },
+      joinHeading: { hidden: false },
+      invitePath: { open: false },
+      inviteReveal: { hidden: true },
+      inviteWrap: { hidden: true },
       preview: { hidden: true },
       veil: { hidden: true },
       message: { hidden: true, textContent: '' },
-      error: { textContent: 'stale failure' },
-      inviteWrap: { hidden: true },
+      joinError: { textContent: 'stale failure' },
+      hostError: { textContent: 'stale hosting failure' },
       inviteInput: { value: 'http://old/?room=r&token=t' },
       joinButton: { disabled: true, textContent: 'Joining…' },
       ...over,
     };
   }
 
-  it('comes back over the preview, with the paste box open and the button ready', () => {
+  it('comes back as the join card, with the paste box open and the button ready', () => {
     const gone =
       'The room is gone (host did not return). Nothing in the room was saved. Paste a fresh invite link to join another session.';
     const elementsUnderTest = elements();
     showRejoinCard(elementsUnderTest, gone);
-    assert.equal(elementsUnderTest.join.hidden, false, 'the card never came back');
+    assert.equal(elementsUnderTest.pane.hidden, false, 'the card never came back');
+    assert.equal(elementsUnderTest.pane.className, 'card-join', 'the card came back leading with the start');
+    assert.equal(elementsUnderTest.startHeading.hidden, true, 'the start heading came back over a dead room');
+    assert.equal(elementsUnderTest.joinHeading.hidden, false, 'the join heading did not come back');
     assert.equal(elementsUnderTest.preview.hidden, false, 'the blurred preview never came back');
     assert.equal(elementsUnderTest.veil.hidden, false, 'the veil never came back');
     assert.equal(elementsUnderTest.message.hidden, false, 'the reason never showed');
     assert.equal(elementsUnderTest.message.textContent, gone);
-    assert.equal(elementsUnderTest.error.textContent, '', 'a stale failure stood on the card');
+    assert.equal(elementsUnderTest.joinError.textContent, '', 'a stale failure stood on the card');
+    assert.equal(elementsUnderTest.hostError.textContent, '', 'a stale hosting failure stood on the card');
+    assert.equal(elementsUnderTest.invitePath.open, true, 'the invite path came back shut over a dead room');
+    assert.equal(elementsUnderTest.inviteReveal.hidden, true, 'the card asks a dead room for a link');
     assert.equal(elementsUnderTest.inviteWrap.hidden, false, 'the paste box stayed hidden in link mode');
     assert.equal(elementsUnderTest.inviteInput.value, '', 'the dead link stayed in the paste box');
     assert.equal(elementsUnderTest.joinButton.disabled, false, 'Join stayed disabled');

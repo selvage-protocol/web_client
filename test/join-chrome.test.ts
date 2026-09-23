@@ -28,7 +28,7 @@ import { displayShareLink } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-const card = html.slice(html.indexOf('<div id="join">'), html.indexOf('id="workspace"'));
+const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
 
 function rule(selector: string): string {
   const found = style.match(new RegExp(`${selector}\\s*\\{[^}]*\\}`));
@@ -194,9 +194,16 @@ describe('the status element is gone for good', () => {
 });
 
 describe('the card is the flow, not a page of prose', () => {
-  it('one heading, one name field, one confirm, one paste box', () => {
-    assert.match(card, /<h1>Join a shared session<\/h1>/, 'the heading is not the whole instruction');
-    assert.equal((html.match(/Join a shared session/g) ?? []).length, 1, 'the heading is repeated');
+  it('one heading per intent, one name field, one confirm, one paste box', () => {
+    // Two headings, because the card is two intents: a page that starts a room and a page
+    // an invite named. The shell's own script hides one of them before the first paint, so
+    // exactly one is read — and it is the one the address bar calls for.
+    assert.match(card, /<h1 id="start-heading">Start a shared session<\/h1>/, 'no heading for the start card');
+    assert.match(card, /<h1 id="join-heading" hidden>Join a shared session<\/h1>/, 'no heading for the join card');
+    for (const heading of ['Join a shared session', 'Start a shared session']) {
+      assert.equal((html.match(new RegExp(heading, 'g')) ?? []).length, 1, `the heading is repeated: ${heading}`);
+    }
+    assert.equal((html.match(/<h1/g) ?? []).length, 2, 'a third heading is on the card');
     assert.ok(card.includes('id="name"'), 'no name field');
     assert.ok(card.includes('id="join-button"'), 'no confirm button');
     assert.ok(card.includes('id="invite"'), 'no paste box for a bare open');
@@ -216,6 +223,7 @@ describe('the card is the flow, not a page of prose', () => {
     assert.ok(card.includes('placeholder="Ada"'), 'the name example left the card');
     assert.match(card, /room=…&token=…/, 'the paste schematic left the card');
     assert.ok(card.includes('id="join-form"'), 'no form: Enter would not join');
+    assert.ok(card.includes('<input id="name"'), 'the name field left the card');
   });
 });
 
