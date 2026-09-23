@@ -2315,6 +2315,16 @@ What it does not claim: `getFile()` and `createWritable()` are two steps, and a 
 landing between them is not caught. The API has no compare-and-swap. What the guard turns
 into a sentence is the overwrite a person would otherwise never hear about.
 
+The stamp is the file's modification time, and that is the guard's whole reach: a writer
+that puts the old stamp back — `cp -p`, `rsync -a`, `tar -x`, a `git` with
+`core.restoreMtime` — leaves it identical, the guard stays silent, and the room's text
+lands on top of what was written. So a deploy step that unpacks an archive over the picked
+folder and a guest that then edits the file is the shape the guard does not catch. It is
+the platform's ceiling rather than a bug: the alternatives are a content hash read on
+every write or a compare-and-swap the API does not have, and the failure is not silent in
+any case — the room's text is what the person sees afterwards. This is a residual, stated
+rather than covered (`folder.ts`, the note above `write`).
+
 The refusal reaches the person as a failure alert, not a status line: `save` throws the
 folder's own sentence, the bridge reports `saveFailed` with it, and the binding turns that
 into a `failure` notice into `#alert`.
@@ -2574,11 +2584,13 @@ unless somebody knew to add a parameter. What it does now:
   the auto reading, which is what a published page is (`hostPin`, `src/browser/relay.ts`);
 - `hostDecision(meta, search)` lays that pin over the vendored `hostVersion`, so this page and the
   VS Code client answer the rule with the same code and the Neovim client has one place to match;
-- the card reads `/meta` once, best effort, and stands a refusal's own sentence where the button
-  would be (`hostAvailability` in `src/browser/host.ts`) rather than offering a control whose every
-  click ends in that sentence. `readMeta` in `main.ts` is where "could not be read" becomes
-  `undefined`, and that `undefined` is what makes an endpoint that never answered an attempt at
-  `selvage/2` instead of a refusal;
+- the card reads `/meta` once, and stands a refusal's own sentence where the button would be
+  (`hostAvailability` in `src/browser/host.ts`) rather than offering a control whose every click ends
+  in that sentence. `readMeta` in `main.ts` is the *mint*'s read: best effort, `undefined` for
+  everything that is not a body, because a `/meta` that could not be read decides nothing about
+  versions and the attempt is made. The *card* cannot use that reading — see the 2026-09-24 wave
+  below — and asks through `readServerMeta` (`src/browser/meta-read.ts`), which tells "the origin
+  answered and was not a Selvage server" apart from "nothing answered in time";
 - the host flow decides a second time after the folder picker and throws there, before any engine is
   built, so a refusal opens no socket. The picker is asked first because `showDirectoryPicker` is
   answered only under the click's own transient activation, which a `/meta` round trip can spend.
@@ -2644,13 +2656,16 @@ ok: a page there still joins a version-1 room
 
 Screenshots: `.tmp/prove-host-version/{both-seated-offered,one-only-refused,one-only-pinned-offered,one-only-guest-joined}.png`.
 
-Two honest limits. **The picker cannot be automated**, so the proof never presses *Start a session
-here*: what it shows is the card's decision, and the page's own refusal inside the host flow — the
-second `readMeta`, the throw before the mint, the picker's place in front of both — is pinned by the
-source-shape tests in `test/v2-adapter.test.ts` and by nothing else. And **the guest join is the
-version-1 half only**: the version-2 join in a browser is `npm run prove:v2`'s, and that proof was
-re-run here unchanged (a real Chromium joined a `selvage/2` room by its fragment link and exchanged
-an edit with the host in both directions).
+Two honest limits, and one of them is no longer a limit. **The picker's dialog cannot be answered by
+any automation** — it belongs to the browser — and the proof used not to press *Start a session
+here* at all. It does now (2026-09-24, below): an init script stands in for `showDirectoryPicker` and
+returns the browser's **real** `FileSystemDirectoryHandle` for an origin-private directory, so
+everything after the pick — the walk, the sealed mint, the share bar — is the page's own code and the
+real API, and the room's link is read back: a fragment where the server seats `selvage/2`, none where
+the page is pinned to `selvage/1`. What is stubbed is the dialog and nothing else. And **the guest
+join is the version-1 half only**: the version-2 join in a browser is `npm run prove:v2`'s, which
+the review re-ran and this wave ran again (a real Chromium joined a `selvage/2` room by its fragment
+link and exchanged an edit with the host in both directions).
 
 A third thing this cost, worth recording because it will bite the next browser proof in a worktree:
 Chromium puts its process-singleton socket under `TMPDIR`, the path it hands the kernel is bounded at
@@ -2705,21 +2720,19 @@ M1, owner-feedback and flow-review proofs default to the Pi demo and were pointe
 
 ### Left open
 
-A page served by a server that advertises **only** `selvage/2` still hides the host action: the
-page's "is this my server" gate is `metaAccepts`, which is version-1 compatibility, so such a page
-is given the *not the server's own page* sentence even though this client could host an encrypted
-room there. No server built from this revision is in that shape — the merged one seats both, and
-`--serve-version-1-only` is the only version flag — so nothing observable depends on it yet, and
-changing the gate is a separate decision about what "the page's own origin is a Selvage server"
-means now that a client speaks two versions.
+Both items this section carried are closed by the 2026-09-24 wave below, and the sentences above are
+left as what was true when they were written.
 
-The same gate is what stands in front of a `/meta` that could not be read at all: `offerHosting`
-asks `metaAccepts` of it, gets false, and shows the *not the server's own page* sentence, so the host
-action is never reached and nothing attempts `selvage/2` from that page. The rule is not broken — the
-page never mints `selvage/1` on its own, which is the fall back §2 forbids — but the *an unreadable
-`/meta` is no answer, so the attempt is made* half is reachable through the page only where `/meta`
-answered at load and did not at the click. That is why the proof's check of it is the pure decision
-(`hostDecision(undefined, …)`) and not the card.
+- A page served by a server that advertises **only** `selvage/2` hid the host action, because the
+  page's "is this my server" gate was `metaAccepts`, which is version-1 compatibility. That gate is
+  gone: the question is now whether `/meta` is recognisably a Selvage server's body
+  (`isSelvageMeta`), and what it seats is then the *decision's* business. A `selvage/2`-only server
+  is recognised and hostable, which is what a client that can speak the version should do.
+- The same gate stood in front of a `/meta` that could not be read at all, so the *an unreadable
+  `/meta` is no answer, so the attempt is made* half was unreachable from the page. It is reachable
+  now and it is what the page does: the offer stands with a note saying what was not read, the click
+  attempts `selvage/2`, and one more ask with a longer deadline replaces the note when the server
+  answers after all.
 
 ### Checked again (2026-09-23)
 
@@ -2801,8 +2814,12 @@ What the change moved:
   intents ask: focus lands on it either way. It stays off a typed-into field as before.
 
 The invite path is a `<details>` on purpose: it opens with no script at all, so a page whose bundle
-is late — or that never gets one — can still be joined from the card, and the collapsed element keeps
-the paste box out of the first frame and out of the accessibility tree without any marking of ours.
+is late — or that never gets one — has the paste box and Join *visible and reachable* without any
+script, and the collapsed element keeps the paste box out of the first frame and out of the
+accessibility tree without any marking of ours. A page that never gets its bundle cannot *finish* a
+join, though, and the earlier wording here said it could: with `app.js` a 404 the form's own hold
+runs `preventDefault`, the button goes to *Joining…* and stays there, and nothing joins — the review
+measured that, and the sentence is what changed this wave; the stuck button is left as it is.
 An invite in the address opens it from the wiring, with the summary hidden, which is how the guest's
 card shows Join alone.
 
@@ -2849,3 +2866,163 @@ the hosting notice in `sessionStorage`, and rewriting the query would have to pr
 `?debug`); and whether revealing the invite path on a bare page should hand the primary look to Join
 (it does not — the intent decides, so the start action stays the card's own action and Join is the
 muted one inside the reveal).
+
+## The final review's four states, and the card's own reading of its origin (2026-09-23)
+
+An independent review of `e2829af` — measured in Chromium against a real `selvaged` — found four
+states a person reaches on the card, and one documentation defect of the same family. Its verdict was
+*ship, with the four named follow-ups*: nothing here is a mechanism that failed, and nothing about the
+sealed wire, the grant guard or the host flow was touched. This is what changed, with the evidence.
+
+### A `/meta` that did not answer is not "this page is not a Selvage server" (M1)
+
+`readMeta` in `main.ts` returns `undefined` for *both* "this origin answered and was not a Selvage
+server" and "nothing answered within the deadline", and the card read `undefined` as the first of
+those. The review's run: a real `selvaged`, behind a proxy that took 3.0 s to answer `/meta` and
+nothing else, gave `hostButtonHidden: true` with *"This page was not served by a Selvage server, so
+there is nothing here to start a room on"* on the server's own page — and `offerHosting` runs once, so
+the one action that would have worked was gone for the life of the load.
+
+`src/browser/meta-read.ts` is the card's own read now, and it has three answers rather than two:
+`server` (the body is a Selvage server's), `not-a-server` (a response arrived and was something else:
+a 404, a page, JSON that is not this), and `no-answer` (nothing arrived — the deadline passed, the
+connection was refused, the body never came). The two failure shapes are told apart around the
+engine's `fetchMeta`: a response that arrived is an answer whatever its body was, an abort of our own
+deadline is not, and neither is the case where there is no `fetch` at all.
+
+`hostAvailability` maps that third answer to a fourth card state, `unchecked`: the offer stands, with
+`HOST_UNREAD_NOTE` saying what was not read and what the click does about it (`/meta` is advisory, so
+the click attempts `selvage/2` and the handshake reports the truth — §2). `offerHosting` then asks
+once more with a longer deadline (`META_REREAD_TIMEOUT_MS`, 5 s) and only an answer redraws the card,
+so a server that was cold rather than absent gets its own warning back on its own. The *mint*'s read
+is unchanged: `readMeta`'s best-effort `undefined` still decides nothing about versions.
+
+`BROWSER_NOTES.md` said the opposite of the code in the section above and the truth in its "Left
+open"; the first sentence is corrected, and the second is marked as closed.
+
+### Only a Selvage server is offered a room (M2)
+
+The card's "is this my server" gate was `metaAccepts`, which is version-1 *compatibility*: a body that
+says nothing about versions passed it. An origin answering `{}` at `/meta` — a stub, a metrics
+endpoint, a static host with a JSON file there — was offered **Start a session here** by the card, and
+the click then put `the WebSocket reported an error` on it.
+
+The gate is `isSelvageMeta` now: the body §2 defines, which is `wire_versions` (a non-empty array of
+strings), `server`, `capabilities` and `keepalive`. `roles` is deliberately not required — §2 lets a
+server that seats no `selvage/1` write nothing there, so requiring it would refuse a real server. Two
+consequences worth naming: a server advertising only `selvage/2` is recognised and hostable (the
+"Left open" item above), and a `/meta` that did not answer keeps the offer rather than being read as a
+refusal (which is the same fix as M1's, from the other side).
+
+The engine's own wording is off the card too — the review's nit, and the same fix: a failed host now
+goes through the mapper the join path uses (`describeJoinErrorForDisplay`), so a socket that would not
+come up reads as *"Couldn't reach the session. Check your connection and retry."* and the raw cause
+stays in the console (or behind `?debug=1`). The card's own sentences — the name it needs, the
+folder, the wire-version refusal — pass through it untouched.
+
+### Enter in the name field always does something (M3)
+
+`primaryActionOf` answered `'none'` where the card could not host *and* the invite path was shut, and
+`runPrimary` did nothing for it. That is the default state of the bare page on Firefox and Safari,
+under `npm run serve` and on the page-only deploy: a name typed, Enter pressed, nothing at all — no
+line, no state change, no movement.
+
+The action is settled from the two facts that decide it now: `'host'` where the card offers to start a
+room, **`'join'` everywhere else**. Where the card cannot start one, the invite path is the only action
+the page has left, so Enter takes it, the path opens, and the join asks for the link it needs in its
+own line under Join — while the reason hosting is not offered is already standing beside it in the
+card's own words (`#host-note`, which is visible in every one of those states). Silence was the one
+answer the card could not give to a field it had focused itself, and repeating that sentence under the
+name field would have been a second copy of words already on the card. `primaryActionOf` lost its
+third state, and the `invitePathOpen` parameter that only it used.
+
+### An Enter before the bundle is the card's own action (M4)
+
+The shell's form *is* the invite path, so a submit that landed before `app.js` armed the card was held
+as a join and replayed as one — on a **start** card, where the person who typed a name and pressed
+Enter was answered with *"Paste an invite link to join."* once the bundle arrived, on a page whose
+heading is *Start a shared session*, while the button read *Joining…* in the meantime.
+
+The shell now holds the act by the card it is about, and the bundle's own rule decides it — with one
+reading, two doors into it (`submitIsTheInvitePath`, `public/index.html`):
+
+- **Enter in the name field** (`keydown`, before the bundle, which is the field the card focuses) is
+  *prevented* from becoming the form's implicit submission and settled by the intent: on a guest's
+  card the address bar already named the room, so it is the join, exactly as it is once the bundle is
+  here; on a bare card it is the card's own action.
+- **A submit** is the invite path's own act — a click on Join, or Enter in the paste box — *unless*
+  the path is shut, where nothing in it can be clicked or pasted and the only thing that can submit is
+  the name field's Enter arriving the way the form makes of it. That is the shape the review's own
+  probe (`requestSubmit()` from a page init script) reaches, and it is classified rather than queued.
+- **The markup's own hold** (the form's `onsubmit`, which is there before any script) records only
+  *that* a submit was held: it cannot read the address bar's intent, because the card's own script
+  paints it. The script settles that record the moment it has run, which is always before the bundle.
+
+What the card's own action gets **is a sentence, not a replay**: the start action reaches
+`showDirectoryPicker`, which the browser answers only under a click of the person's own, so a press
+replayed after a slow load would be refused — and worded as a refusal of *their folder*, which is a
+worse lie than "still loading". The shell says so instead (*"One moment — the page is still loading,
+so nothing was started. Press Enter again in a moment."*), the bundle takes that line off when it
+arrives, and the card is live a moment later. A held **join** is still replayed, once, exactly as it
+was: it needs nothing but the fields the person filled in.
+
+### The smaller findings
+
+- **A page without its bundle cannot join, and the note said it could** (m1). The `<details>` half of
+  the claim is true — the paste box and Join are reachable with no script — and the rest was not: with
+  `app.js` a 404 the form's hold runs, the button sticks on *Joining…* and nothing joins. The sentence
+  is corrected rather than the machinery; nothing no longer claims a join that cannot happen. The
+  stuck button is left as it is, deliberately: a shell that guessed *how slow is too slow* would be
+  putting a guess about the deployment on the card.
+- **`prove:host-version` never pressed the button** (m2), so the mint had no independent check and the
+  engine choice rested on source-text regexes. It presses it now: an init script stands in for
+  `showDirectoryPicker` and returns the browser's **real** `FileSystemDirectoryHandle` for an
+  origin-private directory (the technique the earlier host wave recorded), so the walk, the mint and
+  the share bar are the real code, and the room's own link is read back — `#k=…&h=…` on a server that
+  seats both (`selvage/2`, §10), no fragment at all on a page pinned to `?wire=1`. A page whose card
+  said `selvage/2` while the mint fell back to version 1 now fails this proof.
+- **The stale-file guard rests on `lastModified`** (m4). A writer that puts the old stamp back —
+  `cp -p`, `rsync -a`, `tar -x`, a `git` with `core.restoreMtime` — leaves it identical and the guard
+  silent, so the room's text lands on top. That is the platform's ceiling rather than a bug (the
+  alternatives are a content hash on every write or a compare-and-swap the API does not have), and it
+  is now stated where a reader meets the guard: in `folder.ts` above `write` and its refusal type, and
+  in the 2026-09-22 section of this file.
+
+### Red and green
+
+Every fix was shown red with its own guard reverted, on a tree restored before the next — the same
+discipline the earlier waves used, and the reason these are guards rather than prose. Each was a
+one-line revert, `node --test` over the files that speak to it, and the tree restored after:
+
+| guard reverted alone | what went red |
+|---|---|
+| the `no-answer` arm of `hostAvailability` (back to the not-the-server's-page sentence) | *keeps the offer where /meta did not answer, and never calls the page someone else's* |
+| `isSelvageMeta`'s recognition (back to "any JSON object") | *refuses the one that answered nothing about itself*, *answers as something else where the origin is not a Selvage server*, and *explains a page that is not the server's own page…* |
+| `readServerMeta`'s abort/response distinction | *says nothing where the headers arrived and the body did not* |
+| `primaryActionOf`'s `'none'` (back for the shut path) | *Enter in the name field runs the card's own action wherever the card cannot start a room* |
+| the shell's keydown hold (back to the form's own hold) | *a pre-bundle Enter in the name field is the card's own action, never the join* |
+| the shell's shut-path classification (back to "queue a join") | *settles a submit by the card it is about: the disclosure decides, not the form* |
+| the host path's copy (`describe(error)` instead of the shared mapper) | *shows the card's own copy for a failed host, not the socket's* |
+
+The live proof is not vacuous either: with the recognition reverted **and `dist/` rebuilt from it**,
+`npm run prove:host-version` fails at *an origin answering `{}` is not offered the host action*, which
+is the review's own measurement; with the `no-answer` arm reverted it fails at *the offer is never
+withdrawn for a /meta that was slow*; and with the host flow forced to mint version 1 on a
+both-seated server it fails at *the unpinned page on a both-seated server minted a sealed room*.
+
+### Run, and not run
+
+| run | result |
+|---|---|
+| `scripts/ci-local.sh all` | green: typecheck, the build, `reproduced byte for byte`, 481/481 tests |
+| `npm run prove:host-version` | the card's decisions, the two mints read back from their own links, the stub and static `/meta`, the slow-`/meta` sequence, and a version-1 join |
+| `npm run prove:v2` | a real browser joined a `selvage/2` room by its fragment link and exchanged an edit both directions |
+| `SELVAGE_BASE=ws://127.0.0.1:36479 node scripts/prove-m1.mjs` | `PROOF OK` |
+
+Not run: `prove:tls` and `prove:pi`, and `prove:fb2`/`prove:flow2` in their default shape — all four
+need the Pi, which this host cannot reach (`ai_notes/AGENTS.md` §3), and `prove-m1` was pointed at a
+local server instead; `scripts/ci-local.sh container`, which needs Docker and this host has none; and
+`test/identity.test.ts`, which needs the `site` checkout *beside the repository root* and therefore
+cannot run from a worktree, where the sibling is two levels up — it is excluded from `test:ci` by
+name, and the review ran it green from the main checkout (8/8, against `site` at that checkout's
+`origin/main`).
