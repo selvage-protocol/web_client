@@ -7,12 +7,26 @@
  * is compared with `hostRefusalSentence(hostDecision(meta, search))` computed from that server's own
  * live `/meta`, so the page's copy and the server's answer cannot drift apart without this failing.
  *
- * What it cannot do is press *Start a session here*: hosting reaches `showDirectoryPicker`, which no
- * automation can answer, and a proof that stubbed the picker would be proving the stub. So the
- * version-1 join of the last case is what the browser is asked for here: a room is minted from this
- * process with the engine the page bundles — as `prove-v2.mjs` does for its guest — and the page
- * served by the version-1-only server joins it from its own card, which is the half of "a page there
- * still joins, and cannot host unless it is pinned" a browser can be made to answer.
+ * The button is pressed, too: an init script stands in for `showDirectoryPicker`, returning the
+ * browser's *real* `FileSystemDirectoryHandle` for an origin-private directory, so everything after
+ * the pick — the walk, the sealed mint, the share link — is the real API and the real engine. What
+ * is stubbed is the dialog alone. That is what lets this proof check the one thing the card's copy
+ * cannot: that the *mint* follows the decision. The room's own link is read back, and a page on a
+ * server that seats both versions has to carry a fragment (`#k=…&h=…`, the sealed wire's keys)
+ * while a page pinned to `selvage/1` has to carry none.
+ *
+ * Three more cases come from the final review's findings, and each is a card state a person meets:
+ * an origin answering `/meta` with JSON that is not a Selvage server's is offered nothing (M2); a
+ * `/meta` that does not answer within the deadline keeps the offer, says what was not read, and is
+ * asked again with a longer deadline (M1); and an origin that answers no JSON at all is the same
+ * "not a Selvage server" the static case is. The first and the last are served from a real HTTP
+ * server in front of the built bundle, the middle from a proxy that delays only `/meta` in front of
+ * the real `selvaged`.
+ *
+ * The version-1 join of the last case is what the browser is asked for last: a room is minted from
+ * this process with the engine the page bundles — as `prove-v2.mjs` does for its guest — and the
+ * page served by the version-1-only server joins it from its own card, which is the half of "a page
+ * there still joins, and cannot host unless it is pinned" a browser can be made to answer.
  *
  * Screenshots go to `.tmp/prove-host-version/`, inside the checkout, where the Chromium profile and
  * every artefact stay.
@@ -23,13 +37,14 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { createReadStream, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer, request as httpRequest } from 'node:http';
+import { extname, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import WebSocket from 'ws';
 
-import { HOST_TAB_WARNING, hostRefusalSentence } from '../src/browser/host.ts';
+import { HOST_NEEDS_THE_SERVERS_PAGE, HOST_TAB_WARNING, HOST_UNREAD_NOTE, hostRefusalSentence } from '../src/browser/host.ts';
 import { hostDecision } from '../src/browser/relay.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 import { SelvageEngine as Engine } from '../src/engine/index.ts';
@@ -157,6 +172,154 @@ function browserTmp() {
   return dir;
 }
 
+/**
+ * A minimal HTTP server in front of the built bundle, for the two `/meta` an origin that is not a
+ * Selvage server can answer: a JSON body that is not a Selvage `/meta` at all, and no JSON at all
+ * (a 404, which is what a plain static host does). Every other path is the bundle, so the page is
+ * fully wired and its decision is the one a real deployment's would be.
+ */
+async function startStaticPage(metaBody) {
+  const root = resolve(ROOT, 'dist');
+  const types = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.webmanifest': 'application/manifest+json',
+    '.map': 'application/json; charset=utf-8',
+    '.ttf': 'font/ttf',
+    '.woff2': 'font/woff2',
+  };
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (url.pathname === '/meta') {
+      if (metaBody === undefined) {
+        response.writeHead(404, { 'content-type': 'text/plain' }).end('no meta here');
+      } else {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(metaBody);
+      }
+      return;
+    }
+    const name = url.pathname === '/' ? '/index.html' : url.pathname;
+    const file = resolve(root, `.${name}`);
+    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
+      response.writeHead(404).end('no');
+      return;
+    }
+    response.writeHead(200, {
+      'content-type': types[extname(file)] ?? 'application/octet-stream',
+      'cache-control': 'no-store',
+    });
+    createReadStream(file).pipe(response);
+  });
+  const port = await new Promise((resolve_, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve_(server.address().port));
+  });
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    stop: () => {
+      server.closeAllConnections?.();
+      server.close();
+    },
+  };
+}
+
+/**
+ * The real `selvaged`, behind a proxy that takes `metaDelayMs` to answer `/meta` and passes
+ * everything else — including the WebSocket upgrade — straight through.
+ *
+ * This is the one shape a browser cannot be handed otherwise: the page *is* the server's own page
+ * (the proxy is in front of the server), and `/meta` is slow rather than absent. A cold server, a
+ * phone link or a proxy hiccup is this, and what the card does about it is what the review's M1
+ * was about.
+ */
+async function startSlowMetaProxy(upstreamAddress, metaDelayMs) {
+  const upstreamPort = Number(upstreamAddress.split(':')[1]);
+  const server = createServer(async (request, response) => {
+    if (request.url?.startsWith('/meta')) {
+      await delay(metaDelayMs);
+    }
+    const upstream = httpRequest(
+      { host: '127.0.0.1', port: upstreamPort, path: request.url, method: request.method, headers: request.headers },
+      (answer) => {
+        response.writeHead(answer.statusCode ?? 502, answer.headers);
+        answer.pipe(response);
+      },
+    );
+    upstream.on('error', () => response.writeHead(502).end('proxy'));
+    request.pipe(upstream);
+  });
+  server.on('upgrade', (request, clientSocket, head) => {
+    const upstream = httpRequest({
+      host: '127.0.0.1',
+      port: upstreamPort,
+      path: request.url,
+      method: request.method,
+      headers: { ...request.headers, host: `127.0.0.1:${upstreamPort}` },
+    });
+    upstream.on('upgrade', (answer, upstreamSocket, upstreamHead) => {
+      clientSocket.write('HTTP/1.1 101 Switching Protocols\r\n');
+      for (const [name, value] of Object.entries(answer.headers)) {
+        for (const one of Array.isArray(value) ? value : [value]) {
+          clientSocket.write(`${name}: ${one}\r\n`);
+        }
+      }
+      clientSocket.write('\r\n');
+      if (upstreamHead.length > 0) {
+        clientSocket.write(upstreamHead);
+      }
+      upstreamSocket.pipe(clientSocket);
+      clientSocket.pipe(upstreamSocket);
+    });
+    upstream.on('response', (answer) => {
+      clientSocket.end(`HTTP/1.1 ${answer.statusCode ?? 502} refused\r\n\r\n`);
+    });
+    upstream.on('error', () => clientSocket.destroy());
+    upstream.end(request.method === 'GET' || request.method === 'HEAD' ? undefined : head);
+  });
+  const port = await new Promise((resolve_, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve_(server.address().port));
+  });
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    stop: () => {
+      server.closeAllConnections?.();
+      server.close();
+    },
+  };
+}
+
+/**
+ * The picker's stand-in, added before any page script in every page this proof opens.
+ *
+ * `showDirectoryPicker` is the one thing automation cannot answer — the dialog belongs to the
+ * browser — so this installs a picker that returns the *real* `FileSystemDirectoryHandle` for an
+ * origin-private directory, seeded the way a project folder is: a text file, a nested file, and the
+ * names the shared rule must leave out. Everything after the pick is the API itself.
+ */
+const PICKER_STAND_IN = `(() => {
+  const build = async () => {
+    const root = await navigator.storage.getDirectory();
+    const project = await root.getDirectoryHandle('project', { create: true });
+    const write = async (dir, name, text) => {
+      const file = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await file.write(text);
+      await file.close();
+    };
+    await write(project, 'notes.md', '# the browser host folder\\n');
+    const sub = await project.getDirectoryHandle('sub', { create: true });
+    await write(sub, 'readme.txt', 'nested\\n');
+    await write(project, '.env', 'SECRET=1\\n');
+    await write(project, 'logo.png', 'not really a png\\n');
+    await write(await project.getDirectoryHandle('node_modules', { create: true }), 'x.js', 'module.exports = 1;\\n');
+    return project;
+  };
+  window.showDirectoryPicker = () => build();
+})();`;
+
 /** The smallest CDP driver this proof needs: one page, evaluate, screenshot. */
 async function launchChromium(port) {
   const tmp = browserTmp();
@@ -236,6 +399,8 @@ async function launchChromium(port) {
   const psend = (method, params = {}) => send(method, params, sessionId);
   await psend('Page.enable');
   await psend('Runtime.enable');
+  // Before any page script, in every document this browser opens: the picker's stand-in.
+  await psend('Page.addScriptToEvaluateOnNewDocument', { source: PICKER_STAND_IN });
 
   return {
     async navigate(url) {
@@ -288,8 +453,7 @@ const CARD = `(() => {
   };
 })()`;
 
-/** The text the page's editor holds, whichever editor it built. */
-const PAGE_TEXT = `(() => {
+/** The text the page's editor holds, whichever editor it built. */const PAGE_TEXT = `(() => {
   const clean = (text) => text.replace(/\\u200b/g, '').replace(/\\u00a0/g, ' ');
   const editor = document.querySelector('.monaco-editor');
   if (editor !== null) {
@@ -342,6 +506,72 @@ async function joinFromTheCard(page, displayName) {
     button.click();
     return document.getElementById('name').value;
   })()`);
+}
+
+/**
+ * The host's own act, made the way a person makes it: a name, and the button the start card
+ * leads with. The picker behind it is the stand-in installed above, which answers with a real
+ * directory handle; everything the page does with what it returns is the page's own code.
+ */
+async function hostFromTheCard(page, displayName) {
+  const armed = await page.evaluate(`(() => {
+    const name = document.getElementById('name');
+    if (name !== null && name.value === '') {
+      name.value = ${JSON.stringify(displayName)};
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const button = document.getElementById('host-button');
+    if (button === null || button.hidden) {
+      return false;
+    }
+    button.click();
+    return true;
+  })()`);
+  if (armed !== true) {
+    throw new Error('the card offers no host action to press');
+  }
+}
+
+/**
+ * The session bar once the room is seated: the link the host hands on, whole.
+ *
+ * The bar shows an abbreviation and keeps the whole link in the field's title — and the title is
+ * what carries the fragment, which is the whole question here.
+ */
+const SHARE = `(() => {
+  const bar = document.getElementById('session');
+  const share = document.getElementById('share');
+  return {
+    barHidden: bar === null ? null : bar.hidden,
+    link: share === null ? '' : share.title || share.value || '',
+    error: (document.getElementById('host-error')?.textContent ?? ''),
+    note: (document.getElementById('host-note')?.textContent ?? ''),
+  };
+})()`;
+
+/** Waits for the host's session bar to carry a link, which is the room this tab minted. */
+function waitForShare(page, label) {
+  return waitForRead(page, label, SHARE, (read) => read.barHidden === false && read.link !== '', 60_000);
+}
+
+/**
+ * Every distinct card state over `steps * everyMs`, in order.
+ *
+ * The state of a card that answers on its own schedule — an offer shown while `/meta` is still
+ * being asked, a note that a later read replaces — is the sequence, not the last frame: sampling
+ * is what a proof of one has to record, and the deadline it runs under reports what it saw.
+ */
+async function sampleCard(page, { steps, everyMs }) {
+  const seen = [];
+  for (let step = 0; step < steps; step += 1) {
+    const card = await page.evaluate(CARD);
+    const last = seen[seen.length - 1];
+    if (last === undefined || last.buttonHidden !== card.buttonHidden || last.note !== card.note) {
+      seen.push({ atMs: step * everyMs, ...card });
+    }
+    await delay(everyMs);
+  }
+  return seen;
 }
 
 /** Opens a path from the shared tree, which is how a guest fetches a document it does not hold. */
@@ -463,6 +693,111 @@ async function main() {
       attempted.outcome === 'mint' && attempted.version === 'selvage/2',
     );
 
+    // === The mint follows the decision: the button is pressed, and the room's own link is read.
+    // Everything after the pick is the page's real code — the folder walk, the sealed mint, the
+    // share bar — so this is the one check no reading of the card can make: a page on a server
+    // that seats both versions mints an encrypted room (`§10`), whatever its card says.
+    await chromium.navigate(`${both.origin}/`);
+    await waitForCard(chromium, 'the card before the host press');
+    await hostFromTheCard(chromium, 'Ada');
+    const sealed = await waitForShare(chromium, 'the sealed room the unpinned page minted');
+    log('the unpinned page minted', sealed.link);
+    check('the unpinned page minted a room', sealed.link.includes('room='));
+    check(
+      'the unpinned page on a both-seated server minted a sealed room',
+      sealed.link.includes('#k=') && sealed.link.includes('&h='),
+    );
+    check('the sealed room minted with no error on the card', sealed.error === '');
+    await chromium.shot(resolve(IMAGES, 'both-seated-minted.png'));
+
+    // === The same press on the pinned page: the pin reaches the mint, and no fragment is minted.
+    await chromium.navigate(`${oneOnly.origin}/?wire=1`);
+    await waitForCard(chromium, 'the pinned card before the host press');
+    await hostFromTheCard(chromium, 'Ada');
+    const readable = await waitForShare(chromium, 'the version-1 room the pinned page minted');
+    log('the pinned page minted', readable.link);
+    check('the pinned page minted a room', readable.link.includes('room='));
+    check(
+      'a page pinned to selvage/1 minted a version-1 room, with no fragment at all',
+      !readable.link.includes('#'),
+    );
+    check('the version-1 room minted with no error on the card', readable.error === '');
+    await chromium.shot(resolve(IMAGES, 'one-only-pinned-minted.png'));
+
+    // === M2: an origin that answers `/meta` with JSON that is not a Selvage server's is offered
+    // nothing, and never a button whose only outcome is a refusal deeper in.
+    const stub = await startStaticPage('{}');
+    try {
+      const body = await (await fetch(`${stub.origin}/meta`)).json();
+      log('the stub origin answers /meta with', JSON.stringify(body));
+      await chromium.navigate(`${stub.origin}/`);
+      const stubCard = await waitForCard(chromium, 'the card on an origin that answers {}');
+      check('an origin answering {} is not offered the host action', stubCard.buttonHidden === true);
+      check(
+        'an origin answering {} gets the not-a-Selvage-server sentence',
+        stubCard.note === HOST_NEEDS_THE_SERVERS_PAGE,
+      );
+      await chromium.shot(resolve(IMAGES, 'stub-json-meta.png'));
+    } finally {
+      stub.stop();
+    }
+
+    // === And an origin that answers no JSON at all — a plain static host, which is what
+    // `npm run serve` is — reads the same way.
+    const staticHost = await startStaticPage(undefined);
+    try {
+      const status = (await fetch(`${staticHost.origin}/meta`)).status;
+      log('the static origin answers /meta with', status);
+      await chromium.navigate(`${staticHost.origin}/`);
+      const staticCard = await waitForCard(chromium, 'the card on a static host');
+      check('a static host is not offered the host action', staticCard.buttonHidden === true);
+      check(
+        'a static host gets the not-a-Selvage-server sentence',
+        staticCard.note === HOST_NEEDS_THE_SERVERS_PAGE,
+      );
+    } finally {
+      staticHost.stop();
+    }
+
+    // === M1: the server's own page, with a `/meta` slower than the card's first deadline. The
+    // offer has to survive it, the card has to say what it could not read, and the second ask has
+    // to put the truth on the card — and at no point may it say this page is not a Selvage
+    // server's, which is what it used to say about the server's own page.
+    const slow = await startSlowMetaProxy(both.wsBase.split('//')[1], 3000);
+    try {
+      const slowMeta = await fetch(`${slow.origin}/meta`).then(async (answer) => answer.json());
+      check(
+        'the slow origin is the real server, behind a slow /meta',
+        JSON.stringify(slowMeta.wire_versions) === JSON.stringify(bothMeta.wire_versions),
+      );
+      await chromium.navigate(`${slow.origin}/`);
+      const samples = await sampleCard(chromium, { steps: 130, everyMs: 100 });
+      log('the card over the slow /meta:', JSON.stringify(samples));
+      // From the frame the card is decided in: the frames before it are the card's own markup,
+      // which offers nothing to anybody.
+      const decided = samples.filter((sample) => sample.wrapHidden === false);
+      check('the card was decided while /meta was still being asked', decided.length > 0);
+      check(
+        'the offer is never withdrawn for a /meta that was slow',
+        decided.every((sample) => sample.buttonHidden === false),
+      );
+      check(
+        'the slow page is never called one that is not a Selvage server\'s',
+        samples.every((sample) => sample.note !== HOST_NEEDS_THE_SERVERS_PAGE),
+      );
+      check(
+        'the card says what it could not read while it has not read it',
+        samples.some((sample) => sample.note === HOST_UNREAD_NOTE),
+      );
+      check(
+        'the second ask puts the server\'s own warning back on the card',
+        samples.at(-1).note === HOST_TAB_WARNING,
+      );
+      await chromium.shot(resolve(IMAGES, 'slow-meta-offered.png'));
+    } finally {
+      slow.stop();
+    }
+
     // === The other half: the page served by the version-1-only server still joins a version-1 room.
     host = await Engine.host(oneOnly.wsBase, 'Ada', {
       webSocketFactory: nativeWebSocketFactory,
@@ -494,7 +829,9 @@ async function main() {
     log(`wrote ${relative(ROOT, IMAGES)}/prove-host-version-*.png`);
     log(
       'a real browser showed the hosting decision: offered where the server seats the encrypted wire, ' +
-        'a sentence where it does not, the pin honoured both ways, and a version-1 join still reached',
+        'a sentence where it does not, the pin honoured both ways and at the mint, nothing offered on ' +
+        'an origin that is not a Selvage server, the offer kept through a slow /meta, and a version-1 ' +
+        'join still reached',
     );
   } finally {
     await chromium?.stop();
