@@ -432,6 +432,10 @@ describe('the message homes', () => {
     const timer = ticking();
     const note = wireSessionNote(element as unknown as HTMLElement, {
       countParts: countStub(),
+      // The clock the note reads is a stub, as it is in the tests around this one: with the
+      // real one the reading is `graceMs` minus however many milliseconds elapsed between the
+      // deadline being set and the first draw, which is 29 whenever the clock ticks in between.
+      now: () => 0,
       schedule: timer.schedule,
       cancel: timer.cancel,
     });
