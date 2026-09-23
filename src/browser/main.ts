@@ -315,17 +315,17 @@ inviteInput.addEventListener('keydown', (event) => {
 /**
  * The card's own action, for Enter in the name field: the button the intent leads with.
  *
- * Starting a room runs only where the card offers it. Where it does not, the sentence
- * standing where the button would be is the answer, and a folder picked for a page that
- * cannot host one is worse than none. The one exception is a person who has opened the
- * invite path: the paste box and Join are what they are looking at, so the name field's
- * Enter joins, and the join path reports its own refusal in its own line.
+ * Starting a room runs only where the card offers it. Where it does not, the invite path is the
+ * only action the page has left, so Enter takes it and the join path answers with what it needs
+ * — the paste box is opened under it and the line says what the join is missing. Silence is the
+ * one answer the card does not give to a field it focused itself, and the reason hosting is not
+ * offered stands beside it in the card's own words (`#host-note`).
  */
 function runPrimary(): void {
-  const action = primaryActionOf(cardIntent, !hostButton.hidden, invitePath.open);
+  const action = primaryActionOf(cardIntent, !hostButton.hidden);
   if (action === 'host') {
     void attemptHost();
-  } else if (action === 'join') {
+  } else {
     attemptJoin();
   }
 }
@@ -355,6 +355,14 @@ interface HeldJoin {
 // A submit that landed before this bundle armed the card (the inline guard
 // held it) still joins, once.
 window.__selvageJoinArmed = true;
+// The shell's own line goes with the load it described: the card is this bundle's now, and what
+// belongs there is what the bundle knows — the notice a reload left, or nothing. A submit held
+// before the shell's script ran is settled by that script, which always runs before this one.
+if (window.__selvageWaiting === true) {
+  window.__selvageWaiting = false;
+  joinMessage.textContent = hostingNotice ?? '';
+  joinMessage.hidden = hostingNotice === undefined;
+}
 if (window.__selvagePendingJoin === true) {
   window.__selvagePendingJoin = false;
   attemptJoin();

@@ -476,10 +476,13 @@
         <!-- The hold that is there before any script is: a deployment that
              defers every script has no guard until one runs, and the room's
              own server answers a form action with a CSP refusal, so a join
-             that lands first can neither navigate nor leave a trace. The
-             bundle replays what this records (`src/browser/main.ts`), and a
-             script that then arrives leaves it alone. -->
-        <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingJoin = true; } return false;">
+             that lands first can neither navigate nor leave a trace. What this
+             records is that a submit was held, not which of the card's two
+             actions it was: this attribute cannot read the address bar's
+             intent (the card's own script paints it, and has not run yet), so
+             the script settles the held submit the moment it does — see the
+             guard and the card block below. The bundle replays a held join. -->
+        <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingSubmit = true; } return false;">
           <label>The name other participants see
             <input id="name" type="text" maxlength="32" autocomplete="off" placeholder="Ada" />
           </label>
@@ -535,12 +538,49 @@
       // this runs, and the room's server refuses a form action outright, so a
       // join made in that window would otherwise do nothing at all.
       window.__selvageJoinArmed = false;
+      window.__selvageWaiting = false;
       if (window.__selvagePendingJoin !== true) {
         window.__selvagePendingJoin = false;
       }
-      document.getElementById('join-form').addEventListener('submit', function (event) {
-        if (!window.__selvageJoinArmed) {
-          event.preventDefault();
+      if (window.__selvagePendingSubmit !== true) {
+        window.__selvagePendingSubmit = false;
+      }
+      // The hold's own helpers, in a scope of their own: the script is the page's
+      // only classic script, and one name is enough to hang off `window` — the
+      // settle the card block below needs for a submit the markup caught before
+      // this ran.
+      window.__selvageSettleHeldSubmit = (function () {
+        // Whether a submit is the invite path's own act or the card's.
+        //
+        // The form *is* the invite path: Join is its submit button and the paste
+        // box is inside it. A guest's card has the room in the address bar and
+        // the path open, so an Enter there is the join. On a bare page the path
+        // is a disclosure, so a submit with it open is someone working in the
+        // invite path — and with it shut there is nothing in it to click or
+        // paste, which leaves the name field's Enter arriving as the implicit
+        // submission this form would make of it. That one is the card's own
+        // action, not a join: the bundle decides it from `/meta` once it is here
+        // (`runPrimary`).
+        function submitIsTheInvitePath() {
+          var card = document.getElementById('join');
+          var path = document.getElementById('invite-path');
+          return (card && card.className === 'card-join') || (path && path.open === true);
+        }
+        // The card's own answer to an action it cannot take yet: it says so. The
+        // start action needs a folder picker, which the browser answers only
+        // under a click of the person's own — a replay a load later is refused,
+        // and worded as a refusal of their folder — so a held Enter is answered
+        // with the load and dropped, and the card is live a moment later.
+        function sayStillLoading() {
+          var line = document.getElementById('join-message');
+          if (line) {
+            line.textContent =
+              'One moment — the page is still loading, so nothing was started. Press Enter again in a moment.';
+            line.hidden = false;
+          }
+          window.__selvageWaiting = true;
+        }
+        function holdJoin() {
           window.__selvagePendingJoin = true;
           // The bundle replays this submit on arrival, which can take a
           // while: answer the Enter now, so it never looks dead. A refused
@@ -551,7 +591,36 @@
             button.textContent = 'Joining…';
           }
         }
-      });
+        function settleHeldSubmit() {
+          window.__selvagePendingSubmit = false;
+          if (submitIsTheInvitePath()) {
+            holdJoin();
+          } else {
+            sayStillLoading();
+          }
+        }
+        document.getElementById('join-form').addEventListener('submit', function (event) {
+          if (window.__selvageJoinArmed) {
+            return;
+          }
+          event.preventDefault();
+          settleHeldSubmit();
+        });
+        // Enter in the name field, before the bundle. `preventDefault` stops the
+        // implicit submission the form would make of it, so the act is decided
+        // here — by the field it came from and the intent the card has — rather
+        // than by the form, which is the invite path and would answer it with
+        // the join's own refusal. With the bundle here this listener stands
+        // aside: the card wires Enter per field itself (`joinOnEnter`).
+        document.getElementById('name').addEventListener('keydown', function (event) {
+          if (event.key !== 'Enter' || event.repeat || window.__selvageJoinArmed) {
+            return;
+          }
+          event.preventDefault();
+          settleHeldSubmit();
+        });
+        return settleHeldSubmit;
+      })();
       // Pre-bundle card: this runs while the parser is still reading the shell,
       // so what it decides is what the first frame paints — never a card that
       // grows a heading, a paste box or a remembered name once the bundle lands.
@@ -581,6 +650,13 @@
           }
         }
       })();
+      // A submit the markup's own hold caught before this script ran: the intents
+      // are readable now, so it is settled here — as the join it is, or as the
+      // card's own action with the line that says the page is still loading —
+      // rather than left as the join flag the attribute could only guess at.
+      if (window.__selvagePendingSubmit === true) {
+        window.__selvageSettleHeldSubmit();
+      }
     </script>
     <script type="module" src="app.js"></script>
   </body>

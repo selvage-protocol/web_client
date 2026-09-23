@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { HOST_NEEDS_A_BROWSER } from '../src/browser/host.ts';
 import {
   CARD_JOIN_CLASS,
   CARD_START_CLASS,
@@ -265,16 +266,46 @@ describe('the name error stands where the name was asked for', () => {
  * invite path was shut. Both are about the same field's own action.
  */
 describe('Enter and a refusal where the start card cannot host', () => {
-  it('Enter in the name field joins when the card cannot host and the invite path is open', () => {
-    // The invite path open is the person asking for the join: the paste box and Join
-    // are what they are looking at, so the name field's Enter runs the join and the
-    // path reports its own refusal. A shut path on a card that cannot host is left
-    // with the sentence where the button would be, as it was.
-    assert.equal(primaryActionOf('start', false, true), 'join', 'Enter did nothing with the path the person opened');
-    assert.equal(primaryActionOf('start', false, false), 'none', 'Enter ran a join nobody opened the path for');
-    assert.equal(primaryActionOf('start', true, true), 'host', 'Enter stopped starting where the card can host');
-    assert.equal(primaryActionOf('start', true, false), 'host', 'the start action lost Enter where the card offers it');
-    assert.equal(primaryActionOf('join', false, false), 'join', "Enter stopped joining a guest's page");
+  it('Enter in the name field runs the card\'s own action wherever the card cannot start a room', () => {
+    // M3: on Firefox and Safari, on the page-only deploy and under `npm run serve`, this card
+    // cannot start a room and the invite path is a shut disclosure — and Enter in the name field
+    // did nothing at all: no line, no state change, no movement. The invite path is the only
+    // action the page has left, so Enter takes it and the join path asks for the link it needs,
+    // in its own line, under the button that asked. The reason hosting is not offered is already
+    // standing beside it, in the card's own words (`#host-note`), so the answer is the action
+    // and not a second copy of the sentence.
+    assert.equal(primaryActionOf('start', false), 'join', 'Enter did nothing where the card cannot host');
+    assert.equal(primaryActionOf('start', true), 'host', 'Enter stopped starting where the card can host');
+    assert.equal(primaryActionOf('join', false), 'join', "Enter stopped joining a guest's page");
+
+    const primary = sliceBetween(main, 'function runPrimary', 'hostButton.addEventListener');
+    assert.match(
+      primary,
+      /primaryActionOf\(cardIntent, !hostButton\.hidden\)/,
+      'Enter stopped reading whether the card offers to start a room',
+    );
+    assert.ok(primary.includes('attemptJoin()'), 'Enter with no room to start runs nothing at all');
+    assert.ok(!/action === 'none'/.test(primary), 'Enter can still fall through to silence');
+    // And the refusal is readable: the join opens the path it writes into.
+    assert.match(primary, /attemptJoin\(\)[\s\S]*$/, 'the join is not what Enter runs');
+  });
+
+  it('the standing sentence that explains it is on the card, not only in the bundle', () => {
+    // The action Enter takes is the join; why starting a room is not offered stands in
+    // `#host-note`, above the button that would be there, and it is visible in every one of
+    // these states.
+    const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
+    assert.ok(offering.includes('showHosting('), 'the card is never told what to say about hosting');
+    assert.match(
+      main,
+      /hostNote\.textContent = availability\.note/,
+      'the note standing where the button would be is not written',
+    );
+    assert.match(
+      HOST_NEEDS_A_BROWSER,
+      /Joining a room here still works/,
+      'the sentence for a browser that cannot host does not name the action that works',
+    );
   });
 
   it('a join refusal opens the invite path it stands in, so it is always read', () => {

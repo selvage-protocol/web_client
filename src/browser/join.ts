@@ -334,27 +334,26 @@ export function showCardIntent(
 }
 
 /**
- * What Enter in the name field runs. The name is the card's own question in either
- * intent, so Enter is the action the intent leads with — except where a start card
- * cannot start here and the person has opened the invite path: the browser's own
- * disclosure, so the paste box and Join are what they are looking at, and the join
- * path is what that field's Enter runs. A join that refuses says so in the path's
- * own line, which is the answer where a start action's sentence would stand.
+ * What Enter in the name field runs: the action this card leads with. The name is
+ * the card's own question in either intent, so Enter is the intent's own action — the
+ * start action on a bare page that can host here, and the join everywhere else. Where
+ * the card cannot start a room, the invite path is the only action the page has left,
+ * so Enter takes it and the join path asks for the link it needs, in its own line,
+ * under the button that asked; a person told nothing by a field the card focused itself
+ * has no way to guess what to do next. This is the same act a pre-bundle Enter in that
+ * field is held for (`public/index.html`) and the same one it takes as soon as the
+ * bundle arms.
  */
-export type PrimaryAction = 'host' | 'join' | 'none';
+export type PrimaryAction = 'host' | 'join';
 
 export function primaryActionOf(
   intent: CardIntent,
   hostingOffered: boolean,
-  invitePathOpen: boolean,
 ): PrimaryAction {
   if (intent === 'join') {
     return 'join';
   }
-  if (hostingOffered) {
-    return 'host';
-  }
-  return invitePathOpen ? 'join' : 'none';
+  return hostingOffered ? 'host' : 'join';
 }
 
 /**
