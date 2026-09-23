@@ -27,6 +27,8 @@ import {
   CARD_START_CLASS,
   cardIntentOf,
   initJoinCard,
+  primaryActionOf,
+  showJoinFailure,
 } from '../src/browser/join.ts';
 import type { JoinCardElements } from '../src/browser/join.ts';
 
@@ -254,5 +256,46 @@ describe('the name error stands where the name was asked for', () => {
   it('neither line is the other\'s: the two are separate elements', () => {
     assert.equal((html.match(/id="join-error"/g) ?? []).length, 1, 'the join error line is repeated');
     assert.equal((html.match(/id="host-error"/g) ?? []).length, 1, 'the start error line is repeated');
+  });
+});
+
+/**
+ * The two states a bare page can be left in before anything the person does:
+ * a card that cannot host a room here, and a join that was refused while the
+ * invite path was shut. Both are about the same field's own action.
+ */
+describe('Enter and a refusal where the start card cannot host', () => {
+  it('Enter in the name field joins when the card cannot host and the invite path is open', () => {
+    // The invite path open is the person asking for the join: the paste box and Join
+    // are what they are looking at, so the name field's Enter runs the join and the
+    // path reports its own refusal. A shut path on a card that cannot host is left
+    // with the sentence where the button would be, as it was.
+    assert.equal(primaryActionOf('start', false, true), 'join', 'Enter did nothing with the path the person opened');
+    assert.equal(primaryActionOf('start', false, false), 'none', 'Enter ran a join nobody opened the path for');
+    assert.equal(primaryActionOf('start', true, true), 'host', 'Enter stopped starting where the card can host');
+    assert.equal(primaryActionOf('start', true, false), 'host', 'the start action lost Enter where the card offers it');
+    assert.equal(primaryActionOf('join', false, false), 'join', "Enter stopped joining a guest's page");
+  });
+
+  it('a join refusal opens the invite path it stands in, so it is always read', () => {
+    // A bare page's early submit is replayed after the bundle lands with the
+    // disclosure still shut; the refusal under Join would be written where nobody
+    // can see it.
+    const card = { invitePath: { open: false }, joinError: { textContent: '' } };
+    showJoinFailure(card, 'Paste an invite link to join.');
+    assert.equal(card.invitePath.open, true, 'the refusal was written inside a shut disclosure');
+    assert.equal(card.joinError.textContent, 'Paste an invite link to join.');
+  });
+
+  it('both join refusals go through it, rather than writing the line straight in', () => {
+    const preflight = sliceBetween(main, 'function attemptJoin', 'async function runJoin');
+    const refused = sliceBetween(main, 'async function runJoin', 'const CLIENT_OPTIONS');
+    for (const [where, body] of [['the pre-flight', preflight], ['a refused join', refused]]) {
+      assert.match(body, /showJoinFailure\(/, `${where} writes its refusal without opening the path`);
+      assert.ok(
+        !/joinError\.textContent = (?!'')/.test(body),
+        `${where} still writes the refusal straight into the line`
+      );
+    }
   });
 });

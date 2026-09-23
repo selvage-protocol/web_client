@@ -63,6 +63,26 @@ describe('initJoinCard preserves typed state under a slow load', () => {
     assert.equal(els.invitePath.open, false, 'a bare open asked for a link nobody said they had');
   });
 
+  it('a person who opened the invite path before the bundle arrives keeps it open', () => {
+    // The shell paints a bare page with the path shut, so an open one when the bundle
+    // lands is the person's own click — and they may be typing in the paste box. The
+    // wiring opens the path where the card needs it open; it never shuts what the
+    // browser holds open.
+    const els = elements({ invitePath: { open: true } });
+    const intent = initJoinCard(els, new URLSearchParams(), emptyStorage);
+    assert.equal(intent, 'start');
+    assert.equal(els.invitePath.open, true, 'the late bundle collapsed the disclosure the person opened');
+  });
+
+  it('the join path is opened even where the shell left it shut', () => {
+    // On the join intent the disclosure is the way in — Join lives inside it and the
+    // paste box is hidden — so it is opened whatever the shell left, never left shut.
+    const els = elements({ invitePath: { open: false } });
+    const intent = initJoinCard(els, new URLSearchParams('room=r-1&token=tok'), emptyStorage);
+    assert.equal(intent, 'join');
+    assert.equal(els.invitePath.open, true, 'the join path stayed shut and took the way in with it');
+  });
+
   it('a bare open leaves the invite path shut with its paste box inside; a link open is the invite path', () => {
     const bare = elements();
     initJoinCard(bare, new URLSearchParams(), emptyStorage);
