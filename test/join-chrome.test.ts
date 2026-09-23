@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { peerColour } from '../src/bridge/index.ts';
 import {
+  RECONNECTING_NOTE,
   graceWording,
   hostBackSentence,
   hostPresent,
@@ -542,13 +543,65 @@ describe('the message homes', () => {
     for (const gone of [
       'Joined. Waiting for the room to name a document.',
       'is already here',
-      'Connection dropped',
       'Reconnected',
       'linkDown',
       'reseated',
     ]) {
       assert.ok(!main.includes(gone), `${gone} survives in the page`);
     }
+  });
+
+  // The one transient that is not chatter. A retry runs for as long as the room's advertised
+  // grace, and through all of it the editor keeps working locally while nothing typed can reach
+  // the room: the line stands until the room answers, rather than for a guessed number of
+  // seconds, and it is the reason `Connection dropped. Reconnecting…` is no longer on the list
+  // above.
+  it('a dropped socket wears a line that stands until the room answers', () => {
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.dropped(RECONNECTING_NOTE);
+    assert.equal(element.textContent, RECONNECTING_NOTE);
+    assert.equal(element.dataset.tone, 'dropped');
+    assert.equal(timer.runs.length, 0, 'the dropped line armed a timer of its own');
+    note.endDropped();
+    assert.equal(element.textContent, '', 'the all-clear left the dropped line standing');
+    assert.equal(element.dataset.tone, '', 'the dropped line left its tone behind');
+    // The all-clear is the room's own reports, so it arrives whatever the line is showing: a
+    // sentence said into the same strip — the host's return — is not the one it takes down.
+    note.say('demo-host is back — the session continues.', 5000);
+    note.endDropped();
+    assert.equal(
+      element.textContent,
+      'demo-host is back — the session continues.',
+      'the all-clear took down a sentence that is not the dropped line',
+    );
+    note.hide();
+  });
+
+  it('the page shows the dropped line and the all-clear that ends it', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.ok(
+      main.includes('sessionNote.dropped(RECONNECTING_NOTE)'),
+      'a dropped socket reaches no line on the page',
+    );
+    // Both seat reports are the all-clear: the bridge forces them on a re-seat, because the set
+    // can be exactly what it was before the drop.
+    assert.equal(
+      [...main.matchAll(/case 'documents':|case 'peers':/g)].length,
+      2,
+      'the seat reports moved',
+    );
+    assert.equal(
+      [...main.matchAll(/sessionNote\.endDropped\(\)/g)].length,
+      2,
+      'a seat report no longer ends the dropped line',
+    );
   });
 });
 

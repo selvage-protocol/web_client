@@ -118,6 +118,14 @@ const HOST_ROLE = 'host';
 const HOST_LEFT_LEAD = 'The host left. The room closes in ';
 const HOST_LEFT_TAIL = ' unless the host returns.';
 
+/**
+ * A dropped socket, in the words the desktop clients' own status lines carry: the room is out of
+ * reach and the engine's bounded retry is re-dialling it (`§9.1`). A page that said nothing would
+ * look healthy for the whole retry — the editor keeps working locally and nothing typed reaches
+ * the room.
+ */
+export const RECONNECTING_NOTE = 'Connection dropped. Reconnecting…';
+
 /** How long the host's return stands in the strip before it takes itself down. */
 export const HOST_BACK_STAND_MS = 5000;
 
@@ -176,6 +184,18 @@ export interface SessionNote {
   /** Shows one sentence that stands `standMs` and then takes itself down. */
   say(text: string, standMs: number): void;
   /**
+   * Shows the line a dropped socket wears while the engine re-dials it (`§9.1`). It stands until
+   * `endDropped` takes it down, because the retry has no length to stand for: a bounded backoff
+   * can run for the room's whole advertised grace, and a line on its own timer would either lie
+   * about the wait or leave while the room is still out of reach.
+   */
+  dropped(text: string): void;
+  /**
+   * Takes the dropped line down once the room has answered again, and leaves any other sentence
+   * standing: the host's return is said into this same strip and outlives the all-clear.
+   */
+  endDropped(): void;
+  /**
    * Takes the countdown down when the countdown is what the line is showing, and leaves a
    * sentence standing in its place alone: the host's return outlives the all-clear.
    */
@@ -218,6 +238,20 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
   return {
     endCountdown(): void {
       if (element.dataset.tone !== 'grace') {
+        return;
+      }
+      stop();
+      clear();
+    },
+
+    dropped(text: string): void {
+      stop();
+      element.textContent = text;
+      element.dataset.tone = 'dropped';
+    },
+
+    endDropped(): void {
+      if (element.dataset.tone !== 'dropped') {
         return;
       }
       stop();

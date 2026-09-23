@@ -49,6 +49,7 @@ import { renderRoster } from './roster.ts';
 import { wireShareBox } from './share-box.ts';
 import {
   HOST_BACK_STAND_MS,
+  RECONNECTING_NOTE,
   hostBackSentence,
   hostPresent,
   wireFailureAlert,
@@ -1107,6 +1108,10 @@ function onNotice(notice: BindingNotice): void {
       leaveSession(SESSION_ENDED_MESSAGE);
       break;
     case 'documents':
+      // Both seat reports are the room answering again — the bridge forces them on a re-seat,
+      // because the set can be exactly what it was before the drop — so either one ends the
+      // dropped line a retry put up.
+      sessionNote.endDropped();
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
       syncGrant();
@@ -1118,6 +1123,7 @@ function onNotice(notice: BindingNotice): void {
       }
       break;
     case 'peers':
+      sessionNote.endDropped();
       if (binding !== undefined) {
         const present = binding.participants();
         // The membership report is the room's own word on who is here, so a
@@ -1143,6 +1149,11 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'grace':
       sessionNote.countdown(notice.graceMs);
+      break;
+    case 'reconnecting':
+      // The socket is down and the engine is re-dialling it: the line stands for as long as that
+      // lasts, and the room's own reports are what take it down.
+      sessionNote.dropped(RECONNECTING_NOTE);
       break;
     case 'hostBack':
       sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);

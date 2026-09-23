@@ -169,8 +169,13 @@ export async function joinRoom2(invite: string, displayName: string): Promise<Ro
  * holds, so the room's set is not this connection's — and it is kept here because this adapter is
  * the only caller of `open` and `close`. `peers` is the room state's roster, which the session
  * already carries.
+ *
+ * Nothing here is a snapshot of the session. `§9.1`'s reconnect re-hellos and re-seats under a new
+ * peer id *inside* the relay, over the same engine object, so every answer below is read from the
+ * engine as it stands and the held set — which belongs to this window and not to the connection —
+ * outlives the re-seat.
  */
-function pageEngine(engine: PeerEngine): RoomEngine {
+export function pageEngine(engine: PeerEngine): RoomEngine {
   const held = new Set<string>();
   return {
     session: () => engine.session(),

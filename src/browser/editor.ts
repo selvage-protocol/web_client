@@ -41,6 +41,13 @@ export type BindingNotice =
   /** The host came back inside the grace; the name is the room's, and may be blank. */
   | { kind: 'hostBack'; name: string }
   | { kind: 'disconnected' }
+  /**
+   * The socket dropped mid-session and the engine's bounded retry is re-dialling it (`§9.1`). Its
+   * own notice rather than a `status` line, because it is the one transient that stands until the
+   * room answers: a retry runs for as long as the room's advertised grace, and a page that said
+   * nothing through it would look healthy while nothing typed could reach the room.
+   */
+  | { kind: 'reconnecting' }
   | { kind: 'status'; text: string }
   /**
    * Something the person asked for did not happen, and the sentence says why: a write the
@@ -845,7 +852,7 @@ export class MonacoBinding implements EditorHost {
         });
         break;
       case 'reconnecting':
-        this.onNotice({ kind: 'status', text: 'Connection dropped. Reconnecting…' });
+        this.onNotice({ kind: 'reconnecting' });
         break;
       case 'disconnected':
         this.onNotice({ kind: 'status', text: 'disconnected' });

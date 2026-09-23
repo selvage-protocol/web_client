@@ -1146,25 +1146,28 @@ silently:
   listing yet.`), `'<name>' is already here. Your row carries a short id.`
   (the roster row already carries the short id), the follow landings
   (`Following <n> in <path>` — the banner names who, the tree and the buffer
-  name where), the transients `Connection dropped. Reconnecting…`,
-  `Reconnected.` and `disconnected` (nothing to act on: the socket reseats and
-  the room converges on its own), `room closed: <reason>` (the terminal
-  sentence supersedes it), and the past-the-end refusals that echoed the
+  name where), `Reconnected.` and `disconnected`, `room closed: <reason>` (the
+  terminal sentence supersedes it), and the past-the-end refusals that echoed
+  the
   terminal sentence from a dead control — every one of those controls is
   `disabled` or `aria-disabled` with its reason on hover, so the refusal is
-  already visible. With the drop status gone, the `linkDown`/`reseated()`
-  bookkeeping that existed only to retire it went too. The one transient
-  sentence that is routed instead of dropped is the host's return, which
-  clears the grace strip.
+  already visible. ~~`Connection dropped. Reconnecting…`~~ was on this list
+  too, and is **not** dropped any more: a retry can run for the room's whole
+  advertised grace, so silence there is a live-looking page that is not in the
+  room — see *A dropped socket says so while it retries* (2026-09-23) below.
+  The `linkDown`/`reseated()` bookkeeping that existed only to retire that
+  status is still gone: the line is taken down by the room's own reports.
+  The one transient sentence that is routed instead of dropped is the host's
+  return, which clears the grace strip.
 
-One coupling is unavoidable and is pinned rather than hidden: the binding has
-no notice kind for the host's grace window, so that warning and its
-`host <name> is back` all-clear arrive as transient text, and
-`sessionNoteSignal` in `notice.ts` maps exactly those two sentences — every
-other transient sentence is chatter. `test/join-chrome.test.ts` drives
-`MonacoBinding.report({ kind: 'hostDetached' })` and `{ kind: 'hostAttached' }`
-through the binding and maps the sentences that come out, so a reworded binding
-can neither drop the warning nor leave it standing after the host is back.
+The binding reports the grace window and the host's return as their own notice
+kinds (`grace`, `hostBack`), which the page routes: the text-matching
+`sessionNoteSignal` this section used to describe was deleted with them
+(superseded 2026-09-21, corrected here 2026-09-23). `test/join-chrome.test.ts`
+drives `MonacoBinding.report({ kind: 'hostDetached' })` and
+`{ kind: 'hostAttached' }` through the binding and holds the page's routing to
+both, so a reworded binding can neither drop the warning nor leave it standing
+after the host is back.
 
 Proven live (`EYEBALL_DONE`, no console exceptions): the room hosted by
 `scripts/tmp-webflow-host.mjs`, `dist/` served on `:8081`, real Chromium 152
@@ -2535,12 +2538,15 @@ The walk also confirmed four states as correct, unchanged:
 
 Two of the three open items from earlier rounds are answered here, and one is left:
 
-- **A dropped socket showing nothing while it reconnects: leave it.** Typing into the room
+- ~~**A dropped socket showing nothing while it reconnects: leave it.**~~ **Reversed
+  2026-09-23**, for a `selvage/2` guest: the sealed wire's retry runs for as long as the room's
+  advertised grace, and through all of it the editor keeps working locally while nothing typed can
+  reach the room. The line has a home now — see *A dropped socket says so while it retries* below.
+  The rest of the item held: typing into the room
   with the browser forced offline and then restored converged on the other guest unchanged
   (`offline-edit` in `notes.md` on both pages), because what a dropped socket loses is
-  local and §9.1 re-opens what the client held. There is nothing for the guest to act on
-  during a drop it cannot see, and a drop that outlasts the retry budget already ends with
-  the card.
+  local and §9.1 re-opens what the client held. A drop that outlasts the retry budget
+  already ends with the card.
 - **The shortened room id in the share bar: leave it.** The readout is masked at rest,
   reveals the abbreviation on hover or focus, and the element's title and the clipboard
   both hold the whole link — proven again here by reading `#share`'s title beside its
@@ -3039,3 +3045,62 @@ local server instead; `scripts/ci-local.sh container`, which needs Docker and th
 cannot run from a worktree, where the sibling is two levels up — it is excluded from `test:ci` by
 name, and the review ran it green from the main checkout (8/8, against `site` at that checkout's
 `origin/main`).
+
+## A dropped socket says so while it retries (2026-09-23)
+
+The engine under this page grew the guest reconnect the sealed wire was missing: a dropped
+`selvage/2` guest is re-dialled under a bounded backoff sized from the room's own advertised grace,
+`PeerSession.reseat()` gives it a fresh keypair and a fresh seat over the same replica, and a
+reserved `x.` code or a named refusal stops it instead of retrying. A `selvage/2` host still ends at
+the first drop — `§9.1`'s host return needs a host store this client family does not write — and
+`rolesBySeat()` now reads a duplicate `peer_id` by key order, which is the canonical rule.
+
+`src/engine` and `src/bridge` are copies and stay copies: `scripts/sync-engine.sh
+/home/user/projects/selvage/vscode_client/.worktrees/opus-fixes` brought them to that branch's
+`86dd319` (the header of the script carries the SHA), nothing in the two directories was hand-edited,
+and the copies were checked against the source's *tracked* tree (`git archive` of `src/{engine,bridge}`
+at that commit, extracted into `.tmp/`, `diff -rq` against the copy: identical, 25 files each side).
+
+Two things this page needed from the new event, and one it did not.
+
+- **The line.** `MonacoBinding.report({ kind: 'reconnecting' })` is now its own notice kind rather
+  than a `status` text, and the page shows it in `#session-note` through `SessionNote.dropped`,
+  where it stands until the room answers. Reason: the retry's length is the backoff's, not a number
+  a timer could stand for, and the whole point of showing it is that a `selvage/2` guest may be out
+  of the room for its advertised grace while the editor keeps working locally. The room's own two
+  seat reports end it (`documents`, `peers` — the bridge forces both on a re-seat, because the set
+  can be exactly what it was before the drop), and nothing else does: the host's return is said into
+  the same strip and outlives the all-clear, which is why the tone is what `endDropped` reads.
+  This reverses the next-to-last wave's *leave it* — the sentence is the desktop clients' own
+  (`Connection dropped. Reconnecting…`), and the reason the earlier note gave ("nothing to act on")
+  stopped holding once the retry could be long.
+- **A drop the page must not treat as an ending.** The page already reads `roomGone` and
+  `disconnected` as the end and leaves the session; `reconnecting` is neither, and no longer has a
+  `status` line that could be mistaken for one.
+- **Nothing for `pageEngine`.** The wrapper is a closure over one `PeerEngine` object and the set of
+  paths *this window* holds; `§9.1`'s re-seat happens inside the relay, over that same object, so
+  there is nothing in the wrapper to rebuild. `test/v2-adapter.test.ts` now drives the real wrapper
+  over a stub whose session re-seats under a new peer id, and holds it to answering the new seat, the
+  new roster, the documents and listing that came back, the paths it still holds, and the seat
+  reports reaching its listener — a regression that snapshotted the session at wrap time fails it.
+
+Not carried: the desktop clients' second ending sentence. `vscode_client` tells a `selvage/2` host
+"this wire cannot resume a hosting session yet, so it will not reconnect", where its guest sentence
+("it could not be re-established") would imply a retry that never ran. The page's card says
+`The session ended.` for all three cases — it is a different surface with its own sentence
+(`ended.ts` argues it there), it claims no retry, and it names the next step; whether it should name
+*which* wire it was is left as an open question for the owner rather than guessed at here.
+
+### Red and green
+
+| guard reverted alone | what went red |
+|---|---|
+| `editor.ts`'s `reconnecting` notice kind (back to a `status` text) | *the engine reconnecting report reaches the page as its own notice* (`test/flow-fixes.test.ts`) |
+| `SessionNote.endDropped`'s tone check (back to clearing any sentence) | *a dropped socket wears a line that stands until the room answers* (`test/join-chrome.test.ts`) |
+| `main.ts`'s `sessionNote.dropped(...)` (back to routing nothing) | *the page shows the dropped line and the all-clear that ends it* (`test/join-chrome.test.ts`) |
+| `pageEngine`'s live session read (back to a value captured at wrap time) | *survives a re-seat, because every answer is read from the session as it stands* (`test/v2-adapter.test.ts`) |
+
+`test/join-chrome.test.ts` also had to change on purpose: *drops the chatter instead of moving it*
+listed `Connection dropped` among the strings `main.ts` may not contain, and the line is now shown,
+so the item came off that list with the reason written beside it rather than being left to pass for
+the wrong one (the string moved to `notice.ts`, so the old assertion would have gone on passing).
