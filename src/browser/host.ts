@@ -24,6 +24,8 @@
 
 import type { HostDecision } from '../engine/index.ts';
 
+import type { ServerRead } from './meta-read.ts';
+
 /** The refusal half of a hosting decision: the room was not started, and here is why. */
 export type HostRefusal = Extract<HostDecision, { outcome: 'refuse' }>;
 
@@ -53,9 +55,27 @@ export const HOST_NEEDS_A_BROWSER =
  * The page's rule is that the link's own origin is the server, and a host has no link, so a host
  * needs a page its server is behind. The two-origin deployment whose agreement with the
  * one-address invite rule is an open item therefore gets a sentence rather than a guess.
+ *
+ * Two facts reach it, and neither of them is "`/meta` did not answer": an origin that answered
+ * with something that is not a Selvage `/meta` (a static host, another JSON API, a page) and a
+ * page whose own address names no server at all (a `file://` open). A read that timed out is the
+ * third thing, and it is not this sentence — see `HOST_UNREAD_NOTE`.
  */
 export const HOST_NEEDS_THE_SERVERS_PAGE =
   'This page was not served by a Selvage server, so there is nothing here to start a room on. Open the server\u2019s own page \u2014 the address a share link points at \u2014 to start a room from a browser.';
+
+/**
+ * The warning beside the action where `/meta` had not answered by the time the card was built.
+ *
+ * The read that decides the *offer* is not the read that decides the *mint*: `/meta` is advisory
+ * (`PROTOCOL.md` §2), so a deadline that passed says nothing about the server — a page whose own
+ * address was slow, cold, or behind a proxy that hiccupped is still the server's own page. The
+ * person is told what was not read and what the click does about it, and never the sentence that
+ * belongs to a page that is not the server's.
+ */
+export const HOST_UNREAD_NOTE =
+  'This page\u2019s own address has not answered /meta, so which wire versions it seats is not known yet \u2014 starting a session here asks it again and the handshake reports the truth. ' +
+  HOST_TAB_WARNING;
 
 /**
  * Why a room was not started: this page cannot mint at a version the server seats, and the choice
@@ -122,37 +142,43 @@ export function hostingOverSentence(): string {
 
 /**
  * Whether the card may offer to start a room, decided before the button is shown rather than
- * after a click that was never going to work.
+ * after a click that was never going to work. Each state carries the note the card reads beside
+ * the action, or in its place.
  */
 export type HostAvailability =
-  /** The page's own origin is a Selvage server and this browser can hand over a folder. */
-  | { kind: 'offered' }
-  /** A sentence instead of a control, and the reason is in it. */
-  | { kind: 'explained'; sentence: string };
+  /** The page's own origin is a Selvage server, and this page can host on what it seats. */
+  | { kind: 'offered'; note: string }
+  /** Offered, and `/meta` had not answered: the note says what was not read and what the click does. */
+  | { kind: 'unchecked'; note: string }
+  /** No action: the note is the sentence that stands where it would be. */
+  | { kind: 'explained'; note: string };
 
 /**
- * The decision, from the three facts it rests on.
+ * The decision, from the facts it rests on.
  *
  * The picker comes first either way: it is the one the browser owns, and a page that cannot hand
- * over a folder is told so before anything is read. Then the page's own origin, and then what the
- * server said about versions with this page's pin laid over it.
+ * over a folder is told so before anything is read. Then what this page's own origin said about
+ * itself, and then what the server seats with this page's pin laid over it.
  */
 export function hostAvailability(options: {
   /** Whether this browser has a directory picker at all. */
   picker: boolean;
-  /** Whether the page's own origin answered `/meta` as a Selvage server. */
-  serverHere: boolean;
+  /** What the page's own origin answered when this card asked it (`meta-read.ts`). */
+  read: ServerRead;
   /** The version the server seats and this page's pin settle on, or the refusal standing there. */
   decision: HostDecision;
 }): HostAvailability {
   if (!options.picker) {
-    return { kind: 'explained', sentence: HOST_NEEDS_A_BROWSER };
+    return { kind: 'explained', note: HOST_NEEDS_A_BROWSER };
   }
-  if (!options.serverHere) {
-    return { kind: 'explained', sentence: HOST_NEEDS_THE_SERVERS_PAGE };
+  if (options.read.kind === 'not-a-server') {
+    return { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE };
   }
-  if (options.decision.outcome === 'refuse') {
-    return { kind: 'explained', sentence: hostRefusalSentence(options.decision) };
+  if (options.read.kind === 'server' && options.decision.outcome === 'refuse') {
+    return { kind: 'explained', note: hostRefusalSentence(options.decision) };
   }
-  return { kind: 'offered' };
+  if (options.read.kind === 'no-answer') {
+    return { kind: 'unchecked', note: HOST_UNREAD_NOTE };
+  }
+  return { kind: 'offered', note: HOST_TAB_WARNING };
 }

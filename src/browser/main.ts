@@ -1,4 +1,4 @@
-import { SelvageEngine, fetchMeta, metaAccepts, sessionBase, sessionUrl } from '../engine/index.ts';
+import { SelvageEngine, fetchMeta, sessionBase, sessionUrl } from '../engine/index.ts';
 import type { Meta, SessionBase } from '../engine/index.ts';
 import type { RoomEngine } from './relay.ts';
 import { hostDecision, hostRoom2, joinRoom2, listingSource, wireVersionOf } from './relay.ts';
@@ -33,7 +33,6 @@ import {
   pickFolder,
 } from './folder.ts';
 import {
-  HOST_TAB_WARNING,
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
   hostAvailability,
@@ -41,6 +40,8 @@ import {
   markHosting,
   takeHostingNotice,
 } from './host.ts';
+import { META_REREAD_TIMEOUT_MS, readServerMeta } from './meta-read.ts';
+import type { ServerRead } from './meta-read.ts';
 import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
@@ -693,8 +694,14 @@ async function attemptHost(): Promise<void> {
     }
     await host(picked.folder, displayName);
   } catch (error) {
-    console.error(`[selvage] hosting failed (${describe(error)})`);
-    hostError.textContent = describe(error);
+    // The same plain copy the join path shows (`transport.ts`): a socket that would not come up,
+    // or a handshake that refused, is one situation whichever action opened it — and the
+    // engine's own wording for it ("the WebSocket reported an error") names a mechanism rather
+    // than a next step. The card's own refusals — the name, the folder, the wire version — pass
+    // through it untouched, because they are already sentences written for this card.
+    const base = lastBase === '' ? fallbackBase() : lastBase;
+    console.error(`[selvage] hosting failed (${joinFailureDetail(error, base)})`);
+    hostError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
   } finally {
     hosting = false;
     hostButton.disabled = false;
@@ -706,13 +713,18 @@ async function attemptHost(): Promise<void> {
  * Reveals the host action, or the sentence that stands where it would.
  *
  * Three facts decide it, and all of them are settled before any control is offered: this browser
- * can hand a page a folder, this page's own origin answers `/meta` as a Selvage server, and the
- * version that server seats is one this page can mint at. A page that is not the server's own
- * page — the page-only image in front of other servers, a bare `file://` open, a static dev
- * server — gets the sentence instead, because a room started there would have no server to be
- * seated on and its invite would point at an address the room does not live at. So does a page
- * whose room could only be refused (`PROTOCOL.md` §2): the sentence is shown where the control
- * would be, rather than a button whose every click ends in it.
+ * can hand a page a folder, this page's own origin is a Selvage server, and the version that
+ * server seats is one this page can mint at. A page that is not the server's own page — the
+ * page-only image in front of other servers, a bare `file://` open, a static dev server — gets
+ * the sentence instead, because a room started there would have no server to be seated on and its
+ * invite would point at an address the room does not live at. So does a page whose room could
+ * only be refused (`PROTOCOL.md` §2): the sentence is shown where the control would be, rather
+ * than a button whose every click ends in it.
+ *
+ * A read that did not answer is not the third of those facts. `/meta` is advisory (§2), a deadline
+ * that passed says nothing about what the server seats, and the offer stands with a note saying
+ * what was not read; one more ask, given longer, replaces that note with the truth if the server
+ * answers after all. Nothing here can take the offer back once a click is being answered.
  *
  * Both intents are offered it. On a bare page starting a room is the card's own action, and on
  * a page an invite named it is the quiet one under the join: a person holding a link is still a
@@ -721,18 +733,41 @@ async function attemptHost(): Promise<void> {
  */
 async function offerHosting(): Promise<void> {
   const picker = folderPicker !== undefined;
-  // The one `/meta` read the card makes, and it is not made where no control could use its
-  // answer.
+  // The card's `/meta` read, and it is not made where no control could use its answer.
   const base = picker ? pageBase() : undefined;
-  const meta = base === undefined ? undefined : await readMeta(base);
+  if (base === undefined) {
+    // A page whose own address names no server at all (a `file://` open) has no origin to ask,
+    // and it is not a server's own page either way: the answer is the sentence, not an offer.
+    showHosting(picker, { kind: 'not-a-server' });
+    return;
+  }
+  const read = await readServerMeta(base);
+  showHosting(picker, read);
+  if (read.kind !== 'no-answer') {
+    return;
+  }
+  // One more ask, with a longer deadline: a server that was cold, a link that stalled or a proxy
+  // that hiccupped has not yet said anything about itself, and the card keeps the offer meanwhile
+  // rather than writing the server off. Only an answer can change the card.
+  const again = await readServerMeta(base, { timeoutMs: META_REREAD_TIMEOUT_MS });
+  if (again.kind !== 'no-answer' && !hosting) {
+    showHosting(picker, again);
+  }
+}
+
+/**
+ * Puts one read of the page's own origin on the card: the note beside the action, and whether
+ * there is an action at all.
+ */
+function showHosting(picker: boolean, read: ServerRead): void {
   const availability = hostAvailability({
     picker,
-    serverHere: meta !== undefined && metaAccepts(meta),
-    decision: hostDecision(meta, window.location.search),
+    read,
+    decision: hostDecision(read.kind === 'server' ? read.meta : undefined, window.location.search),
   });
   hostWrap.hidden = false;
-  hostNote.textContent = availability.kind === 'offered' ? HOST_TAB_WARNING : availability.sentence;
-  hostButton.hidden = availability.kind !== 'offered';
+  hostNote.textContent = availability.note;
+  hostButton.hidden = availability.kind === 'explained';
 }
 
 /** This page's own origin, read as the session base a room started here would be seated on. */
@@ -741,9 +776,10 @@ function pageBase(): SessionBase | undefined {
 }
 
 /**
- * `/meta`, read best effort (the endpoint is advisory, and the handshake reports the truth): an
- * endpoint that did not answer at all — unreachable, not JSON, no fetch — is not an answer about
- * wire versions, so it decides nothing and the attempt is made.
+ * `/meta`, read best effort for the *mint* (the endpoint is advisory, and the handshake reports
+ * the truth): an endpoint that did not answer at all — unreachable, not JSON, no fetch — is not an
+ * answer about wire versions, so it decides nothing and the attempt is made. The card's own read,
+ * which has to tell "no answer" from "not a Selvage server", is `readServerMeta` in `meta-read.ts`.
  */
 async function readMeta(base: string): Promise<Meta | undefined> {
   try {

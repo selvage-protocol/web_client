@@ -18,12 +18,16 @@ import {
   HOST_NEEDS_A_BROWSER,
   HOST_NEEDS_THE_SERVERS_PAGE,
   HOST_TAB_WARNING,
+  HOST_UNREAD_NOTE,
   clearHostingMark,
   hostAvailability,
   hostRefusalSentence,
   markHosting,
   takeHostingNotice,
 } from '../src/browser/host.ts';
+import { META_REREAD_TIMEOUT_MS } from '../src/browser/meta-read.ts';
+import type { ServerRead } from '../src/browser/meta-read.ts';
+import { describeJoinError } from '../src/browser/transport.ts';
 import type { HostRefusal, HostStorage } from '../src/browser/host.ts';
 import { hostDecision } from '../src/browser/relay.ts';
 import type { Meta } from '../src/engine/index.ts';
@@ -38,6 +42,15 @@ function refusalOf(meta: Meta | undefined, search: string): HostRefusal {
 }
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+
+/** The slice of a source file between two markers, both of which have to be there. */
+function sliceBetween(text: string, from: string, to: string): string {
+  const start = text.indexOf(from);
+  assert.ok(start !== -1, `no ${from} in the source`);
+  const end = text.indexOf(to, start);
+  assert.ok(end !== -1, `no ${to} after ${from} in the source`);
+  return text.slice(start, end);
+}
 
 /** A storage double: the session storage a tab has, and the one a private window refuses. */
 function storage(initial: Record<string, string> = {}, refuse = false): HostStorage & { all: () => Record<string, string> } {
@@ -90,54 +103,92 @@ describe('the host action in the shell', () => {
 describe('whether the card offers to start a room', () => {
   /** What a server that seats both versions answers, which is what the card is offered under. */
   const bothSeated = hostDecision({ wire_versions: ['selvage/1', 'selvage/2'] }, '');
+  /** What a `/meta` read said, in the three shapes the card has to tell apart. */
+  const server = (meta: Meta): ServerRead => ({ kind: 'server', meta });
+  const bothSeatedMeta: Meta = { wire_versions: ['selvage/1', 'selvage/2'] };
 
   it('offers it only where a folder can be picked and the page is the server', () => {
     assert.deepEqual(
-      hostAvailability({ picker: true, serverHere: true, decision: bothSeated }),
-      { kind: 'offered' },
+      hostAvailability({ picker: true, read: server(bothSeatedMeta), decision: bothSeated }),
+      { kind: 'offered', note: HOST_TAB_WARNING },
     );
   });
 
   it('explains a browser that cannot hand over a folder, and says joining still works', () => {
     const availability = hostAvailability({
       picker: false,
-      serverHere: true,
+      read: server(bothSeatedMeta),
       decision: bothSeated,
     });
-    assert.equal(availability.kind === 'explained' ? availability.sentence : '', HOST_NEEDS_A_BROWSER);
+    assert.equal(availability.note, HOST_NEEDS_A_BROWSER);
+    assert.equal(availability.kind, 'explained');
     assert.match(HOST_NEEDS_A_BROWSER, /Joining a room here still works/);
   });
 
-  it('explains a page that is not the server\'s own page rather than guessing at one', () => {
+  it("explains a page that is not the server's own page rather than guessing at one", () => {
     const availability = hostAvailability({
       picker: true,
-      serverHere: false,
+      read: { kind: 'not-a-server' },
       decision: bothSeated,
     });
-    assert.equal(
-      availability.kind === 'explained' ? availability.sentence : '',
-      HOST_NEEDS_THE_SERVERS_PAGE,
-    );
+    assert.deepEqual(availability, { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE });
     // A picker that cannot pick is the first answer either way: the /meta read is not worth
     // making where there is nothing to do with its answer.
     assert.equal(
-      hostAvailability({ picker: false, serverHere: false, decision: bothSeated }).kind,
+      hostAvailability({ picker: false, read: { kind: 'not-a-server' }, decision: bothSeated }).kind,
       'explained',
     );
+  });
+
+  it('keeps the offer where /meta did not answer, and never calls the page someone else\'s', () => {
+    // M1: `/meta` is advisory (§2), so a deadline that passed is not an answer about this
+    // origin. The offer stands with a note that says what was not read — the sentence for a
+    // page that is not a Selvage server's is the one answer that would be untrue here.
+    const availability = hostAvailability({
+      picker: true,
+      read: { kind: 'no-answer' },
+      decision: hostDecision(undefined, ''),
+    });
+    assert.equal(availability.kind, 'unchecked');
+    assert.equal(availability.note, HOST_UNREAD_NOTE);
+    assert.ok(
+      !availability.note.includes(HOST_NEEDS_THE_SERVERS_PAGE),
+      'a read that did not answer still says the page was not served by a Selvage server',
+    );
+    assert.match(availability.note, /has not answered \/meta/);
+    // And the decision behind it is the unpinned one: nothing was read, so a click attempts
+    // `selvage/2` and the handshake reports the truth.
+    assert.deepEqual(hostDecision(undefined, ''), { outcome: 'mint', version: 'selvage/2' });
   });
 
   it('explains a version the server does not seat, instead of a control that could only refuse', () => {
     // A server that seats `selvage/1` alone, and a page that pins nothing: the room would be one
     // the server can read, so there is no room to offer and the sentence says why.
-    const refusal = refusalOf({ wire_versions: ['selvage/1'] }, '');
-    const availability = hostAvailability({ picker: true, serverHere: true, decision: refusal });
-    const sentence = availability.kind === 'explained' ? availability.sentence : '';
-    assert.equal(sentence, hostRefusalSentence(refusal));
-    assert.match(sentence, /does not seat selvage\/2/);
+    const meta: Meta = { wire_versions: ['selvage/1'] };
+    const refusal = refusalOf(meta, '');
+    const availability = hostAvailability({
+      picker: true,
+      read: server(meta),
+      decision: refusal,
+    });
+    assert.equal(availability.kind, 'explained');
+    assert.equal(availability.note, hostRefusalSentence(refusal));
+    assert.match(availability.note, /does not seat selvage\/2/);
     // `/meta`'s own words: what the server said, not a reading of it.
-    assert.match(sentence, /selvage\/1/);
+    assert.match(availability.note, /selvage\/1/);
     // And the way out, because a person told no has to be able to ask for something else.
-    assert.match(sentence, /\?wire=1/);
+    assert.match(availability.note, /\?wire=1/);
+  });
+
+  it('offers the action to a server that seats the encrypted wire alone', () => {
+    // A Selvage server is recognised by its body, not by version-1 compatibility: a server whose
+    // `/meta` names `selvage/2` and nothing below it is one this page can host an encrypted room
+    // on, which is the whole point of the version.
+    const meta: Meta = { wire_versions: ['selvage/2'] };
+    assert.equal(
+      hostAvailability({ picker: true, read: server(meta), decision: hostDecision(meta, '') }).kind,
+      'offered',
+    );
   });
 
   it('says a pin is the reason where the pin is the reason', () => {
@@ -147,6 +198,75 @@ describe('whether the card offers to start a room', () => {
     assert.match(sentence, /pinned to selvage\/1/);
     assert.match(sentence, /offers selvage\/2/);
     assert.match(sentence, /not fallen back from/);
+  });
+});
+
+describe('the card reads its own origin, and keeps the offer for an answer it did not get', () => {
+  const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+
+  it('asks with the reader that tells no answer from an answer, not the decision\'s', () => {
+    // `readMeta` is the *mint*'s read: best effort, `undefined` for everything that is not a
+    // body, because a `/meta` that could not be read decides nothing about versions. The card
+    // cannot use it for the offer — that reading is what told a person on `selvaged`'s own page
+    // that the page was not a Selvage server's.
+    const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
+    assert.match(offering, /readServerMeta\(base\)/, 'the card does not read its own origin');
+    assert.ok(!/metaAccepts/.test(offering), 'the offer still rests on version-1 compatibility');
+    assert.ok(!/\breadMeta\(/.test(offering), 'the offer still reads through the mint\'s best-effort read');
+  });
+
+  it('looks a second time with a longer deadline, and only a real answer changes the card', () => {
+    // A server that was cold, a link that stalled, a proxy that hiccupped: the first ask says
+    // nothing, the offer stands with the note that says so, and one more ask replaces that note
+    // with the truth if there is one. Only a read that answered can redraw the card.
+    const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
+    assert.match(offering, /read\.kind !== 'no-answer'[\s\S]{0,80}return/, 'every read redraws the card');
+    assert.match(
+      offering,
+      /readServerMeta\(base, \{ timeoutMs: META_REREAD_TIMEOUT_MS \}\)/,
+      'the second ask has no longer deadline than the first',
+    );
+    assert.match(
+      offering,
+      /again\.kind !== 'no-answer' && !hosting/,
+      'a second read that did not answer, or a picker mid-flight, still redraws the card',
+    );
+    assert.ok(META_REREAD_TIMEOUT_MS > 2000, 'the second ask is no longer than the first');
+  });
+
+  it('draws the button and the note from the decision it just made', () => {
+    assert.match(main, /hostNote\.textContent = availability\.note/, 'the note is not what is written');
+    assert.match(
+      main,
+      /hostButton\.hidden = availability\.kind === 'explained'/,
+      'a button is shown where only a sentence belongs, or the other way round',
+    );
+  });
+
+  it("shows the card's own copy for a failed host, not the socket's", () => {
+    // The join path maps every transport failure to plain copy (`transport.ts`); the host path
+    // showed the engine's message instead ("the WebSocket reported an error"). Both go through
+    // the one mapper now, and the card's own refusals pass through it untouched.
+    const attempt = sliceBetween(main, 'async function attemptHost', 'async function offerHosting');
+    assert.match(
+      attempt,
+      /hostError\.textContent = describeJoinErrorForDisplay\(error, base/,
+      'a failed host still puts the engine\'s own wording on the card',
+    );
+    assert.ok(
+      attempt.includes('joinFailureDetail(error, base)'),
+      'the diagnostic no longer names the server in the console',
+    );
+    // The refusal the card words itself is unchanged: the name it needs is still its own line.
+    assert.ok(
+      attempt.includes('hostError.textContent = describe(error)'),
+      'a refused name no longer reaches its own line',
+    );
+    // And what that mapper does with the engine's message is the plain sentence.
+    assert.equal(
+      describeJoinError(new Error('the WebSocket reported an error'), 'ws://127.0.0.1:9'),
+      "Couldn't reach the session. Check your connection and retry.",
+    );
   });
 });
 

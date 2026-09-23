@@ -15,11 +15,16 @@ export const nativeWebSocketFactory: WebSocketFactory = (url: string): WebSocket
   new WebSocket(url) as unknown as WebSocketLike;
 
 /**
- * A join failure in words. Every surface of the join path maps here, so
- * the card reads as a plain situation with one next step — never a
- * server address, a code, or mechanism wording. The token never appears.
- * Diagnostics keep the server and the raw cause, but they live in the
- * console (or behind `?debug=1`), never in default UI.
+ * A connection failure in words. Every surface of the join path maps here, and so
+ * does the host path's own failure — a socket that would not come up, or a
+ * handshake that refused, is one situation whichever action opened it — so the card
+ * reads as a plain situation with one next step: never a server address, a code, or
+ * mechanism wording. The token never appears. Diagnostics keep the server and the raw
+ * cause, but they live in the console (or behind `?debug=1`), never in default UI.
+ *
+ * A message this does not recognise (the card's own refusals — the name, the folder,
+ * the wire version — among them) passes through untouched: they are already sentences
+ * written for this card, and rewriting one would only lose what it says.
  *
  * - refusals the handshake named (`room_unknown`, `token_invalid`,
  *   `room_gone`, `host_present`, `unsupported_version`) say what to check;
@@ -91,9 +96,9 @@ export function describeJoinError(error: unknown, _base?: string): string {
 }
 
 /**
- * Console-only diagnostic for a join failure: the server and the raw cause.
- * Never shown in default UI — the card keeps the plain `describeJoinError`
- * copy, and only an explicit `?debug=1` appends the server (see below).
+ * Console-only diagnostic for a failure either path met: the server and the raw cause.
+ * Never shown in default UI — the card keeps the plain `describeJoinError` copy, and
+ * only an explicit `?debug=1` appends the server (see below).
  */
 export function joinFailureDetail(error: unknown, base: string): string {
   const raw = error instanceof Error ? error.message : String(error);
@@ -101,7 +106,7 @@ export function joinFailureDetail(error: unknown, base: string): string {
 }
 
 /**
- * What the card shows for a join failure: the plain copy, plus the server
+ * What the card shows for a failure, either path's: the plain copy, plus the server
  * only behind `?debug=1` for the owner debugging an unreachable room.
  */
 export function describeJoinErrorForDisplay(error: unknown, base: string, debug: boolean): string {
