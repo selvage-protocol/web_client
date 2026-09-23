@@ -15,7 +15,17 @@
  * the first thing the study would cut (`ai_notes/docs/studies/browser-hosted-rooms.md` §9). What
  * is left is honest instead of silent: the warning is on the card before the click, and the
  * load after a reload says what the reload cost.
+ *
+ * A room's *version* is the server's to seat and this page's to pin (`PROTOCOL.md` §2, §10), which
+ * is the other thing the card has to say before a click: a page that cannot mint at a version the
+ * server seats gets that sentence here, where the control would be, rather than a button whose
+ * only outcome is a refusal.
  */
+
+import type { HostDecision } from '../engine/index.ts';
+
+/** The refusal half of a hosting decision: the room was not started, and here is why. */
+export type HostRefusal = Extract<HostDecision, { outcome: 'refuse' }>;
 
 /** The tab's own memory: gone when the tab is, and shared with no other tab or origin. */
 export type HostStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -46,6 +56,23 @@ export const HOST_NEEDS_A_BROWSER =
  */
 export const HOST_NEEDS_THE_SERVERS_PAGE =
   'This page was not served by a Selvage server, so there is nothing here to start a room on. Open the server\u2019s own page \u2014 the address a share link points at \u2014 to start a room from a browser.';
+
+/**
+ * Why a room was not started: this page cannot mint at a version the server seats, and the choice
+ * is refused rather than fallen back from (`PROTOCOL.md` §2, §10).
+ *
+ * The versions are `/meta`'s own words, so the sentence reports what the server said rather than a
+ * reading of it, and the pin is named where the pin is the reason: a pin is taken off the address
+ * the same way it was put there. Both refusals offer the same way out, because a person told no has
+ * to be able to ask for something else.
+ */
+export function hostRefusalSentence(refusal: HostRefusal): string {
+  const offered = refusal.offered.length === 0 ? 'nothing' : refusal.offered.join(', ');
+  if (refusal.reason === 'pin-not-seated') {
+    return `This page is pinned to ${refusal.pin}, and this server does not seat it: its /meta offers ${offered}. The room was not started and the pin was not fallen back from \u2014 take ?wire off the address to let the server decide, or pin the version it does seat.`;
+  }
+  return `This server does not seat selvage/2, the encrypted wire: its /meta offers ${offered}. A room started here would be one the server can read, so none was started \u2014 pin this page to what the server does seat (?wire=1) if a room the server can read is what you want.`;
+}
 
 /** Marks this tab as hosting `roomId`, so a reload can say what it cost. */
 export function markHosting(storage: HostStorage, roomId: string): void {
@@ -103,18 +130,29 @@ export type HostAvailability =
   /** A sentence instead of a control, and the reason is in it. */
   | { kind: 'explained'; sentence: string };
 
-/** The decision, from the two facts it rests on. */
+/**
+ * The decision, from the three facts it rests on.
+ *
+ * The picker comes first either way: it is the one the browser owns, and a page that cannot hand
+ * over a folder is told so before anything is read. Then the page's own origin, and then what the
+ * server said about versions with this page's pin laid over it.
+ */
 export function hostAvailability(options: {
   /** Whether this browser has a directory picker at all. */
   picker: boolean;
   /** Whether the page's own origin answered `/meta` as a Selvage server. */
   serverHere: boolean;
+  /** The version the server seats and this page's pin settle on, or the refusal standing there. */
+  decision: HostDecision;
 }): HostAvailability {
   if (!options.picker) {
     return { kind: 'explained', sentence: HOST_NEEDS_A_BROWSER };
   }
   if (!options.serverHere) {
     return { kind: 'explained', sentence: HOST_NEEDS_THE_SERVERS_PAGE };
+  }
+  if (options.decision.outcome === 'refuse') {
+    return { kind: 'explained', sentence: hostRefusalSentence(options.decision) };
   }
   return { kind: 'offered' };
 }

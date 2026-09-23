@@ -1,6 +1,7 @@
 import { SelvageEngine, fetchMeta, metaAccepts, sessionBase, sessionUrl } from '../engine/index.ts';
+import type { Meta, SessionBase } from '../engine/index.ts';
 import type { RoomEngine } from './relay.ts';
-import { hostRoom2, hostsVersion2, joinRoom2, listingSource, wireVersionOf } from './relay.ts';
+import { hostDecision, hostRoom2, joinRoom2, listingSource, wireVersionOf } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
@@ -33,6 +34,7 @@ import {
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
   hostAvailability,
+  hostRefusalSentence,
   markHosting,
   takeHostingNotice,
 } from './host.ts';
@@ -567,9 +569,15 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
   }
   lastBase = base;
   const monaco = await prepareEditor();
-  // `?wire=2` is how a page asks for a version-2 room: the version of a new room is its host's
-  // own choice, and unset means `selvage/1`, which is what every published client speaks.
-  const version2 = hostsVersion2(window.location.search);
+  // The version is the server's word (`PROTOCOL.md` §2), with this page's own pin on top of it.
+  // The picker was asked before this read, and it has to be: `showDirectoryPicker` needs the
+  // click's own transient activation, which a `/meta` round trip can spend. Nothing before this
+  // point opens a socket either, so a refusal is a room that was never dialled.
+  const decision = hostDecision(await readMeta(base), window.location.search);
+  if (decision.outcome === 'refuse') {
+    throw new Error(hostRefusalSentence(decision));
+  }
+  const version2 = decision.version === 'selvage/2';
   // A host's listing is what a `selvage/2` room's state is sealed from, so the walk has to come
   // before the mint: a host that minted first would put an empty room in front of its first
   // guest. The version-1 engine is told the listing afterwards instead, because its server holds
@@ -648,14 +656,16 @@ async function attemptHost(): Promise<void> {
 }
 
 /**
- * Reveals the host action, or the sentence that stands where it would be.
+ * Reveals the host action, or the sentence that stands where it would.
  *
- * Two facts decide it, and both are settled before any control is offered: this browser can hand
- * a page a folder, and this page's own origin answers `/meta` as a Selvage server. A page that
- * is not the server's own page — the page-only image in front of other servers, a bare `file://`
- * open, a static dev server — gets the sentence instead, because a room started there would
- * have no server to be seated on and its invite would point at an address the room does not
- * live at.
+ * Three facts decide it, and all of them are settled before any control is offered: this browser
+ * can hand a page a folder, this page's own origin answers `/meta` as a Selvage server, and the
+ * version that server seats is one this page can mint at. A page that is not the server's own
+ * page — the page-only image in front of other servers, a bare `file://` open, a static dev
+ * server — gets the sentence instead, because a room started there would have no server to be
+ * seated on and its invite would point at an address the room does not live at. So does a page
+ * whose room could only be refused (`PROTOCOL.md` §2): the sentence is shown where the control
+ * would be, rather than a button whose every click ends in it.
  */
 async function offerHosting(): Promise<void> {
   if (linkIsTheInvite) {
@@ -663,23 +673,35 @@ async function offerHosting(): Promise<void> {
     return;
   }
   const picker = folderPicker !== undefined;
-  const serverHere = picker && (await pageAnswersMeta());
-  const availability = hostAvailability({ picker, serverHere });
+  // The one `/meta` read the card makes, and it is not made where no control could use its
+  // answer.
+  const base = picker ? pageBase() : undefined;
+  const meta = base === undefined ? undefined : await readMeta(base);
+  const availability = hostAvailability({
+    picker,
+    serverHere: meta !== undefined && metaAccepts(meta),
+    decision: hostDecision(meta, window.location.search),
+  });
   hostWrap.hidden = false;
   hostNote.textContent = availability.kind === 'offered' ? HOST_TAB_WARNING : availability.sentence;
   hostButton.hidden = availability.kind !== 'offered';
 }
 
-/** Whether this page's own origin answers `/meta`, for a wire version this client speaks. */
-async function pageAnswersMeta(): Promise<boolean> {
-  const base = sessionBase(serverBaseOf(window.location.href));
-  if (base === undefined) {
-    return false;
-  }
+/** This page's own origin, read as the session base a room started here would be seated on. */
+function pageBase(): SessionBase | undefined {
+  return sessionBase(serverBaseOf(window.location.href));
+}
+
+/**
+ * `/meta`, read best effort (the endpoint is advisory, and the handshake reports the truth): an
+ * endpoint that did not answer at all — unreachable, not JSON, no fetch — is not an answer about
+ * wire versions, so it decides nothing and the attempt is made.
+ */
+async function readMeta(base: string): Promise<Meta | undefined> {
   try {
-    return metaAccepts(await fetchMeta(base));
+    return await fetchMeta(base);
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -690,7 +712,7 @@ async function pageAnswersMeta(): Promise<boolean> {
  * page) yields none, and the diagnostic names none.
  */
 function fallbackBase(): string {
-  const page = sessionBase(serverBaseOf(window.location.href));
+  const page = pageBase();
   return page === undefined ? '' : schemeMatchBase(page, pageProtocol);
 }
 
