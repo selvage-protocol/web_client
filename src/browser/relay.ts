@@ -18,12 +18,18 @@
 
 import { PeerEngine } from '../bridge/index.ts';
 import type { Engine } from '../bridge/index.ts';
-import type { EngineEventListener } from '../engine/events.ts';
-import type { Meta, PeerInfo, Role } from '../engine/envelope.ts';
-import type { HostDecision, WireVersion } from '../engine/meta.ts';
-import { hostVersion } from '../engine/meta.ts';
-import type { SessionInfo } from '../engine/engine.ts';
-import type { OffsetSelection, Selection } from '../engine/presence.ts';
+import { hostVersion } from '../engine/index.ts';
+import type {
+  EngineEventListener,
+  HostDecision,
+  Meta,
+  OffsetSelection,
+  PeerInfo,
+  Role,
+  Selection,
+  SessionInfo,
+  WireVersion,
+} from '../engine/index.ts';
 
 import { nativeWebSocketFactory } from './transport.ts';
 

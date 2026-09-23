@@ -1,4 +1,4 @@
-import type { WebSocketFactory, WebSocketLike } from '../engine/transport.ts';
+import type { WebSocketFactory, WebSocketLike } from '../engine/index.ts';
 import { close, code as errCode, isProtocolError } from '../engine/index.ts';
 
 /**

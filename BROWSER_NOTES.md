@@ -2981,6 +2981,14 @@ was: it needs nothing but the fields the person filled in.
   the share bar are the real code, and the room's own link is read back — `#k=…&h=…` on a server that
   seats both (`selvage/2`, §10), no fragment at all on a page pinned to `?wire=1`. A page whose card
   said `selvage/2` while the mint fell back to version 1 now fails this proof.
+- **Two of the page's own modules reached into the vendored tree rather than its index** (the
+  review's nit). `src/browser/relay.ts` and `src/browser/transport.ts` imported
+  `../engine/{events,envelope,meta,engine,presence,transport}.ts` directly, while the copy's own
+  index says *import from here rather than from the individual modules* — and every name they wanted
+  is exported there. They import `../engine/index.ts` now, so a re-sync that moves a file inside the
+  copy cannot break the page without the index changing too. The copy's *own* modules keep their
+  internal imports: those are `vscode_client`'s canonical shape, and this repository's copy is
+  checked byte for byte against it, so "fixing" them would be the drift the check exists to catch.
 - **The stale-file guard rests on `lastModified`** (m4). A writer that puts the old stamp back —
   `cp -p`, `rsync -a`, `tar -x`, a `git` with `core.restoreMtime` — leaves it identical and the guard
   silent, so the room's text lands on top. That is the platform's ceiling rather than a bug (the
