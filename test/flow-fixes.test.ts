@@ -187,12 +187,19 @@ describe('unpublished files', () => {
 });
 
 describe('drop signal', () => {
-  it('the engine reconnecting report reaches the page as a notice', () => {
+  it('the engine reconnecting report reaches the page as its own notice', () => {
     const { binding, notices } = setup(new Map());
     binding.report({ kind: 'reconnecting' });
     assert.ok(
-      notices.some((notice) => notice.kind === 'status' && notice.text === 'Connection dropped. Reconnecting…'),
-      `no drop status in ${JSON.stringify(notices)}`,
+      notices.some((notice) => notice.kind === 'reconnecting'),
+      `no reconnecting notice in ${JSON.stringify(notices)}`,
+    );
+    // It is not a status line: the page's status kind is the transient text with no lifecycle of
+    // its own, and this one stands until the room answers.
+    assert.equal(
+      notices.some((notice) => notice.kind === 'status'),
+      false,
+      'the drop was reported as a status line',
     );
     binding.dispose();
   });

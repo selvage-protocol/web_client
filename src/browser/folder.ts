@@ -131,7 +131,10 @@ export type FolderWriteRefusal =
   | 'not-a-file'
   /** The page never read this path, so the write would overwrite text it has never seen. */
   | 'unread'
-  /** The file changed on disk since this page last read or wrote it. */
+  /**
+   * The file's modification stamp moved since this page last read or wrote it: something else
+   * wrote it, in the shape the guard can see. A writer that preserves the stamp is not caught.
+   */
   | 'stale'
   /** The person revoked write access, or the folder moved with the tab open. */
   | 'not-permitted';
@@ -367,6 +370,14 @@ export class FolderWorkingCopy implements FolderWork {
    * and a change landing between them is not caught. The guard turns the overwrite a person
    * would never hear about into a refusal that names the file; it is not an atomic compare and
    * swap, because the API has none.
+   *
+   * The stamp is the file's modification time, and that is as far as the guard reaches: a writer
+   * that puts the old stamp back — `cp -p`, `rsync -a`, `tar -x`, a `git` with
+   * `core.restoreMtime` — leaves it identical, and the room's text then lands on top of what was
+   * written. That is a deploy step or a formatter that preserves times, not the ordinary edit
+   * this guard is for, and the platform gives no identity that survives it: the alternatives are
+   * a content hash read on every write, or a compare-and-swap the API does not have. This is a
+   * residual of the platform, stated rather than covered.
    */
   async write(path: string, text: string): Promise<FolderWrite> {
     const refuse = (cause: FolderWriteRefusal): FolderWrite => ({

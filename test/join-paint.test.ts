@@ -42,6 +42,14 @@ interface FakeElement {
   addEventListener(type: string, listener: (event: unknown) => void): void;
 }
 
+/** What a fired event looks like to the shell: a key, and a form's own cancel. */
+interface FiredEvent {
+  key?: string;
+  repeat?: boolean;
+  defaultPrevented: boolean;
+  preventDefault(): void;
+}
+
 interface ShellState {
   pane: { className: string };
   startHeading: { hidden: boolean };
@@ -50,8 +58,30 @@ interface ShellState {
   inviteReveal: { hidden: boolean };
   inviteWrap: { hidden: boolean };
   nameInput: { value: string };
-  armed: boolean;
-  pending: boolean;
+  /** Read live, so what a fired event decided is what the test sees. */
+  readonly armed: boolean;
+  readonly pending: boolean;
+  /** Whether the shell's own "still loading" line is on the card. */
+  readonly waiting: boolean;
+  /** The card's message line, as the shell left it. */
+  message: { hidden: boolean; textContent: string };
+  joinButton: { disabled: boolean; textContent: string };
+  /** Enter in a field, as the browser delivers it. */
+  enter(id: string): FiredEvent;
+  /** A form submission, as the form delivers it — the shell's own guard on top of the markup's. */
+  submit(): FiredEvent;
+  /** Arms the card the way the bundle does, so the shell's own guards can be seen to stand aside. */
+  arm(): void;
+}
+
+/** What the card holds when the shell has run; `heldSubmit` is the markup's own hold on a submit,
+ * and `heldInvitePath` the one thing that hold could read about which action it was. */
+interface ShellOpen {
+  search: string;
+  stored: string;
+  heldJoin?: boolean;
+  heldSubmit?: boolean;
+  heldInvitePath?: boolean;
 }
 
 /**
@@ -61,14 +91,16 @@ interface ShellState {
  * is only hidden in the markup is exactly the frame that flashed, and so is a
  * card that paints the other intent and is corrected once the bundle lands.
  */
-function runShell(search: string, stored: string, held = false): ShellState {
+function runShell(open: ShellOpen): ShellState {
+  const { search, stored } = open;
   const markupClass = /<div id="join"[^>]*\sclass="([^"]*)"/.exec(html)?.[1] ?? '';
   const markupOpen = /<details id="invite-path"[^>]*\sopen/.test(html);
   const markupHides = (id: string): boolean =>
     new RegExp(`<(?:h1|label|summary|div|p) id="${id}"[^>]*\\shidden`).test(html);
-  const elements = new Map<string, FakeElement>();
+  const elements = new Map<string, Array<{ type: string; listener: (event: unknown) => void }>>();
+  const nodes = new Map<string, FakeElement>();
   const element = (id: string): FakeElement => {
-    let found = elements.get(id);
+    let found = nodes.get(id);
     if (found === undefined) {
       found = {
         hidden: markupHides(id),
@@ -77,9 +109,13 @@ function runShell(search: string, stored: string, held = false): ShellState {
         value: '',
         disabled: false,
         textContent: '',
-        addEventListener: () => {},
+        addEventListener: (type: string, listener: (event: unknown) => void) => {
+          const forNode = elements.get(id) ?? [];
+          forNode.push({ type, listener });
+          elements.set(id, forNode);
+        },
       };
-      elements.set(id, found);
+      nodes.set(id, found);
     }
     return found;
   };
@@ -87,12 +123,30 @@ function runShell(search: string, stored: string, held = false): ShellState {
     location: { search },
     localStorage: { getItem: (key: string) => (key === DISPLAY_NAME_KEY ? stored : null) },
     __selvageJoinArmed: false,
-    __selvagePendingJoin: held,
+    __selvagePendingJoin: open.heldJoin ?? false,
+    __selvagePendingSubmit: open.heldSubmit ?? false,
+    __selvagePendingInvitePath: open.heldInvitePath ?? false,
+    __selvageWaiting: false,
   };
   const document = { getElementById: (id: string) => element(id) };
   // eslint-disable-next-line no-new-func
   const run = new Function('window', 'document', 'URLSearchParams', inlineScript());
   run(window, document, URLSearchParams);
+  const fire = (id: string, type: string, event: Partial<FiredEvent>): FiredEvent => {
+    const fired: FiredEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        fired.defaultPrevented = true;
+      },
+      ...event,
+    };
+    for (const registered of elements.get(id) ?? []) {
+      if (registered.type === type) {
+        registered.listener(fired);
+      }
+    }
+    return fired;
+  };
   return {
     pane: element('join'),
     startHeading: element('start-heading'),
@@ -101,8 +155,22 @@ function runShell(search: string, stored: string, held = false): ShellState {
     inviteReveal: element('invite-reveal'),
     inviteWrap: element('invite-wrap'),
     nameInput: element('name'),
-    armed: window.__selvageJoinArmed,
-    pending: window.__selvagePendingJoin,
+    message: element('join-message'),
+    joinButton: element('join-button'),
+    get armed() {
+      return window.__selvageJoinArmed;
+    },
+    get pending() {
+      return window.__selvagePendingJoin;
+    },
+    get waiting() {
+      return window.__selvageWaiting;
+    },
+    enter: (id: string) => fire(id, 'keydown', { key: 'Enter', repeat: false }),
+    submit: () => fire('join-form', 'submit', {}),
+    arm: () => {
+      window.__selvageJoinArmed = true;
+    },
   };
 }
 
@@ -140,7 +208,7 @@ describe('the card shell decides the first frame', () => {
     for (const stored of STORED) {
       const where = `${search === '' ? 'a bare open' : search} with ${stored === '' ? 'no' : `"${stored}"`} remembered`;
       it(`${where}: the shell and the bundle agree`, () => {
-        const shell = runShell(search, stored);
+        const shell = runShell({ search, stored });
         const bundle = bundleCard(search, stored);
         assert.equal(shell.pane.className, bundle.pane.className, `the leading action disagrees on ${where}`);
         assert.equal(shell.startHeading.hidden, bundle.startHeading.hidden, `the start heading disagrees on ${where}`);
@@ -155,14 +223,14 @@ describe('the card shell decides the first frame', () => {
   }
 
   it('a bare open paints the start card with the invite path shut; a link open paints the join card', () => {
-    const bare = runShell('', '');
+    const bare = runShell({ search: '', stored: '' });
     assert.equal(bare.pane.className, 'card-start', 'a bare open paints the other intent');
     assert.equal(bare.startHeading.hidden, false, 'a bare open paints without its heading');
     assert.equal(bare.joinHeading.hidden, true, 'a bare open paints the join heading');
     assert.equal(bare.invitePath.open, false, 'a bare open still paints an open invite path');
     assert.equal(bare.inviteReveal.hidden, false, 'a bare open asks for a link nobody offered');
 
-    const linked = runShell('?room=r-1&token=tok', '');
+    const linked = runShell({ search: '?room=r-1&token=tok', stored: '' });
     assert.equal(linked.pane.className, 'card-join', 'a link open paints the start card');
     assert.equal(linked.joinHeading.hidden, false, 'a link open paints without its heading');
     assert.equal(linked.startHeading.hidden, true, 'a link open paints the start heading');
@@ -171,8 +239,8 @@ describe('the card shell decides the first frame', () => {
   });
 
   it('the remembered name is on the card before the bundle arrives', () => {
-    assert.equal(runShell('', 'browser').nameInput.value, 'browser');
-    assert.equal(runShell('?room=r-1&token=tok', 'browser').nameInput.value, 'browser');
+    assert.equal(runShell({ search: '', stored: 'browser' }).nameInput.value, 'browser');
+    assert.equal(runShell({ search: '?room=r-1&token=tok', stored: 'browser' }).nameInput.value, 'browser');
   });
 
   it('the held-submit guard is installed before the card block, so nothing can disarm it', () => {
@@ -185,34 +253,82 @@ describe('the card shell decides the first frame', () => {
     assert.ok(guard < card, 'the card block runs before the guard that protects the form');
   });
 
-  it('holds a submit the card gets before any script has run', () => {
+  it('holds a submit the card gets before any script has run, without guessing its intent', () => {
     // A deployment that defers every script — the demo's Cloudflare Rocket
     // Loader does — has no guard until one runs, and the room's own server
     // answers a form action with a CSP refusal, so a join made in that window
     // can neither navigate nor leave a trace. The markup is the only thing
-    // standing there, so the hold is an attribute on the form.
+    // standing there, so the hold is an attribute on the form — and it records
+    // only that a submit was held and which one thing it could read: whether the
+    // invite path was open when it caught the submit. Which of the card's two
+    // actions it was is settled from that and the card's own paint, once the
+    // card's script has run.
     const tag = /<form id="join-form"[^>]*>/.exec(html)?.[0];
     assert.ok(tag !== undefined, 'the shell carries no join form');
     const handler = /\sonsubmit="([^"]*)"/.exec(tag)?.[1];
     assert.ok(handler !== undefined, `the form carries no pre-script hold: ${tag}`);
-    const preScript = { __selvageJoinArmed: false, __selvagePendingJoin: false };
+    const path = { open: true };
+    const preScript: Record<string, unknown> = { __selvageJoinArmed: false };
     // eslint-disable-next-line no-new-func
-    const cancel: unknown = new Function('window', handler)(preScript);
+    const cancel: unknown = new Function('window', 'document', handler)(preScript, {
+      getElementById: () => path,
+    });
     assert.equal(cancel, false, 'the hold does not cancel the submission it holds');
-    assert.equal(preScript.__selvagePendingJoin, true, 'a held join is never recorded for the bundle');
+    assert.equal(preScript.__selvagePendingSubmit, true, 'a held submit is never recorded for the shell');
+    assert.equal(
+      preScript.__selvagePendingInvitePath,
+      true,
+      'the one thing the markup could read about the held submit was not recorded',
+    );
+    assert.ok(
+      !('__selvagePendingJoin' in preScript),
+      'the markup decides the intent, which it cannot read before any script has run',
+    );
     // Once the bundle is armed the hold has no job: the guard's own listener
     // and the bundle's handler own the submit from there.
-    const armed = { __selvageJoinArmed: true, __selvagePendingJoin: false };
+    const armed = { __selvageJoinArmed: true };
     // eslint-disable-next-line no-new-func
     new Function('window', handler)(armed);
-    assert.equal(armed.__selvagePendingJoin, false, 'the hold records a join the bundle already handles');
+    assert.equal(armed.__selvagePendingSubmit, undefined, 'the hold records a submit the bundle already handles');
+  });
+
+  it('replays a held submit by the path it was made in, not the one standing when the script runs', () => {
+    // The deferred window this hold exists for: the person opens the invite
+    // path and submits Join, then closes the disclosure. The shell reads the
+    // path once it arrives, and a live reading says the name field's Enter —
+    // so a join the person made is answered with "still loading" and dropped.
+    const held = runShell({ search: '', stored: '', heldSubmit: true, heldInvitePath: true });
+    assert.equal(held.pending, true, 'the held join was not queued as a join');
+    assert.equal(held.waiting, false, 'a held join was answered with the still-loading line');
+    assert.equal(held.joinButton.textContent, 'Joining…', 'the card did not say what it was doing');
+
+    // And a submit the path was shut for stays the card's own action.
+    const shut = runShell({ search: '', stored: '', heldSubmit: true, heldInvitePath: false });
+    assert.equal(shut.pending, false, 'a submit the path was shut for was replayed as a join');
+    assert.equal(shut.waiting, true, 'the held submit was answered with nothing at all');
+  });
+
+  it('settles a submit the markup held before the script ran, once the intent is readable', () => {
+    // The attribute cannot tell the two intents apart; the script can, and it
+    // always runs before the bundle. A submit held on a bare page with the
+    // disclosure shut is the name field's Enter, not a join.
+    const bare = runShell({ search: '', stored: '', heldSubmit: true });
+    assert.equal(bare.pending, false, 'the markup\'s held submit was queued as a join on a bare page');
+    assert.equal(bare.waiting, true, 'the held submit was answered with nothing at all');
+    assert.notEqual(
+      bare.joinButton.textContent,
+      'Joining…',
+      "the bare page's held submit put the join verb on the button",
+    );
+    const guest = runShell({ search: '?room=r-1&token=tok', stored: '', heldSubmit: true });
+    assert.equal(guest.pending, true, 'a guest page dropped the submit the markup held for it');
   });
 
   it('leaves a held join alone when the shell script arrives', () => {
     // The markup held it and the bundle is the only thing that can replay it,
     // so a shell script that cleared the flag on arrival would drop the join
     // instead of handing it on.
-    const shell = runShell('', '', true);
+    const shell = runShell({ search: '', stored: '', heldJoin: true });
     assert.equal(shell.armed, false, 'the inline script armed the card before the bundle');
     assert.equal(shell.pending, true, 'the inline script dropped the join the markup held for it');
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
@@ -220,6 +336,81 @@ describe('the card shell decides the first frame', () => {
       main,
       /__selvagePendingJoin === true[\s\S]{0,120}attemptJoin\(\)/,
       'nothing in the bundle replays a join the shell held',
+    );
+  });
+
+  it('a pre-bundle Enter in the name field is the card\'s own action, never the join', () => {
+    // M4: the shell's form *is* the invite path, so an Enter in the name field used to be held
+    // as a join and replayed as one once the bundle landed — on a page whose heading is "Start a
+    // shared session", answered with "Paste an invite link to join." The field belongs to the
+    // card, so the held act is the card's own; it is answered now (the start action needs a
+    // folder picker, which the browser answers only under a click of the person's own) and the
+    // card is live a moment later.
+    const bare = runShell({ search: '', stored: '' });
+    const fired = bare.enter('name');
+    assert.equal(fired.defaultPrevented, true, 'the implicit submission is left to find the join');
+    assert.equal(bare.pending, false, "a bare page's Enter was queued as a join");
+    assert.equal(bare.waiting, true, 'the held Enter was answered with nothing at all');
+    assert.equal(bare.message.hidden, false, 'the line that answers it is hidden');
+    assert.match(bare.message.textContent, /still loading/, 'the answer does not say what is happening');
+    assert.match(bare.message.textContent, /Press Enter again/, 'the answer names no next step');
+    assert.notEqual(bare.joinButton.textContent, 'Joining…', 'the wrong verb is on the button');
+    assert.equal(bare.joinButton.disabled, false, 'the join button was disabled for a join nobody asked for');
+  });
+
+  it("a pre-bundle Enter in the name field on a guest's card is the join, and says so", () => {
+    const guest = runShell({ search: '?room=r-1&token=tok', stored: '' });
+    const fired = guest.enter('name');
+    assert.equal(fired.defaultPrevented, true, 'the submission is left to navigate');
+    assert.equal(guest.pending, true, "a guest page's Enter was not held for the join");
+    assert.equal(guest.joinButton.textContent, 'Joining…', 'the held join never answers the click');
+    assert.equal(guest.joinButton.disabled, true, 'the held join leaves the button live');
+    assert.equal(guest.waiting, false, 'a guest page is told the card is still loading');
+  });
+
+  it('stands aside once the bundle has armed the card, which wires Enter itself', () => {
+    const bare = runShell({ search: '', stored: '' });
+    bare.arm();
+    bare.enter('name');
+    assert.equal(bare.waiting, false, 'the shell answered an Enter the bundle already owns');
+    const held = bare.submit();
+    assert.equal(held.defaultPrevented, false, 'the shell still cancels the bundle\'s own submits');
+    assert.equal(bare.pending, false, 'the shell queued a join under the armed card');
+  });
+
+  it('settles a submit by the card it is about: the disclosure decides, not the form', () => {
+    // The form is the invite path, so a submit from it is a join — unless the path is shut, where
+    // nothing in it can be clicked or pasted and the only thing that can submit is the name
+    // field's Enter arriving the way the form makes of it. That reading is what a programmatic
+    // submit (and the review's own probe) gets, and it is the same reading the keydown listener
+    // makes: one rule, two doors into it.
+    const shut = runShell({ search: '', stored: '' });
+    shut.submit();
+    assert.equal(shut.pending, false, 'a submit with the invite path shut was queued as a join');
+    assert.equal(shut.waiting, true, 'a submit with the invite path shut was answered with nothing');
+
+    const open = runShell({ search: '', stored: '' });
+    open.invitePath.open = true;
+    open.submit();
+    assert.equal(open.pending, true, 'a submit from the open invite path was not held as a join');
+    assert.equal(open.waiting, false, 'the card says it is still loading instead of joining');
+
+    const guest = runShell({ search: '?room=r-1&token=tok', stored: '' });
+    guest.submit();
+    assert.equal(guest.pending, true, "a guest page's submit was not held as a join");
+  });
+
+  it('the bundle takes the shell\'s line over with what it knows, and replays a held join once', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /__selvageWaiting === true[\s\S]{0,200}joinMessage\.hidden = hostingNotice === undefined/,
+      "the shell's loading line is never taken off the card",
+    );
+    assert.match(
+      main,
+      /__selvagePendingJoin === true[\s\S]{0,120}attemptJoin\(\)/,
+      'a join the shell held is never replayed',
     );
   });
 

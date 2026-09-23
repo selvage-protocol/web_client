@@ -14,11 +14,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { hostDecision, hostPin, listingSource, wireVersionOf } from '../src/browser/relay.ts';
+import { hostDecision, hostPin, listingSource, pageEngine, wireVersionOf } from '../src/browser/relay.ts';
 import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
 import { fragmentOf, resolveJoin } from '../src/browser/join.ts';
 import { parseSessionUrl, sessionUrl } from '../src/engine/urls.ts';
-import type { Meta } from '../src/engine/index.ts';
+import type { EngineEvent, Meta, SessionInfo } from '../src/engine/index.ts';
 
 /** `§5.1`'s fragment, the shape `encodeKey` writes: two 43-character base64url keys. */
 const KEYS =
@@ -249,6 +249,98 @@ describe('the page picks the version', () => {
     assert.ok(!join.includes('hostPin'), 'a join reads the host pin');
     assert.ok(!join.includes('hostDecision'), 'a join reads the hosting decision');
     assert.ok(!join.includes('hostRefusalSentence'), 'a join reads the hosting refusal');
+  });
+});
+
+/**
+ * The `RoomEngine` the page drives, over a stub `PeerEngine` whose session a test can move the way
+ * a re-seat does. Only what {@link pageEngine} asks of its engine is here; anything else it
+ * reached for would be `undefined` and fail below rather than being quietly answered.
+ */
+function stubEngine(): {
+  engine: Parameters<typeof pageEngine>[0];
+  reseat(): void;
+  emit(event: EngineEvent): void;
+} {
+  const listeners = new Set<(event: EngineEvent) => void>();
+  let peer = { peer_id: 'p-first', display_name: 'sam', role: 'guest' };
+  let documents = ['notes.md'];
+  let granted = ['shared/'];
+  return {
+    engine: {
+      session: () => ({
+        roomId: 'r-1',
+        role: 'guest',
+        peer,
+        peers: [peer],
+        documents,
+        capabilities: [],
+        keepalive: { ping_interval_ms: 30_000, awareness_renew_ms: 15_000, awareness_expire_ms: 30_000 },
+        baseUrl: sessionUrlBase(),
+      }) as SessionInfo,
+      text: () => '',
+      has: () => true,
+      open: async () => {},
+      close: async () => {},
+      insert: () => {},
+      delete: () => {},
+      setSelection: () => {},
+      setAwareness: () => {},
+      presence: () => [],
+      resolveSelection: () => undefined,
+      on: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+      grantedPaths: () => granted,
+      grant: async (paths) => void (granted = [...paths]),
+      disconnect: () => {},
+      inviteUrl: () => undefined,
+    } as unknown as Parameters<typeof pageEngine>[0],
+    reseat(): void {
+      // A reconnect is a new peer under the same room (`§9.1`): the room's state is republished
+      // to it, which is the set and the listing arriving again.
+      peer = { peer_id: 'p-seated-again', display_name: 'sam', role: 'guest' };
+      documents = ['notes.md', 'later.txt'];
+      granted = ['shared/', 'shared/two.txt'];
+    },
+    emit(event: EngineEvent): void {
+      for (const listener of [...listeners]) {
+        listener(event);
+      }
+    },
+  };
+}
+
+describe('the wrapper the page drives', () => {
+  it('survives a re-seat, because every answer is read from the session as it stands', async () => {
+    const stub = stubEngine();
+    const room = pageEngine(stub.engine);
+    const heard: string[] = [];
+    room.on((event) => void heard.push(event.type));
+
+    await room.open('notes.md');
+    assert.deepEqual(room.openDocuments(), ['notes.md'], 'the open document was not held');
+    assert.equal(room.session().peer.peer_id, 'p-first');
+
+    // What `§9.1` does below the seam: the same engine object, a new seat, the room's state sent
+    // again. Nothing above this line is rebuilt, so nothing the page holds may be a snapshot.
+    stub.reseat();
+
+    assert.equal(room.session().peer.peer_id, 'p-seated-again', 'the wrapper answers a dead seat');
+    assert.deepEqual(room.peers().map((peer) => peer.peer_id), ['p-seated-again']);
+    assert.deepEqual(room.documents(), ['notes.md', 'later.txt'], 'the re-seat lost the documents');
+    assert.deepEqual(room.grantedPaths(), ['shared/', 'shared/two.txt'], 'the listing did not come back');
+    assert.deepEqual(room.openDocuments(), ['notes.md'], 'the paths this window holds went with the seat');
+
+    // The seat reports the bridge forces on a re-seat reach this wrapper's listener: they are
+    // what the page reads as the all-clear that ends its reconnecting line.
+    stub.emit({ type: 'documentsChanged', documents: room.documents() });
+    stub.emit({ type: 'peersChanged', peers: room.peers() });
+    assert.deepEqual(heard, ['documentsChanged', 'peersChanged'], `the re-seat said ${heard.join(', ')}`);
+
+    await room.close('notes.md');
+    assert.deepEqual(room.openDocuments(), [], 'a closed document stayed held');
   });
 });
 
