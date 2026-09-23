@@ -2959,12 +2959,17 @@ reading, two doors into it (`submitIsTheInvitePath`, `public/index.html`):
   paints it. The script settles that record the moment it has run, which is always before the bundle.
 
 What the card's own action gets **is a sentence, not a replay**: the start action reaches
-`showDirectoryPicker`, which the browser answers only under a click of the person's own, so a press
-replayed after a slow load would be refused — and worded as a refusal of *their folder*, which is a
-worse lie than "still loading". The shell says so instead (*"One moment — the page is still loading,
-so nothing was started. Press Enter again in a moment."*), the bundle takes that line off when it
-arrives, and the card is live a moment later. A held **join** is still replayed, once, exactly as it
-was: it needs nothing but the fields the person filled in.
+`showDirectoryPicker`, which is answered under the click's own activation — and the click that
+started the load is long spent by the time a slow bundle replays it. What that leaves is not a clean
+refusal to word either: measured in this host's headless Chromium, a `showDirectoryPicker()` called
+from a page timer with no gesture **neither resolved nor rejected within 10 s**
+(`.tmp/red/picker-probe.mjs`; whether that is the missing activation or a headless browser with no
+dialog, the probe cannot tell, and either way there is no sentence to write), so a replayed press
+would leave the button on *Opening…* with `hosting` held true for the life of the load. The shell
+says so instead (*"One moment — the page is still loading, so nothing was started. Press Enter again
+in a moment."*), the bundle takes that line off when it arrives, and the card is live a moment later.
+A held **join** is still replayed, once, exactly as it was: it needs nothing but the fields the
+person filled in.
 
 ### The smaller findings
 
