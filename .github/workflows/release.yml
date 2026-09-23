@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, matching package.json (e.g. 0.1.1)'
+        description: 'Version to release, matching package.json'
         required: true
 
 concurrency:

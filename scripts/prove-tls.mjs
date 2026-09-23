@@ -12,6 +12,7 @@
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { fetchMeta, SelvageEngine as Engine } from '../src/engine/index.ts';
 import { metaUrl } from '../src/engine/index.ts';
+import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
@@ -124,7 +125,7 @@ await hostEngine.grant([NOTES]);
 // Guest joins the way the page does: default `/meta` check, native socket.
 const guestEngine = await Engine.join(invite, 'prove-tls-web', {
   webSocketFactory: nativeWebSocketFactory,
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 check('guest joins over wss', guestEngine.session().role === 'guest');
 

@@ -22,7 +22,7 @@
 services:
   selvage-web:
     build: .
-    image: selvage-web:0.3.1
+    image: selvage-web:0.4.0
     ports:
       # The container listens on 8080 and must: it runs as uid 101
       # (nginx-unprivileged) with every capability dropped, and a non-root

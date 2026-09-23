@@ -17,6 +17,7 @@
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { peerColour } from '../src/bridge/index.ts';
 import { SelvageEngine as Engine } from '../src/engine/index.ts';
+import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
@@ -171,7 +172,7 @@ const capturingFactory = (url) => {
 };
 const guestEngine = await Engine.join(invite, 'prove-web', {
   webSocketFactory: capturingFactory,
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 console.log(`guest joined as ${guestEngine.session().role} over native WebSocket, meta checked`);
 
@@ -305,7 +306,7 @@ check('host edit converges on the guest', true);
 const degraded = await Engine.join(invite, 'prove-degraded', {
   webSocketFactory: nativeWebSocketFactory,
   fetchImpl: () => Promise.reject(new Error('CORS blocked')),
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 check('join survives an unreadable /meta', degraded.session().role === 'guest');
 await degraded.disconnect();
