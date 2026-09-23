@@ -15,9 +15,11 @@ import {
   createJoinGate,
   initJoinCard,
   joinOnEnter,
+  primaryActionOf,
   addressBarInvite,
   resolveJoin,
   saveDisplayName,
+  showJoinFailure,
   showRejoinCard,
   validateDisplayName,
 } from './join.ts';
@@ -314,15 +316,16 @@ inviteInput.addEventListener('keydown', (event) => {
  *
  * Starting a room runs only where the card offers it. Where it does not, the sentence
  * standing where the button would be is the answer, and a folder picked for a page that
- * cannot host one is worse than none.
+ * cannot host one is worse than none. The one exception is a person who has opened the
+ * invite path: the paste box and Join are what they are looking at, so the name field's
+ * Enter joins, and the join path reports its own refusal in its own line.
  */
 function runPrimary(): void {
-  if (cardIntent === 'join') {
-    attemptJoin();
-    return;
-  }
-  if (!hostButton.hidden) {
+  const action = primaryActionOf(cardIntent, !hostButton.hidden, invitePath.open);
+  if (action === 'host') {
     void attemptHost();
+  } else if (action === 'join') {
+    attemptJoin();
   }
 }
 
@@ -375,7 +378,10 @@ function attemptJoin(): void {
   } catch (error: unknown) {
     const base = fallbackBase();
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
-    joinError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
+    showJoinFailure(
+      { invitePath, joinError },
+      describeJoinErrorForDisplay(error, base, params.get('debug') === '1'),
+    );
     // Nothing left the page, but a held early submit disabled the button
     // before this bundle arrived: a refused pre-flight (a blank name, a link
     // that names no session) hands the card back the way a refused join does,
@@ -405,7 +411,10 @@ async function runJoin(held: HeldJoin): Promise<void> {
     // The server and the raw cause stay in the console; the card keeps the
     // plain copy unless the owner asked for the diagnostic with `?debug=1`.
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
-    joinError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
+    showJoinFailure(
+      { invitePath, joinError },
+      describeJoinErrorForDisplay(error, base, params.get('debug') === '1'),
+    );
     // A refused join registered the guard before it gave up, so the retry
     // starts from a clean opener service rather than a second registration.
     linkGuard?.dispose();

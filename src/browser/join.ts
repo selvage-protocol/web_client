@@ -320,9 +320,41 @@ export function showCardIntent(
   elements.pane.className = join ? CARD_JOIN_CLASS : CARD_START_CLASS;
   elements.startHeading.hidden = join;
   elements.joinHeading.hidden = !join;
-  elements.invitePath.open = join || reveal;
+  // The invite path is opened where the card needs it open, and never shut. On the
+  // join intent it is the way in — Join lives inside it and the paste box is hidden
+  // — so it is opened whatever the shell left it as; a reveal asks for the same. On
+  // a start card the shell paints it shut, so an open one is the person's own click,
+  // made in the window between the shell and this wiring, and shutting it would hide
+  // the field they may be typing in and drop the focus they put there.
+  if (join || reveal) {
+    elements.invitePath.open = true;
+  }
   elements.inviteReveal.hidden = join;
   elements.inviteWrap.hidden = join && !reveal;
+}
+
+/**
+ * What Enter in the name field runs. The name is the card's own question in either
+ * intent, so Enter is the action the intent leads with — except where a start card
+ * cannot start here and the person has opened the invite path: the browser's own
+ * disclosure, so the paste box and Join are what they are looking at, and the join
+ * path is what that field's Enter runs. A join that refuses says so in the path's
+ * own line, which is the answer where a start action's sentence would stand.
+ */
+export type PrimaryAction = 'host' | 'join' | 'none';
+
+export function primaryActionOf(
+  intent: CardIntent,
+  hostingOffered: boolean,
+  invitePathOpen: boolean,
+): PrimaryAction {
+  if (intent === 'join') {
+    return 'join';
+  }
+  if (hostingOffered) {
+    return 'host';
+  }
+  return invitePathOpen ? 'join' : 'none';
 }
 
 /**
@@ -351,6 +383,22 @@ export function initJoinCard(
     elements.nameInput.value = loadDisplayName(storage);
   }
   return intent;
+}
+
+/**
+ * A refused join is opened before it is written: its line stands inside the invite
+ * path, under Join, beside the paste box it is about, and a bare page's early submit
+ * is replayed after the bundle lands with the disclosure still shut — a refusal
+ * written there is one nobody can read.
+ */
+export interface JoinFailureTarget {
+  invitePath: { open: boolean };
+  joinError: { textContent: string };
+}
+
+export function showJoinFailure(target: JoinFailureTarget, message: string): void {
+  target.invitePath.open = true;
+  target.joinError.textContent = message;
 }
 
 /**
