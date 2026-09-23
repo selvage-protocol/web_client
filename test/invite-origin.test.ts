@@ -42,16 +42,18 @@ describe('the server a link names', () => {
     // is the address the room lives on.
     assert.deepEqual(
       resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'https://edit.example/'),
-      { base: 'wss://edit.example', room: 'r-1', token: 'tok' },
+      { base: 'wss://edit.example', room: 'r-1', token: 'tok', fragment: '' },
     );
     assert.deepEqual(
       resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'http://127.0.0.1:8080/'),
-      { base: 'ws://127.0.0.1:8080', room: 'r-1', token: 'tok' },
+      { base: 'ws://127.0.0.1:8080', room: 'r-1', token: 'tok', fragment: '' },
     );
-    // A trailing query or fragment on the page's own address is not part of it.
+    // A trailing query on the page's own address is not part of it, and a trailing fragment is
+    // carried rather than read as part of the address: `§5.1`'s fragment is the room key and the
+    // host key, and one that names neither (`#x`) leaves the join a `selvage/1` one.
     assert.deepEqual(
       resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'https://edit.example/?debug=1#x'),
-      { base: 'wss://edit.example', room: 'r-1', token: 'tok' },
+      { base: 'wss://edit.example', room: 'r-1', token: 'tok', fragment: '#x' },
     );
   });
 
@@ -61,11 +63,11 @@ describe('the server a link names', () => {
     // room's server — the link's own origin — and never the page's.
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'https://room.example/?room=r-1&token=tok', PAGE),
-      { base: 'wss://room.example', room: 'r-1', token: 'tok' },
+      { base: 'wss://room.example', room: 'r-1', token: 'tok', fragment: '' },
     );
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'http://room.example:8080/?room=r-1&token=tok', PAGE),
-      { base: 'ws://room.example:8080', room: 'r-1', token: 'tok' },
+      { base: 'ws://room.example:8080', room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
@@ -78,7 +80,7 @@ describe('the server a link names', () => {
         '',
         'https://room.example/',
       ),
-      { base: 'wss://room.example', room: 'r-1', token: 'tok' },
+      { base: 'wss://room.example', room: 'r-1', token: 'tok', fragment: '' },
     );
     assert.deepEqual(
       resolveJoin(
@@ -86,7 +88,7 @@ describe('the server a link names', () => {
         'https://room.example/?room=r-1&token=tok&server=wss%3A%2F%2Felsewhere.example',
         PAGE,
       ),
-      { base: 'wss://room.example', room: 'r-1', token: 'tok' },
+      { base: 'wss://room.example', room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
@@ -103,7 +105,7 @@ describe('the server a link names', () => {
   it('a pasted wire invite streams to a room whose server serves no page', () => {
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'ws://other:8080/session?room=r-1&token=tok', PAGE),
-      { base: 'ws://other:8080', room: 'r-1', token: 'tok' },
+      { base: 'ws://other:8080', room: 'r-1', token: 'tok', fragment: '' },
     );
   });
 
@@ -112,7 +114,7 @@ describe('the server a link names', () => {
     // scheme is read in the one case those rules are written in; the share link
     // the bar offers is the room's own page and never the wire URL.
     const joined = resolveJoin(new URLSearchParams(), 'WS://other:8080/session?room=r-1&token=tok', PAGE);
-    assert.deepEqual(joined, { base: 'ws://other:8080', room: 'r-1', token: 'tok' });
+    assert.deepEqual(joined, { base: 'ws://other:8080', room: 'r-1', token: 'tok', fragment: '' });
     assert.equal(
       buildShareLink(joined.base, joined.room, joined.token),
       'http://other:8080/?room=r-1&token=tok',
@@ -138,7 +140,7 @@ describe('the server a link names', () => {
     ] as const) {
       assert.deepEqual(
         resolveJoin(new URLSearchParams(), text, PAGE),
-        { base, room: 'r-1', token: 'tok' },
+        { base, room: 'r-1', token: 'tok', fragment: '' },
         text,
       );
       // And on the page the room is served from, the socket the base derives is TLS, and

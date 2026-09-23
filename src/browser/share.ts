@@ -7,10 +7,23 @@
 
 import { pageOriginOf } from './servers.ts';
 
-/** Builds the guest link: the room's own page, `?room=&token=`. */
-export function buildShareLink(serverBase: string, room: string, token: string): string {
+/**
+ * Builds the guest link: the room's own page, `?room=&token=`, with the `selvage/2` fragment on
+ * it when the room has one.
+ *
+ * `§5.1` puts the room key and the host key in the fragment, and the link is the only channel
+ * they travel on: a version-2 room has no token-only way in, so a host that dropped the fragment
+ * would be handing out a link to a room nobody could join.
+ */
+export function buildShareLink(
+  serverBase: string,
+  room: string,
+  token: string,
+  fragment = '',
+): string {
   return (
-    `${pageOriginOf(serverBase)}/?room=${encodeURIComponent(room)}&token=${encodeURIComponent(token)}`
+    `${pageOriginOf(serverBase)}/?room=${encodeURIComponent(room)}&token=${encodeURIComponent(token)}` +
+    fragment
   );
 }
 
@@ -33,7 +46,9 @@ export function pageQueryParams(search: string): URLSearchParams {
  * parameter and is ignored, exactly as `PROTOCOL.md` §5.1 says any unknown one
  * is.
  */
-export function parsePageLink(text: string): { room: string; token: string; origin: string } | undefined {
+export function parsePageLink(
+  text: string,
+): { room: string; token: string; origin: string; fragment: string } | undefined {
   let url: URL;
   try {
     url = new URL(text.trim());
@@ -49,7 +64,14 @@ export function parsePageLink(text: string): { room: string; token: string; orig
   if (room === null || room === '' || token === null || token === '') {
     return undefined;
   }
-  return { room, token, origin: `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}` };
+  return {
+    room,
+    token,
+    origin: `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}`,
+    // `§5.1`'s fragment, as it arrived. It is not a parameter — `URL` keeps it apart from the
+    // query, which is what makes a page link's two keys survive a copy and a paste.
+    fragment: url.hash,
+  };
 }
 
 /**

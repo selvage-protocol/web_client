@@ -1,10 +1,13 @@
 import { SelvageEngine, fetchMeta, metaAccepts, sessionBase, sessionUrl } from '../engine/index.ts';
+import type { RoomEngine } from './relay.ts';
+import { hostRoom2, hostsVersion2, joinRoom2, listingSource, wireVersionOf } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
+import { fragmentOf } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   createJoinGate,
@@ -254,7 +257,7 @@ function settleFocus(field: HTMLInputElement): void {
 }
 
 let binding: MonacoBinding | undefined;
-let engine: SelvageEngine | undefined;
+let engine: RoomEngine | undefined;
 /** The editor's opener guard, one registration per join, dropped with the session. */
 let linkGuard: { dispose(): void } | undefined;
 /** The editor widget the binding drew into, dropped with the session. */
@@ -413,7 +416,7 @@ async function prepareEditor(): Promise<typeof monacoApi> {
 /** What a seated session owns, whichever role holds it. */
 interface Seat {
   monaco: typeof monacoApi;
-  engine: SelvageEngine;
+  engine: RoomEngine;
   session: SessionInfo;
   displayName: string;
   /** The link the session bar carries and the clipboard copies. */
@@ -505,7 +508,9 @@ async function join(held: HeldJoin): Promise<void> {
   // Scheme-match: the socket and the `/meta` read derived from this base
   // both speak TLS on an https page — never a ws:// or http:// subrequest.
   const base = schemeMatchBase(figured.base, pageProtocol);
-  const invite = sessionUrl(base, figured.room, figured.token);
+  // §5.1: the fragment is the room key and the host key, and it is what makes this a version-2
+  // join. It travels on the connection URL the engine dials and nowhere else.
+  const invite = sessionUrl(base, figured.room, figured.token) + figured.fragment;
   lastBase = base;
   joinError.textContent = '';
   // A stack that never arrives throws before the button disables, so the card keeps its copy
@@ -516,13 +521,16 @@ async function join(held: HeldJoin): Promise<void> {
   // advisory, never a refusal — while the handshake negotiates the truth.
   // The button stays `Joining…` throughout: attemptJoin owns it, and the gate
   // makes a second submit while this runs a duplicate, never a second join.
-  const engine = await SelvageEngine.join(invite, displayName, CLIENT_OPTIONS);
+  const engine =
+    wireVersionOf(invite) === 'selvage/2'
+      ? await joinRoom2(invite, displayName)
+      : await SelvageEngine.join(invite, displayName, CLIENT_OPTIONS);
   await seatSession({
     monaco,
     engine,
     session: engine.session(),
     displayName,
-    shareLink: buildShareLink(base, figured.room, figured.token),
+    shareLink: buildShareLink(base, figured.room, figured.token, figured.fragment),
   });
   // A typed room/token join lands in the address bar, so a reload rejoins
   // from it instead of losing what was typed. Same-origin only; elsewhere
@@ -556,10 +564,23 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
   }
   lastBase = base;
   const monaco = await prepareEditor();
-  const engine = await SelvageEngine.host(base, displayName, CLIENT_OPTIONS);
+  // `?wire=2` is how a page asks for a version-2 room: the version of a new room is its host's
+  // own choice, and unset means `selvage/1`, which is what every published client speaks.
+  const version2 = hostsVersion2(window.location.search);
+  // A host's listing is what a `selvage/2` room's state is sealed from, so the walk has to come
+  // before the mint: a host that minted first would put an empty room in front of its first
+  // guest. The version-1 engine is told the listing afterwards instead, because its server holds
+  // the grant and this is the frame that puts it there.
+  const listing = version2 ? listingSource(await folder.list()) : undefined;
+  const engine =
+    version2 && listing !== undefined
+      ? await hostRoom2(base, displayName, listing)
+      : await SelvageEngine.host(base, displayName, CLIENT_OPTIONS);
   const session = engine.session();
   try {
-    await engine.grant(await folder.list());
+    if (listing === undefined) {
+      await engine.grant(await folder.list());
+    }
   } catch (error) {
     // A server older than `doc.grant` answers `unknown_method` rather than faulting, and the
     // room still works: it offers what someone opens and nothing more, which is worth saying.
@@ -572,7 +593,12 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
     engine,
     session,
     displayName,
-    shareLink: buildShareLink(base, session.roomId, session.token ?? ''),
+    shareLink: buildShareLink(
+      base,
+      session.roomId,
+      session.token ?? '',
+      fragmentOf(engine.inviteUrl() ?? ''),
+    ),
     folder,
   });
   markHosting(window.sessionStorage, session.roomId);

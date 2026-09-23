@@ -7,7 +7,8 @@ import type { GrantRefusal, Timers } from '../bridge/index.ts';
 import type { FolderWork } from './folder.ts';
 import { grantLevels } from './tree.ts';
 import type { GrantChild } from './tree.ts';
-import type { Role, SelvageEngine } from '../engine/index.ts';
+import type { Role } from '../engine/index.ts';
+import type { RoomEngine } from './relay.ts';
 import { roomGoneMessage } from './ended.ts';
 import { languageForPath } from './languages.ts';
 import { badgeCss, initials, onePerLine } from './presence.ts';
@@ -77,7 +78,12 @@ export interface Following {
 export const SELECTION_INTERVAL_MS = 100;
 
 export interface BindingOptions {
-  engine: SelvageEngine;
+  /**
+   * The seated room, whichever version it is: the version-1 engine class, or the version-2
+   * relay's. `RoomEngine` is what this binding asks of either, and `relay.ts` is where the two
+   * are made to answer the same questions.
+   */
+  engine: RoomEngine;
   editor: monaco.editor.IStandaloneCodeEditor;
   onNotice: (notice: BindingNotice) => void;
   /**
@@ -105,7 +111,7 @@ export interface BindingOptions {
 export class MonacoBinding implements EditorHost {
   readonly bridge: SessionBridge;
 
-  private readonly engine: SelvageEngine;
+  private readonly engine: RoomEngine;
   private readonly editor: monaco.editor.IStandaloneCodeEditor;
   private readonly onNotice: (notice: BindingNotice) => void;
   private readonly createModel: BindingOptions['createModel'];
@@ -138,6 +144,10 @@ export class MonacoBinding implements EditorHost {
   private levels: Map<string, GrantChild[]> | undefined;
   /** The room-gone reason once the session has ended terminally, if it has. */
   private terminalReason: string | undefined;
+  /** Whether this window has already been told it is a viewer (`§13.4`). */
+  private viewerSaid = false;
+  /** The read-only state the editor was last given, so a state that changes nothing is not sent. */
+  private appliedReadOnly: boolean | undefined;
   /** Every landing stamps the cycle: a newer frame supersedes an older one still opening. */
   private landingCycle = 0;
 
@@ -167,9 +177,13 @@ export class MonacoBinding implements EditorHost {
     this.stopEngine = this.engine.on((event) => {
       switch (event.type) {
         case 'presenceChanged':
+          this.refreshRoster();
+          this.backgroundTick();
+          break;
         case 'peersChanged':
           this.refreshRoster();
           this.backgroundTick();
+          this.roomRole();
           break;
         case 'documentChanged':
           this.backgroundTick();
@@ -185,6 +199,7 @@ export class MonacoBinding implements EditorHost {
         case 'grantChanged':
           this.forgetListing();
           this.onNotice({ kind: 'grant', paths: this.grantListing() });
+          this.roomRole();
           break;
         default:
           break;
@@ -564,18 +579,46 @@ export class MonacoBinding implements EditorHost {
   }
 
   /**
+   * The role the room's state gives this connection (`§13.4`), read where a state can change it.
+   *
+   * A `selvage/2` room seats a connection as `viewer` and never as anything else: `§13.9` has a
+   * viewer keep its own edit and publish none of it, so a buffer that accepted a keystroke would
+   * show text the room never receives, and the sentence is said once rather than on every state
+   * that arrives. A `selvage/1` room seats nobody as a viewer, so this never fires there.
+   */
+  private roomRole(): void {
+    this.applyEditability();
+    if (this.engine.session().role === 'viewer' && !this.viewerSaid) {
+      this.viewerSaid = true;
+      this.onNotice({
+        kind: 'status',
+        text: 'you are a viewer in this room, so its documents are read-only.',
+      });
+    }
+  }
+
+  /**
    * The editor accepts text only while a room document is in front of it: an
    * editor with no document bound to the room is a buffer in no document at all,
    * and anything typed there is a ghost — nothing publishes it and no peer sees
    * it, while it looks like a file. A room that shares no document therefore
    * opens nothing and stays read-only until a document arrives (`openDocument`);
    * closing the last one locks it again and the room being over locks it for
-   * good. No sentence is coined for it: Monaco answers the attempt itself
-   * (`Cannot edit in read-only editor`) and the grant tree already reads
-   * `The host has not shared any files yet.` when the room offers nothing.
+   * good. A `selvage/2` room's `viewer` is the room's own word on top of that:
+   * nothing it types is published either (§13.9). No sentence is coined for the
+   * document case: Monaco answers the attempt itself (`Cannot edit in read-only
+   * editor`) and the grant tree already reads `The host has not shared any files
+   * yet.` when the room offers nothing.
    */
   private applyEditability(): void {
-    const readOnly = this.terminalReason !== undefined || this.path === undefined;
+    const readOnly =
+      this.terminalReason !== undefined ||
+      this.path === undefined ||
+      this.engine.session().role === 'viewer';
+    if (readOnly === this.appliedReadOnly) {
+      return;
+    }
+    this.appliedReadOnly = readOnly;
     const options = this.editor as unknown as { updateOptions?: (next: { readOnly: boolean }) => void };
     options.updateOptions?.({ readOnly });
   }

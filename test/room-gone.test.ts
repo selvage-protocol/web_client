@@ -229,19 +229,29 @@ describe('a room is minted only from a folder a person picked', () => {
   });
 
   it('mints in exactly one place, and that place takes the picked folder', () => {
+    // A `selvage/2` room is minted by the relay module, so the scan reaches two files now and
+    // the claim is about the callers rather than about the calls: the page entry is the only one,
+    // and it is the one that holds the picked folder. `relay.ts` mints nothing by itself — it is
+    // handed a listing — so the room's own tree still comes from the picker.
     const mints = sources.filter(({ text }) => /\.host\s*\(/.test(text));
     assert.deepEqual(
-      mints.map(({ file }) => file),
-      ['main.ts'],
-      'the mint is somewhere other than the page entry',
+      mints.map(({ file }) => file).sort(),
+      ['main.ts', 'relay.ts'],
+      'the mint is somewhere other than the page entry and its relay',
     );
-    const main = mints[0]?.text ?? '';
-    const occurrences = main.match(/\.host\s*\(/g) ?? [];
+    const main = sources.find(({ file }) => file === 'main.ts')?.text ?? '';
+    const occurrences = main.match(/\.host\s*\(|\.host\(/g) ?? [];
     assert.equal(occurrences.length, 1, `the page mints from ${occurrences.length} places`);
     assert.match(
       main,
       /async function host\(folder: FolderWorkingCopy, displayName: string\)/,
       'the mint is not a function that requires the picked folder',
+    );
+    const relay = sources.find(({ file }) => file === 'relay.ts')?.text ?? '';
+    assert.match(
+      relay,
+      /export async function hostRoom2\([\s\S]*?listing: ListingSource/,
+      'the version-2 mint does not take the listing the folder walk produced',
     );
   });
 
