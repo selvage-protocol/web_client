@@ -2712,3 +2712,48 @@ room there. No server built from this revision is in that shape — the merged o
 `--serve-version-1-only` is the only version flag — so nothing observable depends on it yet, and
 changing the gate is a separate decision about what "the page's own origin is a Selvage server"
 means now that a client speaks two versions.
+
+The same gate is what stands in front of a `/meta` that could not be read at all: `offerHosting`
+asks `metaAccepts` of it, gets false, and shows the *not the server's own page* sentence, so the host
+action is never reached and nothing attempts `selvage/2` from that page. The rule is not broken — the
+page never mints `selvage/1` on its own, which is the fall back §2 forbids — but the *an unreadable
+`/meta` is no answer, so the attempt is made* half is reachable through the page only where `/meta`
+answered at load and did not at the click. That is why the proof's check of it is the pure decision
+(`hostDecision(undefined, …)`) and not the card.
+
+### Checked again (2026-09-23)
+
+Read from the outside, after the wave, before integration:
+
+- **The vendored copy is the canonical one, compared at a published ref rather than at a working
+  tree.** `git archive --format=tar 82df98d -- src/engine src/bridge` out of `vscode_client`'s own
+  object store — `origin/feat/host-version`, the canonical branch head — `diff -r` over both
+  directories against this branch's `src/engine` and `src/bridge`: empty, both. So there was nothing
+  to re-sync and `scripts/sync-engine.sh`'s recorded `700a59e` stays, since it names the commit the
+  content came from and the two directories are byte-identical at both. (`82df98d` is *not*
+  docs-only, which the first reading of it had it as: it also touches `src/adapter/extension.ts`,
+  outside the vendored two.)
+- **The engine copy check is about published refs, not about a branch.** `check-workspace.sh` reads
+  each checkout's `origin/main`, so it neither sees nor vouches for this branch; at this writing all
+  six copies agree, verified by `git archive` at each `origin/main` and `diff -rq` over the same six
+  pairs (`vscode_client` `15b50cc`, `web_client` `70542a2`, `specification` `5bbb286`,
+  `reference_server` `ec95be7`, `nvim_client` `c6a2b35`, each at its last fetch, which is what the
+  check itself reads). It goes red in the window between one of the two clients' branches landing
+  and the other's, which is the reason to land them together.
+- **Every distinct `dist/` in the branch reproduces.** `ddf4f33`'s rebuild and `a9b7ed3`'s — the
+  tree the three script-and-docs commits carry — each built from `git archive` in a scratch
+  directory with a real (`cp -a --reflink=auto`) `node_modules`: `reproduced byte for byte: 110
+  files, none changed`.
+- **The proofs, run again.** `prove:host-version` and `prove:v2` pass, and `prove-m1`, `prove-fb2`
+  and `prove-flow2` each print `PROOF OK` against a local `--serve-version-1-only` seat.
+- **`prove:tls` passes too**, against the live demo (`PROOF OK`: the room is minted over `wss`,
+  edits converge both ways), which is the one proof that says the paths this change did not touch
+  still hold against a deployed server. Its output is also the measurement worth carrying: when it
+  ran, the demo's `/meta` answered `["selvage/1"]` alone, so **a page redeployed to that server from
+  this build would refuse to host unless pinned — the demo's `selvaged` has to seat `selvage/2`
+  before its page is replaced.**
+- **`prove-pi` cannot run from a worktree**, for a reason other than the one the wave recorded: it
+  imports `../../vscode_client/src/engine/engine.ts`, which from `<repo>/.worktrees/<name>` resolves
+  to `<repo>/.worktrees/vscode_client` — not a directory that exists — so it stops with
+  `ERR_MODULE_NOT_FOUND` before it dials anything. It is a proof to run from the checkout, with the
+  Pi reachable; nothing here changes its code.
