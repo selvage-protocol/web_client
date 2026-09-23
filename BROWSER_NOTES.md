@@ -2594,9 +2594,9 @@ unless somebody knew to add a parameter. What it does now:
   (`hostAvailability` in `src/browser/host.ts`) rather than offering a control whose every click ends
   in that sentence. `readMeta` in `main.ts` is the *mint*'s read: best effort, `undefined` for
   everything that is not a body, because a `/meta` that could not be read decides nothing about
-  versions and the attempt is made. The *card* cannot use that reading — see the 2026-09-24 wave
-  below — and asks through `readServerMeta` (`src/browser/meta-read.ts`), which tells "the origin
-  answered and was not a Selvage server" apart from "nothing answered in time";
+  versions and the attempt is made. The *card* cannot use that reading — see *The final review's
+  four states* below — and asks through `readServerMeta` (`src/browser/meta-read.ts`), which tells
+  "the origin answered and was not a Selvage server" apart from "nothing answered in time";
 - the host flow decides a second time after the folder picker and throws there, before any engine is
   built, so a refusal opens no socket. The picker is asked first because `showDirectoryPicker` is
   answered only under the click's own transient activation, which a `/meta` round trip can spend.
@@ -2664,14 +2664,15 @@ Screenshots: `.tmp/prove-host-version/{both-seated-offered,one-only-refused,one-
 
 Two honest limits, and one of them is no longer a limit. **The picker's dialog cannot be answered by
 any automation** — it belongs to the browser — and the proof used not to press *Start a session
-here* at all. It does now (2026-09-24, below): an init script stands in for `showDirectoryPicker` and
-returns the browser's **real** `FileSystemDirectoryHandle` for an origin-private directory, so
-everything after the pick — the walk, the sealed mint, the share bar — is the page's own code and the
-real API, and the room's link is read back: a fragment where the server seats `selvage/2`, none where
-the page is pinned to `selvage/1`. What is stubbed is the dialog and nothing else. And **the guest
-join is the version-1 half only**: the version-2 join in a browser is `npm run prove:v2`'s, which
-the review re-ran and this wave ran again (a real Chromium joined a `selvage/2` room by its fragment
-link and exchanged an edit with the host in both directions).
+here* at all. It does now (the final review's wave, below): an init script stands in for
+`showDirectoryPicker` and returns the browser's **real** `FileSystemDirectoryHandle` for an
+origin-private directory, so everything after the pick — the walk, the sealed mint, the share bar —
+is the page's own code and the real API, and the room's link is read back: a fragment where the
+server seats `selvage/2`, none where the page is pinned to `selvage/1`. What is stubbed is the
+dialog and nothing else. And **the guest join is the version-1 half only**: the version-2 join in a
+browser is `npm run prove:v2`'s, which the review re-ran and this wave ran again (a real Chromium
+joined a `selvage/2` room by its fragment link and exchanged an edit with the host in both
+directions).
 
 A third thing this cost, worth recording because it will bite the next browser proof in a worktree:
 Chromium puts its process-singleton socket under `TMPDIR`, the path it hands the kernel is bounded at
@@ -2726,8 +2727,8 @@ M1, owner-feedback and flow-review proofs default to the Pi demo and were pointe
 
 ### Left open
 
-Both items this section carried are closed by the 2026-09-24 wave below, and the sentences above are
-left as what was true when they were written.
+Both items this section carried are closed by *The final review's four states* below, and the
+sentences above are left as what was true when they were written.
 
 - A page served by a server that advertises **only** `selvage/2` hid the host action, because the
   page's "is this my server" gate was `metaAccepts`, which is version-1 compatibility. That gate is
@@ -2982,7 +2983,7 @@ person filled in.
 - **A page without its bundle cannot join, and the note said it could** (m1). The `<details>` half of
   the claim is true — the paste box and Join are reachable with no script — and the rest was not: with
   `app.js` a 404 the form's hold runs, the button sticks on *Joining…* and nothing joins. The sentence
-  is corrected rather than the machinery; nothing no longer claims a join that cannot happen. The
+  is corrected rather than the machinery; the note no longer claims a join that cannot happen. The
   stuck button is left as it is, deliberately: a shell that guessed *how slow is too slow* would be
   putting a guess about the deployment on the card.
 - **`prove:host-version` never pressed the button** (m2), so the mint had no independent check and the
@@ -3104,3 +3105,187 @@ Not carried: the desktop clients' second ending sentence. `vscode_client` tells 
 listed `Connection dropped` among the strings `main.ts` may not contain, and the line is now shown,
 so the item came off that list with the reason written beside it rather than being left to pass for
 the wrong one (the string moved to `notice.ts`, so the old assertion would have gone on passing).
+
+## The card's read of its own origin, and a held join replayed by what was submitted (2026-09-24)
+
+The review of `df1b63d` left seven comments, and four of them are real defects in this client. The
+engine half is not: two of the comments are the vendored copy of findings the VS Code client has
+already closed, so the wave begins with the re-vendor it needs and then fixes what is this client's
+own.
+
+### The engine behind the page, at the merge on `main`
+
+`src/engine` and `src/bridge` are copies, so they were taken again rather than edited:
+`scripts/sync-engine.sh /home/user/projects/selvage/vscode_client` against that checkout's `main`,
+which is `13351c6` (`Merge pull request #102 from selvage-protocol/fix/opus-review`) — reachable from
+`main` and not a branch tip that the merge deleted, which is what the review's fourth comment asked
+for. The header's note moves with it:
+
+```
+# Upstream SHA this copy matches: 13351c6 (vscode_client main, 2026-09-24). After re-running
+# this script, update the SHA above to the source checkout's HEAD.
+```
+
+The copy is the source's *tracked* tree, so a stray untracked file in the source cannot enter it and
+then be blessed by the script's own `diff -r`: `git archive 13351c6 src/engine src/bridge` extracted
+into `.tmp/`, `diff -r` against `src/{engine,bridge}` — identical both ways, 25 files each side, and
+the archive tree equals the source's working tree.
+
+That closes the sixth comment, which is the same finding as the VS Code client's third: `onClose`
+left the `PeerSession` holding the key the dead socket used, so an edit typed during the backoff was
+sealed under it and queued; `reseat()` did not clear the queue, so the retry sent those frames under
+a key the host's next roster state removes, and every peer refuses them `uncommitted_key`. The
+vendored `peer.ts` now has `detach()`, called from the relay's `onClose` before the retry is
+scheduled: `mayPublish()` is false while detached, so those edits go to `unsent` and the state that
+commits the new key publishes them, and the queue the dead socket left goes with it — at the detach
+and not at the re-seat, because a re-dial that has its socket before `reseat()` runs would otherwise
+be handed frames sealed under the key the room is about to drop.
+
+### A 5xx, and a body that failed, are not "this is not a Selvage server" (M1, again)
+
+`readServerMeta` has three answers and the card words each one, so the classification is the whole
+of the fix. `watching` set `answered = true` when the headers arrived, and anything that failed
+after that was `not-a-server` — the claim that this origin *is* something else, which withdraws the
+hosting offer for the life of the load and re-reads only on `no-answer`. Two ordinary cases reached
+it:
+
+- a proxy in front of a cold or restarting `selvaged` answers `502`/`503`/`504` with its own page,
+  `fetchMeta` does not look at the status, `response.json()` throws, and the card told a person on
+  their own server's page that it was not one;
+- a connection that drops after the headers and before the body ends rejects with a `TypeError`,
+  not the `AbortError` this module's own deadline raises — and the type's own doc already said "the
+  body never arrived" is `no-answer`.
+
+So `answered` now means the whole body arrived and was read, and a 5xx is `no-answer` deliberately
+rather than by inversion: it is the origin's front door failing, which is the case the module header
+names as the one this read exists to tolerate ("slow, cold or behind a hiccup"), and the sentence
+`not-a-server` puts on the card is a claim about the server that a gateway error does not support.
+The other direction is pinned too, so the reading was not simply turned around: an origin that
+answered `404` with a page is still `not-a-server`.
+
+`test/meta-read.test.ts` gains three cases — a 5xx with a text body (500, 502, 503, 504), a body
+that fails part-way with a `TypeError`, and the 404 that must stay where it is. Each half was shown
+red without itself: with the 5xx check removed, *says nothing where a gateway answered in the
+server's place* is the one failure (13 pass, 1 fail); with `answered` set back at the headers, *says
+nothing where the body failed after the headers arrived* is (13 pass, 1 fail).
+
+### The held join is replayed by the path it was submitted in
+
+The markup's hold exists for a deployment that defers every script: the inline `onsubmit` catches a
+submit before any guard is running, records it, and the shell settles it once it arrives. What it
+recorded was only *that* a submit was held; `settleHeldSubmit()` then read `submitIsTheInvitePath()`
+against the card as it stood at settle time. A person who opens the invite path, submits Join and
+then closes the disclosure got the name field's answer — *One moment — the page is still loading* —
+and the join they made was dropped.
+
+The attribute reads the one thing it can read at that moment and the script cannot read later:
+whether the invite path was open. It records it beside the flag (`window.__selvagePendingInvitePath`,
+normalised by the guard the way the flag itself is), and `submitIsTheInvitePath(held)` takes it as
+the answer when the submit was held. The card's class still decides first, because that is the
+address bar's intent and only the script can read it; the live reading of the disclosure is what is
+left for a submit the shell's own listeners handle, where nothing has moved in between.
+
+`test/join-paint.test.ts` drives it: a held submit whose path was open replays as a join (`pending`,
+`Joining…`), and one whose path was shut stays the card's own action. Red without the fix both ways
+— the settle reading the disclosure live again fails the replay, and the markup recording only that a
+submit was held fails the hold's own test.
+
+### Enter in the name field, driven for real
+
+`test/start-card.test.ts` pinned `runPrimary` by reading `main.ts` as text — the expressions
+`primaryActionOf(cardIntent, !hostButton.hidden)` and `attemptJoin()` inside the function — which
+would pass if the key stopped reaching the function at all. The node suite cannot dispatch the key
+truthfully: it has no DOM, and `main.ts` wires its listeners onto the page's elements at import, so
+there is no honest way to reach the act from there without a DOM the rest of the suite does not use.
+
+`scripts/prove-host-version.mjs` drives it, because it has a real browser. On the origin that
+answers `{}` — where the card cannot host — Enter in the name field opens the invite path and the
+join says *Paste an invite link to join.*, with the reason hosting is not offered still standing.
+On the version-1-only server pinned to `selvage/1` — where hosting is offered — Enter is now how
+that page starts its room, replacing the button press there; the both-seated page keeps the press,
+so both acts stay covered. The dispatch reports `false` when the page's own listener takes the key,
+which is asserted: a dead wiring would let the event through instead.
+
+Shown red by wiring the name field's Enter to `attemptJoin` instead of `runPrimary`: the unit suite
+stays green (16/16, which is the gap the comment named), and the proof fails at
+*the version-1 room the pinned page minted* with the card's own state — `barHidden: true`, no share
+link — because a join was attempted where the card led with Start.
+
+### The wording
+
+Three pointers sent the reader to "the 2026-09-24 wave below" and no section carries that date: they
+mean the final review's wave, which is headed `(2026-09-23)` and is the only date its commits carry,
+so the pointers were aligned to it by name (*The final review's four states*) rather than by a second
+date that would then disagree with them. And one sentence in the m1 finding read "nothing no longer
+claims a join that cannot happen", which says the opposite of its paragraph; it is "the note no
+longer claims a join that cannot happen".
+
+### The gates
+
+`SELVAGE_SELVAGED=/home/user/projects/selvage/reference_server/target/debug/selvaged`, rebuilt from
+that checkout's `main` (`2f5c255`) before the proofs, and `TMPDIR` inside the checkout.
+
+```
+$ bash scripts/ci-local.sh all
+=== checks: install ===
+=== checks: typecheck ===
+=== checks: keep the committed dist/ to compare against ===
+=== checks: build ===
+=== checks: the build reproduces the committed dist/ ===
+reproduced byte for byte: 110 files, none changed
+=== checks: the suite CI can run ===
+ℹ tests 488
+ℹ suites 120
+ℹ pass 488
+ℹ fail 0
+EXIT=0
+```
+
+```
+$ SELVAGE_SELVAGED=… npm run prove:v2
+[prove-v2] selvaged serving the page and selvage/2 at http://127.0.0.1:34697
+[prove-v2] the room is minted; its fragment carries both keys
+[prove-v2] the page holds "# a room two clients share\n"
+[prove-v2] the room holds the guest edit: "\nguest was here# a room two clients share\n"
+[prove-v2] the page holds the host edit: "\nguest was here# a room two clients share\nhost was here\n"
+[prove-v2] the page reads itself as a guest: true
+[prove-v2] a real browser joined a selvage/2 room by its fragment link and exchanged an edit with the host, both directions
+EXIT=0
+```
+
+```
+$ SELVAGE_SELVAGED=… npm run prove:host-version
+… 39 ok lines …
+[prove-host-version] ok: the page's own Enter listener took the key on a page that can host
+[prove-host-version] ok: a page pinned to selvage/1 minted a version-1 room, with no fragment at all
+[prove-host-version] ok: the page's own Enter listener took the key
+[prove-host-version] ok: Enter in the name field opens the invite path where the card cannot host
+[prove-host-version] ok:   and the join says what it is missing
+[prove-host-version] ok:   while the reason hosting is not offered still stands
+[prove-host-version] a real browser showed the hosting decision: offered where the server seats the encrypted wire, a sentence where it does not, the pin honoured both ways and at the mint, nothing offered on an origin that is not a Selvage server, the offer kept through a slow /meta, Enter reaching both halves of the card's own action, and a version-1 join still reached
+EXIT=0
+```
+
+```
+$ selvaged --listen 127.0.0.1:39181 &
+$ SELVAGE_BASE=ws://127.0.0.1:39181 node scripts/prove-m1.mjs
+room minted: r-f17ff6d641e3
+ok: join survives an unreadable /meta
+guest reconnects after the socket is cut
+ok: room converges after reconnect
+PROOF OK
+EXIT=0
+```
+
+### Left open
+
+- **The `status` notice kind is still routed by nothing**, and the four binding messages with no home
+  are unchanged. This wave touched the card and the read behind its offer, and none of those.
+- **The snapshot is the disclosure's state alone.** The inline attribute still cannot read the
+  address bar's intent — the card's class carries that, and only once the shell has painted it — so a
+  submit held before any script on a page whose address *is* an invite relies on the class, not on
+  the snapshot. That is the case the shell's own settle already covers, since it paints the class
+  before it settles.
+- **`scripts/tmp-cdp.mjs` still defaults its Chromium profile under `/tmp`**, as the last wave
+  recorded. Both browser proofs use a relative `.tmp/`, and it is a scratch script, so it is left
+  and written down again rather than changed here.
