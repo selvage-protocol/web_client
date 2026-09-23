@@ -111,6 +111,10 @@ async function startServer() {
         resolve_(match[1]);
       }
     });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(new Error(`selvaged could not be started: ${error.message}`));
+    });
     child.on('exit', () => {
       clearTimeout(timer);
       reject(new Error('selvaged exited before it was ready'));
@@ -154,6 +158,10 @@ async function launchChromium(port) {
     wsUrl = await new Promise((resolve_, reject) => {
       let buffer = '';
       const timer = setTimeout(() => reject(new Error('Chromium never reported a DevTools url')), 20_000);
+      browser.on('error', (error) => {
+        clearTimeout(timer);
+        reject(new Error(`Chromium could not be started: ${error.message}`));
+      });
       browser.stderr.on('data', (chunk) => {
         buffer += chunk.toString();
         const match = /DevTools listening on (ws:\/\/\S+)/.exec(buffer);
@@ -358,50 +366,52 @@ async function openFromTheTree(page, path, deadlineMs = 30_000) {
 async function main() {
   mkdirSync(IMAGES, { recursive: true });
   const server = await startServer();
-  log('selvaged serving the page and selvage/2 at', server.origin);
-
-  const tree = [PATH];
-  const listing = {
-    current: () => tree,
-    replace: (paths) => {
-      tree.length = 0;
-      tree.push(...paths);
-    },
-  };
-  const host = await PeerEngine.host({
-    baseUrl: server.wsBase,
-    displayName: 'Ada',
-    listing,
-  });
-  const invite = host.inviteUrl();
-  if (invite === undefined) {
-    throw new Error('the host minted no invite');
-  }
-  const read = parseInvite(invite);
-  if (!read.ok) {
-    throw new Error(`the invite is not readable: ${read.reason}`);
-  }
-  if (!/^#k=[A-Za-z0-9_-]{43}&h=[A-Za-z0-9_-]{43}$/.test(invite.slice(invite.indexOf('#')))) {
-    throw new Error(`§5.1's fragment is not both keys: ${invite}`);
-  }
-  log('the room is minted; its fragment carries both keys');
-
-  log('the host seeds the document');
-  host.open(PATH);
-  await new Promise((resolve_) => setTimeout(resolve_, 100));
-  host.insert(PATH, 0, SEED);
-
-  // The link a person is handed: `§5.1`'s second form, the page's own origin with the fragment on
-  // it. The guest is a real page loading exactly this.
-  const fragment = `#k=${encodeKey(read.invite.roomKey)}&h=${encodeKey(read.invite.hostKey)}`;
-  const pageLink =
-    `${server.origin}/?room=${encodeURIComponent(read.invite.room)}` +
-    `&token=${encodeURIComponent(read.invite.token)}${fragment}`;
-  log('the guest opens', pageLink);
-
-  const chromium = await launchChromium(9339);
+  let host;
+  let chromium;
   try {
-    await chromium.navigate(pageLink);
+    log('selvaged serving the page and selvage/2 at', server.origin);
+
+    const tree = [PATH];
+    const listing = {
+      current: () => tree,
+      replace: (paths) => {
+        tree.length = 0;
+        tree.push(...paths);
+      },
+    };
+    host = await PeerEngine.host({
+      baseUrl: server.wsBase,
+      displayName: 'Ada',
+      listing,
+    });
+    const invite = host.inviteUrl();
+    if (invite === undefined) {
+      throw new Error('the host minted no invite');
+    }
+    const read = parseInvite(invite);
+    if (!read.ok) {
+      throw new Error(`the invite is not readable: ${read.reason}`);
+    }
+    if (!/^#k=[A-Za-z0-9_-]{43}&h=[A-Za-z0-9_-]{43}$/.test(invite.slice(invite.indexOf('#')))) {
+      throw new Error(`§5.1's fragment is not both keys: ${invite}`);
+    }
+    log('the room is minted; its fragment carries both keys');
+
+    log('the host seeds the document');
+    host.open(PATH);
+    await new Promise((resolve_) => setTimeout(resolve_, 100));
+    host.insert(PATH, 0, SEED);
+
+    // The link a person is handed: `§5.1`'s second form, the page's own origin with the fragment on
+    // it. The guest is a real page loading exactly this.
+    const fragment = `#k=${encodeKey(read.invite.roomKey)}&h=${encodeKey(read.invite.hostKey)}`;
+    const pageLink =
+      `${server.origin}/?room=${encodeURIComponent(read.invite.room)}` +
+      `&token=${encodeURIComponent(read.invite.token)}${fragment}`;
+    log('the guest opens', pageLink);
+
+    chromium = await launchChromium(9339);
+  await chromium.navigate(pageLink);
     await joinFromTheCard(chromium, 'Bob');
     // The room's listing is the guest's to see; the document itself arrives when it is opened,
     // which is the page's rule for both versions and not a version-2 one.
@@ -431,8 +441,12 @@ async function main() {
     log(`wrote ${relative(ROOT, IMAGES)}/prove-v2-*.png`);
     log('a real browser joined a selvage/2 room by its fragment link and exchanged an edit with the host, both directions');
   } finally {
-    await chromium.stop();
-    host.disconnect();
+    // Every failure path comes through here: a browser that never launched, an invite that did
+    // not carry both keys, the page timing out. The server's pipes and the host's socket hold
+    // the event loop open, so a script that reported a failure and then hung would be the one
+    // thing this proof must not do.
+    await chromium?.stop();
+    host?.disconnect();
     server.stop();
   }
 }

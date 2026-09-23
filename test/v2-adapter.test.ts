@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { hostsVersion2, listingSource, wireVersionOf } from '../src/browser/relay.ts';
 import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
 import { fragmentOf, resolveJoin } from '../src/browser/join.ts';
+import { parseSessionUrl, sessionUrl } from '../src/engine/urls.ts';
 
 /** `§5.1`'s fragment, the shape `encodeKey` writes: two 43-character base64url keys. */
 const KEYS =
@@ -124,8 +125,23 @@ describe('the page picks the version', () => {
   it('routes a link that names two keys to the version-2 join, and any other to the engine it had', () => {
     assert.match(
       main,
-      /wireVersionOf\(invite\) === 'selvage\/2'[\s\S]{0,20}\? await joinRoom2\(invite, displayName\)[\s\S]{0,20}: await SelvageEngine\.join\(invite, displayName, CLIENT_OPTIONS\)/,
+      /wireVersionOf\(invite\) === 'selvage\/2'[\s\S]{0,20}\? await joinRoom2\(invite, displayName\)[\s\S]{0,20}: await SelvageEngine\.join\(address, displayName, CLIENT_OPTIONS\)/,
       'a join no longer chooses its engine by the link it was handed',
+    );
+  });
+
+  it('hands a version-1 join the address alone, because a fragment glues into its token', () => {
+    // The fragment belongs to `§5.1` and to the version-2 engine. The version-1 engine reads its
+    // query with the splitter in `urls.ts`, which takes everything after `?` — so a fragment on
+    // that URL is part of the token, and a link that carried one was a working join before this
+    // change. `main.ts` passes `address` on that path, and the assertion below is why.
+    const address = sessionUrl(sessionUrlBase(), 'r-1', 'tok');
+    assert.equal(parseSessionUrl(`${address}#x`)?.join.token, 'tok#x', 'the fragment does reach the token');
+    assert.equal(parseSessionUrl(address)?.join.token, 'tok');
+    assert.match(
+      main,
+      /: await SelvageEngine\.join\(address, displayName, CLIENT_OPTIONS\)/,
+      'a version-1 join is no longer handed the fragment-free address',
     );
   });
 
@@ -139,6 +155,11 @@ describe('the page picks the version', () => {
     );
   });
 });
+
+/** A session base in the one spelling every consumer is written in. */
+function sessionUrlBase(): Parameters<typeof sessionUrl>[0] {
+  return 'wss://edit.example';
+}
 
 /** The search parameters a page's own address carries, which is what the address bar is read as. */
 function searchParamsOf(link: string): URLSearchParams {

@@ -509,8 +509,11 @@ async function join(held: HeldJoin): Promise<void> {
   // both speak TLS on an https page — never a ws:// or http:// subrequest.
   const base = schemeMatchBase(figured.base, pageProtocol);
   // §5.1: the fragment is the room key and the host key, and it is what makes this a version-2
-  // join. It travels on the connection URL the engine dials and nowhere else.
-  const invite = sessionUrl(base, figured.room, figured.token) + figured.fragment;
+  // join. It travels on the connection URL the version-2 engine dials and nowhere else: the
+  // version-1 engine reads its query with a splitter of its own (`urls.ts`), where a fragment
+  // glues into the token, and a link that carries one was a working join before this.
+  const address = sessionUrl(base, figured.room, figured.token);
+  const invite = address + figured.fragment;
   lastBase = base;
   joinError.textContent = '';
   // A stack that never arrives throws before the button disables, so the card keeps its copy
@@ -524,7 +527,7 @@ async function join(held: HeldJoin): Promise<void> {
   const engine =
     wireVersionOf(invite) === 'selvage/2'
       ? await joinRoom2(invite, displayName)
-      : await SelvageEngine.join(invite, displayName, CLIENT_OPTIONS);
+      : await SelvageEngine.join(address, displayName, CLIENT_OPTIONS);
   await seatSession({
     monaco,
     engine,

@@ -175,6 +175,10 @@ export class MonacoBinding implements EditorHost {
     // The follow and the pending go-to re-resolve on every room event: a caret move
     // and a document arrival both land, and membership changes refresh the roster.
     this.stopEngine = this.engine.on((event) => {
+      // The role is re-read on every event: a room state can change this connection's own role
+      // without moving the roster or the listing, and neither of those is where this window's
+      // role is read from. `applyEditability` skips a state that changes nothing.
+      this.roomRole();
       switch (event.type) {
         case 'presenceChanged':
           this.refreshRoster();
@@ -183,7 +187,6 @@ export class MonacoBinding implements EditorHost {
         case 'peersChanged':
           this.refreshRoster();
           this.backgroundTick();
-          this.roomRole();
           break;
         case 'documentChanged':
           this.backgroundTick();
@@ -199,7 +202,6 @@ export class MonacoBinding implements EditorHost {
         case 'grantChanged':
           this.forgetListing();
           this.onNotice({ kind: 'grant', paths: this.grantListing() });
-          this.roomRole();
           break;
         default:
           break;
@@ -579,12 +581,14 @@ export class MonacoBinding implements EditorHost {
   }
 
   /**
-   * The role the room's state gives this connection (`§13.4`), read where a state can change it.
+   * The role the room's state gives this connection (`§13.4`), read on every event.
    *
    * A `selvage/2` room seats a connection as `viewer` and never as anything else: `§13.9` has a
    * viewer keep its own edit and publish none of it, so a buffer that accepted a keystroke would
    * show text the room never receives, and the sentence is said once rather than on every state
-   * that arrives. A `selvage/1` room seats nobody as a viewer, so this never fires there.
+   * that arrives. It is read here rather than at the events that name a roster or a listing,
+   * because this connection's own role is in neither: a state can relabel it and move nothing
+   * else. A `selvage/1` room seats nobody as a viewer, so this never fires there.
    */
   private roomRole(): void {
     this.applyEditability();
