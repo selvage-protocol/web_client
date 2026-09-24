@@ -360,6 +360,15 @@ export interface PeerOptions {
    * a state and a session without it cannot; a session with neither cannot be the host.
    */
   host?: HostOptions;
+  /**
+   * Whether the session keeps a record of every frame it applied, dropped or ignored
+   * (`appliedFrames`, `droppedFrames`, `ignoredFrames`): §13.11's observables, which the
+   * corpus subject and the tests read. On by default for them. A live connection turns it off,
+   * because the record is one entry per frame for the life of the session, every keystroke and
+   * caret move of every peer, and a peer or a server sending frames that are refused grows it
+   * as fast as it likes (§2.1: a client bounds what it holds). `frameCount` is kept either way.
+   */
+  recordFrames?: boolean;
 }
 
 /**
@@ -422,6 +431,8 @@ export class PeerSession {
   private readonly applied: AppliedFrame[] = [];
   private readonly dropped: DroppedFrame[] = [];
   private readonly ignored: number[] = [];
+  /** See {@link PeerOptions.recordFrames}. */
+  private readonly recordFrames: boolean;
   private ending: Ending | undefined;
   private mutation: PeerMutation | HostMutation | undefined;
   /**
@@ -474,6 +485,7 @@ export class PeerSession {
     this.frameKey = frameKeyBytes;
     this.session = session;
     this.declaredRole = options.declaredRole;
+    this.recordFrames = options.recordFrames ?? true;
     this.renew = options.keepalive.awareness_renew_ms;
     this.expire = options.keepalive.awareness_expire_ms;
     this.seat = options.seat;
@@ -513,6 +525,45 @@ export class PeerSession {
     // read as a participant with no caret.
     this.awareness.setLocalState(null);
     this.wireAwareness();
+    this.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+      this.noteTouched(transaction);
+    });
+  }
+
+  /**
+   * The paths whose text a transaction changed, local or applied, kept until
+   * {@link takeTouched} reads them. Every change to a `Y.Text` is a transaction on this one
+   * document, so a path that is not here since the last read holds the text it held then.
+   */
+  private readonly touched = new Set<string>();
+
+  private noteTouched(transaction: Y.Transaction): void {
+    // A root type is a path's document. It is recorded whatever class it has now: content for a
+    // path this replica has not asked for yet arrives under a placeholder type, which becomes the
+    // path's `Y.Text` only when something reads it — and that swap is no transaction.
+    const roots = new Set<unknown>();
+    for (const type of transaction.changed.keys()) {
+      if (type._item === null) {
+        roots.add(type);
+      }
+    }
+    if (roots.size === 0) {
+      return;
+    }
+    // One pass over the documents, so a sync that changes many of them costs one walk and not
+    // one per changed document.
+    for (const [name, shared] of this.doc.share) {
+      if (roots.has(shared)) {
+        this.touched.add(name);
+      }
+    }
+  }
+
+  /** The paths whose text changed since the last call, and forgets them. */
+  takeTouched(): string[] {
+    const paths = [...this.touched];
+    this.touched.clear();
+    return paths;
   }
 
   /**
@@ -821,11 +872,15 @@ export class PeerSession {
     if (this.ignores(verdict)) {
       this.reader.issued = issued;
       this.reader.ended = ended;
-      this.ignored.push(index);
+      if (this.recordFrames) {
+        this.ignored.push(index);
+      }
       return { status: 'ignored', kind };
     }
     await this.fold(clock, verdict);
-    this.applied.push({ frame: index, kind });
+    if (this.recordFrames) {
+      this.applied.push({ frame: index, kind });
+    }
     return { status: 'applied', kind };
   }
 
@@ -1257,7 +1312,9 @@ export class PeerSession {
     // Every refusal carries the step that refused it; one without a reason would be a bug in
     // the byte layer and not a decision to report.
     const named = reason ?? 'bad_envelope';
-    this.dropped.push({ frame, reason: named });
+    if (this.recordFrames) {
+      this.dropped.push({ frame, reason: named });
+    }
     return { status: 'dropped', reason: named };
   }
 

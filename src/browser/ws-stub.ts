@@ -7,7 +7,9 @@
  * while making `ws` unresolvable at runtime: constructing it throws.
  */
 export default class UnavailableWebSocket {
-  constructor(_url?: string) {
+  // The engine's Node factory hands `ws` its options (`maxPayload`) as a second argument; the
+  // stub takes the same shape so the synced engine type-checks unchanged, and still refuses.
+  constructor(_url?: string, _options?: unknown) {
     throw new Error('the ws package is not part of the browser bundle; pass a socket factory');
   }
 }
