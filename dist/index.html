@@ -338,6 +338,12 @@
       #download { display: flex; align-items: center; justify-content: center; flex: none;
         padding: 0.4em 0.6em; color: var(--muted-foreground); }
       #download:hover:not(:disabled) { color: var(--foreground); }
+      /* The leave control is quiet: it stands beside the share bar for the whole session and is
+         not what the bar is for. Its own words change when a host's press asks `leave.ts`. */
+      #leave { flex: none; background: none; border-color: transparent;
+        color: var(--muted-foreground); }
+      #leave:hover:not(:disabled) { background: var(--muted-hover);
+        border-color: var(--border-strong); color: var(--foreground); }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
       @media (max-width: 640px) {
@@ -424,6 +430,11 @@
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
         <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
+        <!-- Leaving closes the tab without closing the tab: the session is dropped and the card
+             comes back with a fresh link as the way in. A host's press asks first — its leaving
+             ends the room for everyone in it — and the two-step lives in `leave.ts`. -->
+        <button id="leave" type="button" aria-label="Leave the session"
+          title="Leave the session">Leave</button>
       </div>
       <div id="session-note" aria-live="polite"></div>
       <div id="follow-banner" hidden></div>

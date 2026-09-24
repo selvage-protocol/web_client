@@ -187,3 +187,29 @@ const READOUT_SIZE_SLACK = 1.15;
 export function persistJoinUrl(history: Pick<History, 'replaceState'>, url: string): void {
   history.replaceState(null, '', url);
 }
+
+/**
+ * Takes the room, its token and its fragment back out of the address bar, so a
+ * page that left the session is not one reload away from walking back into it.
+ *
+ * The whole query goes rather than the two parameters: a link the page itself
+ * wrote is the only thing that reaches that bar from here (`persistJoinUrl`), and
+ * an invite is the room key as well as the room — a reader that left both keys
+ * behind by deleting the wrong parameter name is the failure this cannot have.
+ * The path stays, because that is the page.
+ *
+ * A page that refuses the write (`file://`, whose history refuses a relative URL)
+ * or has nothing to clear is left alone: the session is over either way, and the
+ * link it still carries is the page's own address.
+ */
+export function forgetJoinUrl(history: Pick<History, 'replaceState'>, href: string): void {
+  try {
+    const url = new URL(href);
+    if (url.search === '' && url.hash === '') {
+      return;
+    }
+    history.replaceState(null, '', url.pathname);
+  } catch {
+    // Nothing an address bar can be told to do: this page's own address is all it has.
+  }
+}

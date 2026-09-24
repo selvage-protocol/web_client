@@ -32,6 +32,13 @@ export function roomGoneSentence(reason: string): string {
  */
 export const SESSION_ENDED_MESSAGE = 'The session ended.';
 
+/**
+ * Someone left on purpose, in the desktop clients' words (`docs/studies/client-command-parity.md`
+ * §5 says `left the session`, which their wrappers carry in lower case). The card's sentences open
+ * with a capital, as `The room is gone (…)` does for the desktop clients' own `the room is gone`.
+ */
+export const LEFT_SESSION_SENTENCE = 'Left the session.';
+
 /** What the guest does next, on the card that comes back. */
 export const REJOIN_PROMPT = 'Paste a fresh invite link to join another session.';
 

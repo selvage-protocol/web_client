@@ -7,7 +7,14 @@ import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
-import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
+import {
+  buildShareLink,
+  displayShareLink,
+  fitReadout,
+  forgetJoinUrl,
+  pageQueryParams,
+  persistJoinUrl,
+} from './share.ts';
 import { MAX_DISPLAY_NAME_UNITS, fragmentOf } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
@@ -49,6 +56,7 @@ import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
 import { renderRoster } from './roster.ts';
 import { renameSelf } from './rename.ts';
+import { HOST_LEAVE_QUESTION, LEAVE_ASK_MS, wireLeave } from './leave.ts';
 import { wireShareBox } from './share-box.ts';
 import {
   HOST_BACK_STAND_MS,
@@ -61,6 +69,7 @@ import {
   wireTapPeek,
 } from './notice.ts';
 import {
+  LEFT_SESSION_SENTENCE,
   SESSION_ENDED_MESSAGE,
   dropSession,
   roomGoneSentence,
@@ -175,6 +184,7 @@ const sessionBar = document.getElementById('session') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
 const downloadButton = document.getElementById('download') as HTMLButtonElement;
+const leaveButton = document.getElementById('leave') as HTMLButtonElement;
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
@@ -887,6 +897,22 @@ downloadButton.addEventListener('click', () => {
   downloadOpen();
 });
 
+/**
+ * The leave control: a guest's press drops the session and brings the card back with a fresh link
+ * as the way in; a host's press asks first, because its connection is the room's (`leave.ts`). The
+ * words on the control are the page's, the two sentences are the module's, and the question stands
+ * in the strip that is already the page's one line about the room.
+ */
+const leaveControl = wireLeave({
+  hosting: () => hostFolder !== undefined,
+  button: leaveButton,
+  ask: () => sessionNote.say(HOST_LEAVE_QUESTION, LEAVE_ASK_MS),
+  leave: () => leaveSession(LEFT_SESSION_SENTENCE),
+});
+leaveButton.addEventListener('click', () => {
+  leaveControl.press();
+});
+
 async function copyShareLink(): Promise<void> {
   // Every attempt starts from the bar's rest state: a fallback that failed may have
   // left the whole link in the readout, and the abbreviation is what belongs there
@@ -1133,6 +1159,9 @@ function leaveSession(sentence: string): void {
     return;
   }
   dropSession({ linkGuard, binding, editor: editorApi, engine });
+  // The address bar named the room this tab is leaving, and the link it carries is the whole
+  // permission to be in it: a page that left must not be one reload away from walking back in.
+  forgetJoinUrl(window.history, window.location.href);
   // Monaco takes its own DOM with it; anything it leaves behind must not sit in
   // the host when the next session builds another editor there.
   editorHost.replaceChildren();
