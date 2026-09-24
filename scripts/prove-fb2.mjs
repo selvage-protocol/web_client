@@ -7,7 +7,8 @@
  * refresh on listing changes, and the page-origin share-link shape with a
  * round-trip back into a join. What is not covered here is Monaco itself.
  *
- * Usage: SELVAGE_BASE=ws://100.64.0.3:8080 node scripts/prove-fb2.mjs
+ * Usage: SELVAGE_BASE=wss://<server> node scripts/prove-fb2.mjs
+ * (the default is the public demo, wss://selvage-demo.dontblameme.dev)
  */
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
@@ -21,7 +22,7 @@ import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
 import { pageOriginOf, serverBaseOf } from '../src/browser/servers.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
-const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
+const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 const NOTES = 'notes.md';
 const MAIN = 'src/main.ts';
 const MOVED = 'docs/notes.md';

@@ -11,7 +11,8 @@
  * adapter owns no protocol logic beyond offset mapping, which both sides count
  * in UTF-16 code units.
  *
- * Usage: SELVAGE_BASE=ws://100.64.0.3:8080 node scripts/prove-m1.mjs
+ * Usage: SELVAGE_BASE=wss://<server> node scripts/prove-m1.mjs
+ * (the default is the public demo, wss://selvage-demo.dontblameme.dev)
  */
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
@@ -25,7 +26,7 @@ import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
-const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
+const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 const NOTES = 'notes.md';
 const MAIN = 'src/main.ts';
 const SEED_NOTES = '# room notes\nline two\n';

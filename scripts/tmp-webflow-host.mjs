@@ -2,7 +2,7 @@ import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { PeerEngine } from '../src/bridge/index.ts';
 import { listingSource, pageEngine } from '../src/browser/relay.ts';
 
-const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
+const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 
 class MemHost {
   texts = new Map();
