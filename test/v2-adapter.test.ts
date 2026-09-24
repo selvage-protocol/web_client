@@ -120,6 +120,17 @@ describe('the page the bundle built', () => {
     assert.ok(attempt.includes('await pickFolder(folderPicker)'), 'the picker is not asked at all');
     assert.ok(!attempt.includes('readMeta'), 'a /meta read stands before the picker');
   });
+
+  it('holds the engine a session was seated on, instead of only passing it around', () => {
+    // The page keeps one for the life of a session and drops it with the teardown: the own row's
+    // colour and role, a rename, the fallback read of a path this window has no model for, the
+    // socket the leave closes and the one `beforeunload` closes are all reads of it, and every one
+    // of them is a no-op when nothing assigns it. `prove:v2` is where that showed: with the line
+    // gone the browser's socket stayed open and the room kept the seat of a guest that left.
+    const seat = /async function seatSession\(seat: Seat\)[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.ok(seat !== '', 'the page has no seatSession to read');
+    assert.match(seat, /^\s*engine = /m, 'the page holds no engine: leaving it closes no socket');
+  });
 });
 
 /**
@@ -131,11 +142,13 @@ function stubEngine(): {
   engine: Parameters<typeof pageEngine>[0];
   reseat(): void;
   emit(event: EngineEvent): void;
+  renamed(): string | undefined;
 } {
   const listeners = new Set<(event: EngineEvent) => void>();
   let peer = { peer_id: 'p-first', display_name: 'sam', role: 'guest' };
   let documents = ['notes.md'];
   let granted = ['shared/'];
+  let renamed: string | undefined;
   return {
     engine: {
       session: () => ({
@@ -164,6 +177,7 @@ function stubEngine(): {
       },
       grantedPaths: () => granted,
       grant: async (paths) => void (granted = [...paths]),
+      rename: async (name) => void (renamed = name),
       disconnect: () => {},
       inviteUrl: () => undefined,
     } as unknown as Parameters<typeof pageEngine>[0],
@@ -179,6 +193,7 @@ function stubEngine(): {
         listener(event);
       }
     },
+    renamed: () => renamed,
   };
 }
 
@@ -258,6 +273,15 @@ describe('the wrapper the page drives', () => {
 
     await room.close('notes.md');
     assert.deepEqual(room.openDocuments(), [], 'a closed document stayed held');
+  });
+
+  it('carries a rename through to the engine the page handed it', async () => {
+    // The page's own row is not a seat the room lists (`§13.4`), so the page tells the room the
+    // new name itself and keeps it: what this wrapper owes is the one call it sits in front of.
+    const stub = stubEngine();
+    const room = pageEngine(stub.engine);
+    await room.rename('ada');
+    assert.equal(stub.renamed(), 'ada', 'the rename never reached the engine');
   });
 });
 

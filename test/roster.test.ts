@@ -11,12 +11,20 @@ import type { RosterPeer } from '../src/browser/roster.ts';
 function makeDocument() {
   const elements = [];
   function make(tag) {
+    const listeners = {};
+    const attributes = {};
     const element = {
       tag,
       children: [],
       className: '',
       textContent: '',
       title: '',
+      value: '',
+      maxLength: undefined,
+      type: '',
+      spellcheck: undefined,
+      autocomplete: undefined,
+      focused: false,
       disabled: false,
       style: {},
       dataset: {},
@@ -25,8 +33,12 @@ function makeDocument() {
       replaceChildren: () => void element.children.splice(0),
       append: (...nodes) => void nodes.forEach((node) => void element.children.push(node)),
       appendChild: (node) => void element.children.push(node),
-      addEventListener: () => {},
-      setAttribute: () => {},
+      addEventListener: (type, listener) => void ((listeners[type] ??= []).push(listener)),
+      /** Fires what a real element fires, so a test drives the control it drew. */
+      fire: (type, event = {}) => void (listeners[type] ?? []).forEach((run) => run(event)),
+      setAttribute: (name, value) => void (attributes[name] = value),
+      getAttribute: (name) => attributes[name],
+      focus: () => void (element.focused = true),
     };
     elements.push(element);
     return element;
@@ -57,6 +69,35 @@ function render(peers, overrides = {}) {
     ...overrides,
   });
   return { list, calls, document };
+}
+
+/** Every element of a class under `element`, the row's own parts. */
+function withClass(element, name) {
+  const found = [];
+  const walk = (node) => {
+    if (node.className === name) found.push(node);
+    for (const child of node.children) walk(child);
+  };
+  walk(element);
+  return found;
+}
+
+/** Every button under an element, so a row's verbs can be read in order. */
+function buttonsIn(element) {
+  const found = [];
+  const walk = (node) => {
+    if (node.tag === 'button') found.push(node);
+    for (const child of node.children) walk(child);
+  };
+  walk(element);
+  return found;
+}
+
+/** The row whose name element carries `name`. */
+function rowNamed(list, name) {
+  return list.children.find((row) =>
+    withClass(row, 'name').some((element) => element.textContent === name),
+  );
 }
 
 describe('roster rows', () => {
@@ -148,7 +189,7 @@ describe('roster rows', () => {
   });
 
   it('the self row is a roster row: swatch, name, quiet you, reasoned actions', () => {
-    const { list } = render([SAM], { selfColour: '#cba6f7' });
+    const { list } = render([SAM], { selfColour: '#cba6f7', onRename: () => {} });
     const self = list.children[0];
     assert.ok(self.classes.includes('self'), 'self row is not first');
     assert.ok(textOf(self).includes('me'), `own name missing: ${textOf(self)}`);
@@ -163,17 +204,94 @@ describe('roster rows', () => {
     };
     walkYou(self);
     assert.equal(you.length, 1);
-    const buttons = [];
-    const walk = (element) => {
-      if (element.tag === 'button') buttons.push(element);
-      for (const child of element.children) walk(child);
-    };
-    walk(self);
-    assert.equal(buttons.length, 2);
-    for (const button of buttons) {
+    // Go to and Follow are dead with their reasons; the row's own third verb — the one thing
+    // about this row a person can act on — is live.
+    const buttons = buttonsIn(self);
+    assert.equal(buttons.length, 3);
+    for (const button of buttons.slice(0, 2)) {
       assert.equal(button.disabled, true);
       assert.ok(button.title.length > 0, 'a self action names no reason');
     }
+    assert.equal(buttons[2].disabled, false, 'the rename control is dead');
+  });
+
+  it('marks the host, and only the host', () => {
+    // The room names each seat's role (`§13.4`) and the page's own design note has the roster
+    // draw it: `guest` is the room's ordinary seat, where a badge on every row but one is noise.
+    const { list } = render([SAM, JO]);
+    const jo = rowNamed(list, 'jo');
+    const sam = rowNamed(list, 'sam');
+    assert.ok(jo !== undefined && sam !== undefined, 'a peer row went missing');
+    const marks = withClass(jo, 'role');
+    assert.equal(marks.length, 1, 'the host row carries no marker');
+    assert.equal(marks[0].textContent, 'host');
+    assert.equal(withClass(sam, 'role').length, 0, 'a guest is marked as something');
+  });
+
+  it('marks the own row when this connection is the host', () => {
+    // The room's peer list never carries this connection's own seat (`§13.4`), so a host alone
+    // in a room has no other row that could say who is hosting.
+    const { list } = render([], { selfRole: 'host' });
+    const self = list.children[0];
+    const marks = withClass(self, 'role');
+    assert.equal(marks.length, 1, 'the own row of a host says nothing about it');
+    assert.equal(marks[0].textContent, 'host');
+    // A guest's own row is unmarked, and a row with no role at all is too.
+    assert.equal(withClass(render([]).list.children[0], 'role').length, 0);
+    assert.equal(withClass(render([], { selfRole: 'guest' }).list.children[0], 'role').length, 0);
+  });
+
+  it('your own row offers the rename control, in the shared words', () => {
+    const calls = [];
+    const { list } = render([SAM], { onRename: () => void calls.push('rename') });
+    const self = list.children[0];
+    const edit = buttonsIn(self).find((button) => textOf(button).includes('Rename'));
+    assert.ok(edit !== undefined, 'the own row has no rename control');
+    assert.equal(edit.title, 'Set the name other participants see', 'the intent lost its words');
+    edit.fire('click');
+    assert.deepEqual(calls, ['rename'], 'the control opens nothing');
+    // A page with no name to change draws no control rather than a dead one.
+    assert.equal(
+      buttonsIn(render([SAM]).list.children[0]).length,
+      2,
+      'a rename control is offered with no handler',
+    );
+  });
+
+  it('the open edit replaces the name with the field it is about', () => {
+    const events = [];
+    const { list } = render([], {
+      selfName: 'me',
+      onRename: () => {},
+      renaming: {
+        value: 'me',
+        maxLength: 32,
+        commit: (value) => void events.push(['commit', value]),
+        cancel: () => void events.push(['cancel']),
+      },
+    });
+    const self = list.children[0];
+    const fields = withClass(self, 'rename');
+    assert.equal(fields.length, 1, 'no field where the name was');
+    const field = fields[0];
+    assert.equal(field.tag, 'input');
+    assert.equal(field.value, 'me', 'the field does not open on the current name');
+    assert.equal(field.maxLength, 32, 'the field offers more than the room takes');
+    assert.equal(field.getAttribute('aria-label'), 'The name other participants see');
+    assert.equal(field.focused, true, 'the field the person asked for does not take focus');
+    // The name is the field while the edit is open: one thing asks the question, not two.
+    assert.equal(withClass(self, 'name').length, 0, 'the old name stands beside the field');
+    assert.equal(
+      buttonsIn(self).some((button) => textOf(button).includes('Rename')),
+      false,
+      'a second rename control opens a second field',
+    );
+    field.value = 'ada';
+    field.fire('keydown', { key: 'Enter', preventDefault: () => {} });
+    assert.deepEqual(events, [['commit', 'ada']], 'Enter does not send the typed name');
+    field.fire('keydown', { key: 'Escape', preventDefault: () => {} });
+    field.fire('blur');
+    assert.deepEqual(events, [['commit', 'ada'], ['cancel'], ['cancel']], 'the ways out went wrong');
   });
 
   it('peer colours stay on the swatch, data-driven', () => {

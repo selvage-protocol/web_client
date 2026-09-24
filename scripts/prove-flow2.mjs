@@ -16,7 +16,8 @@
  * the drop is asserted as the kind this binding raises *and* as the page's own
  * mapping of that kind.
  *
- * Usage: SELVAGE_BASE=ws://100.64.0.3:8080 node scripts/prove-flow2.mjs
+ * Usage: SELVAGE_BASE=wss://<server> node scripts/prove-flow2.mjs
+ * (the default is the public demo, wss://selvage-demo.dontblameme.dev)
  */
 
 import { readFileSync } from 'node:fs';
@@ -30,7 +31,7 @@ import { rosterLabel } from '../src/browser/names.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
-const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
+const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 const NOTES = 'notes.md';
 const MAIN = 'src/main.ts';
 const TODO = 'todo.txt';

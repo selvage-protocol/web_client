@@ -7,8 +7,15 @@ import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
-import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
-import { fragmentOf } from './join.ts';
+import {
+  buildShareLink,
+  displayShareLink,
+  fitReadout,
+  forgetJoinUrl,
+  pageQueryParams,
+  persistJoinUrl,
+} from './share.ts';
+import { MAX_DISPLAY_NAME_UNITS, fragmentOf } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   cardIntentOf,
@@ -48,10 +55,13 @@ import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
 import { renderRoster } from './roster.ts';
+import { renameSelf } from './rename.ts';
+import { HOST_LEAVE_QUESTION, LEAVE_ASK_MS, wireLeave } from './leave.ts';
 import { wireShareBox } from './share-box.ts';
 import {
   HOST_BACK_STAND_MS,
   RECONNECTING_NOTE,
+  TRANSIENT_STAND_MS,
   hostBackSentence,
   hostPresent,
   wireFailureAlert,
@@ -59,6 +69,7 @@ import {
   wireTapPeek,
 } from './notice.ts';
 import {
+  LEFT_SESSION_SENTENCE,
   SESSION_ENDED_MESSAGE,
   dropSession,
   roomGoneSentence,
@@ -173,6 +184,7 @@ const sessionBar = document.getElementById('session') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
 const downloadButton = document.getElementById('download') as HTMLButtonElement;
+const leaveButton = document.getElementById('leave') as HTMLButtonElement;
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
@@ -548,6 +560,11 @@ interface Seat {
  */
 async function seatSession(seat: Seat): Promise<void> {
   const { monaco, engine: seated, session } = seat;
+  // The engine this page holds for the life of the session, and the one every later line reads:
+  // the own row's colour and role, the fallback read of a path this window has no model for, a
+  // rename, the leave's teardown and the one on `beforeunload`. It is dropped with the session
+  // (`leaveSession`), so a page between sessions holds none.
+  engine = seated;
   selfName = seat.displayName;
   // The folder, when this window has one, is what a create writes to; a guest is offered no control
   // and reads the empty tree's own sentence instead.
@@ -885,6 +902,22 @@ downloadButton.addEventListener('click', () => {
   downloadOpen();
 });
 
+/**
+ * The leave control: a guest's press drops the session and brings the card back with a fresh link
+ * as the way in; a host's press asks first, because its connection is the room's (`leave.ts`). The
+ * words on the control are the page's, the two sentences are the module's, and the question stands
+ * in the strip that is already the page's one line about the room.
+ */
+const leaveControl = wireLeave({
+  hosting: () => hostFolder !== undefined,
+  button: leaveButton,
+  ask: () => sessionNote.say(HOST_LEAVE_QUESTION, LEAVE_ASK_MS),
+  leave: () => leaveSession(LEFT_SESSION_SENTENCE),
+});
+leaveButton.addEventListener('click', () => {
+  leaveControl.press();
+});
+
 async function copyShareLink(): Promise<void> {
   // Every attempt starts from the bar's rest state: a fallback that failed may have
   // left the whole link in the readout, and the abbreviation is what belongs there
@@ -927,12 +960,37 @@ async function copyShareLink(): Promise<void> {
 /**
  * Who is here: the own name first, then one row per peer. Where someone is
  * reads on the grant tree, not here; the follow banner owns the one stop.
+ *
+ * An own-name edit holds the list still (`renamingName`): a presence frame lands
+ * every few hundred milliseconds while anybody types, and a list redrawn under
+ * the field would take the cursor with it. The rows the person cannot see for
+ * those seconds are redrawn the moment the edit ends, and nothing is lost — a
+ * roster is a read of the room as it stands, not a queue.
  */
 function syncRoster(participants: Participant[]): void {
+  if (renamingName !== undefined) {
+    return;
+  }
+  drawRoster(participants);
+}
+
+/** The list as it stands, with the own-name edit open if one is. */
+function drawRoster(participants: Participant[]): void {
   renderRoster(rosterList, participants, {
     followedPeerId: binding?.following()?.peerId,
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
+    selfRole: engine?.session().role,
+    renaming:
+      renamingName === undefined
+        ? undefined
+        : {
+            value: renamingName,
+            maxLength: MAX_DISPLAY_NAME_UNITS,
+            commit: (value) => void commitRename(value),
+            cancel: () => endRename(),
+          },
+    onRename: () => startRename(),
     onGoTo: (peerId) => {
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
@@ -946,6 +1004,53 @@ function syncRoster(participants: Participant[]): void {
       });
     },
   });
+}
+
+/**
+ * The own-name edit, open or not. The page owns it rather than the row: the
+ * name the row shows and the name the room is told are both the page's, and
+ * the row is drawn from this state (`drawRoster`).
+ */
+let renamingName: string | undefined;
+
+function startRename(): void {
+  if (renamingName !== undefined || binding === undefined) {
+    return;
+  }
+  renamingName = selfName;
+  // Opening the field is the one drawing that happens while an edit is open, so it does
+  // not go through the hold `syncRoster` keeps.
+  drawRoster(binding.participants());
+}
+
+function endRename(): void {
+  renamingName = undefined;
+  syncRoster(binding?.participants() ?? []);
+}
+
+/**
+ * Sends the typed name and answers for it, over the page.
+ *
+ * `rename.ts` owns the order of the answers and the words; what is here is what
+ * the page is: the row it redraws, the strip it says the confirmation in, the
+ * alert a refusal stands on, and the two places the name in force lives — the
+ * own row's `selfName` and the prefill the next join reads.
+ */
+async function commitRename(raw: string): Promise<void> {
+  endRename();
+  await renameSelf(raw, {
+    current: () => selfName,
+    rename: async (name) => {
+      await engine?.rename(name);
+    },
+    remember: (name) => saveDisplayName(window.localStorage, name),
+    applied: (name) => {
+      selfName = name;
+    },
+    refused: (sentence) => failureAlert.show(sentence),
+    said: (sentence) => sessionNote.say(sentence, TRANSIENT_STAND_MS),
+  });
+  syncRoster(binding?.participants() ?? []);
 }
 
 /** The room's listing as a tree. Directories open and shut; files open and fetch. */
@@ -1059,6 +1164,9 @@ function leaveSession(sentence: string): void {
     return;
   }
   dropSession({ linkGuard, binding, editor: editorApi, engine });
+  // The address bar named the room this tab is leaving, and the link it carries is the whole
+  // permission to be in it: a page that left must not be one reload away from walking back in.
+  forgetJoinUrl(window.history, window.location.href);
   // Monaco takes its own DOM with it; anything it leaves behind must not sit in
   // the host when the next session builds another editor there.
   editorHost.replaceChildren();
@@ -1183,6 +1291,14 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'hostBack':
       sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
+      break;
+    case 'status':
+      // News about what someone just asked for or what the room just said about this
+      // connection: the sentence the editor raises when this window is a `viewer`, a go-to
+      // the room could not answer, a follow landing, a session error. The strip is the
+      // room's one line, so a later sentence replaces an earlier one and the room's own
+      // warning is not the news's to take down (`SessionNote.status`).
+      sessionNote.status(notice.text);
       break;
     case 'grant':
       syncGrant();

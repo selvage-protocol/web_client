@@ -276,17 +276,36 @@ describe('the panel on a phone', () => {
 });
 
 describe('what a phone cannot hover', () => {
-  it('names the copy control where its readout is hidden', () => {
+  it('names the copy control at every width, and hides the readout where it stands in', () => {
     // Measured in Chromium 152 at 412x915: the control was 381x44 px holding a
-    // 14x14 icon and no text at all — an empty field with a link glyph in it.
+    // 14x14 icon and no text at all — an empty field with a link glyph in it. Above
+    // 640 px the words were the thing the query hid, so a host read an icon and a
+    // shortened link with nothing that said what pressing it does.
     const phone = mediaBlock('(max-width: 640px)');
-    assert.match(declarations(style, '#share-group .share-label'), /display:\s*none/, 'the label shows beside the readout');
-    assert.match(declarations(phone, '#share-group .share-label'), /display:\s*inline/);
+    // Every rule that touches the words, and which of them is inside the phone block:
+    // what has to hold is that nothing outside it hides them.
+    const labelRules = [...style.matchAll(/#share-group[^{}]*\.share-label[^{}]*\{[^{}]*\}/g)].map(
+      (match) => match[0],
+    );
+    assert.ok(labelRules.length > 0, 'no rule styles the copy control\u2019s words');
+    const outsideThePhone = labelRules.filter((rule) => !phone.includes(rule));
+    assert.ok(outsideThePhone.length > 0, 'the scan reached no rule outside the phone block');
+    for (const rule of outsideThePhone) {
+      assert.ok(!/display:\s*none/.test(rule), `the words are hidden at desktop widths: ${rule}`);
+    }
     assert.match(declarations(phone, '#share-group #share'), /display:\s*none/, 'the label shows without the readout hidden');
+    // Measured in Chromium at 1024 px: with the words beside it the readout kept its own
+    // content width and painted 139 px of the value past the pill's right edge — the field's
+    // automatic minimum size is its content, so `max-width` alone cannot shrink it.
+    assert.match(
+      declarations(style, '#share'),
+      /min-width:\s*0/,
+      'the readout cannot give up the room the words take',
+    );
     assert.match(
       html,
       /<span class="share-label" aria-hidden="true">Copy invite link<\/span>/,
-      'the shell carries no words for the narrow copy control',
+      'the shell carries no words for the copy control',
     );
     // The group's own label already names the control, so the visible copy of
     // those words is what a screen reader must not read out twice.

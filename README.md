@@ -422,15 +422,18 @@ npm run prove:tls                                   # the same page over TLS
 npm run prove:v2                                    # the wire, in a real headless Chromium
 ```
 
-`SELVAGE_BASE` defaults to the Pi demo and `SELVAGE_TLS_BASE` to the Pi TLS proxy, so
-`prove:flow2` and `prove:tls` run against that machine unless you point them elsewhere.
+`SELVAGE_BASE` and `SELVAGE_TLS_BASE` both default to the public demo,
+`wss://selvage-demo.dontblameme.dev`, so `prove`, `prove:fb2`, `prove:flow2` and
+`prove:tls` run against that instance unless you point them elsewhere. A base names its
+scheme: nothing on the page's own path completes a bare domain, because a page reads a
+link's base or its own origin and both always carry one.
 
 `prove` mints a room with this checkout's own engine, joins the way the page does with
 the default `/meta` check, and walks the roster, the grant tree, a jump, a follow,
 convergence both ways, a reconnect, and the degraded `/meta` a cross-origin page sees.
 `prove:fb2` covers tree-only open, create and move tree refresh, and the share-link shape
 with a round trip back into a join. `prove:flow2` re-walks the three headline flows of the
-flow review. `prove:tls` hosts and joins through the Pi TLS proxy and asserts that every
+flow review. `prove:tls` hosts and joins on the demo origin and asserts that every
 derived URL speaks TLS.
 
 `prove:v2` drives a real browser: it starts one `selvaged --serve-page dist` on the room's own

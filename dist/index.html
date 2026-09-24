@@ -112,11 +112,14 @@
       /* Sized to its value by `fitReadout` (and to nothing when there is none,
          where the readonly text is empty), so the bar shows the whole link.
          `field-sizing` fits it exactly where the engine supports it; the
-         `size` attribute is the fallback. It shrinks into the pill's own bound
-         rather than overflowing it, which is what clips a link longer than the
-         display was built for: the head stays, and the title and the clipboard
-         carry the whole. */
-      #share { flex: 0 1 auto; width: auto; max-width: 100%; font-size: 0.85em; padding: 0;
+         `size` attribute is the fallback. `max-width: 100%` caps it at the pill's own
+         content box, and `min-width: 0` is what lets it give up the room the words and
+         the icon take: without it the field's automatic minimum size is its content, so
+         the value it could not shrink was painted past the pill's right edge — measured
+         in Chromium at 1024 px, 139 px of it with the label beside it. What is left
+         clips instead, which is the case this bound is for: the head stays, and the
+         title and the clipboard carry the whole. */
+      #share { flex: 0 1 auto; width: auto; min-width: 0; max-width: 100%; font-size: 0.85em; padding: 0;
         background: none; border: none; color: transparent;
         field-sizing: content;
         text-shadow: 0 0 5px var(--muted-foreground);
@@ -128,9 +131,13 @@
       #share-group, #share-group *, #share-group.copied, #share-group.copied * {
         cursor: pointer; }
       #share-group .icon { display: inline-flex; flex: none; }
-      /* Below 640 px the readout is hidden and the icon alone would be an empty box;
-         the words take its place there (the rule in that query, below). */
-      #share-group .share-label { display: none; font-weight: 600; white-space: nowrap; }
+      /* The words stand at every width. An icon and a blurred link say nothing about
+         what the control does, which is the one thing a host has to read here — and
+         above 640 px the label used to be the thing this query's own rule hid. On a
+         phone the readout goes and these words take the row (the rule in that query,
+         below); `flex: none` keeps them whole while the readout shrinks into the
+         pill's bound. */
+      #share-group .share-label { flex: none; font-weight: 600; white-space: nowrap; }
       #share-group:hover { border-color: var(--primary); }
       #share-group.copied { border-color: var(--primary); }
       #share-group .confirm { position: absolute; inset: 0; display: inline-flex;
@@ -183,7 +190,11 @@
       #roster .who { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 0.4em; line-height: 1.3; }
       #roster .name { font-weight: 700; color: var(--foreground); white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis; }
-      #roster .you { color: var(--muted-foreground); font-size: 0.75em; font-weight: 500; flex: none; }
+      #roster .you, #roster .role { color: var(--muted-foreground); font-size: 0.75em;
+        font-weight: 500; flex: none; }
+      /* The own-name edit: the row's name becomes the field it is about, sized to the row
+         rather than to the card's field, and it takes the room the name had. */
+      #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
       #roster li.self .swatch { background: var(--primary); }
       #roster .actions { display: flex; gap: 0.25em; flex: none; }
       /* Quiet verbs: present at rest, no chrome to add up around two names. */
@@ -327,13 +338,21 @@
       #download { display: flex; align-items: center; justify-content: center; flex: none;
         padding: 0.4em 0.6em; color: var(--muted-foreground); }
       #download:hover:not(:disabled) { color: var(--foreground); }
+      /* The leave control is quiet: it stands beside the share bar for the whole session and is
+         not what the bar is for. Its own words change when a host's press asks `leave.ts`. */
+      #leave { flex: none; background: none; border-color: transparent;
+        color: var(--muted-foreground); }
+      #leave:hover:not(:disabled) { background: var(--muted-hover);
+        border-color: var(--border-strong); color: var(--foreground); }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
       @media (max-width: 640px) {
         #session { flex-wrap: wrap; row-gap: 0.4em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
+        /* The readout goes and the words take the row: at this width the icon beside a
+           hidden field was an empty box, and the words stand here for what they name
+           (the base rule shows them at every width). */
         #share-group #share { display: none; }
-        #share-group .share-label { display: inline; }
         /* A copy the browser refused needs the field itself: it holds the whole link
            by then, and it is the only thing the person can select by hand. The label
            stands down for it, having nothing left to name. */
@@ -364,7 +383,7 @@
            root is 14 px, so the fields' own `1rem` never cleared the floor.
            `#share` is a readonly field the clipboard fallback focuses, and it
            is visible wherever the phone sheet that hides it does not apply. */
-        #join input, #join-message, #share, #new-name { font-size: 16px; }
+        #join input, #join-message, #share, #new-name, #roster .rename { font-size: 16px; }
         /* 44 px is the smallest a fingertip is expected to hit. The floor is on
            the box, not on the content: `min-height` sits inside the padding
            otherwise, which rendered the copy strip 63 px tall. */
@@ -411,6 +430,11 @@
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
         <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
+        <!-- Leaving closes the tab without closing the tab: the session is dropped and the card
+             comes back with a fresh link as the way in. A host's press asks first — its leaving
+             ends the room for everyone in it — and the two-step lives in `leave.ts`. -->
+        <button id="leave" type="button" aria-label="Leave the session"
+          title="Leave the session">Leave</button>
       </div>
       <div id="session-note" aria-live="polite"></div>
       <div id="follow-banner" hidden></div>

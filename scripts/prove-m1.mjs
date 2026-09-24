@@ -11,7 +11,8 @@
  * adapter owns no protocol logic beyond offset mapping, which both sides count
  * in UTF-16 code units.
  *
- * Usage: SELVAGE_BASE=ws://100.64.0.3:8080 node scripts/prove-m1.mjs
+ * Usage: SELVAGE_BASE=wss://<server> node scripts/prove-m1.mjs
+ * (the default is the public demo, wss://selvage-demo.dontblameme.dev)
  */
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
@@ -25,7 +26,7 @@ import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
-const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
+const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 const NOTES = 'notes.md';
 const MAIN = 'src/main.ts';
 const SEED_NOTES = '# room notes\nline two\n';
@@ -285,6 +286,34 @@ const hostRow = roster.find((row) => row.displayName === 'prove-host');
 check('roster names the host', hostRow !== undefined);
 check('roster colour reuses the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
 console.log(`roster: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
+// The role each side is seated with (`§13.4`), which the roster draws as its own marker and the
+// room's peer list never carries for this connection: the page reads its own seat's role from the
+// session. Printed because it is the one fact a browser cannot be asked for here.
+console.log(
+  `roles: host=${hostEngine.session().role}, guest=${guestEngine.session().role}, peers=${JSON.stringify(
+    hostEngine.peers().map((peer) => `${peer.display_name}:${peer.role}`),
+  )}`,
+);
+
+// Renaming yourself (`PROTOCOL.md` §5), through the page's own wrapper and over the wire. The
+// round trip is read on the *other* side, because a client's own seat is not in the room's peer
+// list (`§13.4`): the connection that asked keeps the name it is seated under itself, which is why
+// the page holds one, and the room relabels the seat for everyone else.
+await guestEngine.rename('prove-web-renamed');
+const renamed = await waitFor(
+  'the room to relabel the guest for the host',
+  () => hostEngine.peers().find((peer) => peer.display_name === 'prove-web-renamed'),
+  10_000,
+);
+check('the room reports the renamed seat to the other side', renamed.peer_id !== '');
+check(
+  'and no longer names that seat the old way',
+  hostEngine.peers().every((peer) => peer.display_name !== 'prove-web'),
+);
+check(
+  'the renaming connection still holds the name it was seated under',
+  guestEngine.session().peer.display_name === 'prove-web',
+);
 
 // The grant tree unions the listing with the open documents, directories first.
 const listing = await waitFor(

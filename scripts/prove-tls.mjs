@@ -7,7 +7,8 @@
  * converge both ways, and every derived URL is asserted TLS: an https page
  * must never emit a ws:// or http:// subrequest.
  *
- * Usage: SELVAGE_TLS_BASE=wss://selvage.dontblameme.dev node scripts/prove-tls.mjs
+ * Usage: SELVAGE_TLS_BASE=wss://<server> node scripts/prove-tls.mjs
+ * (the default is the public demo, wss://selvage-demo.dontblameme.dev)
  */
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { PeerEngine } from '../src/bridge/index.ts';
@@ -19,7 +20,7 @@ import { MonacoBinding } from '../src/browser/editor.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
 /** Where the demo's page, `/meta` and `/session` are answered from, one origin. */
-const DEMO_BASE = 'wss://selvage.dontblameme.dev';
+const DEMO_BASE = 'wss://selvage-demo.dontblameme.dev';
 const BASE = process.env.SELVAGE_TLS_BASE ?? DEMO_BASE;
 const NOTES = 'notes.md';
 const SEED = '# room notes\nline two\n';

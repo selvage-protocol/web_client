@@ -27,9 +27,9 @@ import { CLIENT_ID } from './client-id.ts';
 import { nativeWebSocketFactory } from './transport.ts';
 
 /**
- * What the page drives: the bridge's own slice, plus the five facts this client reads of a room
+ * What the page drives: the bridge's own slice, plus the six facts this client reads of a room
  * that a bridge has no use for — its own session, the peers, the documents this window holds
- * open, the room's listing, and the connection's invite.
+ * open, the room's listing, the connection's invite, and the name it is seated under.
  */
 export interface RoomEngine extends Engine {
   session(): SessionInfo;
@@ -38,6 +38,8 @@ export interface RoomEngine extends Engine {
   openDocuments(): string[];
   grantedPaths(): string[];
   grant(paths: readonly string[]): Promise<void>;
+  /** Changes the name the room sees (`PROTOCOL.md` §5), the page's own seat included. */
+  rename(displayName: string): Promise<void>;
   disconnect(): Promise<void> | void;
   inviteUrl(): string | undefined;
 }
@@ -100,11 +102,13 @@ export async function joinRoom(invite: string, displayName: string): Promise<Roo
 /**
  * The engine in the shape the page drives.
  *
- * Two of the five are the page's own bookkeeping rather than the session's. `openDocuments` is
+ * Two of the six are the page's own bookkeeping rather than the session's. `openDocuments` is
  * what *this* window has asked to hold — a room's documents are the paths somebody
  * holds, so the room's set is not this connection's — and it is kept here because this adapter is
  * the only caller of `open` and `close`. `peers` is the room state's roster, which the session
- * already carries.
+ * already carries. `rename` is the bridge's own method passed straight through, and the page
+ * keeps the name it is seated under itself: the room re-labels the seats it lists, and this
+ * connection's seat is not one of them (`§5`).
  *
  * Nothing here is a snapshot of the session. `§9.1`'s reconnect re-hellos and re-seats under a new
  * peer id *inside* the relay, over the same engine object, so every answer below is read from the
@@ -146,6 +150,7 @@ export function pageEngine(engine: PeerEngine): RoomEngine {
     openDocuments: () => [...held].sort(),
     grantedPaths: () => engine.grantedPaths(),
     grant: (paths: readonly string[]) => engine.grant(paths),
+    rename: (displayName: string) => engine.rename(displayName),
     disconnect: () => engine.disconnect(),
     inviteUrl: () => engine.inviteUrl(),
   };

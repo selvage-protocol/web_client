@@ -44,6 +44,14 @@ export interface FailureAlert {
 }
 
 /**
+ * How long a line about something that has just happened stands before it takes itself down: the
+ * failure alert, the tap-revealed line, and the session note's own news. One number, because it is
+ * one idea — a sentence nobody has to act on, read once — and three surfaces that would otherwise
+ * each carry their own guess.
+ */
+export const TRANSIENT_STAND_MS = 7000;
+
+/**
  * The tap-revealed line: one sentence about what the guest just touched.
  *
  * A pointer device reads that sentence from a `title` the moment it hovers; a
@@ -59,7 +67,7 @@ export type TapPeek = FailureAlert;
  * and different homes, so they are one implementation with two names.
  */
 function wireTransientLine(element: HTMLElement, options: NoticeOptions): FailureAlert {
-  const standMs = options.standMs ?? 7000;
+  const standMs = options.standMs ?? TRANSIENT_STAND_MS;
   const schedule = options.schedule ?? ((run, ms) => setTimeout(run, ms));
   const cancel =
     options.cancel ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
@@ -199,6 +207,21 @@ export interface SessionNote {
   /** Shows one sentence that stands `standMs` and then takes itself down. */
   say(text: string, standMs: number): void;
   /**
+   * Shows one sentence of news about what the person just asked for — a landing, the role this
+   * connection has, a go-to the room could not answer — for the one transient stand.
+   *
+   * The strip holds one line, so a later sentence replaces an earlier one and the two never
+   * stack, and the same sentence said again while it stands is nothing to do: a follow re-lands
+   * and re-says itself on every frame the peer moves, and writing that back would restart the
+   * clock and re-announce an unchanged line in a polite live region.
+   *
+   * It yields to the room's own warning: the grace countdown and the dropped line are each
+   * armed by a single event and nothing re-arms them, so a sentence that took the strip from
+   * either would delete the only reading of a room that is closing or out of reach, and a room
+   * that is out of reach is exactly when a landing would go unanswered.
+   */
+  status(text: string): void;
+  /**
    * Shows the line a dropped socket wears while the engine re-dials it (`§9.1`). It stands until
    * `endDropped` takes it down, because the retry has no length to stand for: a bounded backoff
    * can run for the room's whole advertised grace, and a line on its own timer would either lie
@@ -250,6 +273,14 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
     element.textContent = '';
   };
 
+  /** One sentence of news, standing one transient stand; see `SessionNote.status`. */
+  const say = (text: string, standMs: number): void => {
+    stop();
+    element.textContent = text;
+    element.dataset.tone = 'plain';
+    pending = schedule(clear, standMs);
+  };
+
   return {
     endCountdown(): void {
       if (element.dataset.tone !== 'grace') {
@@ -296,12 +327,21 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
       }, 1000);
     },
 
-    say(text: string, standMs: number): void {
-      stop();
-      element.textContent = text;
-      element.dataset.tone = 'plain';
-      pending = schedule(clear, standMs);
+    status(text: string): void {
+      const tone = element.dataset.tone;
+      if (tone === 'grace' || tone === 'dropped') {
+        return;
+      }
+      if (tone === 'plain' && element.textContent === text) {
+        // The same sentence again: a follow re-lands and re-says itself on every frame the
+        // peer moves. Writing it back would restart the clock and re-announce, in a polite
+        // live region, a line that has not changed.
+        return;
+      }
+      say(text, TRANSIENT_STAND_MS);
     },
+
+    say,
 
     hide(): void {
       stop();
