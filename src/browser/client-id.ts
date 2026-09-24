@@ -7,4 +7,4 @@
  * one without the other is red before it publishes. The proof scripts that join the way the page
  * does take this constant for the same reason.
  */
-export const CLIENT_ID = 'web_client/0.4.0';
+export const CLIENT_ID = 'web_client/0.4.1';
