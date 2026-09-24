@@ -518,17 +518,57 @@ const GUEST_ROWS = `(() => {
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => ({
     text: (row.textContent ?? '').trim(),
     inRoom: row.querySelector('.in-room') !== null,
+    emptyTag: row.querySelector('.empty-tag') !== null,
     download: row.querySelector('.download') !== null,
   }));
   const strip = document.getElementById('file-strip')?.innerText ?? '';
   return { rows, strip };
 })()`;
 
-/** One row's own inline line, which is where a fetch says what it is doing and what it cost. */
+/**
+ * One row's own inline line, which is where a fetch says what it is doing and what it cost.
+ *
+ * The controls are read with the sentence because the sentence alone does not name the state: a
+ * fetch the room has not answered and a fetch that answered with an empty document are told apart
+ * by what the line offers — `Save empty file` is a fact about the room's answer and is there only
+ * for the second — and a run that recorded only the words could not say which it photographed.
+ */
 const ROW_NOTE = `(() => {
   const note = document.querySelector('#tree .row-note');
-  return note === null ? null : (note.textContent ?? '').trim();
+  if (note === null) return null;
+  const controls = note.querySelectorAll('button');
+  return {
+    text: (note.textContent ?? '').trim(),
+    actions: [...controls].map((button) => (button.textContent ?? '').trim()),
+  };
 })()`;
+
+/**
+ * Which of the fetch's states a row's line is in, from the line itself.
+ *
+ * `pending` is the room not having answered — the text may still arrive, and no run may call that
+ * empty; `empty` is the room's own answer that its document for the path holds no text, which is
+ * the only state that offers to save an empty file; `other` is the cost line or a failure.
+ */
+function noteState(note) {
+  if (note === null) {
+    return 'none';
+  }
+  const actions = note.actions.join(' ');
+  if (/Save empty file/.test(actions)) {
+    return 'empty';
+  }
+  if (/no answer yet/.test(note.text)) {
+    return 'pending';
+  }
+  return 'other';
+}
+
+/** A fetch's state once the line is not the cost of opening it, which stands five seconds. */
+function settledState(note) {
+  const state = noteState(note);
+  return state === 'other' && /Fetching opens/.test(note.text) ? 'none' : state;
+}
 
 /**
  * Hosts a room in the page the way a person does — a name, then the button the picker answers — and
@@ -860,7 +900,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
     page,
     'the row to say what the fetch costs',
     ROW_NOTE,
-    (note) => note !== null && /Fetching opens/.test(note),
+    (note) => note !== null && /Fetching opens/.test(note.text),
   );
   facts.fetchNote = await page.evaluate(ROW_NOTE);
   facts.fetchBusy = await page.evaluate(
@@ -870,8 +910,10 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   log('wrote', await record(written, page, '11-download-unfetched-phone.png'));
 
   // Where it ended. The row gains `●` when the text lands — the fetch is what put it in the room —
-  // and a fetch the host did not answer says so and offers the person the choice, including trying
-  // again, which is the page's own answer to a host that was slow the first time.
+  // and a fetch the host did not answer says the wait is still running and offers the person trying
+  // again. What that line *offers* is what tells a room that answered with an empty document from a
+  // room that has said nothing: the first offers to save an empty file and the second does not, and
+  // a run that recorded only the words could not say which of the two it saw.
   // The path the driver clicked, and no other: a fetch of `notes.md` is not a fetch of `main.ts`.
   const landed = async () =>
     (await page.evaluate(
@@ -884,28 +926,45 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
         return row !== undefined && row.querySelector('.in-room') !== null;
       })()`,
     )) === true;
-  let outcome = { landed: false, note: null };
-  for (let tick = 0; tick < 80 && !outcome.landed; tick += 1) {
-    outcome = { landed: await landed(), note: await page.evaluate(ROW_NOTE) };
-    if (outcome.note !== null && /still empty/.test(outcome.note)) break;
+  let outcome = { landed: false, note: null, state: 'none' };
+  const states = [];
+  for (let tick = 0; tick < 160 && !outcome.landed; tick += 1) {
+    const note = await page.evaluate(ROW_NOTE);
+    const state = settledState(note);
+    outcome = { landed: await landed(), note, state };
+    if (states[states.length - 1] !== state) states.push(state);
+    if (state === 'empty' || state === 'pending') break;
     await delay(250);
   }
+  facts.fetchStates = states;
   facts.fetchOutcome = outcome;
   if (!outcome.landed) {
     // The row's own answer to a fetch that did not land, and the design's: not a bare failure, but a
-    // sentence and three things a person can do about it.
+    // sentence and the things a person can do about it. `Save empty file` is only one of them where
+    // the room answered with an empty document; where it has answered nothing at all the line says
+    // the wait is still running and never claims the file is empty.
     facts.fetchRetried = true;
-    log('the first fetch did not land; trying again, which is what the row itself offers');
+    log(
+      'the first fetch did not land; the row said',
+      JSON.stringify(outcome.state),
+      'and offers',
+      JSON.stringify(outcome.note === null ? [] : outcome.note.actions),
+      '— trying again, which is what the row itself offers',
+    );
     await page.evaluate(`(() => {
       const button = [...document.querySelectorAll('#tree .row-note button')].find((candidate) => /Try again/.test(candidate.textContent ?? ''));
       button?.click();
       return true;
     })()`);
-    for (let tick = 0; tick < 80 && !outcome.landed; tick += 1) {
-      outcome = { landed: await landed(), note: await page.evaluate(ROW_NOTE) };
-      if (outcome.note !== null && /still empty/.test(outcome.note)) break;
+    for (let tick = 0; tick < 160 && !outcome.landed; tick += 1) {
+      const note = await page.evaluate(ROW_NOTE);
+      const state = settledState(note);
+      outcome = { landed: await landed(), note, state };
+      if (states[states.length - 1] !== state) states.push(state);
+      if (state === 'empty' || state === 'pending') break;
       await delay(250);
     }
+    facts.fetchStates = states;
     facts.fetchOutcome = outcome;
   }
   facts.afterFetch = await page.evaluate(GUEST_ROWS);

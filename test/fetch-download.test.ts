@@ -3,10 +3,11 @@
  *
  * The defect this suite exists for is a data defect and not a UI gap: a download that saves
  * `text(path)` before the room has answered writes an empty file under the right name, and nothing
- * about that file says it is wrong. So the two things asserted here are the two halves of the fix —
- * the save happens only once the room has the path, and it saves the text that arrived and not the
- * empty string that was there first — and the third is that a fetch which never lands saves nothing
- * at all and offers the choice instead.
+ * about that file says it is wrong. So the assertions here are the halves of the fix — the save
+ * happens only once text has arrived here, and it saves the text that arrived and not the empty
+ * string that was there first — and the one that keeps them honest: nothing arriving is not the
+ * same state as the room answering with an empty document, and the page says the wait instead of
+ * claiming the room said the file is empty.
  */
 
 import { readFileSync } from 'node:fs';
@@ -14,6 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  FETCH_SETTLE_MS,
   FETCH_STAND_MS,
   canSaveAtOnce,
   documentToAutoOpen,
@@ -21,6 +23,8 @@ import {
   fetchCostsSentence,
   fetchFailedSentence,
   fetchingSentence,
+  fetchStandMs,
+  stillAskingSentence,
   stillEmptySentence,
 } from '../src/browser/fetch-download.ts';
 import type { FetchSavePorts } from '../src/browser/fetch-download.ts';
@@ -106,7 +110,7 @@ describe('a path whose text has not been fetched', () => {
 
   it('waits past the receipt for the text the room is still fetching', async () => {
     // A room answers an open by holding an *empty* document for the path; the host's copy lands in it
-    // a frame or a second later. A loop that stopped at the receipt would call the fetch empty while
+    // a frame or a second later. A loop that stopped at the document would call the fetch empty while
     // the text was on its way — the page then offers an empty file the person did not ask for, or
     // waits ten seconds for something that was already coming.
     const arriving = room('fn main() {}\n', { after: 0 });
@@ -119,24 +123,75 @@ describe('a path whose text has not been fetched', () => {
     assert.equal(arriving.ports.has('x'), true);
   });
 
-  it('saves nothing when the room never answers, and says what the text is not', async () => {
+  it('never says a room that has not answered is empty', async () => {
+    // The two states share one text — `''` — and differ in whether anything arrived at all. The
+    // room answered with an empty document in one, and said nothing in the other; the page cannot
+    // read a file out of silence, and saying it is empty is stating a fact it does not have.
     const silent = room('', { after: 99 });
     const outcome = await fetchAndSave('src/main.rs', silent.ports, {
       wait: silent.wait,
       polls: 5,
     });
-    assert.equal(outcome.kind, 'empty');
+    assert.equal(outcome.kind, 'pending');
+    assert.notEqual(outcome.kind, 'empty', 'silence was reported as the room’s empty answer');
     assert.deepEqual(silent.saved, [], 'a fetch that never landed saved something');
-    assert.equal(stillEmptySentence('src/main.rs'), 'src/main.rs is still empty — the host has not sent its text yet.');
+    assert.match(stillAskingSentence('src/main.rs'), /^Still asking the host for src\/main\.rs — no answer yet\.$/);
+    assert.doesNotMatch(stillAskingSentence('src/main.rs'), /empty/i, 'the wait was said as emptiness');
+    // The room's own empty answer is the other state, and it is the one `Save empty file` is for.
+    const answered = room('', { after: 0 });
+    const empty = await fetchAndSave('src/main.rs', answered.ports, {
+      wait: answered.wait,
+      polls: 3,
+    });
+    assert.equal(empty.kind, 'empty');
+    assert.match(
+      stillEmptySentence('src/main.rs'),
+      /^src\/main\.rs is still empty — the host sent no text for it\.$/,
+    );
   });
 
-  it('saves nothing when the room answers empty, and leaves the choice to the person', async () => {
-    // An empty file is a state a person may want, so it is offered — but it is not what they asked
-    // for, so it is not assumed.
+  it('gives the room a stand derived from the server’s own renewal window', () => {
+    // `§7.1` answers an announcement folded into a window at that window's end, so the stand is
+    // measured in windows and the page reads the server's number rather than assuming one. The
+    // page must wait at least the whole window a fold can cost.
+    assert.equal(fetchStandMs(15_000), 15_000 + FETCH_SETTLE_MS);
+    assert.ok(fetchStandMs(15_000) > 15_000, 'the stand is shorter than one fold');
+    assert.equal(fetchStandMs(30_000), 30_000 + FETCH_SETTLE_MS);
+    // With no seated session to read it from, the page falls back to its own number rather than
+    // standing for ever or for nothing.
+    assert.equal(fetchStandMs(undefined), FETCH_STAND_MS);
+    // And the call site reads the session's number and hands it in.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /standMs: fetchStandMs\(awarenessRenewMs\(\)\)/, 'the page does not read the window');
+    assert.match(main, /keepalive\.awareness_renew_ms/, 'the stand is not the server’s own number');
+  });
+
+  it('offers nothing that claims emptiness while the request is still in flight', () => {
+    // A `pending` fetch is a wait, and the only thing a person can do about it is ask again: a
+    // `Save empty file` beside it would be the page saving a file out of a silence it cannot read.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const pending = /if \(outcome\.kind === 'pending'\) \{([\s\S]*?)\n      \}/.exec(main);
+    assert.notEqual(pending, null, 'the page no longer tells a pending fetch from an empty answer');
+    const branch = pending === null ? '' : pending[1];
+    assert.match(branch, /stillAskingSentence\(path\)/);
+    assert.doesNotMatch(branch, /Save empty file/, 'an unanswered fetch offers an empty file');
+    assert.doesNotMatch(branch, /stillEmptySentence/, 'an unanswered fetch is said as emptiness');
+  });
+
+  it('gives the path this window holds an empty document for the choice, not a save', async () => {
+    // The other door to the same empty file: a document for the path is here and its text is
+    // nothing. That is the room's answer, so it is offered — never assumed.
     const empty = room('', { after: 0 });
     const outcome = await fetchAndSave('notes.md', empty.ports, { wait: empty.wait, polls: 3 });
     assert.equal(outcome.kind, 'empty');
     assert.deepEqual(empty.saved, [], 'an empty file was saved without being asked for');
+  });
+
+  it('saves nothing when nothing arrives at all', async () => {
+    const silent = room('fn main() {}\n', { after: 99 });
+    const outcome = await fetchAndSave('src/main.rs', silent.ports, { wait: silent.wait, polls: 4 });
+    assert.equal(outcome.kind, 'pending');
+    assert.deepEqual(silent.saved, [], 'a fetch that never landed saved something');
   });
 
   it('reports a fetch the room would not take, and saves nothing', async () => {
@@ -151,22 +206,18 @@ describe('a path whose text has not been fetched', () => {
   });
 
   it('never saves an empty answer at once, however the room reports the path', () => {
-    // The receipt and the text are different facts: a room holds an empty document both for a file
-    // that is empty and for one whose text the host has not sent, and only the text can be saved
-    // without lying. The driver caught the page saving on the receipt.
+    // The document arriving and its text arriving are different facts: a room holds an empty
+    // document both for a file that is empty and for one whose text the host has not sent, and only
+    // text can be saved without lying. The driver caught the page saving on the document.
     assert.equal(canSaveAtOnce(''), false, 'an empty answer was saved without being asked for');
     assert.equal(canSaveAtOnce('\n'), true, 'a file of one newline is text');
     assert.equal(canSaveAtOnce('fn main() {}'), true);
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.match(main, /if \(canSaveAtOnce\(text\)\)/, 'the page saves on the receipt again');
+    assert.match(main, /if \(canSaveAtOnce\(text\)\)/, 'the page saves on the document again');
     assert.ok(
       !/if \(binding\.hasText\(path\)\)/.test(main),
       'a path the room merely holds is saved as if its text were here',
     );
-  });
-
-  it('gives the room ten seconds before it offers the choice', () => {
-    assert.equal(FETCH_STAND_MS, 10_000);
   });
 });
 
@@ -192,7 +243,7 @@ describe('what the fetch must not do', () => {
 
 describe('what the row says', () => {
   it('names the file while it waits, and names what opening it costs the room, once', () => {
-    assert.equal(fetchingSentence('src/main.rs'), 'Fetching src/main.rs…');
+    assert.equal(fetchingSentence('src/main.rs'), 'Asking the host for src/main.rs…');
     assert.equal(
       fetchCostsSentence('src/main.rs'),
       'Fetching opens src/main.rs in the room, so every peer receives it.',
