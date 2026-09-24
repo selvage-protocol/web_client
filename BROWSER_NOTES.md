@@ -25,10 +25,10 @@ it exists, a selection otherwise — so the guest flow never shows a bare
 the page itself is served from loopback the link uses the page origin, which
 round-trips locally; a `PUBLIC_PAGE_ORIGIN` constant stands ready for a
 configured public origin when one exists. A pasted page link joins the same
-way it loads; a whole wire invite (`ws://…/session?room=…&token=…`) is still
-accepted through the engine's own `parseSessionUrl`. The token stays the
-permission, as in v1: anyone holding the link joins while the room lives. The
-page mints nothing.
+way it loads; a whole wire invite (`ws://…/session?room=…&token=…#k=…&h=…`,
+`§5.1`'s fragment included) is still accepted through the engine's own reader.
+The token is the permission: anyone holding the link joins while the room
+lives. The page mints nothing.
 
 ## Editor and its backed modes (M1)
 
@@ -137,18 +137,18 @@ Three seams keep the copies untouched:
 3. Monaco: `editor.ts` imports only its types. Model creation is injected, so
    the adapter's offset mapping is testable without a DOM.
 
-Protocol untouched: the same `selvage/1` socket, the same messages.
+Protocol untouched: `selvage/2`, the one wire version, and the same messages.
 
 ## `/meta` without the skip (M1)
 
 The page joins with the engine's default `/meta` check. Same-origin, the read
-checks the wire version before the socket opens. Cross-origin against the
+recognises the server before the socket opens. Cross-origin against the
 plaintext demo port, where `/meta` answers without CORS headers, the read
 fails like any unreachable endpoint — advisory, never a refusal — and the
 handshake negotiates the truth. Cross-origin against the TLS proxy
 (`https://…:8444/meta`), the read is real: the proxy answers CORS on `/meta`
 (the request `Origin` echoed, `*` without one, `OPTIONS` preflight handled in
-the proxy itself), so the version check runs before the socket opens there.
+the proxy itself), so the check runs before the socket opens there.
 `npm run check:cors` (or `scripts/check-cors.mjs` against a fixture via
 `SELVAGE_CORS_BASE=`) pins the headers live. The server-side CORS header on
 selvaged itself stays a queued server item and was not touched here.

@@ -50,9 +50,9 @@ its socket.
 
 If a link names another origin than the page's own, that server's `/meta` has to allow the
 page's origin through CORS for the browser to read it. Nothing in this project emits
-`access-control-*`, so such a join skips the advisory `/meta` read (the wire versions and
-the reconnect grace it carries) while the WebSocket handshake still proceeds and enforces
-compatibility. `selvaged --serve-page` is one origin, where the page, `/meta` and
+`access-control-*`, so such a join skips the advisory `/meta` read (the server's identity,
+its capabilities and the reconnect grace it carries) while the WebSocket handshake still
+proceeds and enforces compatibility. `selvaged --serve-page` is one origin, where the page, `/meta` and
 `/session` share it and the read lands.
 
 ### Serving the page
@@ -106,8 +106,9 @@ back off the daemon's record of the container.
 **What the second shape costs.** The page becomes a second origin. The WebSocket is not
 CORS-bound, so the page dials whatever server a pasted wire invite names and the handshake
 is where compatibility is enforced. The `/meta` read is a cross-origin fetch, though, and
-this project emits no `access-control-*` headers, so it is skipped, which costs the wire
-versions and the reconnect grace it carries and nothing else. An invite is a page link,
+this project emits no `access-control-*` headers, so it is skipped, which costs the
+recognition of the origin as a Selvage server and the reconnect grace it carries, and
+nothing else. An invite is a page link,
 though, so a guest handed one is sent to the room's own page, wherever it is served from;
 this image is for fronting servers that cannot serve a page themselves, handed on as
 `ws://` invites. One origin is the default.
@@ -147,9 +148,7 @@ Four things that shape it:
   is Chrome and Edge; Firefox and Safari get a sentence where the button would be, and
   joining still works there. A page that is not served by a Selvage server (the page-only
   image in front of other servers, a static dev server) says so instead of offering a
-  control that could only refuse. So does a page whose server seats no `selvage/2` — the
-  room it could mint there is one the server can read — and `?wire=1` on the address is how
-  a person asks for that room deliberately (see *Sessions at `selvage/2`*).
+  control that could only refuse (see *Sessions on the wire*).
 - **Read and write.** The picker asks for both, because the room's settled text has to
   reach the folder or the room is a scratch pad rather than a working copy.
 - **The stale-file guard.** The page holds a replica and a directory handle and cannot see
@@ -285,35 +284,26 @@ The copy carries `selvage/2`'s session layer with the rest of the engine: `src/e
 AES-256-GCM and Ed25519 — which this page implements with WebCrypto, the engine's own default. The
 seam is asynchronous for exactly this client's sake, since WebCrypto has no synchronous form.
 
-### Sessions at `selvage/2`
+### Sessions on the wire
 
-The page speaks both versions. A **join** takes the version its link names: `§5.1`'s fragment
-carries the room key and the host key, so a link with both is a `selvage/2` room and a link with
-neither — every link this page has handed on until now — is `selvage/1`, whatever the page is
-pinned to. A link whose fragment names one key and not the other is a `selvage/2` link missing
-half of what it needs: it is refused on the card by the name of the missing key, before a socket,
-and never joined in the clear instead (`§5.1`). A **host** takes the version the server seats (`§2`): the page reads `/meta` best effort
-and mints the encrypted wire wherever the server offers it, refuses in the card's own voice where a
-reachable `/meta` offers no `selvage/2` — never falling back to a room the server can read — and
-attempts `selvage/2` where `/meta` could not be read at all, since an endpoint that did not answer
-is not an answer about versions and the handshake reports the truth. The page's own pin is
-`?wire=…` on its address: `?wire=1` (or `?wire=selvage/1`) pins the readable wire, which is the
-deliberate way to host a room the server can read, `?wire=2` pins the encrypted one and a server
-that does not seat it is refused rather than fallen back from, and unset, `?wire=auto` and anything
-else that names no version are the auto reading — the server's word — which is what a published
-page is. A page served by a `selvage/1`-only server still joins version-1 rooms from a link, and
-cannot host one there unless it is pinned to `selvage/1`. The folder is walked *before* a
-version-2 mint, because `§7.1` seals the room state from the listing: a host that minted first
-would put an empty tree in front of its first guest. The guest link the bar offers carries the
-fragment for the same reason a wire invite does.
+The protocol has one wire version, `selvage/2`, and this page speaks it. A **join** reads the
+link it was handed: `§5.1`'s fragment carries the room key and the host key, so a link with both
+is a room, one whose fragment names a single key is refused on the card by the name of the key it
+is missing — before a socket, and never joined in the clear instead — and a link with no fragment
+at all is refused where the engine reads it. A **host** walks the folder and then mints, because
+`§7.1` seals the room state from the listing: a host that minted first would put an empty tree in
+front of its first guest. The guest link the bar offers is the wire invite with its fragment.
 
-`src/browser/relay.ts` is the version-2 half: the socket wiring is the vendored
-`src/engine/relay.ts`, the vocabulary is `src/bridge/peer-engine.ts`, and what is left for that file
-is the browser's own WebSocket and the `RoomEngine` shape the binding and the session bar ask of
-whichever version is seated. In a version-2 room a document arrives when the guest opens it from the
-shared tree — the room's documents are the paths somebody holds (`§13.4`) — and a connection the
-room seats as `viewer` gets its documents with the editor read-only, since `§13.9` publishes none of
-a viewer's content.
+Nothing chooses a version, and there is no pin: `/meta` is read for one purpose, telling this
+page's own origin apart from one that is not a Selvage server (and from one that did not answer,
+where the offer stands with a note saying so). The handshake reports the truth either way.
+
+`src/browser/relay.ts` is the page's socket wiring: the vendored `src/engine/relay.ts` and
+`src/bridge/peer-engine.ts` do the protocol, and what is left for that file is the browser's own
+WebSocket and the `RoomEngine` shape the binding and the session bar ask of. A document arrives
+when the guest opens it from the shared tree — the room's documents are the paths somebody holds
+(`§13.4`) — and a connection the room seats as `viewer` gets its documents with the editor
+read-only, since `§13.9` publishes none of a viewer's content.
 
 **What is not carried.** The relay runs no resume (`§9.1`), so there is no `HostStore` and no
 returning host; `§13.11`'s per-receiver caps are unimplemented, as they are in the reference client.
@@ -330,7 +320,7 @@ The page's own modules:
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
 - `src/browser/relay.ts`: the page's `selvage/2` room — the vendored relay with the page's own
-  WebSocket, and the `RoomEngine` shape that makes the two versions the same thing to drive.
+  WebSocket, and the `RoomEngine` shape the binding and the session bar drive.
 - `src/browser/node-shim.ts`: the one Node global the synced engine expects,
   `Buffer.byteLength`, defined only when absent.
 - `src/browser/monaco.ts`: the Monaco runtime, the editor core plus the languages the
@@ -379,7 +369,7 @@ render of `mark-transparent.png` inlined in the shell so no frame waits on an im
 `node scripts/inline-mark.mjs` prints a refreshed one.
 
 `scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-v2.mjs`, the
-`selvage/2` proof in a real browser; `prove-pi.mjs`, the M0 record kept as-is; `prove-fb2.mjs`, the
+wire's proof in a real browser; `prove-fb2.mjs`, the
 owner-feedback proof; `prove-tls.mjs` and `prove-flow2.mjs`) and the live check
 (`check-content-types.mjs`).
 `test/` holds the suite.
@@ -429,8 +419,7 @@ SELVAGE_BASE=ws://127.0.0.1:8080 npm run prove      # the M1 page stack
 SELVAGE_BASE=ws://127.0.0.1:8080 npm run prove:fb2  # the owner-feedback pass
 npm run prove:flow2                                 # the flow-review fixes
 npm run prove:tls                                   # the same page over TLS
-npm run prove:v2                                    # selvage/2 in a real headless Chromium
-npm run prove:host-version                          # the hosting version, in a real headless Chromium
+npm run prove:v2                                    # the wire, in a real headless Chromium
 ```
 
 `SELVAGE_BASE` defaults to the Pi demo and `SELVAGE_TLS_BASE` to the Pi TLS proxy, so
@@ -442,24 +431,15 @@ convergence both ways, a reconnect, and the degraded `/meta` a cross-origin page
 `prove:fb2` covers tree-only open, create and move tree refresh, and the share-link shape
 with a round trip back into a join. `prove:flow2` re-walks the three headline flows of the
 flow review. `prove:tls` hosts and joins through the Pi TLS proxy and asserts that every
-derived URL speaks TLS. `scripts/prove-pi.mjs` is the M0 record kept as-is, and it mints
-its room with the `vscode_client` engine beside this checkout.
+derived URL speaks TLS.
 
 `prove:v2` drives a real browser: it starts one `selvaged --serve-page dist` on the room's own
 origin, hosts from Node with the engine the page bundles, opens the page on the guest's fragment
 link in headless Chromium, joins from the card, opens the room's document from the shared tree, and
 asserts an edit in both directions — with `SELVAGE_SELVAGED` and `SELVAGE_CHROMIUM` pointing at a
-binary and a browser when the defaults are not the ones on the machine.
-
-`prove:host-version` is the other browser proof, and it is about the version a hosting page mints
-at (`§2`, `§10`): it starts a `selvaged` that seats both versions and one started with
-`--serve-version-1-only`, reads each server's live `/meta` into `hostDecision`, and asserts that the
-card the server's own page shows agrees with it — the action offered, or the refusal's own sentence
-in its place, with a `?wire=` pin honoured both ways. It also joins a version-1 room from the page
-served by the version-1-only server, which is the half of that server nobody may lose. The one
-thing it cannot press is *Start a session here*: hosting reaches `showDirectoryPicker`, which no
-automation can answer, so the page's own refusal inside the host flow is pinned by the source-shape
-test in `test/v2-adapter.test.ts` rather than by a browser.
+binary and a browser when the defaults are not the ones on the machine. It is the wire's own
+browser proof, and it is the only one that needs a browser: the browser-host flow it does not press
+is the folder picker's dialog, which no automation can answer.
 
 What none of them covers is Monaco itself: the adapter owns no protocol logic beyond
 offset mapping, which both sides count in UTF-16 code units.
