@@ -1,5 +1,8 @@
 import type { WebSocketFactory, WebSocketLike } from '../engine/index.ts';
-import { close, code as errCode, isProtocolError } from '../engine/index.ts';
+import { code as errCode, isProtocolError } from '../engine/index.ts';
+// §11's close codes, from the module that owns them rather than from the engine's index: the index
+// re-exports what an editor adapter drives, and a socket's own close code is not one of those.
+import { close } from '../engine/envelope.ts';
 
 /**
  * The engine's socket, from the browser's own WebSocket.
