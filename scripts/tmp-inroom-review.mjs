@@ -43,6 +43,20 @@ const ROOT = resolve(import.meta.dirname, '..');
 const OUT = resolve(ROOT, '.tmp', 'inroom-review');
 const DESKTOP = { width: 1280, height: 900 };
 const PHONE = { width: 390, height: 844 };
+
+/**
+ * The two devices this driver photographs, as the two things Chromium cannot emulate after launch.
+ *
+ * `(any-hover)` and `(any-pointer)` are decided from the browser's own pointing devices, and headless
+ * Chromium has none: it answers `(any-hover: none)` on every page, whatever
+ * `Emulation.setTouchEmulationEnabled` says (measured: `maxTouchPoints: 0` still leaves the query
+ * answering `none`). So the *layout* — the 44 px targets, the touch-only lines, the phone's
+ * disclosure — is a launch flag, and the two shapes need two browsers.
+ * `Emulation.setDeviceMetricsOverride` gives each its viewport afterwards.
+ */
+const MOUSE_POINTER = [
+  '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
+];
 const FOOTER = process.argv.includes('--footer') || process.env['SELVAGE_FOOTER'] === '1';
 
 function log(...parts) {
@@ -165,15 +179,21 @@ const FOOTER_INJECTION = `(() => {
   document.body.appendChild(aside);
 })();`;
 
-/** The smallest CDP driver this needs: one page, evaluate, screenshot, device metrics. */
-async function launchChromium() {
+/**
+ * The smallest CDP driver this needs: one page, evaluate, screenshot, device metrics.
+ *
+ * `pointer` picks the device the whole browser reports: `mouse` is the desktop a real person with a
+ * mouse gets, and `touch` is the phone. It is a launch argument and not an emulation call, because
+ * that is the only place Chromium lets it be set.
+ */
+async function launchChromium({ pointer = 'mouse' } = {}) {
   // Chromium's scratch: the named base directory is a *base*, and only this script's own
   // subdirectory under it is ever removed, so an absolute `SELVAGE_CHROMIUM_TMPDIR` (or a shared
   // one) cannot have its other contents deleted. The default stays relative: Chromium puts its
   // process-singleton socket under `TMPDIR`, that path is bounded at about 108 bytes, and an
   // absolute path under a worktree is past it (`prove-host-version.mjs` carries the long form).
   const base = process.env['SELVAGE_CHROMIUM_TMPDIR'] ?? '.tmp';
-  const tmp = `${base}/inroom-chromium`;
+  const tmp = `${base}/inroom-chromium-${pointer}`;
   rmSync(resolve(ROOT, tmp), { recursive: true, force: true });
   mkdirSync(resolve(ROOT, tmp), { recursive: true });
   const profile = `${tmp}/profile`;
@@ -186,6 +206,7 @@ async function launchChromium() {
       '--no-sandbox',
       '--disable-gpu',
       '--hide-scrollbars',
+      ...(pointer === 'mouse' ? MOUSE_POINTER : []),
       `--window-size=${DESKTOP.width},${DESKTOP.height}`,
       'about:blank',
     ],
@@ -225,8 +246,27 @@ async function launchChromium() {
   });
   let nextId = 1;
   const pending = new Map();
+  /**
+   * What the page logged: console messages and uncaught errors.
+   *
+   * A review that cannot see these cannot tell whether a screenshot is of a working page or of one
+   * that threw on the way there, and "none today" is a fact worth recording rather than assuming.
+   */
+  const logged = [];
   socket.on('message', (data) => {
     const message = JSON.parse(data.toString());
+    if (message.method === 'Runtime.consoleAPICalled') {
+      const { type, args } = message.params;
+      logged.push(
+        `${type}: ${args.map((arg) => arg.value ?? arg.description ?? arg.type).join(' ')}`,
+      );
+      return;
+    }
+    if (message.method === 'Runtime.exceptionThrown') {
+      const details = message.params.exceptionDetails;
+      logged.push(`pageerror: ${details.exception?.description ?? details.text}`);
+      return;
+    }
     const entry = pending.get(message.id);
     if (entry === undefined) {
       return;
@@ -251,6 +291,10 @@ async function launchChromium() {
   const psend = (method, params = {}) => send(method, params, sessionId);
   await psend('Page.enable');
   await psend('Runtime.enable');
+  // A headless page is not the focused document, and the clipboard API refuses a read from one
+  // ("Document is not focused"). The driver copies the invite like a person does, so the page has to
+  // be the focused one.
+  await psend('Emulation.setFocusEmulationEnabled', { enabled: true });
   await psend('Page.addScriptToEvaluateOnNewDocument', { source: PICKER_STAND_IN });
   if (FOOTER) {
     await psend('Page.addScriptToEvaluateOnNewDocument', {
@@ -260,8 +304,11 @@ async function launchChromium() {
 
   return {
     send: psend,
+    /** Everything the page logged since the browser started, newest last. */
+    logged,
     async navigate(url) {
       await psend('Page.navigate', { url });
+      await psend('Page.bringToFront');
     },
     async evaluate(expression) {
       const result = await psend('Runtime.evaluate', {
@@ -289,7 +336,17 @@ async function launchChromium() {
         deviceScaleFactor: 1,
         mobile: touch,
       });
-      await psend('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: 5 });
+      // `maxTouchPoints` decides `(any-hover)`/`(any-pointer)` for the whole page, and it is applied
+      // whether or not the emulation is on: passing 5 with `enabled: false` left the page reporting
+      // `(any-hover: none)`, which is the touch layout — the 44 px targets and the phone-only lines
+      // — and it is what every earlier shot here photographed. A desktop shot turns touch off and
+      // says no touch points at all, so the page answers with the mouse layout a real person gets.
+      // Off is `{ enabled: false }` and nothing else: the protocol refuses a touch-point count of
+      // zero, and omitting the field is what leaves the device with no touch at all.
+      await psend(
+        'Emulation.setTouchEmulationEnabled',
+        touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false },
+      );
       await delay(400);
     },
     async stop() {
@@ -301,6 +358,43 @@ async function launchChromium() {
       browser.kill('SIGKILL');
     },
   };
+}
+
+/**
+ * The invite the room is sharing, taken the way a person takes it: press the control, read the
+ * clipboard. The readout itself is deliberately not readable — it holds a mask and no attribute
+ * holds the link — so a driver that needs the link has to copy it like anybody else.
+ */
+async function copyInvite(page, origin) {
+  await page.send('Browser.grantPermissions', {
+    origin,
+    permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+  });
+  const read = await page.evaluate(
+    `(async () => {
+      const state = { value: '', why: '' };
+      if (navigator.clipboard === undefined) {
+        return { ...state, why: 'no navigator.clipboard in this page' };
+      }
+      document.getElementById('share-group').click();
+      for (let tries = 0; tries < 40; tries += 1) {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text !== '') return { ...state, value: text };
+          state.why = 'the clipboard is empty';
+        } catch (error) {
+          state.why = String(error);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      state.value = document.getElementById('share').value;
+      return state;
+    })()`,
+  );
+  if (read.value === '' || read.value.includes('•')) {
+    throw new Error(`the copy control put no invite on the clipboard: ${read.why}`);
+  }
+  return read.value;
 }
 
 /** Waits for a predicate over one evaluated expression, with a deadline that reports what it saw. */
@@ -337,17 +431,54 @@ const CHROME = `(() => {
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width), height: Math.round(box.height) };
   };
   const terms = document.getElementById('terms-link');
+  const share = document.getElementById('share');
+  const shareStyle = share === null ? null : getComputedStyle(share);
   return {
+    // What the layout was decided from. (any-hover: none) is the touch layout — 44 px targets and
+    // the phone-only lines — so recording this is what keeps a shot from being read as a desktop
+    // one it never was; maxTouchPoints is what decides it for a real Chromium.
+    environment: {
+      anyHover: matchMedia('(any-hover: hover)').matches,
+      anyHoverNone: matchMedia('(any-hover: none)').matches,
+      anyPointerFine: matchMedia('(any-pointer: fine)').matches,
+      maxTouchPoints: navigator.maxTouchPoints,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      devicePixelRatio: window.devicePixelRatio,
+    },
+    // What the copy control carries, and what a pointer could read off it: the value is bullets and
+    // no attribute holds the link, so a tooltip cannot show the room key.
+    shareReadout: share === null ? null : {
+      value: share.value,
+      title: share.getAttribute('title'),
+      attributes: [...share.attributes].map((attribute) => attribute.name),
+      groupTitle: document.getElementById('share-group')?.getAttribute('title') ?? null,
+      color: shareStyle?.color ?? null,
+      textShadow: shareStyle?.textShadow ?? null,
+    },
     sessionBar: visible('session'),
     workspace: visible('workspace'),
-    newEntryRow: visible('new-entry'),
     copyControl: leaf(document.getElementById('share-group')),
     copyLabel: text('share-group') || document.querySelector('.share-label')?.textContent || '',
     leave: visible('leave') ? text('leave') : '',
+    // The bar's own facts: which session it is, and what the health dot is saying.
+    sessionIdentity: text('session-identity'),
+    health: document.getElementById('health')?.dataset.health ?? null,
+    healthLabel: text('health-label'),
+    // The panel's own edge, and whether it is drawn at all on this device.
+    resizer: rect(document.getElementById('side-resizer')),
+    resizerCollapsed: document.getElementById('side-resizer')?.dataset.collapsed ?? null,
+    sideWidth: Math.round(document.getElementById('side')?.getBoundingClientRect().width ?? 0),
+    // The file strip: the open file's whole state in one line. innerText collapses the shell's own
+    // indentation, which textContent would report as the line's content.
+    fileStrip: document.getElementById('file-strip')?.innerText ?? '',
+    fileStripChips: document.getElementById('file-strip-chips')?.innerText ?? '',
+    fileStripFollow: document.getElementById('file-strip-follow')?.innerText ?? '',
     hostRow: roster.find((row) => /host/i.test(row)) ?? '',
     roster,
     treeRows: rows,
-    newEntryButtons: [...document.querySelectorAll('#new-entry button')].map((button) => button.textContent.trim()),
+    createRow: document.querySelectorAll('#tree .new-row').length,
+    localFolders: [...document.querySelectorAll('#tree .local')].map((tag) => tag.textContent),
+    inRoomDots: document.querySelectorAll('#tree .in-room').length,
     sessionNote: text('session-note'),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
     phonePanelOpen: document.getElementById('panel-toggle')?.getAttribute('aria-expanded') ?? null,
@@ -382,192 +513,461 @@ const PREJOIN = `(() => {
   };
 })()`;
 
-async function main() {
-  mkdirSync(OUT, { recursive: true });
-  const server = await startServer();
-  const page = await launchChromium();
+/** What a guest's own page shows about the file it is about to save. */
+const GUEST_ROWS = `(() => {
+  const rows = [...document.querySelectorAll('#tree button.row')].map((row) => ({
+    text: (row.textContent ?? '').trim(),
+    inRoom: row.querySelector('.in-room') !== null,
+    download: row.querySelector('.download') !== null,
+  }));
+  const strip = document.getElementById('file-strip')?.innerText ?? '';
+  return { rows, strip };
+})()`;
+
+/** One row's own inline line, which is where a fetch says what it is doing and what it cost. */
+const ROW_NOTE = `(() => {
+  const note = document.querySelector('#tree .row-note');
+  return note === null ? null : (note.textContent ?? '').trim();
+})()`;
+
+/**
+ * Hosts a room in the page the way a person does — a name, then the button the picker answers — and
+ * opens the first file that reads like the project's README. Returns the path it opened.
+ */
+async function hostAndOpen(page, server) {
+  await page.navigate(`${server.origin}/`);
+  await waitFor(
+    page,
+    'the host card to offer the action',
+    `(() => { const b = document.getElementById('host-button'); return b === null ? null : !b.hidden; })()`,
+    (offered) => offered === true,
+  );
+  await page.evaluate(`(() => {
+    const name = document.getElementById('name');
+    name.value = 'Ada';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('host-button').click();
+    return document.getElementById('host-button').textContent;
+  })()`);
+  const hosted = await waitFor(
+    page,
+    'the room to seat this tab',
+    `(() => { const bar = document.getElementById('session'); return bar === null ? null : !bar.hidden; })()`,
+    (seated) => seated === true,
+  );
+  log('hosted; the session bar is up:', hosted);
+  await waitFor(
+    page,
+    'the folder tree to be drawn',
+    `document.querySelectorAll('#tree button.row').length`,
+    (rows) => rows > 0,
+  );
+  const openedPath = await page.evaluate(`(() => {
+    const rows = [...document.querySelectorAll('#tree button.row')];
+    const first = rows.find((row) => /README[.]md|notes[.]md/.test(row.textContent ?? '')) ?? rows[0];
+    first.click();
+    return first.textContent.trim();
+  })()`);
+  await waitFor(
+    page,
+    'the file in the editor',
+    `[...document.querySelectorAll('.monaco-editor .view-line')].some((line) => (line.textContent ?? '').trim() !== '')`,
+    (there) => there === true,
+  );
+  return openedPath;
+}
+
+/** The desktop shots, in the mouse browser: the layout a real pointer gets, and every new control. */
+async function reviewDesktop(page, server, written) {
+  const openedPath = await hostAndOpen(page, server);
+  const chrome = await page.evaluate(CHROME);
+  log('desktop chrome:', JSON.stringify(chrome));
+  log('wrote', await record(written, page, '01-in-room-desktop.png'));
+  const facts = { chrome };
+
+  // The create row, refused and previewed. Two states of the same line: a name this room cannot
+  // share, and a path that will make its own folders.
+  await page.evaluate(`document.getElementById('new-file').click()`);
+  await waitFor(
+    page,
+    'the create row',
+    `document.querySelectorAll('#tree .new-name').length`,
+    (rows) => rows === 1,
+  );
+  await page.evaluate(`(() => {
+    const field = document.querySelector('#tree .new-name');
+    field.value = '.env';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await waitFor(
+    page,
+    'the live refusal',
+    `document.querySelector('#tree .new-name')?.classList.contains('invalid')`,
+    (invalid) => invalid === true,
+  );
+  await delay(250);
+  facts.createRefusal = await page.evaluate(
+    `document.querySelector('#tree .new-hint')?.textContent ?? ''`,
+  );
+  log('create row, refused live:', JSON.stringify(facts.createRefusal));
+  log('wrote', await record(written, page, '07-create-row-refused.png'));
+
+  await page.evaluate(`(() => {
+    const field = document.querySelector('#tree .new-name');
+    field.value = 'docs/intro.md';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await delay(300);
+  facts.createPreview = await page.evaluate(
+    `document.querySelector('#tree .new-hint')?.textContent ?? ''`,
+  );
+  log('create row, a path that makes its folders:', JSON.stringify(facts.createPreview));
+  log('wrote', await record(written, page, '08-create-row-makes-folders.png'));
+
+  // The file strip, with the file the strip is about. Cropped to the strip as well as framed, so a
+  // reviewer can read the one line without hunting for it in a 1280 px page.
+  facts.fileStrip = await page.evaluate(`document.getElementById('file-strip')?.textContent ?? ''`);
+  log('file strip:', JSON.stringify(facts.fileStrip));
+  log('wrote', await record(written, page, '09-file-strip.png'));
+  const stripShot = await page.shot('09b-file-strip-only.png');
+  written.push('09b-file-strip-only.png');
+  log('wrote the strip alone:', stripShot);
+
+  // Cancel the create row before the rest, so nothing else photographs it.
+  await page.evaluate(`document.querySelector('#tree .new-cancel')?.click()`);
+
+  // The own-name edit, asked for the way a person asks: the self row's Rename.
+  await page.evaluate(`(() => {
+    const row = document.querySelector('#roster li.self');
+    // The own row's one control. Its label is a word and its aria-label is the sentence a screen
+    // reader reads, so it is found by its own text.
+    const button = [...row.querySelectorAll('button')].find((candidate) => /Rename/.test(candidate.textContent ?? ''));
+    button.click();
+    return button.textContent;
+  })()`);
+  await waitFor(
+    page,
+    'the rename field and its two controls',
+    `[document.querySelectorAll('#roster .rename').length, document.querySelectorAll('#roster .rename-save').length, document.querySelectorAll('#roster .rename-cancel').length].join(',')`,
+    (counts) => counts === '1,1,1',
+  );
+  await delay(300);
+  log('wrote', await record(written, page, '04-rename-field-open.png'));
+  await page.evaluate(`document.querySelector('#roster .rename-cancel')?.click()`);
+  await delay(200);
+
+  // A second peer, the shape a guest has: the real engine over the real wire, one caret in the file
+  // the page has open, and a follow to watch the strip's follow segment.
+  const invite = await copyInvite(page, server.origin);
+  const guest = await PeerEngine.join({
+    invite,
+    displayName: 'Bob',
+    webSocketFactory: nativeWebSocketFactory,
+  });
   try {
-    log('serving', server.origin, FOOTER ? 'with the demo footer' : 'without a footer');
-    if (FOOTER) {
-      // The finding this stands for: the reviewer's phone shot of a guest card, with the notice
-      // the demo appends under the page. The card is read at 390x844 with touch emulation and
-      // the footer measured against the viewport.
-      const key = encodeKey(new Uint8Array(32).fill(9));
-      await page.setViewport(PHONE, { touch: true });
-      await page.navigate(`${server.origin}/?room=r-1&token=tok#k=${key}&h=${key}`);
-      await waitFor(
-        page,
-        'the guest card',
-        `document.getElementById('join-heading')?.hidden === false`,
-        (shown) => shown === true,
-      );
-      await delay(400);
-      const prejoin = await page.shot('03-prejoin-phone-with-footer.png');
-      log('pre-join phone with the demo footer:', JSON.stringify(await page.evaluate(PREJOIN)));
-      log('wrote', prejoin);
-      await page.setViewport(DESKTOP);
-    }
-    await page.navigate(`${server.origin}/`);
+    guest.setSelection(openedPath, { anchor: 0, head: 3 });
     await waitFor(
       page,
-      'the host card to offer the action',
-      `(() => { const b = document.getElementById('host-button'); return b === null ? null : !b.hidden; })()`,
-      (offered) => offered === true,
+      'the second peer in the roster',
+      `[...document.querySelectorAll('#roster li')].some((row) => /Bob/.test(row.textContent ?? ''))`,
+      (there) => there === true,
     );
-
-    // The person's own act, made the way a person makes it: a name, then the button.
     await page.evaluate(`(() => {
-      const name = document.getElementById('name');
-      name.value = 'Ada';
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-      document.getElementById('host-button').click();
-      return document.getElementById('host-button').textContent;
-    })()`);
-
-    const hosted = await waitFor(
-      page,
-      'the room to seat this tab',
-      `(() => { const bar = document.getElementById('session'); return bar === null ? null : !bar.hidden; })()`,
-      (seated) => seated === true,
-    );
-    log('hosted; the session bar is up:', hosted);
-    await waitFor(
-      page,
-      'the folder tree to be drawn',
-      `document.querySelectorAll('#tree button.row').length`,
-      (rows) => rows > 0,
-    );
-
-    // A file the editor shows, so the screenshot has the room's own text in it.
-    const openedPath = await page.evaluate(`(() => {
-      const rows = [...document.querySelectorAll('#tree button.row')];
-      const first = rows.find((row) => /README\\.md|notes\\.md/.test(row.textContent ?? '')) ?? rows[0];
-      first.click();
-      return first.textContent.trim();
-    })()`);
-    await page.evaluate(`(async () => {
-      const deadline = Date.now() + 15000;
-      while (Date.now() < deadline) {
-        const lines = [...document.querySelectorAll('.monaco-editor .view-line')].map((line) => line.textContent ?? '');
-        if (lines.some((line) => line.trim() !== '')) return lines.join('\\n');
-        await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-      return '';
-    })()`);
-    await delay(500);
-
-    const desktop = await page.shot('01-in-room-desktop.png');
-    const desktopFacts = await page.evaluate(CHROME);
-    log('desktop chrome:', JSON.stringify(desktopFacts));
-
-    // The own-name edit, asked for the way a person asks: the self row's Rename. Two visible
-    // ways out stand beside the field, so a person who does not know Enter can still act.
-    await page.evaluate(`(() => {
-      const row = document.querySelector('#roster li.self');
-      const button = [...row.querySelectorAll('button')].find((candidate) => /Rename/.test(candidate.textContent ?? ''));
+      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
+      const button = [...row.querySelectorAll('button')].find((candidate) => /Follow/.test(candidate.textContent ?? ''));
       button.click();
       return button.textContent;
     })()`);
+    const followed = await waitFor(
+      page,
+      'the follow segment in the file strip',
+      `document.getElementById('file-strip-follow')?.innerText ?? ''`,
+      (text) => /Bob/.test(text),
+    );
+    facts.followSegment = followed;
+    log('following:', JSON.stringify(followed));
+    await delay(400);
+    log('wrote', await record(written, page, '05-following-a-peer.png'));
+  } finally {
+    await guest.disconnect();
+  }
+
+  // The pill under a held hover, and what a pointer could read off it: the room key must not be
+  // readable from any of it.
+  await page.send('DOM.enable');
+  await page.send('CSS.enable');
+  const { root } = await page.send('DOM.getDocument');
+  const { nodeId } = await page.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#share-group' });
+  await page.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] });
+  facts.pillUnderHover = await page.evaluate(`(() => {
+    const field = document.getElementById('share');
+    const style = getComputedStyle(field);
+    return {
+      value: field.value,
+      title: field.getAttribute('title'),
+      attributes: [...field.attributes].map((attribute) => attribute.name),
+      color: style.color,
+      textShadow: style.textShadow,
+    };
+  })()`);
+  await delay(250);
+  log('wrote', await record(written, page, '06-pill-under-hover.png'));
+  await page.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
+  log('the pill under a held hover:', JSON.stringify(facts.pillUnderHover));
+
+  // The sidebar, mid-drag: the separator is pressed and the pointer has moved 80 px right, which is
+  // the state the highlight and the col-resize cursor belong to.
+  const separator = await page.evaluate(`(() => {
+    const box = document.getElementById('side-resizer').getBoundingClientRect();
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(window.innerHeight / 2) };
+  })()`);
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: separator.x, y: separator.y });
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: separator.x,
+    y: separator.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: separator.x + 80,
+    y: separator.y,
+    button: 'left',
+  });
+  await delay(300);
+  facts.sidebarMidDrag = await page.evaluate(`(() => {
+    const side = document.getElementById('side');
+    const separator = document.getElementById('side-resizer');
+    return {
+      width: Math.round(side.getBoundingClientRect().width),
+      dragging: separator.dataset.dragging ?? null,
+      valuenow: separator.getAttribute('aria-valuenow'),
+      cursor: getComputedStyle(separator).cursor,
+      stored: window.localStorage.getItem('selvage.sidebar'),
+    };
+  })()`);
+  log('the sidebar mid-drag:', JSON.stringify(facts.sidebarMidDrag));
+  log('wrote', await record(written, page, '10-sidebar-mid-drag.png'));
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: separator.x + 80,
+    y: separator.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await delay(200);
+  facts.sidebarAfterDrag = await page.evaluate(`(() => {
+    const separator = document.getElementById('side-resizer');
+    return {
+      width: Math.round(document.getElementById('side').getBoundingClientRect().width),
+      valuenow: separator.getAttribute('aria-valuenow'),
+      valuetext: separator.getAttribute('aria-valuetext'),
+    };
+  })()`);
+  log('the sidebar after the drag:', JSON.stringify(facts.sidebarAfterDrag));
+  return { facts, invite };
+}
+
+/** The touch shots, in the touch browser: the phone's layout, and a guest fetching a file to save. */
+async function reviewTouch(page, server, invite, written, ...hostPages) {
+  const facts = {};
+  if (FOOTER) {
+    // The finding this stands for: the reviewer's phone shot of a guest card, with the notice the
+    // demo appends under the page. A whole invite that names no room shows the card without joining.
+    const key = encodeKey(new Uint8Array(32).fill(9));
+    await page.setViewport(PHONE, { touch: true });
+    await page.navigate(`${server.origin}/?room=r-1&token=tok#k=${key}&h=${key}`);
     await waitFor(
       page,
-      'the rename field and its two controls',
-      `[document.querySelectorAll('#roster .rename').length, document.querySelectorAll('#roster .rename-save').length, document.querySelectorAll('#roster .rename-cancel').length].join(',')`,
-      (counts) => counts === '1,1,1',
+      'the guest card',
+      `document.getElementById('join-heading')?.hidden === false`,
+      (shown) => shown === true,
     );
-    await delay(300);
-    const renameShot = await page.shot('04-rename-field-open.png');
-    log('wrote', renameShot);
-    await page.evaluate(`(() => { document.querySelector('#roster .rename-cancel')?.click(); return true; })()`);
-    await delay(200);
+    await delay(400);
+    facts.prejoin = await page.evaluate(PREJOIN);
+    log('pre-join phone with the demo footer:', JSON.stringify(facts.prejoin));
+    log('wrote', await record(written, page, '03-prejoin-phone-with-footer.png'));
+  }
 
-    // A second peer, the shape a guest has: the room's own link, the real engine, and one caret
-    // in the file the page has open. It is what a follow follows, and the page's own follow bar
-    // is the surface the status strip no longer repeats.
-    const invite = await page.evaluate(`document.getElementById('share').title`);
-    const guest = await PeerEngine.join({
-      invite,
-      displayName: 'Bob',
-      webSocketFactory: nativeWebSocketFactory,
+  // The guest itself: the invite the host page copied, opened on a touch device. The panel is shut
+  // there and the strip is the only thing on screen that says which file is open.
+  await page.setViewport(PHONE, { touch: true });
+  await page.navigate(invite);
+  // A guest's own act, made the way a guest makes it: an invite in the address bar opens the invite
+  // path, and the name and Join are still the person's.
+  await waitFor(
+    page,
+    'the join card with the invite in the address bar',
+    `(() => { const b = document.getElementById('join-button'); return b === null ? null : b.hidden === false; })()`,
+    (offered) => offered === true,
+  );
+  await page.evaluate(`(() => {
+    const name = document.getElementById('name');
+    name.value = 'Guest';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('join-button').click();
+    return true;
+  })()`);
+  await waitFor(
+    page,
+    'the guest to be seated',
+    `(() => { const bar = document.getElementById('session'); return bar === null ? null : !bar.hidden; })()`,
+    (seated) => seated === true,
+  );
+  await waitFor(
+    page,
+    'the shared files',
+    `document.querySelectorAll('#tree button.row').length`,
+    (rows) => rows > 0,
+  );
+  await delay(500);
+  facts.settled = await page.evaluate(GUEST_ROWS);
+  log('the guest, at rest:', JSON.stringify(facts.settled));
+  log('wrote', await record(written, page, '02-in-room-phone.png'));
+
+  // Every directory open, so the row the fetch is about is on screen: a note inside a collapsed
+  // folder is a note nobody can see.
+  await page.evaluate(`(() => {
+    for (const details of document.querySelectorAll('#tree details')) {
+      if (details.open === false) details.querySelector('summary').click();
+    }
+    return true;
+  })()`);
+  await delay(300);
+
+  // A file whose text has not been fetched, saved from its own row. The row's action is visible
+  // without hover — the whole point — and the fetch is what opens the file for everyone.
+  const target = await page.evaluate(`(() => {
+    const row = [...document.querySelectorAll('#tree button.row')].find((candidate) => {
+      const button = candidate.querySelector('.download');
+      return button !== null && candidate.querySelector('.in-room') === null;
     });
-    try {
-      guest.setSelection(openedPath, { anchor: 0, head: 3 });
-      await waitFor(
-        page,
-        'the second peer in the roster',
-        `[...document.querySelectorAll('#roster li')].some((row) => /Bob/.test(row.textContent ?? ''))`,
-        (there) => there === true,
-      );
-      await page.evaluate(`(() => {
-        const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-        const button = [...row.querySelectorAll('button')].find((candidate) => /Follow/.test(candidate.textContent ?? ''));
-        button.click();
-        return button.textContent;
-      })()`);
-      const followed = await waitFor(
-        page,
-        'the follow banner',
-        `(() => {
-          const banner = document.getElementById('follow-banner');
-          return { hidden: banner === null ? null : banner.hidden, text: banner?.textContent ?? '', note: document.getElementById('session-note')?.textContent ?? '' };
-        })()`,
-        (state) => state.hidden === false && /Bob/.test(state.text),
-      );
-      log('following:', JSON.stringify(followed));
-      await delay(400);
-      const followShot = await page.shot('05-following-a-peer.png');
-      log('wrote', followShot);
-    } finally {
-      await guest.disconnect();
-    }
+    if (row === undefined) return null;
+    const button = row.querySelector('.download');
+    const label = button.getAttribute('aria-label');
+    button.click();
+    return label;
+  })()`);
+  facts.downloadTarget = target;
+  log('a file with no text here, saved from its row:', JSON.stringify(target));
+  await waitFor(
+    page,
+    'the row to say what the fetch costs',
+    ROW_NOTE,
+    (note) => note !== null && /Fetching opens/.test(note),
+  );
+  facts.fetchNote = await page.evaluate(ROW_NOTE);
+  facts.fetchBusy = await page.evaluate(
+    `document.querySelector('#tree .row-actions.busy')?.getAttribute('aria-label') ?? null`,
+  );
+  log('the fetch, in the row it is about:', JSON.stringify(facts.fetchNote), facts.fetchBusy);
+  log('wrote', await record(written, page, '11-download-unfetched-phone.png'));
 
-    // The pill under a held hover: the room key must stay blurred, because it belongs on the
-    // clipboard rather than on a screen. The forced pseudo-state is the browser's own, so what
-    // is measured is what a pointer would paint.
-    await page.send('DOM.enable');
-    await page.send('CSS.enable');
-    const { root } = await page.send('DOM.getDocument');
-    const { nodeId } = await page.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#share-group' });
-    await page.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] });
-    const held = await page.evaluate(`(() => {
-      const field = document.getElementById('share');
-      const style = getComputedStyle(field);
-      return { color: style.color, textShadow: style.textShadow, value: field.value };
-    })()`);
+  // Where it ended. The row gains `●` when the text lands — the fetch is what put it in the room —
+  // and a fetch the host did not answer says so and offers the person the choice, including trying
+  // again, which is the page's own answer to a host that was slow the first time.
+  const landed = async () =>
+    (await page.evaluate(GUEST_ROWS)).rows.some(
+      (row) => row.inRoom === true && /main[.]ts/.test(row.text),
+    );
+  let outcome = { landed: false, note: null };
+  for (let tick = 0; tick < 80 && !outcome.landed; tick += 1) {
+    outcome = { landed: await landed(), note: await page.evaluate(ROW_NOTE) };
+    if (outcome.note !== null && /still empty/.test(outcome.note)) break;
     await delay(250);
-    const holdShot = await page.shot('06-pill-under-hover.png');
-    await page.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
-    log('the pill under a held hover (color, text-shadow):', JSON.stringify(held));
-    log('wrote', holdShot);
-
-    // The phone: the same room at 390x844 with touch emulation, and the panel opened so the
-    // create-file row, the roster and the tree are in the shot rather than behind the disclosure.
-    await page.setViewport(PHONE, { touch: true });
+  }
+  facts.fetchOutcome = outcome;
+  if (!outcome.landed) {
+    // The row's own answer to a fetch that did not land, and the design's: not a bare failure, but a
+    // sentence and three things a person can do about it.
+    facts.fetchRetried = true;
+    log('the first fetch did not land; trying again, which is what the row itself offers');
     await page.evaluate(`(() => {
-      const toggle = document.getElementById('panel-toggle');
-      if (toggle !== null && toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
-      return document.getElementById('panel-toggle')?.getAttribute('aria-expanded');
+      const button = [...document.querySelectorAll('#tree .row-note button')].find((candidate) => /Try again/.test(candidate.textContent ?? ''));
+      button?.click();
+      return true;
     })()`);
-    await delay(600);
-    const phone = await page.shot('02-in-room-phone.png');
-    const phoneFacts = await page.evaluate(CHROME);
-    log('phone chrome:', JSON.stringify(phoneFacts));
-
-    const facts = { desktop: desktopFacts, phone: phoneFacts, footer: FOOTER };
-    writeFileSync(resolve(OUT, 'facts.json'), `${JSON.stringify(facts, null, 2)}\n`);
-    log('wrote', desktop);
-    log('wrote', phone);
-    log('wrote', resolve(OUT, 'facts.json'));
-    if (FOOTER) {
-      log(
-        'the demo footer:',
-        JSON.stringify(phoneFacts.footer),
-        'terms link in the viewport:',
-        phoneFacts.termsLinkInViewport,
-      );
+    for (let tick = 0; tick < 80 && !outcome.landed; tick += 1) {
+      outcome = { landed: await landed(), note: await page.evaluate(ROW_NOTE) };
+      if (outcome.note !== null && /still empty/.test(outcome.note)) break;
+      await delay(250);
     }
+    facts.fetchOutcome = outcome;
+  }
+  facts.afterFetch = await page.evaluate(GUEST_ROWS);
+  log('the guest, after the fetch:', JSON.stringify({ landed: outcome.landed, ...facts.afterFetch }));
+  if (!outcome.landed) {
+    // Not a failure of the driver: this is the state a person meets when the host does not answer,
+    // and it is worth photographing for that reason alone. What the host's own page thought of the
+    // guest's hold is recorded beside it, because that is the evidence for why the text never came.
+    facts.fetchNeverLanded = true;
+    log(
+      'the fetch did not land; the room still reads:',
+      JSON.stringify(facts.afterFetch.rows),
+      'and the host page read:',
+      JSON.stringify(await arguments[4].evaluate(
+        `[...document.querySelectorAll('#tree button.row')].map((row) => (row.textContent ?? '').trim() + (row.querySelector('.in-room') === null ? '' : '[text in the room]'))`,
+      )),
+    );
+  }
+  // The panel is where the row's own line lives, and opening README.md shut it: a shot of a row has
+  // to be a shot of the panel.
+  await page.evaluate(`(() => {
+    if (document.getElementById('side').hidden) document.getElementById('panel-toggle').click();
+    for (const details of document.querySelectorAll('#tree details')) {
+      if (details.open === false) details.querySelector('summary').click();
+    }
+    return true;
+  })()`);
+  await delay(500);
+  log('wrote', await record(written, page, '12-download-not-answered-phone.png'));
+  return facts;
+}
+
+/** Takes one shot and records the name, in the order the shots were taken. */
+async function record(written, page, name) {
+  written.push(name);
+  return page.shot(name);
+}
+
+async function main() {
+  mkdirSync(OUT, { recursive: true });
+  const server = await startServer();
+  const written = [];
+  const facts = { footer: FOOTER, shots: written, console: [] };
+  log('serving', server.origin, FOOTER ? 'with the demo footer' : 'without a footer');
+  const mouse = await launchChromium({ pointer: 'mouse' });
+  let invite;
+  try {
+    await mouse.setViewport(DESKTOP);
+    const desktop = await reviewDesktop(mouse, server, written);
+    facts.desktop = desktop.facts;
+    invite = desktop.invite;
   } finally {
-    await page.stop();
+    facts.console.push(...mouse.logged.map((line) => `desktop ${line}`));
+  }
+  const touch = await launchChromium({ pointer: 'touch' });
+  try {
+    facts.phone = await reviewTouch(touch, server, invite, written, mouse);
+  } finally {
+    facts.console.push(...touch.logged.map((line) => `phone ${line}`));
+    await touch.stop();
+    await mouse.stop();
     server.stop();
+  }
+  writeFileSync(resolve(OUT, 'facts.json'), `${JSON.stringify(facts, null, 2)}\n`);
+  log('wrote', resolve(OUT, 'facts.json'));
+  log('console and page errors:', facts.console.length === 0 ? 'none' : JSON.stringify(facts.console));
+  if (FOOTER) {
+    log(
+      'the demo footer:',
+      JSON.stringify(facts.phone.prejoin?.footer),
+      'terms link in the viewport:',
+      facts.phone.prejoin?.termsLinkInViewport,
+    );
   }
 }
 

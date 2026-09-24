@@ -232,16 +232,27 @@ check(
   !sentences().some((text) => text.startsWith('open:')),
 );
 
-// Follow re-lands announce who and where.
+// A follow re-land raises the indicator whose segment the file strip draws, and says no sentence:
+// the strip carries who is followed and the buffer carries where, so a status line would be the
+// same fact in a second place (the page's notice policy).
 await binding.follow(hostPeerId);
+check('the follow raises the indicator', binding.following()?.peerId === hostPeerId);
 hostEngine.setSelection(NOTES, { anchor: 0, head: 3 });
 await waitFor(
-  'follow re-land sentence',
-  () => (sentences().includes(`Following flow2-host in ${NOTES}`) ? true : undefined),
+  'the follow re-land',
+  () => (binding.currentPath() === NOTES ? true : undefined),
   10_000,
 );
 check('follow re-land agrees with the editor', binding.currentPath() === NOTES);
+check(
+  'a follow re-land says nothing in the status line',
+  !sentences().some((text) => text.includes('Following')),
+);
 binding.stopFollowing();
+check(
+  'stopping the follow takes the indicator down',
+  binding.following() === undefined,
+);
 
 // (2) Granted-but-unpublished opens empty and reads unpublished.
 await binding.openDocument(TODO);
