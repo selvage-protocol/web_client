@@ -1,12 +1,12 @@
 /**
  * The card's read of its own origin: three answers, told apart.
  *
- * Two states used to be one. `readMeta` in `main.ts` returned `undefined` for both "this origin
- * answered and was not a Selvage server" and "nothing answered in time", so a `selvaged` whose
- * `/meta` took longer than the deadline was reported to a person as a page "not served by a
- * Selvage server", with the host action withdrawn for the life of the load. This file pins the
- * two facts apart: a response that arrived is an answer about the server whatever it was, and a
- * deadline that passed is not.
+ * Two states used to be one. The page's one best-effort `/meta` read returned `undefined` for both
+ * "this origin answered and was not a Selvage server" and "nothing answered in time", so a
+ * `selvaged` whose `/meta` took longer than the deadline was reported to a person as a page "not
+ * served by a Selvage server", with the host action withdrawn for the life of the load. This file
+ * pins the two facts apart: a response that arrived is an answer about the server whatever it was,
+ * and a deadline that passed is not.
  *
  * The doubles are the fetch the engine is handed (`fetchMeta`'s own seam), so what is exercised
  * is this module's reading of a real response object rather than a stub of its own shape.
@@ -20,7 +20,7 @@ import { isSelvageMeta, readServerMeta } from '../src/browser/meta-read.ts';
 /** What a real `selvaged` answers, as `PROTOCOL.md` §2 defines it. */
 const REAL_META = {
   server: 'selvaged/0.3.1',
-  wire_versions: ['selvage/1', 'selvage/2'],
+  wire_versions: ['selvage/2'],
   capabilities: ['y-protocols/1', 'awareness', 'open-document-set', 'host-reclaim'],
   keepalive: {
     ping_interval_ms: 30000,
@@ -111,12 +111,12 @@ describe('what a /meta body has to be to be a Selvage server', () => {
     }
   });
 
-  it('takes a server that seats no version-1 wire, which is a Selvage server without `roles`', () => {
-    // §2: `roles` is the one member a `selvage/2`-only server has nothing to put in, and the
-    // member leaves the body with that version — so requiring it would refuse a real server.
-    const { roles, ...sealedOnly } = REAL_META;
+  it('takes a body that writes no `roles`, which is the member this reading does not require', () => {
+    // The recognition is the body `§2` defines, and `roles` is not one of its required members:
+    // a body without it is a Selvage server, and requiring it would refuse a real one.
+    const { roles, ...withoutRoles } = REAL_META;
     assert.deepEqual(roles, ['host', 'guest']);
-    assert.equal(isSelvageMeta({ ...sealedOnly, wire_versions: ['selvage/2'] }), true);
+    assert.equal(isSelvageMeta(withoutRoles), true);
   });
 });
 
