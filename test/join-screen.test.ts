@@ -268,7 +268,6 @@ describe('join failures in plain words', () => {
     ['bad room refusal', new ProtocolError(errCode.roomUnknown, 'room_unknown')],
     ['bad token refusal', new ProtocolError(errCode.tokenInvalid, 'token_invalid')],
     ['closed room refusal', new ProtocolError(errCode.roomGone, 'the room is gone')],
-    ['version refusal', new ProtocolError(errCode.unsupportedVersion, 'selvage/0 speaks')],
     ['hello with no answer', new ProtocolError(errCode.helloRequired, 'the server did not answer session.hello in time')],
     ['abandoned attempt', new Error('the connection attempt was abandoned')],
     ['unusable server address', new TypeError("Failed to construct 'WebSocket': The URL 'junk' is invalid.")],

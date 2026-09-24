@@ -51,8 +51,6 @@ export function describeJoinError(error: unknown, _base?: string): string {
         return 'The session already ended. Ask the host for a fresh link and retry.';
       case errCode.hostPresent:
         return 'The session already has its host. Ask the host for a guest link and retry.';
-      case errCode.unsupportedVersion:
-        return 'The page and the session disagree. Reload the page and retry.';
       case errCode.helloRequired:
         return 'Got no answer. Check the link and retry.';
       default:
@@ -71,8 +69,6 @@ export function describeJoinError(error: unknown, _base?: string): string {
         return 'The session already ended. Ask the host for a fresh link and retry.';
       case close.hostPresent:
         return 'The session already has its host. Ask the host for a guest link and retry.';
-      case close.unsupportedVersion:
-        return 'The page and the session disagree. Reload the page and retry.';
       case close.protocolError:
         return 'The join was refused. Check the link and retry.';
       default:
