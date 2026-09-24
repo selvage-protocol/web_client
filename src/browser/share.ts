@@ -178,6 +178,19 @@ export function fitReadout(readout: { size: number }, shown: string): void {
 const READOUT_SIZE_SLACK = 1.15;
 
 /**
+ * What the bar's readout carries at rest: a fixed run of bullets.
+ *
+ * The readout is a preview of a secret, and a preview of a secret is a leak — a screen share, a
+ * screenshot or someone standing behind the guest defeats any mask that is still made of the
+ * link's own characters. Blurring the value was the attempt before this one and it was not enough:
+ * a real reviewer read `?room=…&token=…` straight through it. So nothing legible is in the field to
+ * begin with, the run is a fixed length so the pill's width leaks nothing either, and the link
+ * becomes readable in exactly one place — the clipboard-less fallback, where the field is focused
+ * and selected for a person to copy by hand (`hand-copy.ts`).
+ */
+export const SHARE_MASK = '••••••••••••••••';
+
+/**
  * Keeps a room/token join across reloads. After joining, the address bar is
  * replaced with the room's own page link, so a reload rejoins from the address
  * bar instead of losing what was typed. `replaceState` refuses another origin,

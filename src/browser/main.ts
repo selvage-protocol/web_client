@@ -8,8 +8,8 @@ import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant, StatusTopic } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import {
+  SHARE_MASK,
   buildShareLink,
-  displayShareLink,
   fitReadout,
   forgetJoinUrl,
   pageQueryParams,
@@ -336,11 +336,12 @@ let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
 /** What the editor was created with on this device, to return to under a pointer. */
 let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
-/** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
+/**
+ * The full guest link. It reaches the clipboard whole and nothing else: not the readout's value at
+ * rest, not a `title`, not any attribute. What the bar carries is `SHARE_MASK` — a fixed run of
+ * bullets that says "there is a key here, take it with the control" and shows none of it.
+ */
 let fullShareLink = '';
-/** The abbreviation the bar carries at rest, kept apart from the field's own value because
- * the clipboard-less fallback fields the whole link there and may leave it. */
-let shareDisplay = '';
 /** The server the last join attempt reached for, for the unreachable-server copy. */
 let lastBase = '';
 /** The joined display name, for the roster's self row. */
@@ -620,12 +621,10 @@ async function seatSession(seat: Seat): Promise<void> {
   republishGrant = seat.republish;
   newEntry.show(seat.folder !== undefined);
   fullShareLink = seat.shareLink;
-  // The bar shows the link with the page's own origin dropped and its long parts shortened,
-  // and sized to what it shows; the title and the clipboard below keep the full bytes.
-  shareDisplay = displayShareLink(fullShareLink, window.location.origin);
-  shareInput.value = shareDisplay;
-  fitReadout(shareInput, shareDisplay);
-  shareInput.title = fullShareLink;
+  // The readout carries the mask and nothing of the link, at a fixed size so the pill's width says
+  // nothing about the link's length either. The clipboard is the one place the whole link goes.
+  shareInput.value = SHARE_MASK;
+  fitReadout(shareInput, SHARE_MASK);
   joinMessage.hidden = true;
   joinPane.hidden = true;
   previewPane.hidden = true;
@@ -972,39 +971,37 @@ leaveButton.addEventListener('click', () => {
 });
 
 async function copyShareLink(): Promise<void> {
-  // Every attempt starts from the bar's rest state: a fallback that failed may have
-  // left the whole link in the readout, and the abbreviation is what belongs there
-  // once a copy — by either route — has worked. On a narrow bar this is also what
-  // puts the readout back behind its label.
+  // Every attempt starts from the bar's rest state: a fallback that failed has the whole link in
+  // the readout for a person to copy by hand, and the mask is what belongs there once a copy — by
+  // either route — has worked. On a narrow bar this is also what puts the readout back behind its
+  // label.
   shareGroup.classList.remove('hand-copy');
-  showDisplay({ readout: shareInput, shown: shareDisplay, fit: (value) => fitReadout(shareInput, value) });
+  showDisplay({ readout: shareInput, shown: SHARE_MASK, fit: (value) => fitReadout(shareInput, value) });
   try {
     if (navigator.clipboard === undefined) {
       throw new Error('no clipboard');
     }
     await navigator.clipboard.writeText(fullShareLink);
   } catch {
-    // The fallback copies from the field, so it fields the whole link while the
-    // browser's own copy command runs, and the abbreviated display comes back once
-    // that worked. A copy that failed leaves the whole link where the person can
-    // select it: the abbreviation is a paint, and what it would leave behind is a
-    // link no room answers.
+    // The fallback copies from the field, so it puts the whole link there for the browser's own
+    // copy command and hands the mask back once that worked. Only a copy that failed leaves the
+    // link in the field, and that is the one place it is legible by design: there is nothing else
+    // left for the person to select. `hand-copy` is what makes it readable there, and what reveals
+    // it on a bar narrow enough to hide the readout.
+    shareGroup.classList.add('hand-copy');
     shareInput.focus();
     const done = handCopy({
       readout: shareInput,
       full: fullShareLink,
-      shown: shareDisplay,
+      shown: SHARE_MASK,
       exec: () => document.execCommand('copy'),
       fit: (value) => fitReadout(shareInput, value),
     });
     if (!done) {
-      // The bar hides the readout on a narrow screen, where the label stands in
-      // for it; a copy that failed needs the field itself, because that is the
-      // only thing the person has left to select.
-      shareGroup.classList.add('hand-copy');
       failureAlert.show('Select the link and copy it by hand.');
       return;
     }
+    shareGroup.classList.remove('hand-copy');
   }
   // The bar's brief morph is the whole confirmation: nothing is announced.
   shareBox.confirm();
@@ -1239,10 +1236,8 @@ function leaveSession(sentence: string): void {
   tree = undefined;
   openDirs.clear();
   fullShareLink = '';
-  shareDisplay = '';
   shareGroup.classList.remove('hand-copy');
   shareInput.value = '';
-  shareInput.title = '';
   rosterList.replaceChildren();
   treePane.replaceChildren();
   followBanner.replaceChildren();

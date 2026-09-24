@@ -312,13 +312,16 @@ describe('the invite link', () => {
     assert.ok(shown.length < full.length, 'the display is as long as the credential');
   });
 
-  it('leaves a short link whole and keeps the whole bytes as title and clipboard', () => {
+  it('leaves a short link whole to the display rule, and puts the bytes on the clipboard alone', () => {
     assert.equal(
       displayShareLink('https://edit.example/?room=r-1&token=tok'),
       'https://edit.example/?room=r-1&token=tok',
     );
+    // The readout itself carries bullets and no attribute holds the link (the room key must not be
+    // readable off a screen); the clipboard is the one channel the whole link travels on.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(main.includes('shareInput.title = fullShareLink'), 'the title lost the whole link');
+    assert.ok(main.includes('shareInput.value = SHARE_MASK'), 'the readout is not the mask');
+    assert.ok(!main.includes('shareInput.title'), 'the room key is back in the readout’s title');
     assert.ok(
       main.includes('navigator.clipboard.writeText(fullShareLink)'),
       'the clipboard lost the whole link',

@@ -127,19 +127,25 @@
          the icon take: without it the field's automatic minimum size is its content, so
          the value it could not shrink was painted past the pill's right edge — measured
          in Chromium at 1024 px, 139 px of it with the label beside it. What is left
-         clips instead, which is the case this bound is for: the head stays, and the
-         title and the clipboard carry the whole. */
-      /* **Blurred in every state.** The link *is* the room key, and a key belongs on the
-         clipboard, not on a screen: a screen-share, a screenshot or someone standing behind the
-         guest defeats any state that revealed it, so hover, focus, focus-visible and active all
-         keep `color: transparent` and the blur's `text-shadow`. The words beside it are the
-         affordance — what the control does is *Copy invite link* — and the whole link is one
-         press away on the clipboard. The field stays a real readonly input, so the phone's
-         hand-copy fallback can select it, and `title` still carries the whole bytes. */
+         clips instead, which is the case this bound is for: the head stays, and the words
+         beside it carry the whole of what the control does. */
+      /* **The value is bullets, and there is nothing legible to blur.** The link *is* the room
+         key, and a key belongs on the clipboard, not on a screen: a screen-share, a screenshot or
+         someone standing behind the guest defeats any state that revealed it. A blur was the
+         attempt before this one and a real reviewer read the room id and the token straight
+         through it, so the readout's value is `SHARE_MASK` (a fixed run of bullets, so the pill's
+         width leaks nothing either) and neither the field nor the group carries the link in a
+         `title` or any other attribute. The words beside it are the affordance — what the control
+         does is *Copy invite link*. The link becomes readable in exactly one place, the
+         clipboard-less fallback, where `.hand-copy` below turns the blur off and the field is
+         focused and selected for a person to copy by hand. */
       #share { flex: 0 1 auto; width: auto; min-width: 0; max-width: 100%; font-size: 0.85em; padding: 0;
         background: none; border: none; color: transparent;
         field-sizing: content;
         text-shadow: 0 0 5px var(--muted-foreground); }
+      /* The one reveal: a copy the clipboard API refused. The field is a real readonly input, so a
+         person can select what is in it — that is the whole point of the fallback. */
+      #share-group.hand-copy #share { color: var(--foreground); text-shadow: none; }
       #share:focus { border: none; outline: none; }
       #share-group:focus-within { border-color: var(--primary); }
       #share-group, #share-group *, #share-group.copied, #share-group.copied * {
