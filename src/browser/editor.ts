@@ -129,6 +129,8 @@ export class MonacoBinding implements EditorHost {
   private readonly badges = new Map<string, string>();
   private readonly cursors: monaco.editor.IEditorDecorationsCollection;
   private readonly style: HTMLStyleElement;
+  /** The badge rules alone, so a cache restart can drop the rules it no longer names. */
+  private readonly badgeStyle: HTMLStyleElement;
   private readonly stopEngine: () => void;
   private readonly timers: Timers;
   private applying = 0;
@@ -168,6 +170,8 @@ export class MonacoBinding implements EditorHost {
     this.cursors = this.editor.createDecorationsCollection([]);
     this.style = document.createElement('style');
     document.head.appendChild(this.style);
+    this.badgeStyle = document.createElement('style');
+    document.head.appendChild(this.badgeStyle);
     this.bridge = new SessionBridge({ engine: this.engine, host: this });
     // The selection events this binding's own remote apply raises are that apply's echo, and
     // nothing else can fire while it runs — no input is processed inside a synchronous
@@ -328,6 +332,7 @@ export class MonacoBinding implements EditorHost {
     }
     this.models.clear();
     this.style.remove();
+    this.badgeStyle.remove();
   }
 
   // -- roster, grant tree, follow --------------------------------------------
@@ -934,7 +939,8 @@ export class MonacoBinding implements EditorHost {
   /**
    * The glyph-margin badge class for one peer, cached per (initials, colour)
    * so a cursor move never mints a rule. Bounded: a rename loop churns keys,
-   * so past the bound the cache restarts — the next frame repaints it.
+   * so past the bound the cache restarts — the next frame repaints it — and
+   * its rules go with it, so the sheet stays as bounded as the cache.
    */
   private badgeClass(cursor: Pick<Cursor, 'label' | 'colour'>): string {
     const text = initials(cursor.label);
@@ -945,10 +951,11 @@ export class MonacoBinding implements EditorHost {
     }
     if (this.badges.size >= MAX_BADGE_CLASSES) {
       this.badges.clear();
+      this.badgeStyle.textContent = '';
     }
     const className = `selvage-badge-${this.badges.size}`;
     this.badges.set(key, className);
-    this.style.append(`${badgeCss(className, text, cursor.colour)}\n`);
+    this.badgeStyle.append(`${badgeCss(className, text, cursor.colour)}\n`);
     return className;
   }
 }

@@ -234,6 +234,34 @@ describe('the read', () => {
     assert.equal(folder.stampOf('.env'), undefined);
   });
 
+  it('once the folder is listed, serves the listing and nothing past it', async () => {
+    const { folder } = projection(
+      dir({
+        'notes.txt': file('shared\n'),
+        // Names the shared excludes let through, and a listing leaves out for its own reasons.
+        '.env.production': file('SECRET=1'),
+        'binary.png': file('not really a png'),
+      }),
+    );
+    const listing = await folder.list();
+    assert.ok(listing.includes('notes.txt'));
+    assert.ok(!listing.includes('binary.png'));
+    assert.deepEqual(await folder.read('notes.txt'), { kind: 'text', text: 'shared\n' });
+    assert.deepEqual(await folder.read('binary.png'), { kind: 'refused', cause: 'not-granted' });
+    assert.deepEqual(await folder.read('never-listed.txt'), { kind: 'refused', cause: 'not-granted' });
+    assert.equal(folder.stampOf('binary.png'), undefined);
+  });
+
+  it('holds a peer to the latest listing, not the first one', async () => {
+    const tree = dir({ 'a.txt': file('a\n') });
+    const { folder } = projection(tree);
+    await folder.list();
+    tree.children['b.txt'] = file('b\n');
+    assert.deepEqual(await folder.read('b.txt'), { kind: 'refused', cause: 'not-granted' });
+    await folder.list();
+    assert.deepEqual(await folder.read('b.txt'), { kind: 'text', text: 'b\n' });
+  });
+
   it('names what is wrong with the path: missing, not a file, too large, binary', async () => {
     const huge = file('x');
     huge.size = MAX_GRANT_FILE_BYTES + 1;

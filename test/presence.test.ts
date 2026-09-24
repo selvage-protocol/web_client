@@ -137,7 +137,17 @@ describe('onePerLine', () => {
 
 describe('escapeCssContent', () => {
   it('quotes and backslashes cannot break out of the content string', () => {
-    assert.equal(escapeCssContent('a"b\\c'), 'a\\"b\\\\c');
+    assert.equal(escapeCssContent('a"b\\c'), 'a\\22 b\\5c c');
+  });
+
+  it('escapes every line break CSS reads as one, so the string stays terminated', () => {
+    assert.equal(escapeCssContent('a\nb\rc\fd'), 'a\\a b\\d c\\c d');
+    assert.equal(escapeCssContent('\u0000\u007f'), '\\0 \\7f ');
+  });
+
+  it('leaves letters, digits and non-ASCII initials alone', () => {
+    assert.equal(escapeCssContent('Sé'), 'Sé');
+    assert.equal(escapeCssContent('😀'), '😀');
   });
 });
 

@@ -94,9 +94,19 @@ export function onePerLine<T extends { peerId: string }>(
   return chosen;
 }
 
-/** Escapes text for a CSS double-quoted `content` string. */
+/**
+ * Escapes text for a CSS double-quoted `content` string.
+ *
+ * A quote and a backslash would end or bend the string, and a line break of any of the three
+ * CSS reads as one (`\n`, `\r`, `\f`) would leave it unterminated, which drops the rule. Those,
+ * and the other control characters, are written as CSS hex escapes, whose trailing space ends
+ * the escape and is not painted.
+ */
 export function escapeCssContent(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\n\r]/g, ' ');
+  return text.replace(
+    /["\\\u0000-\u001f\u007f]/g,
+    (char) => `\\${char.charCodeAt(0).toString(16)} `,
+  );
 }
 
 /**

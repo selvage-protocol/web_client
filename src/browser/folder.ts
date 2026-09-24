@@ -227,6 +227,17 @@ export async function pickFolder(picker: PickFolder | undefined): Promise<Folder
 export class FolderWorkingCopy implements FolderWork {
   private readonly handle: FolderDirectoryHandle;
   private readonly stamps = new Map<string, number>();
+  /**
+   * The paths the last {@link list} offered the room, or `undefined` before the first walk.
+   *
+   * Once the folder has been listed, a read serves those paths and nothing else. The shared
+   * excludes are a list of names the room must never see, and no such list is complete: a
+   * `.env.production`, a `.netrc` or a file past the walk's budget passes it. The listing is
+   * the set of names the host saw offered, so it is what a peer's request is held to. The
+   * protocol leaves the host free to decline a path (`PROTOCOL.md` §6.3, §12), and a peer's
+   * `doc.open` for a name outside the listing is still carried; it just finds no text here.
+   */
+  private listed: ReadonlySet<string> | undefined;
 
   constructor(handle: FolderDirectoryHandle) {
     this.handle = handle;
@@ -251,7 +262,9 @@ export class FolderWorkingCopy implements FolderWork {
     const paths: string[] = [];
     const budget = { nodes: MAX_FOLDER_NODES };
     await this.walk(this.handle, '', paths, budget);
-    return sortGrant(paths);
+    const sorted = sortGrant(paths);
+    this.listed = new Set(sorted);
+    return sorted;
   }
 
   private async walk(
@@ -315,12 +328,14 @@ export class FolderWorkingCopy implements FolderWork {
 
   /**
    * A file's text, or why the room has none: the path is one a peer named, so the shared
-   * excludes are applied to it before anything is resolved.
+   * excludes are applied to it before anything is resolved, and once the folder has been
+   * listed, a path the listing did not offer is refused the same way.
    *
    * A successful read records the file's stamp, which is what the write guard compares against.
    */
   async read(path: string): Promise<GrantedRead> {
-    if (!isGrantedPath(path, FOLDER_PLATFORM)) {
+    const unlisted = this.listed !== undefined && !this.listed.has(path);
+    if (unlisted || !isGrantedPath(path, FOLDER_PLATFORM)) {
       return { kind: 'refused', cause: 'not-granted' };
     }
     const dir = await this.directoryOf(path);
