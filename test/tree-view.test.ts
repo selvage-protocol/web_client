@@ -466,7 +466,7 @@ describe('the create row', () => {
   });
 
   it('validates as the person types, in the line that carried the instruction', async () => {
-    const { pane, view } = creating();
+    const { pane, view, created } = creating();
     view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
     const commit = withClass(pane, 'new-commit');
@@ -481,7 +481,23 @@ describe('the create row', () => {
     let prevented = 0;
     input.fire('keydown', { key: 'Enter', preventDefault: () => void (prevented += 1) });
     assert.equal(prevented, 1, 'Enter was left to the browser');
-    assert.deepEqual(creating().created, []);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(created, [], 'Enter created something from a name the line had refused');
+  });
+
+  it('creates the name the field holds now, not the one the last check saw', async () => {
+    // The check is debounced, and a commit inside that window has to read the field again: a stale
+    // check would create `notes` where the person had typed `notes.md`, which is a wrong file rather
+    // than a missing one.
+    const { pane, view, created } = creating();
+    view.beginCreate('file', '');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const input = withClass(pane, 'new-name');
+    input.value = 'notes.md';
+    input.fire('input');
+    input.fire('keydown', { key: 'Enter' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(created, [['notes.md', 'file']]);
   });
 
   it('enables the commit and creates the file the field names', async () => {
@@ -601,6 +617,31 @@ describe('the create row', () => {
     assert.deepEqual(names(), ['aaa.md', 'zzz.md', '<the create row>']);
   });
 
+  it('sorts the create row among folders by the name it is given', () => {
+    // A folder row is a `details` whose name lives inside its `summary`: reading only the direct
+    // children left every folder with the same empty name, and a folder draft always landed at the
+    // end of the folder group instead of where its name sorts.
+    const { pane, view } = creating({ listing: ['alpha/x.md', 'zulu/y.md'] });
+    view.beginCreate('directory', '');
+    const input = withClass(pane, 'new-name');
+    input.value = 'mike';
+    input.fire('input');
+    const order = [];
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (child.classList.contains('new-row')) order.push('<the create row>');
+        else if (child.tag === 'details') {
+          const summary = child.children[0];
+          const label = summary === undefined ? undefined : nameIn(summary);
+          if (label !== undefined) order.push(label);
+        }
+        walk(child);
+      }
+    };
+    walk(pane);
+    assert.deepEqual(order, ['alpha', '<the create row>', 'zulu']);
+  });
+
   it('says `Create folder` on the folder variant and hides the slash on the file one', () => {
     const { pane, view } = creating();
     view.beginCreate('file', '');
@@ -702,6 +743,25 @@ describe('a row’s own actions', () => {
     assert.equal(allWithClass(pane, 'row-note').length, 0);
   });
 
+  it('takes down the line it was asked to, not whatever is there now', () => {
+    // A sentence that stands five seconds (what fetching costs) is replaced by an outcome the person
+    // can act on; the timer that clears the first must not carry the second away with it.
+    const { pane, view, calls } = downloadable();
+    view.render();
+    withClass(pane, 'download').fire('click');
+    const feedback = calls[0].feedback;
+    const costs = 'Fetching opens notes.md in the room, so every peer receives it.';
+    feedback.note(costs);
+    feedback.note('notes.md is still empty — the host has not sent its text yet.', [
+      { label: 'Try again', run: () => {} },
+    ]);
+    feedback.clear(costs);
+    assert.equal(allWithClass(pane, 'row-note').length, 1, 'the timer took the outcome with it');
+    assert.match(String(withClass(pane, 'row-note').children[0]), /still empty/);
+    feedback.clear();
+    assert.equal(allWithClass(pane, 'row-note').length, 0);
+  });
+
   it('offers no download for a host’s file the room does not hold', () => {
     // The file is already on the host’s own disk, so there is nothing to fetch: the action is left
     // out rather than shown disabled.
@@ -752,6 +812,20 @@ describe('a row’s own actions', () => {
     assert.equal(menuButton.attributes['aria-expanded'], 'false', 'the trigger stayed expanded');
   });
 });
+
+/** The name a drawn row carries, for the order the create row places itself in. */
+function nameIn(element) {
+  for (const child of element.children) {
+    if (child.classList.contains('label')) {
+      return child.textContent;
+    }
+    const nested = nameIn(child);
+    if (nested !== undefined) {
+      return nested;
+    }
+  }
+  return undefined;
+}
 
 /** Whether any row carries a download control. */
 function allHasDownload(pane) {

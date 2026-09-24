@@ -109,19 +109,20 @@ export async function fetchAndSave(
   }
   const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const polls = options.polls ?? Math.max(1, Math.ceil((options.standMs ?? FETCH_STAND_MS) / POLL_MS));
-  for (let poll = 0; poll < polls && !ports.has(path); poll += 1) {
+  // The wait is for the *text*, not for the receipt, and the two are not the same moment: a room
+  // answers an open by holding an empty document for the path, and the host's copy lands in it a
+  // frame or a second later (the in-room driver measured exactly that). A loop that stopped at the
+  // receipt would call the fetch empty while the text was still on its way.
+  const here = (): boolean => ports.has(path) && ports.text(path) !== '';
+  for (let poll = 0; poll < polls && !here(); poll += 1) {
     await wait(POLL_MS);
   }
-  if (!ports.has(path)) {
-    // Nothing saved: an empty file would be this page's own invention, not the room's answer.
-    return { kind: 'empty', text: '' };
+  if (!here()) {
+    // Nothing saved: an empty file would be this page's own invention, not the room's answer. It is
+    // either still empty because the host has not sent the text, or empty because the file is.
+    return { kind: 'empty', text: ports.has(path) ? ports.text(path) : '' };
   }
   const text = ports.text(path);
-  if (text === '') {
-    // The room answered and the answer is empty. Offered, not assumed: the person asked for the
-    // host's text, and this is not it.
-    return { kind: 'empty', text };
-  }
   ports.save(path, text);
   return { kind: 'saved', text };
 }

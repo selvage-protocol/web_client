@@ -46,6 +46,22 @@ describe('the strip is in the shell, above the editor', () => {
     assert.match(style, /#panel-toggle \{ display: none; \}/, 'the disclosure stands on a pointer device');
   });
 
+  it('carries the disclosure’s own state and name on a phone', () => {
+    // A screen reader user hears a button; it has to say whether the panel is open, and it has to
+    // keep the one fact the strip exists for — which file is in the editor.
+    assert.match(main, /fileStrip\.setAttribute\('aria-expanded'/, 'the disclosure has no state');
+    assert.match(
+      main,
+      /path === undefined \? 'Files and people' : `Files and people, \$\{path\} open`/,
+      'the disclosure’s name throws away the open file',
+    );
+    assert.match(
+      main,
+      /if \(phoneLayout\.matches\) \{\n    fileStrip\.setAttribute\('aria-expanded'/,
+      'the state is set on a device with no disclosure',
+    );
+  });
+
   it('says nothing about which file is open when there is none, and no chips either', () => {
     assert.match(main, /'No file open'/, 'no open file reads as something else');
     assert.match(main, /downloadButton\.disabled = path === undefined/, 'the save control is live with no file');
@@ -106,6 +122,15 @@ describe('the three homes a message can have', () => {
     assert.match(main, /unsavedPaths\.set\(notice\.path, notice\.text\)/, 'a write’s refusal reaches no row');
     assert.match(main, /failureAlert\.show\(notice\.text\)/, 'a failure with no control goes nowhere');
     assert.match(main, /case 'saved':/, 'a write that landed never clears its mark');
+  });
+
+  it('clears the fetch’s own sentence and nothing else', () => {
+    // The cost sentence stands five seconds; an outcome that lands inside that stand replaces it, and
+    // the timer must not carry the outcome and its actions away with it.
+    assert.match(main, /feedback\.clear\(costs\)/, 'the timer clears whatever line is showing');
+    const view = readFileSync(new URL('../src/browser/tree-view.ts', import.meta.url), 'utf8');
+    assert.match(view, /clear\(text\?: string\): void/, 'a clear cannot be told which line it is for');
+    assert.match(view, /note\.textContent \?\? ''\) !== text/, 'a named clear takes any line');
   });
 
   it('a create that landed but was not finished is a marker, not a sentence', () => {

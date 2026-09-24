@@ -47,10 +47,15 @@ function control(hosting: boolean) {
     const element = {
       tag,
       textContent: '',
-      hidden: false,
+      // Hidden to start, as the shell's own `#leave-confirm` is: a panel that begins visible cannot
+      // fail the assertions that say a press raised it.
+      hidden: true,
       focused: false,
       children: [] as unknown[],
+      attributes: {} as Record<string, string>,
       listeners: {} as Record<string, Array<(event: unknown) => void>>,
+      setAttribute: (name: string, value: string) => void (element.attributes[name] = value),
+      getAttribute: (name: string) => element.attributes[name],
       contains: (node: unknown) => node === element || element.children.includes(node),
       appendChild: (node: unknown) => void element.children.push(node),
       focus: () => void (element.focused = true),
@@ -79,9 +84,6 @@ function control(hosting: boolean) {
   const go = make('button');
   // The panel is what holds its own question and the two answers, which is what makes a press on
   // either of them a press inside the panel.
-  panel.append
-    ? undefined
-    : undefined;
   panel.children.push(question, cancel, go);
   const leave = wireLeave({
     hosting: () => hosting,
@@ -121,7 +123,7 @@ describe('the way out of a session', () => {
     const guest = control(false);
     guest.leave.press();
     assert.deepEqual(guest.seen, ['left'], 'a guest’s press asked a question');
-    assert.equal(guest.panel.hidden, false, 'a guest’s press raised a panel');
+    assert.equal(guest.panel.hidden, true, 'a guest’s press raised a panel');
     assert.equal(guest.button.textContent, '', 'the control’s own words changed');
   });
 
@@ -142,9 +144,15 @@ describe('the way out of a session', () => {
   it('leaves on the answer that says so, and on nothing else', () => {
     const host = control(true);
     host.leave.press();
+    assert.equal(host.button.attributes['aria-expanded'], 'true', 'the control does not say it is open');
     host.cancel.fire('click');
     assert.deepEqual(host.seen, [], 'Cancel left the room');
     assert.equal(host.panel.hidden, true, 'Cancel left the question up');
+    assert.equal(
+      host.button.attributes['aria-expanded'],
+      'false',
+      'the control still says it is open after Cancel',
+    );
     assert.equal(host.button.focused, true, 'Cancel dropped focus on the floor');
     host.leave.press();
     host.go.fire('click');
@@ -169,6 +177,20 @@ describe('the way out of a session', () => {
     assert.equal(host.panel.hidden, false, 'a press on the panel’s own answer dismissed it');
     host.outside[0]?.({ target: host.button });
     assert.equal(host.panel.hidden, false, 'a press on the control that asked dismissed it');
+  });
+
+  it('owns the panel state, so a room ending under it leaves the control at rest', () => {
+    // The page calls `close` when the session ends: a question left open with its flag set would make
+    // the next hosted session's first press do nothing visible.
+    const host = control(true);
+    host.leave.press();
+    assert.equal(host.leave.asking(), true);
+    host.leave.close();
+    assert.equal(host.panel.hidden, true);
+    assert.equal(host.button.attributes['aria-expanded'], 'false');
+    assert.equal(host.leave.asking(), false);
+    host.leave.press();
+    assert.equal(host.panel.hidden, false, 'the next press raised nothing');
   });
 
   it('asks no timer: a slow reader’s answer is still there when they get to it', () => {

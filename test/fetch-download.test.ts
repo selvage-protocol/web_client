@@ -26,10 +26,13 @@ import {
 import type { FetchSavePorts } from '../src/browser/fetch-download.ts';
 
 /** A room whose answer arrives after `after` polls, the way a real one does over a socket. */
-function room(text: string, { after = 0, fail }: { after?: number; fail?: string } = {}) {
+function room(
+  text: string,
+  { after = 0, fail, present: startsPresent = false }: { after?: number; fail?: string; present?: boolean } = {},
+) {
   const saved: Array<[string, string]> = [];
   const polls: number[] = [];
-  let present = false;
+  let present = startsPresent;
   let left = after;
   const ports: FetchSavePorts = {
     has: () => present,
@@ -99,6 +102,21 @@ describe('a path whose text has not been fetched', () => {
     assert.equal(arriving.saved.some(([, text]) => text === ''), false, 'an empty file was saved');
     // It really did wait: nothing was saved until the room answered.
     assert.ok(arriving.polls.length >= 3, `the fetch did not wait: ${arriving.polls.length} polls`);
+  });
+
+  it('waits past the receipt for the text the room is still fetching', async () => {
+    // A room answers an open by holding an *empty* document for the path; the host's copy lands in it
+    // a frame or a second later. A loop that stopped at the receipt would call the fetch empty while
+    // the text was on its way — the page then offers an empty file the person did not ask for, or
+    // waits ten seconds for something that was already coming.
+    const arriving = room('fn main() {}\n', { after: 0 });
+    // The document is here at once (the receipt), the text is not.
+    arriving.deliver();
+    const late = room('fn main() {}\n', { after: 3, present: false });
+    const outcome = await fetchAndSave('src/main.rs', late.ports, { wait: late.wait, polls: 10 });
+    assert.deepEqual(outcome, { kind: 'saved', text: 'fn main() {}\n' });
+    assert.deepEqual(late.saved, [['src/main.rs', 'fn main() {}\n']]);
+    assert.equal(arriving.ports.has('x'), true);
   });
 
   it('saves nothing when the room never answers, and says what the text is not', async () => {

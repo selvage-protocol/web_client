@@ -250,6 +250,11 @@ const peek = wireTapPeek(document.getElementById('peek') as HTMLElement, { stand
 function showPanel(open: boolean): void {
   sidePane.hidden = !open;
   panelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  // On a phone the strip is the disclosure, so it is the element that carries the state; on a
+  // pointer device it is a line of text and has no state to carry.
+  if (phoneLayout.matches) {
+    fileStrip.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
 }
 
 panelToggle.addEventListener('click', (event) => {
@@ -277,7 +282,14 @@ fileStrip.addEventListener('click', (event) => {
   showPanel(sidePane.hidden);
 });
 fileStrip.addEventListener('keydown', (event) => {
-  if (!phoneLayout.matches || (event.key !== 'Enter' && event.key !== ' ')) {
+  // The strip is the disclosure only where it *is* the target: a key that bubbled up from a control
+  // inside it — the `☰` button, or the follow segment's Stop — belongs to that control, and
+  // swallowing it here would make the stop unpressable by keyboard.
+  if (
+    !phoneLayout.matches ||
+    event.target !== fileStrip ||
+    (event.key !== 'Enter' && event.key !== ' ')
+  ) {
     return;
   }
   event.preventDefault();
@@ -1075,8 +1087,12 @@ const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
 // bar is hidden until a session is seated, so nothing flashes before the bundle puts it in.
 downloadButton.append(iconSpan('download'));
 downloadButton.addEventListener('click', () => {
+  // The press cannot repeat while the browser's own save is being set up, and the state it had comes
+  // back from the strip rather than from here: `syncStrip` is the one place that decides whether
+  // there is anything to save.
   downloadButton.disabled = true;
   downloadOpen();
+  syncStrip();
 });
 
 /**
@@ -1098,7 +1114,6 @@ const leaveControl = wireLeave({
 });
 leaveButton.addEventListener('click', () => {
   leaveControl.press();
-  leaveButton.setAttribute('aria-expanded', leaveControl.asking() ? 'true' : 'false');
 });
 
 /**
@@ -1108,6 +1123,9 @@ leaveButton.addEventListener('click', () => {
  */
 const sidebar = wireSidebar({
   elements: { side: sidePane, separator: sideResizer, rail: sideRail },
+  // A phone's panel is the full-width disclosure the shell queries for, and its `hidden` belongs to
+  // `showPanel`: a separator that wrote it would reopen the panel on every resize.
+  active: () => !phoneLayout.matches,
   storage: window.localStorage,
   remPx: () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16,
   viewportWidth: () => window.innerWidth,
@@ -1121,18 +1139,26 @@ sidebar.apply();
  * it looks like: a line of text and a few controls, none of them a disclosure.
  */
 function applyStripRole(): void {
-  const toggle = phoneLayout.matches;
-  if (toggle) {
-    fileStrip.setAttribute('role', 'button');
-    fileStrip.setAttribute('tabindex', '0');
-    fileStrip.setAttribute('aria-controls', 'side');
-    fileStrip.setAttribute('aria-label', 'Files and people');
-  } else {
+  if (!phoneLayout.matches) {
     fileStrip.removeAttribute('role');
     fileStrip.removeAttribute('tabindex');
     fileStrip.removeAttribute('aria-controls');
     fileStrip.removeAttribute('aria-label');
+    fileStrip.removeAttribute('aria-expanded');
+    return;
   }
+  fileStrip.setAttribute('role', 'button');
+  fileStrip.setAttribute('tabindex', '0');
+  fileStrip.setAttribute('aria-controls', 'side');
+  fileStrip.setAttribute('aria-expanded', sidePane.hidden ? 'false' : 'true');
+  // The name says the state as well as the act: on this width the strip is also the only thing that
+  // names the file in the editor, so `Files and people` alone would throw away the fact it is there
+  // for.
+  const path = binding?.currentPath();
+  fileStrip.setAttribute(
+    'aria-label',
+    path === undefined ? 'Files and people' : `Files and people, ${path} open`,
+  );
 }
 applyStripRole();
 phoneLayout.addEventListener('change', applyStripRole);
@@ -1391,8 +1417,13 @@ function startDownload(path: string, feedback: RowFeedback): void {
   // name — it is said.
   if (!saidFetchCosts) {
     saidFetchCosts = true;
-    feedback.note(fetchCostsSentence(path));
-    window.setTimeout(() => feedback.clear(), FETCH_COSTS_STAND_MS);
+    const costs = fetchCostsSentence(path);
+    feedback.note(costs);
+    announce(costs);
+    // Cleared by its own words: a fetch that settles inside the stand has replaced this line with
+    // the outcome and its actions, and a timer that cleared whatever was there would take the only
+    // thing the person can act on with it.
+    window.setTimeout(() => feedback.clear(costs), FETCH_COSTS_STAND_MS);
   }
   feedback.busy(fetchingSentence(path));
   const again = { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } };
@@ -1482,6 +1513,10 @@ function downloadOpen(): void {
  */
 function syncFollow(following: Following | undefined, ended?: string): void {
   fileStripFollow.replaceChildren();
+  // The tint belongs to a live follow. The reason a follow ended is not the followed peer's news, and
+  // a segment left in their colour would read as if it still were one.
+  fileStripFollow.style.borderColor = '';
+  fileStripFollow.style.backgroundColor = '';
   if (binding !== undefined) {
     // The toggle mirrors the indicator: a follow ended by typing or by the peer leaving re-renders
     // here, not on the next room event.
@@ -1579,8 +1614,9 @@ function leaveSession(sentence: string): void {
   fileStripPath.textContent = '';
   fileStripChips.replaceChildren();
   fileStripFollow.replaceChildren();
-  leaveConfirm.hidden = true;
-  leaveButton.setAttribute('aria-expanded', 'false');
+  // The question a host was reading goes with the room it was about, and the control that asked it
+  // goes back to rest: one owner for that state, so the next session's first press raises a panel.
+  leaveControl.close();
   sessionNote.hide();
   peek.dismiss();
   sessionBar.hidden = true;
@@ -1675,7 +1711,7 @@ function onNotice(notice: BindingNotice): void {
       // because the set can be exactly what it was before the drop — so either one ends the
       // dropped line a retry put up.
       sessionNote.endDropped();
-      setHealth('ok');
+      setHealth(hostAway ? 'away' : 'ok');
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
       syncGrant();
@@ -1688,7 +1724,6 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'peers':
       sessionNote.endDropped();
-      setHealth('ok');
       if (binding !== undefined) {
         const present = binding.participants();
         // The membership report is the room's own word on who is here, so a
@@ -1698,7 +1733,10 @@ function onNotice(notice: BindingNotice): void {
         // strip is the only place the guest reads it.
         if (hostPresent(present)) {
           sessionNote.endCountdown();
+          hostAway = false;
         }
+        // The dot and the dimming are one fact: green and legible together, red and dimmed together.
+        setHealth(hostAway ? 'away' : 'ok');
         syncRoster(present);
         // The bar's identity names the host's session, which the roster is where the host appears.
         setSessionIdentity();
@@ -1709,8 +1747,9 @@ function onNotice(notice: BindingNotice): void {
     case 'roster':
       if (hostPresent(notice.participants)) {
         sessionNote.endCountdown();
-        setHealth('ok');
+        hostAway = false;
       }
+      setHealth(hostAway ? 'away' : 'ok');
       syncRoster(notice.participants);
       setSessionIdentity();
       // Where someone is reads on the tree, so presence moves re-render it.

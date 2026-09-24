@@ -69,9 +69,11 @@ export function createdFileNotOpenedSentence(path: string, reason: string): stri
  * opened reads empty to every guest. A directory is not: there is nothing to open, and the room
  * learns it when the first file inside it appears.
  *
- * A file's path may carry its own directories (`createDirectories`): an empty folder is in nobody's
- * listing, so typing `docs/intro.md` is how a person puts a folder into the room, and refusing it
- * would be asking for an act the page offers no other way to take.
+ * A typed path may carry its own directories (`createDirectories`), for both kinds: an empty folder is
+ * in nobody's listing, so `docs/intro.md` is how a person puts a folder into the room — and `docs/api`
+ * is how they make one the same way their file explorer's own New Folder does. The row previews what
+ * the commit will make, so the two layers tell one story: a promise the folder then refused would be
+ * the row lying about what it was about to do.
  *
  * The two refusals are the folder's own sentence, returned untouched so the row says what the layer
  * said; a failure thrown by `create` is the layer's own and is left to the caller to word. The steps
@@ -82,9 +84,7 @@ export async function createInFolder(
   path: string,
   entry: NewEntryKind,
 ): Promise<CreateOutcome> {
-  const outcome = await options.folder.create(path, entry, {
-    createDirectories: entry === 'file',
-  });
+  const outcome = await options.folder.create(path, entry, { createDirectories: true });
   if (outcome.kind === 'refused') {
     return outcome;
   }
@@ -223,19 +223,20 @@ export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
 /**
  * Whether the name is already taken, by either kind.
  *
- * A file is taken by a path the listing carries and by a directory this session made; a directory is
- * taken by the same, and by any listed path that goes through it — which is the only way a listing
- * of files can say that a directory exists. The other kind counts in both directions: this page
- * replaces nothing, and a create over a name would be that replacement.
+ * A name is taken by a path the listing carries, by a directory this session made, and by any
+ * listed path that goes through it — which is the only way a listing of files can say that a
+ * directory exists, and it is the same answer for either kind: a file cannot be made where a
+ * directory is, and a directory cannot be made where a file is. This page replaces nothing, and a
+ * create over a name would be that replacement.
  */
 function isTaken(path: string, context: NewEntryContext): boolean {
   if (context.listing.includes(path) || context.localFolders.has(path)) {
     return true;
   }
-  if (context.kind === 'directory') {
-    return context.listing.some((listed) => listed.startsWith(`${path}/`));
-  }
-  return false;
+  // A listing is files, so a directory exists in it only because some path goes through it — and that
+  // is true whichever kind the person is typing. A file named `src` where `src/main.ts` is listed is
+  // taken too: the folder answers `exists` for it, so the row has to say so first.
+  return context.listing.some((listed) => listed.startsWith(`${path}/`));
 }
 
 /** The directory on the way to a path that is a file in the listing, if there is one. */

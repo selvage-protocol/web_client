@@ -73,8 +73,15 @@ export interface RowFeedback {
   idle(): void;
   /** A line under the row, standing until it is replaced or cleared. */
   note(text: string, actions?: readonly { label: string; run: () => void }[]): void;
-  /** Takes the line away. */
-  clear(): void;
+  /**
+   * Takes the line away — that line, when one is named.
+   *
+   * A caller that stands a sentence for a while (`Fetching opens …`, five seconds) has to be able to
+   * take *its own* sentence down: a fetch that settles inside that stand replaces the line with the
+   * outcome and its actions, and a timer that cleared whatever was there would take the only thing
+   * the person can act on with it.
+   */
+  clear(text?: string): void;
 }
 
 export interface TreeViewOptions {
@@ -665,10 +672,13 @@ export class GrantTreeView {
         }
         noteHost()?.appendChild(note);
       },
-      clear: () => {
+      clear: (text) => {
         const note = this.notes.get(path);
+        if (note === undefined || (text !== undefined && (note.textContent ?? '') !== text)) {
+          return;
+        }
         this.notes.delete(path);
-        note?.remove();
+        note.remove();
       },
     };
   }
@@ -809,9 +819,18 @@ export class GrantTreeView {
   }
 
   private async commit(): Promise<void> {
-    const check = this.draftCheck;
     const draft = this.draft;
-    if (check === undefined || draft === undefined || check.path === undefined || this.draftBusy) {
+    if (draft === undefined || this.draftBusy) {
+      return;
+    }
+    // Read for the name in the field *now*, not for the one the last debounced check saw: a name
+    // typed and committed inside the debounce window would otherwise create what was there a moment
+    // ago — or nothing at all.
+    this.cancelPendingCheck();
+    this.draftCheck = this.check();
+    this.applyCheck();
+    const check = this.draftCheck;
+    if (check === undefined || check.path === undefined) {
       // The reason is already on screen: a second refusal sentence for a name the line has just
       // refused would be the same fact twice.
       return;
@@ -971,7 +990,14 @@ function nameSpan(name: string): HTMLSpanElement {
   return span;
 }
 
-/** The name a drawn row carries, for the order the create row places itself in. */
+/**
+ * The name a drawn row carries, for the order the create row places itself in.
+ *
+ * A file row holds its name directly; a directory row is a `<details>` whose name is inside the
+ * `<summary>` it draws, one level down. Reading only the direct children left every folder with the
+ * same empty name, and a folder draft then always landed at the end of the folder group rather than
+ * where its name sorts.
+ */
 function nameOf(row: Element | undefined): string {
   if (row === undefined) {
     return '';
@@ -979,6 +1005,10 @@ function nameOf(row: Element | undefined): string {
   for (const child of row.children) {
     if (child.classList.contains('label')) {
       return child.textContent ?? '';
+    }
+    const nested = nameOf(child);
+    if (nested !== '') {
+      return nested;
     }
   }
   return '';

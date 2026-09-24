@@ -406,6 +406,21 @@ describe('the live checks', () => {
     );
   });
 
+  it('treats a name as taken when a listed path goes through it, whichever kind is typed', () => {
+    // A listing is files, so a directory exists in it only because a path goes through it — and that
+    // is the same answer for a file: `src` cannot be a file where `src/main.ts` is, and the folder
+    // answers `exists` for it, so the row has to say so first.
+    const listing = ['src/main.ts'];
+    assert.equal(
+      checkNewEntry(context({ raw: 'src', kind: 'file', listing })).line,
+      'src is already in the folder. Pick another name.',
+    );
+    assert.equal(
+      checkNewEntry(context({ raw: 'src', kind: 'directory', listing })).line,
+      'src is already in the folder. Pick another name.',
+    );
+  });
+
   it('refuses a path that goes through a file', () => {
     const check = checkNewEntry(context({ raw: 'main.rs/x', listing: ['main.rs'] }));
     assert.equal(check.error, true);
@@ -469,6 +484,22 @@ describe('the create the page runs for the row', () => {
     assert.equal(((app.tree.children['docs'] as DirNode).children['intro.md'] as FileNode).kind, 'file');
     assert.deepEqual(app.published, [['docs/intro.md']]);
     assert.deepEqual(app.opened, ['docs/intro.md']);
+  });
+
+  it('makes the directories a folder path names, the way a file path does', async () => {
+    // The live line promises `Also creates the folders docs/ and docs/api/.`, so the commit has to
+    // make them: a preview the folder then refused would be the row lying about what it was about to
+    // do. A person's file explorer's New Folder accepts a path with separators for the same reason.
+    const app = page(dirOf());
+    const outcome = await createInFolder(
+      { folder: app.folder, publish: async () => {}, open: async () => {} },
+      'docs/api',
+      'directory',
+    );
+    assert.equal(outcome.kind, 'created');
+    const docs = app.tree.children['docs'] as DirNode | undefined;
+    assert.equal(docs?.kind, 'directory');
+    assert.equal((docs?.children['api'] as DirNode | undefined)?.kind, 'directory');
   });
 
   it('refuses a directory through a file the folder holds, at the folder’s own word', async () => {

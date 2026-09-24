@@ -135,6 +135,14 @@ export interface SidebarOptions {
   viewportWidth: () => number;
   /** Re-measures whatever the panel's width just changed (the editor). */
   relayout?: () => void;
+  /**
+   * Whether this device has a panel of its own width at all.
+   *
+   * A phone renders none of this: the panel is a full-width disclosure with its own state, and a
+   * separator that wrote `hidden` there would reopen what the person shut — on a rotation, on the
+   * soft keyboard, on any resize.
+   */
+  active?: () => boolean;
   /** Schedules one frame of work, so a drag re-measures once a frame rather than once an event. */
   frame?: (run: () => void) => unknown;
 }
@@ -163,6 +171,7 @@ export interface Sidebar {
 export function wireSidebar(options: SidebarOptions): Sidebar {
   const { side, separator, rail } = options.elements;
   const frame = options.frame ?? ((run: () => void) => requestAnimationFrame(run));
+  const active = options.active ?? ((): boolean => true);
   const remembered = options.storage === undefined ? undefined : readSidebar(safeRead(options.storage));
   // Read before the workspace paints (the page calls `apply` at load), so the panel does not jump.
   let width = remembered?.width ?? DEFAULT_WIDTH_REM * options.remPx();
@@ -194,6 +203,12 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
   };
 
   const paint = (): void => {
+    if (!active()) {
+      // Nothing of this is the panel's to decide on a device with no separator: the disclosure owns
+      // `hidden`, and there is no width to carry.
+      side.style.width = '';
+      return;
+    }
     const rounded = Math.round(width);
     side.style.width = collapsed ? '' : `${rounded}px`;
     side.hidden = collapsed;
@@ -281,7 +296,13 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
     toggle();
   };
   const onViewportResize = (): void => {
-    // A window narrowed under the panel must not leave it wider than its ceiling.
+    // A window narrowed under the panel must not leave it wider than its ceiling — but a window that
+    // merely resized is not a person asking for the panel back: a shut panel stays shut and stays
+    // remembered as shut.
+    if (collapsed) {
+      paint();
+      return;
+    }
     setWidth(width);
   };
 

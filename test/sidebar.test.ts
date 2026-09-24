@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 
 import {
   COLLAPSE_BELOW_REM,
+  wireSidebar,
   DEFAULT_WIDTH_REM,
   KEY_STEP_LARGE_PX,
   KEY_STEP_PX,
@@ -101,6 +102,92 @@ describe('what is remembered', () => {
     for (const junk of [null, '', 'nonsense', '{}', '{"width":"wide"}', '{"collapsed":true}', '[1,2]', '"x"']) {
       assert.equal(readSidebar(junk), undefined, `${junk} was read as a width`);
     }
+  });
+});
+
+describe('a device with no panel of its own width', () => {
+  /** The smallest element `wireSidebar` touches. */
+  function element(extra = {}) {
+    const node = {
+      style: {},
+      dataset: {},
+      hidden: false,
+      listeners: {},
+      attributes: {},
+      classList: { add: () => {}, remove: () => {} },
+      setAttribute(name, value) {
+        node.attributes[name] = value;
+      },
+      removeAttribute(name) {
+        delete node.attributes[name];
+      },
+      addEventListener(type, run) {
+        (node.listeners[type] ??= []).push(run);
+      },
+      removeEventListener: () => {},
+      ...extra,
+    };
+    return node;
+  }
+
+  it('leaves the panel’s own state to the disclosure it is on a phone', () => {
+    // On a phone the separator is not rendered at all. A separator that wrote `hidden` there reopened
+    // the panel the person shut — on a rotation, on the soft keyboard, on any resize.
+    const views: boolean[] = [];
+    globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+    const side = element();
+    const separator = element();
+    const rail = element();
+    const sidebar = wireSidebar({
+      elements: { side, separator, rail },
+      active: () => false,
+      remPx: () => REM,
+      viewportWidth: () => WIDE,
+      relayout: () => {},
+      frame: (run) => run(),
+    });
+    sidebar.apply();
+    assert.equal(side.hidden, false, 'the separator shut a panel it does not own');
+    assert.equal(side.style.width, '', 'the separator set a width on a device that has none');
+    // It is the disclosure that owns the state, and the separator never writes it.
+    side.hidden = true;
+    sidebar.apply();
+    assert.equal(side.hidden, true, 'the separator reopened the panel');
+    views.push(side.hidden);
+    assert.deepEqual(views, [true]);
+  });
+
+  it('does not reopen a panel the person shut when the window merely resizes', () => {
+    const windowListeners = {};
+    globalThis.window = {
+      addEventListener: (type, run) => void ((windowListeners[type] ??= []).push(run)),
+      removeEventListener: () => {},
+    };
+    const side = element();
+    const separator = element();
+    const rail = element();
+    const storage = new Map();
+    const sidebar = wireSidebar({
+      elements: { side, separator, rail },
+      storage: {
+        getItem: () => null,
+        setItem: (key, value) => void storage.set(key, value),
+      },
+      remPx: () => REM,
+      viewportWidth: () => WIDE,
+      relayout: () => {},
+      frame: (run) => run(),
+    });
+    sidebar.apply();
+    sidebar.toggle();
+    assert.equal(sidebar.collapsed(), true);
+    const shut = storage.get(SIDEBAR_STORAGE_KEY);
+    // A resize: the panel must stay shut, and stay remembered as shut.
+    assert.ok((windowListeners.resize ?? []).length > 0, 'nothing listens for a resize');
+    for (const run of windowListeners.resize) run();
+    assert.equal(sidebar.collapsed(), true, 'a resize reopened the panel');
+    assert.equal(side.hidden, true, 'a resize put the panel back on screen');
+    assert.equal(storage.get(SIDEBAR_STORAGE_KEY), shut, 'the collapsed state left storage');
   });
 });
 

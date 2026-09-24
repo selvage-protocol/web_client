@@ -83,18 +83,33 @@ export function wireLeave(options: LeaveOptions): LeaveControl {
   go.textContent = LEAVE_ASKING_LABEL;
   cancel.textContent = LEAVE_CANCEL_LABEL;
   let open = false;
+  // The shell's own markup starts the panel hidden and the control unexpanded; saying it again here
+  // means the two cannot disagree even if a page omits one of the attributes.
+  button.setAttribute('aria-expanded', 'false');
+  panel.hidden = true;
+
+  /**
+   * Shows the state on the control as well as in the panel, and keeps both here.
+   *
+   * `aria-expanded` is the button's for a screen reader, and it has to move with the same flag the
+   * page's own `open` does — a control that says `expanded` after Cancel, or after a room ended
+   * under it, is a disclosure that lies. Nothing outside this module writes either one.
+   */
+  const show = (expanded: boolean): void => {
+    open = expanded;
+    panel.hidden = !expanded;
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  };
 
   const close = (): void => {
     if (!open) {
       return;
     }
-    open = false;
-    panel.hidden = true;
+    show(false);
   };
 
   const openPanel = (): void => {
-    open = true;
-    panel.hidden = false;
+    show(true);
     // Focus lands on the answer that does not end the room: the destructive one is a second press
     // away, and never the one a stray Return takes.
     cancel.focus?.();
