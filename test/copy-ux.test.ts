@@ -108,27 +108,54 @@ describe('no top-right copy sentence', () => {
 });
 
 describe('link privacy', () => {
-  it('the link is masked at rest and blurred in every state, hover and focus included', () => {
-    // The link *is* the room key: it belongs on the clipboard, not on a screen, so hover,
-    // focus, focus-visible, focus-within and active all leave the readout masked. A
-    // screen-share, a screenshot or someone standing behind the guest would defeat any state
-    // that revealed it. The words beside it are the affordance instead.
+  it('the readout carries bullets, not the link, and the field is a real one for the hand copy', () => {
+    // The link *is* the room key: it belongs on the clipboard, not on a screen. A blur was the
+    // earlier attempt and a reviewer read the room id and the token straight through it, so the
+    // value itself is a fixed run of bullets now (`SHARE_MASK`). The words beside it are the
+    // affordance instead, and the field stays a real readonly input, because the clipboard-less
+    // fallback has to be able to select what is in it.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const style = styleOf(html);
-    assert.ok(/#share\s*\{[^}]*color:\s*transparent/.test(style), 'the link reads in full at rest');
+    assert.ok(/#share\s*\{[^}]*color:\s*transparent/.test(style), 'the readout paints its value plainly');
     const states = /:(?:hover|focus|focus-visible|focus-within|active)\b|\[aria-pressed/;
     let readoutRules = 0;
     for (const [, selector = '', body = ''] of style.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      if (!/#share(?!-)/.test(selector)) continue;
+      if (!/#share(?![\w-])/.test(selector)) continue;
       readoutRules += 1;
       if (!states.test(selector)) continue;
       assert.ok(
         !/color:|text-shadow:|filter:|opacity:|-webkit-text-security/.test(body),
-        `a state reveals the room key: ${selector.trim()} { ${body.trim()} }`,
+        `a hover or focus state reveals the readout: ${selector.trim()} { ${body.trim()} }`,
       );
     }
     // The scan reached the readout's own rules, so a clean result means something.
     assert.ok(readoutRules > 0, 'the scan found no #share rule at all');
+    assert.match(html, /<input id="share" readonly/, 'the readout is no longer a field to select');
+  });
+
+  it('nothing the readout carries names the link outside a copy in progress', () => {
+    // The defect this guard is for was invisible to any style test: the field's `title` held the
+    // whole invite, so resting a pointer on the pill for a second showed the room key in a native
+    // tooltip. The value and every attribute are checked, not the paint.
+    const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const shareTag = /<input id="share"[^>]*>/.exec(html)?.[0] ?? '';
+    assert.ok(shareTag !== '', 'the readout is not in the shell');
+    assert.ok(!/\btitle=/.test(shareTag), 'the readout carries a title in the shell');
+    // The full link is never written to the readout outside the fallback: the only two assignments
+    // to `shareInput.value` on the page are the mask and the empty state a leave leaves behind, and
+    // `shareInput.title` is not assigned at all.
+    const valueWrites = [...main.matchAll(/shareInput\.value\s*=\s*([^;]+);/g)].map(([, rhs]) => rhs.trim());
+    assert.deepEqual(
+      valueWrites.sort(),
+      ['SHARE_MASK', "''"].sort(),
+      'the readout is written something other than the mask',
+    );
+    assert.ok(!main.includes('shareInput.title'), 'the room key is back in the readout’s title');
+    assert.ok(!main.includes('shareInput.setAttribute'), 'the room key rides an attribute of the readout');
+    assert.ok(!/shareGroup\.(?:title|dataset|setAttribute)/.test(main), 'the key rides the pill instead');
+    // And the one reveal is the fallback, whose whole purpose is a person copying by hand.
+    assert.match(main, /shown:\s*SHARE_MASK\b/, 'a copy hands the readout back something else');
   });
 });
 
@@ -152,22 +179,21 @@ describe('abbreviated host', () => {
     assert.ok(shown.length < full.length, 'display equals the full credential');
   });
 
-  it('the page shows the short form with the full link as title and clipboard bytes', () => {
+  it('the page keeps the whole link for the clipboard and shows none of it', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(main.includes('displayShareLink'), 'the bar shows the raw credential');
-    assert.ok(main.includes('shareInput.title'), 'the full link is not kept as the title');
-    assert.ok(main.includes('fullShareLink'), 'the clipboard reads the display text');
+    assert.ok(main.includes('SHARE_MASK'), 'the bar shows the link instead of bullets');
+    assert.ok(main.includes('fullShareLink'), 'the clipboard reads something other than the link');
+    assert.match(main, /clipboard\.writeText\(fullShareLink\)/, 'the clipboard never gets the link');
   });
 
-  it('the clipboard-less fallback is handed the display, not the field’s own value', () => {
-    // The fallback fields the whole link in the readout and may leave it there,
-    // so reading the display back off the field would put a credential on the
-    // bar for good the first time a copy failed.
+  it('the clipboard-less fallback is handed the mask to restore, not the field’s own value', () => {
+    // The fallback fields the whole link in the readout and leaves it there only if the copy
+    // failed, so what comes back afterwards is the mask — never read off the field, which is
+    // holding the link in exactly that case.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(main.includes('handCopy({'), 'the fallback is inlined again');
-    assert.match(main, /shown:\s*shareDisplay\b/, 'the fallback restores whatever the field holds');
-    assert.match(main, /let shareDisplay = ''/, 'nothing keeps the abbreviation the bar shows at rest');
-    assert.match(main, /shareDisplay = displayShareLink\(/, 'the display is never built');
+    assert.match(main, /shown:\s*SHARE_MASK\b/, 'the fallback restores whatever the field holds');
+    assert.match(main, /shareInput\.value = SHARE_MASK/, 'nothing puts the mask in the readout at rest');
   });
 
   it('reveals the readout a narrow bar hides, so the hand copy has something to copy', () => {

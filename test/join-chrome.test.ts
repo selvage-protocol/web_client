@@ -262,17 +262,16 @@ describe('the primary control reads deliberate', () => {
 });
 
 describe('the invite link', () => {
-  it('stays blurred in every state, hover and focus included', () => {
+  it('is masked at rest, and the one reveal is the hand copy', () => {
     // The link *is* the room key, so it belongs on the clipboard rather than on a screen: a
     // screen-share, a screenshot or someone standing behind the guest defeats any state that
-    // revealed it. The readout is masked by `color: transparent` and drawn back only as the
-    // blur's `text-shadow`; the words beside it (`Copy invite link`) are the affordance, and one
-    // press puts the whole link on the clipboard.
+    // revealed it. A blur was the earlier answer and a reviewer read the room id and the token
+    // straight through it, so the value itself is a fixed run of bullets now.
     const base = rule('#share');
     assert.match(base, /color:\s*transparent/, 'the readout is not masked at rest');
     assert.match(base, /text-shadow:\s*0 0 5px/, 'the masked value is not drawn as a blur');
 
-    // Every rule that could put the value back on screen, under any state the page has. A rule
+    // Every rule that could put the value back on screen under a state a pointer can reach. A rule
     // that reveals on `:hover`, `:focus`, `:focus-visible`, `:focus-within`, `:active` or
     // `[aria-pressed]` is the same defect wearing a different selector.
     const states = /:(?:hover|focus|focus-visible|focus-within|active)\b|\[aria-pressed/;
@@ -282,23 +281,35 @@ describe('the invite link', () => {
       const body = match[2] ?? '';
       // The readout itself, not the group it sits in: the pill's border and the copy flash are
       // not the value.
-      if (!/#share(?!-)/.test(selector)) continue;
+      if (!/#share(?![\w-])/.test(selector)) continue;
       if (!states.test(selector)) continue;
       if (/color:|text-shadow:|filter:|opacity:|-webkit-text-security/.test(body)) {
         reveals.push(`${selector} { ${body.trim()} }`);
       }
     }
     assert.deepEqual(reveals, [], `a state puts the room key back on screen: ${reveals.join(' | ')}`);
+
+    // The one rule that does make the value readable is the fallback's, and it is the page's own
+    // answer to a clipboard that refused: the field is focused and selected for a person to copy
+    // by hand, and there is nothing else left for them to use.
+    assert.match(
+      style,
+      /#share-group\.hand-copy #share\s*\{[^}]*color:\s*var\(--foreground\)/,
+      'a refused copy has no way to read the link it asks the person to copy',
+    );
   });
 
   it('honours prefers-reduced-motion', () => {
-    const at = style.indexOf('prefers-reduced-motion');
-    assert.ok(at !== -1, 'no reduced-motion block in the shell');
-    const block = style.slice(at);
-    assert.ok(block.includes('#share-group'), 'the copy control lost its reduced-motion cut');
+    // The block that names the copy control, not the first one in the sheet: the shell now has more
+    // than one reduced-motion cut, and only this one is about the reveal.
+    const blocks = [...style.matchAll(/@media \(prefers-reduced-motion[^{]*\{([\s\S]*?)\n      \}/g)].map(
+      (match) => match[1] ?? '',
+    );
+    const block = blocks.find((candidate) => candidate.includes('#share-group'));
+    assert.ok(block !== undefined, 'the copy control lost its reduced-motion cut');
     assert.match(block, /transition:\s*none/, 'reduced motion is not honoured with a cut');
     // Nothing about the readout changes any more, so there is no reveal to animate at all.
-    assert.ok(!/#share(?!-)/.test(block), 'the readout still declares a reveal animation');
+    assert.ok(!/#share(?![\w-])/.test(block), 'the readout still declares a reveal animation');
   });
 
   it('shortens the room id and the token, not just a long host', () => {
@@ -312,13 +323,16 @@ describe('the invite link', () => {
     assert.ok(shown.length < full.length, 'the display is as long as the credential');
   });
 
-  it('leaves a short link whole and keeps the whole bytes as title and clipboard', () => {
+  it('leaves a short link whole to the display rule, and puts the bytes on the clipboard alone', () => {
     assert.equal(
       displayShareLink('https://edit.example/?room=r-1&token=tok'),
       'https://edit.example/?room=r-1&token=tok',
     );
+    // The readout itself carries bullets and no attribute holds the link (the room key must not be
+    // readable off a screen); the clipboard is the one channel the whole link travels on.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(main.includes('shareInput.title = fullShareLink'), 'the title lost the whole link');
+    assert.ok(main.includes('shareInput.value = SHARE_MASK'), 'the readout is not the mask');
+    assert.ok(!main.includes('shareInput.title'), 'the room key is back in the readout’s title');
     assert.ok(
       main.includes('navigator.clipboard.writeText(fullShareLink)'),
       'the clipboard lost the whole link',
@@ -631,15 +645,19 @@ describe('the message homes', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(
       main,
-      /case 'status':[\s\S]{0,400}?SHOWN_STATUS_TOPICS\.has\(notice\.topic\)[\s\S]{0,120}?sessionNote\.status\(notice\.text\)/,
+      /case 'status':[\s\S]{0,900}?SHOWN_STATUS_TOPICS\.has\(notice\.topic\)[\s\S]{0,120}?sessionNote\.status\(notice\.text\)/,
       'a status notice reaches no line on the page',
     );
     const shown = /SHOWN_STATUS_TOPICS[^=]*=\s*new Set\(\[([^\]]*)\]\)/.exec(main);
     assert.ok(shown !== null, 'the shown-topics set left the page');
     const topics = (shown[1] ?? '').match(/'[a-z]+'/g) ?? [];
-    // The viewer's read-only line has no other surface; a go-to the room could not answer is the
-    // click's only answer; a session error is the room's own word.
+    // A go-to the room could not answer is the click's only answer, and a session error is the
+    // room's own word; both have no other surface yet.
     assert.deepEqual(topics.slice().sort(), ["'error'", "'refusal'", "'role'"].sort());
+    // The role is a state rather than a sentence now: the strip's `Read-only` chip, which stays
+    // while it is true instead of a toast the person had to have caught.
+    assert.match(main, /if \(notice\.topic === 'role'\)/, 'the read-only state reaches no chip');
+    assert.match(main, /readOnly = true/, 'nothing puts the strip into its read-only state');
     for (const dropped of ['follow', 'terminal']) {
       assert.ok(
         !topics.includes(`'${dropped}'`),
@@ -648,7 +666,6 @@ describe('the message homes', () => {
     }
     // The dropped topics still leave the binding: it is the page that stops repeating them.
     const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
-    assert.match(editor, /topic: 'follow'/g, 'the binding stopped raising the follow sentence');
     assert.match(editor, /topic: 'terminal'/g, 'the binding stopped raising the terminal sentence');
   });
 

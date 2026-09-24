@@ -34,7 +34,12 @@ export type BindingNotice =
   | { kind: 'peers'; count: number; names: string[] }
   | { kind: 'roster'; participants: Participant[] }
   | { kind: 'grant'; paths: string[] }
-  | { kind: 'follow'; following: Following | undefined }
+  /**
+   * The follow as it stands. `ended` is the reason a follow the person did *not* stop has just
+   * gone — the follow bar's own words, since the state it described has left the screen and nothing
+   * else says why.
+   */
+  | { kind: 'follow'; following: Following | undefined; ended?: string }
   | { kind: 'roomGone'; reason: string }
   /** The host's socket detached and the grace window is running, in milliseconds. */
   | { kind: 'grace'; graceMs: number }
@@ -51,11 +56,14 @@ export type BindingNotice =
   | { kind: 'status'; text: string; topic: StatusTopic }
   /**
    * Something the person asked for did not happen, and the sentence says why: a write the
-   * stale-file guard refused, or a path this host could not read out of its own folder. It is
-   * an alert rather than a status line — a refusal that scrolled past in the room's own note
-   * would be the silent overwrite the guard exists to prevent.
+   * stale-file guard refused, or a path this host could not read out of its own folder. When the
+   * failure is about one path (`path`), the page marks that path's row with it rather than showing a
+   * sentence that comes and goes while the file on disk stays behind the room; a failure with no
+   * path to sit on is the alert's.
    */
-  | { kind: 'failure'; text: string };
+  | { kind: 'failure'; text: string; path?: string }
+  /** A write to `path` landed, so the mark a refusal left on its row goes. */
+  | { kind: 'saved'; path: string };
 
 /**
  * What a status sentence is about. The binding raises all of them; the page decides which ones it
@@ -411,6 +419,37 @@ export class MonacoBinding implements EditorHost {
     return !this.engine.has(path);
   }
 
+  /**
+   * Whether the room holds this path open, which is what puts a file's text in the room.
+   *
+   * The room's own document set, not this window's holds (`openDocuments`): the tree's `●` answers
+   * *has this file's text left its folder?*, which is a fact about the room and not about the person
+   * looking at it. Both roles receive the same report, so the dot means the same thing on both.
+   */
+  isOpenInRoom(path: string): boolean {
+    return this.engine.documents().includes(path);
+  }
+
+  /** Whether this window holds the path's text, from the room's replica. */
+  hasText(path: string): boolean {
+    return this.engine.has(path);
+  }
+
+  /**
+   * Whether the text this window can show for the path is empty.
+   *
+   * The buffer in front of the editor is what a person sees, so it answers first — a host that has
+   * read a file off its own disk holds text the room has not received yet — and the replica behind
+   * it answers otherwise.
+   */
+  isTextEmpty(path: string): boolean {
+    const model = this.models.get(path);
+    if (model !== undefined && !model.isDisposed()) {
+      return model.getValue() === '';
+    }
+    return this.engine.has(path) && this.engine.text(path) === '';
+  }
+
   /** The immediate children of `directory` in the listing, for one tree level. */
   grantTree(directory = ''): GrantChild[] {
     this.levels ??= grantLevels(this.grantListing());
@@ -548,12 +587,10 @@ export class MonacoBinding implements EditorHost {
       this.editor.revealPositionInCenter({ lineNumber: position.lineNumber, column: position.column });
     }
     this.scheduleSelection();
-    // A follow re-landing says who and where; a go-to landing needs no
-    // words — the tree highlight and the editor buffer already name the
-    // file, and the status line stays for news.
+    // A follow re-landing says who and where: the strip's own segment carries both, so a sentence
+    // here would be the same fact in a second place.
     if (mode === 'follow') {
       this.onNotice({ kind: 'follow', following: this.following() });
-      this.onNotice({ kind: 'status', topic: 'follow', text: `Following ${this.followingName} in ${path}` });
     }
     return 'landed';
   }
@@ -570,14 +607,17 @@ export class MonacoBinding implements EditorHost {
     if (outcome === 'gone' && this.followingPeerId === peerId) {
       const name = this.followingName;
       this.clearFollow();
-      this.onNotice({ kind: 'status', topic: 'follow', text: `${name} left the room, so following stopped` });
+      this.onNotice({ kind: 'follow', following: undefined, ended: `${name} left the room, so following stopped.` });
     }
   }
 
   private localEditEndsFollow(): void {
-    if (this.followingPeerId !== undefined) {
-      this.clearFollow();
+    if (this.followingPeerId === undefined) {
+      return;
     }
+    const name = this.followingName;
+    this.clearFollow();
+    this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} — you moved.` });
   }
 
   private clearFollow(): void {
@@ -682,6 +722,22 @@ export class MonacoBinding implements EditorHost {
     return this.engine.text(path);
   }
 
+  /**
+   * Asks the room for a path's text without putting it in front of the editor.
+   *
+   * This is the engine's own `open`, the same call opening a file makes, and it is the only way a
+   * room sends text: there is no read-only fetch in the protocol, and a second mechanism would be a
+   * second thing to keep true (`§6.3`, `§12`). What it does not do is build a model or change what
+   * the editor shows, so a download of a file the person is not looking at leaves the buffer where
+   * it was.
+   */
+  async requestText(path: string): Promise<void> {
+    if (this.terminalReason !== undefined) {
+      throw new Error(roomGoneMessage(this.terminalReason));
+    }
+    await this.engine.open(path);
+  }
+
   /** The name a sentence says: the room's, or the id when the room left it blank. */
   private displayLabel(peerId: string): string {
     const peer = this.engine.peers().find((candidate) => candidate.peer_id === peerId);
@@ -735,6 +791,7 @@ export class MonacoBinding implements EditorHost {
       // verb-less notice (`write` in the bridge).
       throw new Error(outcome.sentence);
     }
+    this.onNotice({ kind: 'saved', path });
     return true;
   }
 
@@ -872,6 +929,7 @@ export class MonacoBinding implements EditorHost {
         this.onNotice({
           kind: 'failure',
           text: report.message ?? `The room's text could not be written to ${report.path}.`,
+          path: report.path,
         });
         break;
       case 'reconnecting':

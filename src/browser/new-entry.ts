@@ -1,58 +1,34 @@
 /**
- * The control a browser host creates a file or a directory in its picked folder with.
+ * Creating a file or a directory in the folder this window holds.
  *
  * A room's shape is what its host's folder holds, so a fresh room whose folder is empty is a dead
  * end: nothing can be opened, the editor stands read-only in front of nobody, and the tree says the
  * host has shared nothing. The way out is a create, which is a host-side act the folder walk then
- * publishes — so this is the row that asks for the name, and it is offered only to the window that
- * holds the folder.
+ * publishes.
  *
- * The kind comes from the button rather than from the name, because a name cannot say whether
- * `docs` is a file or a directory and a convention that reads a trailing slash as one is a rule the
- * person has to know. The field and its two actions stand together, Enter in the field is the
- * first action (a file, which is what most creates are), and nothing here decides what a name may
- * be: `folder.ts` applies the shared rules and this row shows the sentence it refuses with.
+ * Two halves live here, and they are separate on purpose. This module holds the *rules* — the line
+ * under the field, what a typed name means, and the order the act runs in — as functions over
+ * strings, so the suite can pin every sentence without a browser. The editable row that shows them
+ * is `tree-view.ts`'s, drawn where the entry will appear.
+ *
+ * The rules are the same rules the folder applies, called rather than copied: the grant rule
+ * (`isGrantedPath`), the binary-name rule and the listing all come from the layers that own them,
+ * so a name the row accepts is a name the folder takes. What the row adds is *when* a person is
+ * told: while they type, in the line that already carries the instruction, rather than after a
+ * commit in a second sentence.
  */
 
+import { isBinaryNamedPath, isGrantedPath } from '../bridge/index.ts';
+import { FOLDER_PLATFORM } from './folder.ts';
 import type { FolderCreate, NewEntryKind } from './folder.ts';
-
-/** The row, the name field, its two actions, and the line one of them is answered on. */
-export interface NewEntrySurface {
-  /** The row itself, hidden until the window holding the folder is the one being shown it. */
-  row: HTMLElement;
-  /** Creates a file from the typed name. */
-  file: HTMLButtonElement;
-  /** Creates a directory at the typed name. */
-  folder: HTMLButtonElement;
-  /** The name, or a path inside a directory the tree already shows. */
-  name: HTMLInputElement;
-  /**
-   * The line under the field: the refusal's own sentence, or what a created directory's effect on
-   * the room is. A created file needs none — it opens, which is the answer.
-   */
-  message: HTMLElement;
-}
-
-export interface NewEntryOptions {
-  surface: NewEntrySurface;
-  /**
-   * Makes the entry, publishing the room's listing on the way. Answers with the sentence the row
-   * shows, or `undefined` when the outcome is its own answer (a file that just opened).
-   */
-  create: (path: string, entry: NewEntryKind) => Promise<string | undefined>;
-}
-
-export interface NewEntry {
-  /** Shows or hides the row: only the window that holds the folder has anything to create in. */
-  show(shown: boolean): void;
-  /** Empties the field and the line. */
-  reset(): void;
-  dispose(): void;
-}
 
 /** What a create needs of the folder it makes something in. */
 export interface HostFolder {
-  create(path: string, entry: NewEntryKind): Promise<FolderCreate>;
+  create(
+    path: string,
+    entry: NewEntryKind,
+    options?: { createDirectories?: boolean },
+  ): Promise<FolderCreate>;
   list(): Promise<string[]>;
 }
 
@@ -90,19 +66,25 @@ export function createdFileNotOpenedSentence(path: string, reason: string): stri
  * The whole act, in the order that makes each step true: make it, re-walk, publish, open.
  *
  * A created file is opened because content arrives when a file is opened — a listed path nobody
- * opened reads empty to every guest, which is the page's own unpublished pill. A directory is not:
- * there is nothing to open, and the room learns it when the first file inside it appears.
+ * opened reads empty to every guest. A directory is not: there is nothing to open, and the room
+ * learns it when the first file inside it appears.
  *
- * The two refusals are the folder's own sentence, returned untouched so the row says what the
- * layer said; a failure thrown by `create` is the layer's own and is left to the caller to word.
- * The steps after it are this act's, and each is reported as itself (`CreateOutcome`).
+ * A typed path may carry its own directories (`createDirectories`), for both kinds: an empty folder is
+ * in nobody's listing, so `docs/intro.md` is how a person puts a folder into the room — and `docs/api`
+ * is how they make one the same way their file explorer's own New Folder does. The row previews what
+ * the commit will make, so the two layers tell one story: a promise the folder then refused would be
+ * the row lying about what it was about to do.
+ *
+ * The two refusals are the folder's own sentence, returned untouched so the row says what the layer
+ * said; a failure thrown by `create` is the layer's own and is left to the caller to word. The steps
+ * after it are this act's, and each is reported as itself (`CreateOutcome`).
  */
 export async function createInFolder(
   options: CreateInFolder,
   path: string,
   entry: NewEntryKind,
 ): Promise<CreateOutcome> {
-  const outcome = await options.folder.create(path, entry);
+  const outcome = await options.folder.create(path, entry, { createDirectories: true });
   if (outcome.kind === 'refused') {
     return outcome;
   }
@@ -126,97 +108,181 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** What an empty name is answered with, under the field it is about. */
-export const NEW_ENTRY_NEEDS_A_NAME = 'Name the new file or folder first.';
-
 /**
  * The path a typed name asks for, or `undefined` when it names nothing.
  *
- * Trimmed, and trailing slashes dropped: the button that was pressed is what says which kind this
- * is, so a slash a person writes out of habit is noise rather than information. Everything else is
- * left exactly as typed, and the folder layer's own rule refuses what may not be shared — an
- * absolute path, a `..`, an excluded name — with the sentence that says so.
+ * Trimmed, and trailing slashes dropped: the kind is the button that was pressed, so a slash a
+ * person writes out of habit is noise rather than information. Everything else is left exactly as
+ * typed, and the folder layer's own rule refuses what may not be shared — an absolute path, a `..`,
+ * an excluded name — with the sentence that says so.
  */
 export function newEntryPath(raw: string): string | undefined {
   const path = raw.trim().replace(/\/+$/, '');
   return path === '' ? undefined : path;
 }
 
-/**
- * What the row says when a directory was created.
- *
- * A room's listing is files (`PROTOCOL.md` §5), so a directory joins the tree when the first file
- * inside it does, and a create that said only "done" would leave a person looking at nothing. A
- * file needs no such line: creating one opens it, and the open is what puts it in the room.
- */
-export function newFolderCreatedSentence(path: string): string {
-  return `${path} is in the folder. A room's listing is files, so it appears in Shared once a file is inside it.`;
+/** The directory a path sits in, or `''` for a path at the root. */
+function parentOf(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash === -1 ? '' : path.slice(0, slash);
 }
 
-/** Wires the name field and its two actions; the caller decides when they are shown. */
-export function wireNewEntry(options: NewEntryOptions): NewEntry {
-  const { row, file, folder, name, message } = options.surface;
-  let busy = false;
+/** What the row needs to know about the room it is creating in. */
+export interface NewEntryContext {
+  kind: NewEntryKind;
+  /** The name typed into the row, exactly as typed. */
+  raw: string;
+  /** The directory the entry will appear in: `''` at the root, `src` under `src/`. */
+  parent: string;
+  /** The folder's own name, which is what the root's line calls the destination. */
+  room: string;
+  /** The room's listing: the files the folder published. */
+  listing: readonly string[];
+  /**
+   * The directories this session made that no listing carries.
+   *
+   * An empty directory is in no listing — a room's listing is files — so without this a host would
+   * watch the folder it just made vanish from the tree, and the next create into it would be
+   * refused as a path through something that is not there. The page remembers what it made for the
+   * session and hands it here (`main.ts`).
+   */
+  localFolders: ReadonlySet<string>;
+}
 
-  const run = async (entry: NewEntryKind): Promise<void> => {
-    if (busy) {
-      return;
-    }
-    const path = newEntryPath(name.value);
-    if (path === undefined) {
-      message.textContent = NEW_ENTRY_NEEDS_A_NAME;
-      return;
-    }
-    busy = true;
-    file.disabled = true;
-    folder.disabled = true;
-    try {
-      const sentence = await options.create(path, entry);
-      if (sentence === undefined) {
-        name.value = '';
-        message.textContent = '';
-        return;
-      }
-      message.textContent = sentence;
-    } finally {
-      busy = false;
-      file.disabled = false;
-      folder.disabled = false;
-    }
-  };
+/** What the row shows under its field, and what a commit would make. */
+export interface NewEntryCheck {
+  /** The line under the field: what Enter does, or why it will not. */
+  line: string;
+  /** Whether the line is a refusal. The field turns destructive and `✓` disables. */
+  error: boolean;
+  /** The path a commit would make, or `undefined` while the field names nothing usable. */
+  path: string | undefined;
+}
 
-  const onFile = (): void => {
-    void run('file');
-  };
-  const onFolder = (): void => {
-    void run('directory');
-  };
-  // The field's Enter runs the leading action, which is the file button: a create typed as a bare
-  // name is a file far more often than a directory, and the directory's own button is beside it.
-  const onEnter = (event: KeyboardEvent): void => {
-    if (event.key !== 'Enter') {
-      return;
+/** Where a create is going, in the words the line uses for it. */
+function destination(parent: string, room: string): string {
+  return parent === '' ? room : `${parent}/`;
+}
+
+/**
+ * The line under the field while the name is one this room can take: what Enter does, and the way
+ * out. It names the kind *and* where the entry will land, because those are the two things the owner
+ * could not tell from the old row — a placeholder that read as a filled value, and no statement of
+ * where the file would go.
+ */
+export function newEntryHint(kind: NewEntryKind, parent: string, room: string): string {
+  return `Enter creates the ${kind === 'file' ? 'file' : 'folder'} in ${destination(parent, room)} · Esc cancels`;
+}
+
+/**
+ * What a typed name means, checked while it is typed.
+ *
+ * Local rules only — the grant rule, the binary rule and the listing — so the answer is immediate
+ * and needs no folder. The folder's own `create` stays the authority on commit, and the two cases it
+ * can see and this cannot (a directory that is not in the listing, a permission that has gone) are
+ * reported in this same line with the folder's own sentence when the commit lands.
+ *
+ * The checks are ordered so the most specific true thing is said: what may not be shared at all,
+ * then a format the room cannot carry, then the name being taken, then the path going through a
+ * file, and last the neutral note that the path will make its own directories.
+ */
+export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
+  const hint = newEntryHint(context.kind, context.parent, context.room);
+  const typed = newEntryPath(context.raw);
+  if (typed === undefined) {
+    return { line: hint, error: false, path: undefined };
+  }
+  const path = context.parent === '' ? typed : `${context.parent}/${typed}`;
+  const refuse = (line: string): NewEntryCheck => ({ line, error: true, path: undefined });
+
+  if (!isGrantedPath(path, FOLDER_PLATFORM)) {
+    return refuse(`${path} is not a path this room shares.`);
+  }
+  if (context.kind === 'file' && isBinaryNamedPath(path)) {
+    return refuse(`${path} declares a format a room cannot carry. Name a text file.`);
+  }
+  if (isTaken(path, context)) {
+    return refuse(`${path} is already in the folder. Pick another name.`);
+  }
+  const through = fileOnTheWay(path, context.listing);
+  if (through !== undefined) {
+    return refuse(`${through} is a file, not a folder.`);
+  }
+  const missing = missingFolders(path, context);
+  if (missing.length > 0) {
+    const named = missing.map((folder) => `${folder}/`).join(' and ');
+    return {
+      line: `Also creates the ${missing.length === 1 ? 'folder' : 'folders'} ${named}.`,
+      error: false,
+      path,
+    };
+  }
+  return { line: hint, error: false, path };
+}
+
+/**
+ * Whether the name is already taken, by either kind.
+ *
+ * A name is taken by a path the listing carries, by a directory this session made, and by any
+ * listed path that goes through it — which is the only way a listing of files can say that a
+ * directory exists, and it is the same answer for either kind: a file cannot be made where a
+ * directory is, and a directory cannot be made where a file is. This page replaces nothing, and a
+ * create over a name would be that replacement.
+ */
+function isTaken(path: string, context: NewEntryContext): boolean {
+  if (context.listing.includes(path) || context.localFolders.has(path)) {
+    return true;
+  }
+  // A listing is files, so a directory exists in it only because some path goes through it — and that
+  // is true whichever kind the person is typing. A file named `src` where `src/main.ts` is listed is
+  // taken too: the folder answers `exists` for it, so the row has to say so first.
+  return context.listing.some((listed) => listed.startsWith(`${path}/`));
+}
+
+/** The directory on the way to a path that is a file in the listing, if there is one. */
+function fileOnTheWay(path: string, listing: readonly string[]): string | undefined {
+  const parent = parentOf(path);
+  if (parent === '') {
+    return undefined;
+  }
+  const segments = parent.split('/');
+  for (let index = 1; index <= segments.length; index += 1) {
+    const prefix = segments.slice(0, index).join('/');
+    if (listing.includes(prefix)) {
+      return prefix;
     }
-    event.preventDefault();
-    void run('file');
-  };
+  }
+  return undefined;
+}
 
-  file.addEventListener('click', onFile);
-  folder.addEventListener('click', onFolder);
-  name.addEventListener('keydown', onEnter);
-
-  return {
-    show(shown: boolean): void {
-      row.hidden = !shown;
-    },
-    reset(): void {
-      name.value = '';
-      message.textContent = '';
-    },
-    dispose(): void {
-      file.removeEventListener('click', onFile);
-      folder.removeEventListener('click', onFolder);
-      name.removeEventListener('keydown', onEnter);
-    },
-  };
+/**
+ * The directories a path will make on its way to the entry, outermost first.
+ *
+ * "Not there" is asked of the listing and of what this session made: a directory the room knows is
+ * one a listed path goes through, and one this session made is in `localFolders`. A name typed into
+ * the wrong folder is a typo far more often than an intention, so the line says what the commit will
+ * do rather than refusing it — the person reads `Also creates the folder docs/.` before pressing
+ * anything.
+ */
+export function missingFolders(path: string, context: NewEntryContext): string[] {
+  const parent = parentOf(path);
+  if (parent === '') {
+    return [];
+  }
+  const known = new Set<string>(context.localFolders);
+  for (const listed of context.listing) {
+    const segments = listed.split('/');
+    for (let index = 1; index < segments.length; index += 1) {
+      known.add(segments.slice(0, index).join('/'));
+    }
+  }
+  const missing: string[] = [];
+  const segments = parent.split('/');
+  for (let index = 1; index <= segments.length; index += 1) {
+    const prefix = segments.slice(0, index).join('/');
+    if (!known.has(prefix)) {
+      missing.push(prefix);
+    }
+  }
+  return missing;
 }

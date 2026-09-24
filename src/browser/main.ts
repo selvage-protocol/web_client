@@ -8,8 +8,8 @@ import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant, StatusTopic } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import {
+  SHARE_MASK,
   buildShareLink,
-  displayShareLink,
   fitReadout,
   forgetJoinUrl,
   pageQueryParams,
@@ -40,7 +40,7 @@ import {
   pickFolder,
 } from './folder.ts';
 import type { NewEntryKind } from './folder.ts';
-import { createInFolder, newFolderCreatedSentence, wireNewEntry } from './new-entry.ts';
+import { createInFolder } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
   HOST_GUESTS_NOTE,
@@ -55,14 +55,25 @@ import type { ServerRead } from './meta-read.ts';
 import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
+import type { CreateResult, RowFeedback } from './tree-view.ts';
+import {
+  canSaveAtOnce,
+  documentToAutoOpen,
+  fetchAndSave,
+  fetchCostsSentence,
+  fetchingSentence,
+  stillEmptySentence,
+} from './fetch-download.ts';
+import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
+import { EMPTY_IN_ROOM_TITLE, IN_THE_ROOM_TITLE } from './tree-state.ts';
+import { wireSidebar } from './sidebar.ts';
 import { renderRoster } from './roster.ts';
 import { renameSelf } from './rename.ts';
-import { HOST_LEAVE_QUESTION, LEAVE_ASK_MS, wireLeave } from './leave.ts';
+import { wireLeave } from './leave.ts';
 import { wireShareBox } from './share-box.ts';
 import {
   HOST_BACK_STAND_MS,
   RECONNECTING_NOTE,
-  TRANSIENT_STAND_MS,
   hostBackSentence,
   hostPresent,
   wireFailureAlert,
@@ -182,10 +193,17 @@ const joinMessage = document.getElementById('join-message') as HTMLElement;
 const joinError = document.getElementById('join-error') as HTMLElement;
 const hostError = document.getElementById('host-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
+const sessionIdentity = document.getElementById('session-identity') as HTMLElement;
 const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
+const health = document.getElementById('health') as HTMLElement;
+const healthLabel = document.getElementById('health-label') as HTMLElement;
 const downloadButton = document.getElementById('download') as HTMLButtonElement;
 const leaveButton = document.getElementById('leave') as HTMLButtonElement;
+const leaveConfirm = document.getElementById('leave-confirm') as HTMLElement;
+const leaveQuestion = document.getElementById('leave-question') as HTMLElement;
+const leaveCancel = document.getElementById('leave-cancel') as HTMLButtonElement;
+const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement;
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostShare = document.getElementById('host-share') as HTMLElement;
@@ -194,15 +212,20 @@ const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
-const newEntryRow = document.getElementById('new-entry') as HTMLElement;
-const newFileName = document.getElementById('new-name') as HTMLInputElement;
+const sharedActions = document.getElementById('shared-actions') as HTMLElement;
 const newFileButton = document.getElementById('new-file') as HTMLButtonElement;
 const newFolderButton = document.getElementById('new-folder') as HTMLButtonElement;
-const newEntryMessage = document.getElementById('new-message') as HTMLElement;
-const followBanner = document.getElementById('follow-banner') as HTMLElement;
 const appPane = document.getElementById('app') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
+const sideResizer = document.getElementById('side-resizer') as HTMLElement;
+const sideRail = document.getElementById('side-rail') as HTMLButtonElement;
 const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
+const fileStrip = document.getElementById('file-strip') as HTMLElement;
+const fileStripPath = document.getElementById('file-strip-path') as HTMLElement;
+const fileStripChips = document.getElementById('file-strip-chips') as HTMLElement;
+const fileStripFollow = document.getElementById('file-strip-follow') as HTMLElement;
+/** The one polite region for the changes that no longer have a visible sentence of their own. */
+const live = document.getElementById('live') as HTMLElement;
 
 /**
  * The chrome's lifecycle line: the host-leave warning while the grace runs, counting its
@@ -220,20 +243,58 @@ const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLEl
 const peek = wireTapPeek(document.getElementById('peek') as HTMLElement, { standMs: 4000 });
 
 /**
- * The panel is a disclosure on a phone and simply a column on anything else.
+ * The panel is a disclosure on a phone and a resizable column on anything else.
  * Rotating out of the phone shape opens it rather than leaving the tree with no
- * way to be reached: the control that would open it is gone at that width.
+ * way to be reached: the disclosure it was behind is gone at that width.
  */
 function showPanel(open: boolean): void {
   sidePane.hidden = !open;
   panelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  // On a phone the strip is the disclosure, so it is the element that carries the state; on a
+  // pointer device it is a line of text and has no state to carry.
+  if (phoneLayout.matches) {
+    fileStrip.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
 }
 
-panelToggle.addEventListener('click', () => showPanel(sidePane.hidden));
+panelToggle.addEventListener('click', (event) => {
+  event.stopPropagation();
+  showPanel(sidePane.hidden);
+});
 phoneLayout.addEventListener('change', () => showPanel(!phoneLayout.matches));
 // The panel competes with the editor on a phone (a 42 % cut of a 844 px screen)
 // and starts shut there; every other device has the room for both.
 showPanel(!phoneLayout.matches);
+
+/**
+ * On a phone the whole strip is the panel's disclosure: with the panel shut — its state after every
+ * open — nothing else on screen says which file is in the editor, and the panel is the only place
+ * the tree can be reached from. A press that landed on one of the strip's own controls (the follow
+ * stop) is not the disclosure's.
+ */
+fileStrip.addEventListener('click', (event) => {
+  if (!phoneLayout.matches) {
+    return;
+  }
+  if ((event.target as HTMLElement).closest('button') !== null) {
+    return;
+  }
+  showPanel(sidePane.hidden);
+});
+fileStrip.addEventListener('keydown', (event) => {
+  // The strip is the disclosure only where it *is* the target: a key that bubbled up from a control
+  // inside it — the `☰` button, or the follow segment's Stop — belongs to that control, and
+  // swallowing it here would make the stop unpressable by keyboard.
+  if (
+    !phoneLayout.matches ||
+    event.target !== fileStrip ||
+    (event.key !== 'Enter' && event.key !== ' ')
+  ) {
+    return;
+  }
+  event.preventDefault();
+  showPanel(sidePane.hidden);
+});
 
 /** Shuts the panel after a navigation, so the file that opened gets the screen. */
 function collapsePanel(): void {
@@ -336,11 +397,12 @@ let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
 /** What the editor was created with on this device, to return to under a pointer. */
 let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
-/** The full guest link: the bar shows it abbreviated, the clipboard keeps it whole. */
+/**
+ * The full guest link. It reaches the clipboard whole and nothing else: not the readout's value at
+ * rest, not a `title`, not any attribute. What the bar carries is `SHARE_MASK` — a fixed run of
+ * bullets that says "there is a key here, take it with the control" and shows none of it.
+ */
 let fullShareLink = '';
-/** The abbreviation the bar carries at rest, kept apart from the field's own value because
- * the clipboard-less fallback fields the whole link there and may leave it. */
-let shareDisplay = '';
 /** The server the last join attempt reached for, for the unreachable-server copy. */
 let lastBase = '';
 /** The joined display name, for the roster's self row. */
@@ -361,6 +423,39 @@ let hostFolder: FolderWorkingCopy | undefined;
  * sealed later cannot carry a listing the folder no longer has.
  */
 let republishGrant: ((paths: readonly string[]) => Promise<void>) | undefined;
+/**
+ * The directories this session made that no listing carries.
+ *
+ * A room's listing is files, so an empty directory is in nobody's — a host that made `docs/` and
+ * saw it vanish would have a control that lied about what it did, and the next create into it would
+ * be refused as a path through something that is not there. They are drawn as this window's own rows
+ * (`tree-view.ts`) and forgotten with the session.
+ */
+const madeFolders = new Set<string>();
+/**
+ * The paths the folder refused to write, with the sentence it refused with.
+ *
+ * The failure of a write belongs on the row it is about, not in a toast: the toast came and went
+ * while the file on disk stayed behind the room, and the `⚠` stays until a write to that path lands.
+ */
+const unsavedPaths = new Map<string, string>();
+/** The directory the header's create verbs last used, for the session. */
+let lastCreateParent: string | undefined;
+/** Whether the host's absence is being counted down: a guest's rows dim while it is. */
+let hostAway = false;
+/** Whether this window is a viewer, which the file strip states as a chip. */
+let readOnly = false;
+/** Whether the cost of fetching has been said this session: it is said once. */
+let saidFetchCosts = false;
+/**
+ * The paths this window fetched only to save them.
+ *
+ * A fetch is a background act — it must not change what the editor shows — but it *is* what puts a
+ * path in the room's open set, and the rule that gives a phone a file to look at opens the first
+ * document when nothing is open here. So the paths fetched behind the editor are named, and that
+ * rule skips them (`documentToAutoOpen`).
+ */
+const backgroundFetches = new Set<string>();
 
 /**
  * Creates a file or a directory in the folder this tab picked, and puts it in the room.
@@ -371,11 +466,16 @@ let republishGrant: ((paths: readonly string[]) => Promise<void>) | undefined;
  * would have triggered had the create been made by something else on the disk. And a created file
  * is opened, which is what makes its text reach the room at all: content arrives when a file is
  * opened, so a listed path nobody opened reads empty to every guest.
+ *
+ * What the row is answered with is the phase, not a sentence: a refusal keeps the field open with
+ * the folder's own words in it, and a create that landed but was not finished closes the row and
+ * marks the path instead, because the entry *is* in the folder and a row that said otherwise would
+ * be telling a person their file is missing while it sits there.
  */
-async function createEntry(path: string, entry: NewEntryKind): Promise<string | undefined> {
+async function createEntry(path: string, entry: NewEntryKind): Promise<CreateResult> {
   const folder = hostFolder;
   if (folder === undefined || binding === undefined) {
-    return undefined;
+    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
   }
   let outcome: CreateOutcome;
   try {
@@ -384,29 +484,54 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<string | 
     // What reaches here is the folder layer's own unnamed failure, thrown before the entry was made:
     // the steps after it belong to the act and report themselves (`CreateOutcome`), so a file that
     // did land is never reported as one that did not.
-    return `${path} was not created: ${describe(error)}`;
+    return { kind: 'refused', sentence: `${path} was not created: ${describe(error)}` };
   }
-  if (outcome.kind === 'refused' || outcome.kind === 'incomplete') {
-    return outcome.sentence;
+  // A directory is not in a listing (a room's listing is files), so the page remembers the ones
+  // this session made and draws them as its own rows: a folder that vanished the moment it was
+  // made would be a control that lied about what it did.
+  if (entry === 'directory') {
+    madeFolders.add(path);
+  }
+  if (outcome.kind === 'refused') {
+    madeFolders.delete(path);
+    return { kind: 'refused', sentence: outcome.sentence };
+  }
+  if (outcome.kind === 'incomplete') {
+    unsavedPaths.set(path, outcome.sentence);
+    syncGrant();
+    return { kind: 'incomplete', path, entry, sentence: outcome.sentence };
   }
   syncGrant();
-  return outcome.entry === 'file' ? undefined : newFolderCreatedSentence(path);
+  return { kind: 'made', path, entry };
 }
 
 /**
- * The control that asks for a name, offered only to a window that holds a folder: a guest has
- * nothing to create in, and the sentence the empty tree carries is its own answer.
+ * The two create verbs, offered only to a window that holds a folder: a guest has nothing to create
+ * in, and the sentence the empty tree carries is its own answer. They stand in the panel's own
+ * header, always visible, and they create where the person is looking — the directory of the open
+ * file, or the folder they last created in, and the root when neither says otherwise.
  */
-const newEntry = wireNewEntry({
-  surface: {
-    row: newEntryRow,
-    file: newFileButton,
-    folder: newFolderButton,
-    name: newFileName,
-    message: newEntryMessage,
-  },
-  create: createEntry,
-});
+newFileButton.appendChild(iconSpan('file-add'));
+newFolderButton.appendChild(iconSpan('folder-add'));
+newFileButton.addEventListener('click', () => beginCreate('file'));
+newFolderButton.addEventListener('click', () => beginCreate('directory'));
+
+/** The directory the header's verbs default to: the open file's, or the last one used, or the root. */
+function createTarget(): string {
+  const last = lastCreateParent;
+  const current = binding?.currentPath();
+  if (current !== undefined) {
+    const slash = current.lastIndexOf('/');
+    return slash === -1 ? '' : current.slice(0, slash);
+  }
+  return last ?? '';
+}
+
+function beginCreate(kind: NewEntryKind): void {
+  const parent = createTarget();
+  lastCreateParent = parent;
+  tree?.beginCreate(kind, parent);
+}
 
 // Enter runs the action the field belongs to: the name is the card's own field and runs what
 // the card leads with, while the paste box is the invite path and always joins.
@@ -618,14 +743,15 @@ async function seatSession(seat: Seat): Promise<void> {
   // and reads the empty tree's own sentence instead.
   hostFolder = seat.folder;
   republishGrant = seat.republish;
-  newEntry.show(seat.folder !== undefined);
+  // The two create verbs are the window's that holds a folder, and no one else's.
+  sharedActions.hidden = seat.folder === undefined;
+  madeFolders.clear();
+  unsavedPaths.clear();
   fullShareLink = seat.shareLink;
-  // The bar shows the link with the page's own origin dropped and its long parts shortened,
-  // and sized to what it shows; the title and the clipboard below keep the full bytes.
-  shareDisplay = displayShareLink(fullShareLink, window.location.origin);
-  shareInput.value = shareDisplay;
-  fitReadout(shareInput, shareDisplay);
-  shareInput.title = fullShareLink;
+  // The readout carries the mask and nothing of the link, at a fixed size so the pill's width says
+  // nothing about the link's length either. The clipboard is the one place the whole link goes.
+  shareInput.value = SHARE_MASK;
+  fitReadout(shareInput, SHARE_MASK);
   joinMessage.hidden = true;
   joinPane.hidden = true;
   previewPane.hidden = true;
@@ -672,11 +798,19 @@ async function seatSession(seat: Seat): Promise<void> {
     pinned: openDirs,
     touch: () => touchOnly,
     canCreate: () => hostFolder !== undefined,
+    localFolders: () => madeFolders,
+    room: () => hostFolder?.name ?? '',
+    unsaved: () => unsavedPaths,
+    hostAway: () => hostAway,
+    create: (path, entry) => createEntry(path, entry),
+    download: (path, feedback) => startDownload(path, feedback),
     open: (path) => {
       binding?.stopFollowing();
       void openPath(path);
     },
   });
+  // The bar's own line about *which* session this is: the folder exposed, or whose room.
+  setSessionIdentity();
   syncRoster(binding.participants());
   syncGrant();
   await openFirst(session);
@@ -928,9 +1062,10 @@ async function openPath(path: string): Promise<void> {
     // The file that just opened is what the guest asked for: on a phone the
     // panel gets out of its way rather than holding 42 % of the screen.
     collapsePanel();
-    // A plain open says nothing — the tree highlight and the buffer already
-    // name the file. A listed path nobody published reads empty like a
-    // cleared file; the open row's badge tells the two apart, never a message.
+    // A plain open says nothing on screen — the strip above the editor names the file and the tree
+    // highlights it. It is announced, because a sentence that was never shown is a sentence a screen
+    // reader user never heard either.
+    announce(`Open ${path}`);
   } catch (error) {
     failureAlert.show(`Could not open ${path}: ${describe(error)}`);
   } finally {
@@ -952,59 +1087,114 @@ const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
 // bar is hidden until a session is seated, so nothing flashes before the bundle puts it in.
 downloadButton.append(iconSpan('download'));
 downloadButton.addEventListener('click', () => {
+  // The press cannot repeat while the browser's own save is being set up, and the state it had comes
+  // back from the strip rather than from here: `syncStrip` is the one place that decides whether
+  // there is anything to save.
+  downloadButton.disabled = true;
   downloadOpen();
+  syncStrip();
 });
 
 /**
  * The leave control: a guest's press drops the session and brings the card back with a fresh link
  * as the way in; a host's press asks first, because its connection is the room's (`leave.ts`). The
- * words on the control are the page's, the two sentences are the module's, and the question stands
- * in the strip that is already the page's one line about the room.
+ * question stands in the panel anchored under the control, so the two answers are one glance from
+ * the sentence that asks for them.
  */
 const leaveControl = wireLeave({
   hosting: () => hostFolder !== undefined,
-  button: leaveButton,
-  ask: () => sessionNote.say(HOST_LEAVE_QUESTION, LEAVE_ASK_MS),
+  surface: {
+    panel: leaveConfirm,
+    question: leaveQuestion,
+    button: leaveButton,
+    cancel: leaveCancel,
+    go: leaveAnyway,
+  },
   leave: () => leaveSession(LEFT_SESSION_SENTENCE),
 });
 leaveButton.addEventListener('click', () => {
   leaveControl.press();
 });
 
+/**
+ * The panel's edge and its width: remembered per browser, draggable, keyed, collapsible and
+ * resettable (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
+ * another. A phone renders no separator and takes the panel whole, which the shell's own query does.
+ */
+const sidebar = wireSidebar({
+  elements: { side: sidePane, separator: sideResizer, rail: sideRail },
+  // A phone's panel is the full-width disclosure the shell queries for, and its `hidden` belongs to
+  // `showPanel`: a separator that wrote it would reopen the panel on every resize.
+  active: () => !phoneLayout.matches,
+  storage: window.localStorage,
+  remPx: () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16,
+  viewportWidth: () => window.innerWidth,
+  relayout: () => editorApi?.layout(),
+});
+sidebar.apply();
+
+/**
+ * On a phone the whole strip is the panel's disclosure, so it wears the control's own semantics —
+ * `role`, focus and `aria-expanded` — only while that is true. On a pointer device the strip is what
+ * it looks like: a line of text and a few controls, none of them a disclosure.
+ */
+function applyStripRole(): void {
+  if (!phoneLayout.matches) {
+    fileStrip.removeAttribute('role');
+    fileStrip.removeAttribute('tabindex');
+    fileStrip.removeAttribute('aria-controls');
+    fileStrip.removeAttribute('aria-label');
+    fileStrip.removeAttribute('aria-expanded');
+    return;
+  }
+  fileStrip.setAttribute('role', 'button');
+  fileStrip.setAttribute('tabindex', '0');
+  fileStrip.setAttribute('aria-controls', 'side');
+  fileStrip.setAttribute('aria-expanded', sidePane.hidden ? 'false' : 'true');
+  // The name says the state as well as the act: on this width the strip is also the only thing that
+  // names the file in the editor, so `Files and people` alone would throw away the fact it is there
+  // for.
+  const path = binding?.currentPath();
+  fileStrip.setAttribute(
+    'aria-label',
+    path === undefined ? 'Files and people' : `Files and people, ${path} open`,
+  );
+}
+applyStripRole();
+phoneLayout.addEventListener('change', applyStripRole);
+
 async function copyShareLink(): Promise<void> {
-  // Every attempt starts from the bar's rest state: a fallback that failed may have
-  // left the whole link in the readout, and the abbreviation is what belongs there
-  // once a copy — by either route — has worked. On a narrow bar this is also what
-  // puts the readout back behind its label.
+  // Every attempt starts from the bar's rest state: a fallback that failed has the whole link in
+  // the readout for a person to copy by hand, and the mask is what belongs there once a copy — by
+  // either route — has worked. On a narrow bar this is also what puts the readout back behind its
+  // label.
   shareGroup.classList.remove('hand-copy');
-  showDisplay({ readout: shareInput, shown: shareDisplay, fit: (value) => fitReadout(shareInput, value) });
+  showDisplay({ readout: shareInput, shown: SHARE_MASK, fit: (value) => fitReadout(shareInput, value) });
   try {
     if (navigator.clipboard === undefined) {
       throw new Error('no clipboard');
     }
     await navigator.clipboard.writeText(fullShareLink);
   } catch {
-    // The fallback copies from the field, so it fields the whole link while the
-    // browser's own copy command runs, and the abbreviated display comes back once
-    // that worked. A copy that failed leaves the whole link where the person can
-    // select it: the abbreviation is a paint, and what it would leave behind is a
-    // link no room answers.
+    // The fallback copies from the field, so it puts the whole link there for the browser's own
+    // copy command and hands the mask back once that worked. Only a copy that failed leaves the
+    // link in the field, and that is the one place it is legible by design: there is nothing else
+    // left for the person to select. `hand-copy` is what makes it readable there, and what reveals
+    // it on a bar narrow enough to hide the readout.
+    shareGroup.classList.add('hand-copy');
     shareInput.focus();
     const done = handCopy({
       readout: shareInput,
       full: fullShareLink,
-      shown: shareDisplay,
+      shown: SHARE_MASK,
       exec: () => document.execCommand('copy'),
       fit: (value) => fitReadout(shareInput, value),
     });
     if (!done) {
-      // The bar hides the readout on a narrow screen, where the label stands in
-      // for it; a copy that failed needs the field itself, because that is the
-      // only thing the person has left to select.
-      shareGroup.classList.add('hand-copy');
       failureAlert.show('Select the link and copy it by hand.');
       return;
     }
+    shareGroup.classList.remove('hand-copy');
   }
   // The bar's brief morph is the whole confirmation: nothing is announced.
   shareBox.confirm();
@@ -1044,6 +1234,7 @@ function drawRoster(participants: Participant[]): void {
             cancel: () => endRename(),
           },
     onRename: () => startRename(),
+    onCopyInvite: () => void copyShareLink(),
     onGoTo: (peerId) => {
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
@@ -1101,7 +1292,9 @@ async function commitRename(raw: string): Promise<void> {
       selfName = name;
     },
     refused: (sentence) => failureAlert.show(sentence),
-    said: (sentence) => sessionNote.say(sentence, TRANSIENT_STAND_MS),
+    // The row already wears the new name, which is the confirmation; a sentence repeating what the
+    // person can see would be the same fact twice.
+    said: () => undefined,
   });
   syncRoster(binding?.participants() ?? []);
 }
@@ -1111,22 +1304,165 @@ function syncGrant(): void {
   tree?.render();
   // The one control whose state is the open document re-reads it here, where every event that
   // can move the open document already lands.
-  syncDownload();
+  syncStrip();
 }
 
 /**
- * The download control: the file in front of the editor, out of the room and onto the disk.
+ * The file strip: the open file's whole state, in one line above the editor.
  *
- * It is off while no document is open — an editor with nothing in it has nothing to save — and
- * its label names the file so a pointer device reads it in the `title` and a finger reads it on
- * the button's own `aria-label`.
+ * It is where four things that used to be said elsewhere now live — which file is open (nothing
+ * said it at all on a phone), whether its text is in the room, whether it is read-only, and
+ * whether the folder refused the last write to it — and the `⤓` that saves it. The follow segment
+ * is the fifth: the banner that used to stand over the editor is this segment now, in the followed
+ * peer's own colour, with the stop control in it.
  */
-function syncDownload(): void {
+function syncStrip(): void {
   const path = binding?.currentPath();
-  downloadButton.disabled = path === undefined;
+  fileStripPath.replaceChildren();
+  fileStripPath.classList.toggle('none', path === undefined);
+  if (path === undefined) {
+    // On a phone the strip is also the panel's disclosure, so it names the panel when there is no
+    // file to name: a line reading `No file open` would be a dead end with no way to the tree.
+    fileStripPath.textContent = phoneLayout.matches ? 'Files and people' : 'No file open';
+  } else {
+    const slash = path.lastIndexOf('/');
+    if (slash !== -1) {
+      const dir = document.createElement('span');
+      dir.className = 'dir';
+      dir.textContent = path.slice(0, slash + 1);
+      fileStripPath.appendChild(dir);
+    }
+    const leaf = document.createElement('span');
+    leaf.className = 'leaf';
+    leaf.textContent = slash === -1 ? path : path.slice(slash + 1);
+    fileStripPath.appendChild(leaf);
+  }
+  fileStripChips.replaceChildren();
+  if (path !== undefined) {
+    if (binding?.isOpenInRoom(path) === true) {
+      const chip = document.createElement('span');
+      chip.className = 'chip room';
+      chip.textContent = '● in the room';
+      chip.title = IN_THE_ROOM_TITLE;
+      fileStripChips.appendChild(chip);
+    }
+    if (binding?.hasText(path) === true && binding.isTextEmpty(path)) {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.textContent = 'empty';
+      chip.title = EMPTY_IN_ROOM_TITLE;
+      fileStripChips.appendChild(chip);
+    }
+    if (readOnly) {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.textContent = 'Read-only';
+      chip.title = VIEWER_SENTENCE;
+      fileStripChips.appendChild(chip);
+    }
+    const refused = unsavedPaths.get(path);
+    if (refused !== undefined) {
+      const chip = document.createElement('span');
+      chip.className = 'chip warn';
+      chip.textContent = '⚠ Not saved to your folder';
+      chip.title = refused;
+      fileStripChips.appendChild(chip);
+    }
+  }
+  // The save control is icon-only, so its label names the file: a pointer reads it in the `title`
+  // and a finger on the button's own `aria-label`.
   const label = path === undefined ? 'Download the open file' : `Download ${path}`;
+  downloadButton.disabled = path === undefined;
   downloadButton.title = label;
   downloadButton.setAttribute('aria-label', label);
+}
+
+/** The desktop clients' own sentence for the read-only state, which the strip's chip carries. */
+const VIEWER_SENTENCE = 'you are a viewer in this room, so its documents are read-only.';
+
+/** One sentence for a screen reader, in the one region that carries the changes that say nothing. */
+function announce(text: string): void {
+  live.textContent = text;
+}
+
+/**
+ * Saves a path out of the room, fetching its text first when this window has none.
+ *
+ * The fetch is the page's own open (`fetch-download.ts` says why it has to be the same call), and
+ * the answer lands on the row that asked: progress in the action's own place, and a sentence under
+ * the row when there is something to decide.
+ */
+function startDownload(path: string, feedback: RowFeedback): void {
+  if (binding === undefined) {
+    return;
+  }
+  const here = (candidate: string): string =>
+    binding?.text(candidate) ?? engine?.text(candidate) ?? '';
+  const text = here(path);
+  // Straight to the browser's save when there is text in this window; an empty answer is never saved
+  // without being asked for, because a room holds an empty document both for an empty file and for
+  // one the host has not sent yet (`canSaveAtOnce`).
+  if (canSaveAtOnce(text)) {
+    try {
+      downloadDocument(path, text, downloadSink);
+    } catch (error: unknown) {
+      feedback.note(`Could not download ${path}: ${describe(error)}`, [
+        { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } },
+      ]);
+    }
+    return;
+  }
+  // Said once a session, before the first fetch: opening a file is what puts its text in the room,
+  // so a fetch opens it for everybody. It is not asked as a question — the room already lists the
+  // name — it is said.
+  if (!saidFetchCosts) {
+    saidFetchCosts = true;
+    const costs = fetchCostsSentence(path);
+    feedback.note(costs);
+    announce(costs);
+    // Cleared by its own words: a fetch that settles inside the stand has replaced this line with
+    // the outcome and its actions, and a timer that cleared whatever was there would take the only
+    // thing the person can act on with it.
+    window.setTimeout(() => feedback.clear(costs), FETCH_COSTS_STAND_MS);
+  }
+  feedback.busy(fetchingSentence(path));
+  const again = { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } };
+  void fetchAndSave(path, {
+    has: (candidate) => binding?.hasText(candidate) ?? false,
+    text: here,
+    open: (candidate) => {
+      backgroundFetches.add(candidate);
+      return binding?.requestText(candidate) ?? Promise.resolve();
+    },
+    save: (candidate, text) => downloadDocument(candidate, text, downloadSink),
+  })
+    .then((outcome) => {
+      feedback.idle();
+      if (outcome.kind === 'saved') {
+        // Opening it is what put its text in the room, so the row's own mark moves: nothing is said.
+        syncGrant();
+        return;
+      }
+      if (outcome.kind === 'failed') {
+        feedback.note(outcome.sentence, [again]);
+        return;
+      }
+      feedback.note(stillEmptySentence(path), [
+        {
+          label: 'Save empty file',
+          run: () => {
+            feedback.clear();
+            downloadDocument(path, '', downloadSink);
+          },
+        },
+        again,
+        { label: '✕', run: () => feedback.clear() },
+      ]);
+    })
+    .catch((error: unknown) => {
+      feedback.idle();
+      feedback.note(`Could not download ${path}: ${describe(error)}`, [again]);
+    });
 }
 
 /** Where a download goes: the browser's own blob, object URL and anchor, in that order. */
@@ -1164,34 +1500,59 @@ function downloadOpen(): void {
 }
 
 /**
- * The follow indicator: a banner in the followed peer's colour — the mapping the
- * caret wears, so the two cannot disagree — with the stop control on it.
+ * The follow indicator, and the stop that goes with it: a segment of the file strip above the
+ * editor, in the followed peer's colour — the mapping the caret wears, so the two cannot disagree.
+ *
+ * It is here rather than in a banner of its own because a follow is a state of the file in front of
+ * the editor: who is being followed, and which file that has landed on, are the strip's two facts
+ * already, and a second line about the same thing was one line too many.
+ *
+ * A follow that ends without the person pressing Stop leaves the reason standing four seconds, in
+ * muted text: the segment vanishing with nothing said is the one way a person loses the thread of
+ * what just happened.
  */
-function syncFollow(following: Following | undefined): void {
-  followBanner.replaceChildren();
+function syncFollow(following: Following | undefined, ended?: string): void {
+  fileStripFollow.replaceChildren();
+  // The tint belongs to a live follow. The reason a follow ended is not the followed peer's news, and
+  // a segment left in their colour would read as if it still were one.
+  fileStripFollow.style.borderColor = '';
+  fileStripFollow.style.backgroundColor = '';
   if (binding !== undefined) {
-    // The toggle mirrors the indicator: a follow ended by typing or by the
-    // peer leaving re-renders here, not on the next room event.
+    // The toggle mirrors the indicator: a follow ended by typing or by the peer leaving re-renders
+    // here, not on the next room event.
     syncRoster(binding.participants());
   }
   if (following === undefined) {
-    followBanner.hidden = true;
+    if (ended === undefined) {
+      return;
+    }
+    const line = document.createElement('span');
+    line.className = 'ended';
+    line.textContent = ended;
+    fileStripFollow.appendChild(line);
+    announce(ended);
+    window.setTimeout(() => {
+      if (fileStripFollow.textContent === ended) {
+        fileStripFollow.replaceChildren();
+      }
+    }, FOLLOW_ENDED_STAND_MS);
     return;
   }
-  followBanner.hidden = false;
-  followBanner.style.borderColor = following.colour;
-  followBanner.style.backgroundColor = `${following.colour}22`;
+  fileStripFollow.style.borderColor = following.colour;
+  fileStripFollow.style.backgroundColor = `${following.colour}22`;
   const label = document.createElement('span');
   label.textContent = `Following ${following.name}`;
-  followBanner.appendChild(label);
   const stop = document.createElement('button');
   stop.type = 'button';
   stop.append(iconSpan('stop'), labelSpan('Stop following'));
   stop.addEventListener('click', () => {
     binding?.stopFollowing();
   });
-  followBanner.appendChild(stop);
+  fileStripFollow.append(label, stop);
 }
+
+/** How long the reason a follow ended stands in the strip before it goes. */
+const FOLLOW_ENDED_STAND_MS = 4000;
 
 /**
  * Enters the terminal state: the session note carries this sentence to the
@@ -1230,8 +1591,15 @@ function leaveSession(sentence: string): void {
   // window is no longer serving.
   hostFolder = undefined;
   republishGrant = undefined;
-  newEntry.show(false);
-  newEntry.reset();
+  sharedActions.hidden = true;
+  madeFolders.clear();
+  unsavedPaths.clear();
+  lastCreateParent = undefined;
+  hostAway = false;
+  readOnly = false;
+  saidFetchCosts = false;
+  backgroundFetches.clear();
+  setHealth('ok');
   editorApi = undefined;
   desktopEditorOptions = undefined;
   opening = undefined;
@@ -1239,14 +1607,16 @@ function leaveSession(sentence: string): void {
   tree = undefined;
   openDirs.clear();
   fullShareLink = '';
-  shareDisplay = '';
   shareGroup.classList.remove('hand-copy');
   shareInput.value = '';
-  shareInput.title = '';
   rosterList.replaceChildren();
   treePane.replaceChildren();
-  followBanner.replaceChildren();
-  followBanner.hidden = true;
+  fileStripPath.textContent = '';
+  fileStripChips.replaceChildren();
+  fileStripFollow.replaceChildren();
+  // The question a host was reading goes with the room it was about, and the control that asked it
+  // goes back to rest: one owner for that state, so the next session's first press raises a panel.
+  leaveControl.close();
   sessionNote.hide();
   peek.dismiss();
   sessionBar.hidden = true;
@@ -1255,7 +1625,7 @@ function leaveSession(sentence: string): void {
   cardIntent = 'join';
   // The room this tab was hosting is over cleanly, so the next load has nothing to explain.
   clearHostingMark(window.sessionStorage);
-  syncDownload();
+  syncStrip();
   showRejoinCard(
     {
       pane: joinPane,
@@ -1284,16 +1654,43 @@ function leaveSession(sentence: string): void {
  * The status sentences the page shows, by topic — the ones whose fact nothing else on the page
  * states.
  *
- * The binding raises every topic and this is where the page decides. A follow's sentences repeat
- * the follow banner that is on screen (who, and a Stop control) and the tree row and buffer that
- * say where; the roster is where a peer's arrival and departure read; the role is the editor's own
- * read-only state; and a room that is over comes back as the card carrying the room's own
- * sentence. Showing those here would be the same fact twice, one copy of it chrome that appears
- * and disappears. What is left is what has no other surface: the viewer's read-only line — which
- * is the one the owner could not discover — a go-to the room could not answer, and what the room
- * said about the session itself.
+ * The binding raises every topic and this is where the page decides. A follow's sentences are the
+ * strip's own segment now (who is followed, and a Stop control in it); the roster is where a peer's
+ * arrival and departure read; the role is the strip's `Read-only` chip, a state rather than a
+ * sentence; and a room that is over comes back as the card carrying the room's own sentence. What is
+ * left is what has no surface of its own: a go-to the room could not answer, and what the room said
+ * about the session itself.
  */
 const SHOWN_STATUS_TOPICS: ReadonlySet<StatusTopic> = new Set(['role', 'refusal', 'error']);
+
+/**
+ * The bar's dot, which is the glanceable half of room health: a healthy room says nothing, and the
+ * two states that change what typing means say their own name. The sentence with the countdown in it
+ * is the strip below.
+ */
+function setHealth(state: 'ok' | 'reconnecting' | 'away'): void {
+  health.dataset.health = state;
+  const label = state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'Host away' : '';
+  healthLabel.textContent = label;
+  health.title = state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'The host is away' : 'Connected';
+}
+
+/**
+ * The bar's one fact about which session this is.
+ *
+ * A host reads the folder it is exposing — the name is the handle's, and it is worth the glance — and
+ * a guest reads whose room it is, from the roster's own `host` seat. Before the roster has arrived
+ * there is nothing to name but the shape: a guest in a session it does not yet know the host of.
+ */
+function setSessionIdentity(): void {
+  if (hostFolder !== undefined) {
+    sessionIdentity.textContent = `Sharing “${hostFolder.name}”`;
+    return;
+  }
+  const host = binding?.participants().find((participant) => participant.role === 'host');
+  sessionIdentity.textContent =
+    host === undefined ? 'In a shared session' : `In ${host.displayName}'s session`;
+}
 
 function onNotice(notice: BindingNotice): void {
   // A landing moves the current path outside openPath: the tree highlight
@@ -1314,14 +1711,15 @@ function onNotice(notice: BindingNotice): void {
       // because the set can be exactly what it was before the drop — so either one ends the
       // dropped line a retry put up.
       sessionNote.endDropped();
+      setHealth(hostAway ? 'away' : 'ok');
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
       syncGrant();
-      if (binding?.currentPath() === undefined && notice.documents.length > 0) {
-        const first = notice.documents.slice().sort()[0];
-        if (first !== undefined) {
-          void openPath(first);
-        }
+      // A room that names a document should not leave a phone on a blank editor — but a document
+      // this window fetched only to save it is not one the person asked to look at.
+      const first = documentToAutoOpen(notice.documents, binding?.currentPath(), backgroundFetches);
+      if (first !== undefined) {
+        void openPath(first);
       }
       break;
     case 'peers':
@@ -1335,8 +1733,13 @@ function onNotice(notice: BindingNotice): void {
         // strip is the only place the guest reads it.
         if (hostPresent(present)) {
           sessionNote.endCountdown();
+          hostAway = false;
         }
+        // The dot and the dimming are one fact: green and legible together, red and dimmed together.
+        setHealth(hostAway ? 'away' : 'ok');
         syncRoster(present);
+        // The bar's identity names the host's session, which the roster is where the host appears.
+        setSessionIdentity();
         // Where someone is reads on the tree, so presence moves re-render it.
         syncGrant();
       }
@@ -1344,26 +1747,44 @@ function onNotice(notice: BindingNotice): void {
     case 'roster':
       if (hostPresent(notice.participants)) {
         sessionNote.endCountdown();
+        hostAway = false;
       }
+      setHealth(hostAway ? 'away' : 'ok');
       syncRoster(notice.participants);
+      setSessionIdentity();
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();
       break;
     case 'grace':
       sessionNote.countdown(notice.graceMs);
+      // A guest's rows without `●` dim while the grace runs: no text can arrive until the host is
+      // back, which is the one moment the difference has a consequence before a click.
+      hostAway = true;
+      setHealth('away');
+      syncGrant();
       break;
     case 'reconnecting':
       // The socket is down and the engine is re-dialling it: the line stands for as long as that
       // lasts, and the room's own reports are what take it down.
       sessionNote.dropped(RECONNECTING_NOTE);
+      setHealth('reconnecting');
       break;
     case 'hostBack':
       sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
+      hostAway = false;
+      setHealth('ok');
+      syncGrant();
       break;
     case 'status':
       // News with no other home, and never a second copy of a control: see `SHOWN_STATUS_TOPICS`.
-      // The strip holds one line, so a later sentence replaces an earlier one and the room's own
-      // warning is not the news's to take down (`SessionNote.status`).
+      // The read-only state is a chip in the file strip now, so the role is a state rather than a
+      // sentence: the person never has to have caught the toast to know it.
+      if (notice.topic === 'role') {
+        readOnly = true;
+        syncStrip();
+        announce(VIEWER_SENTENCE);
+        break;
+      }
       if (SHOWN_STATUS_TOPICS.has(notice.topic)) {
         sessionNote.status(notice.text);
       }
@@ -1372,12 +1793,24 @@ function onNotice(notice: BindingNotice): void {
       syncGrant();
       break;
     case 'follow':
-      syncFollow(notice.following);
+      syncFollow(notice.following, notice.ended);
       break;
     case 'failure':
-      // Something the person asked for was refused, and the sentence says why: a write the
-      // stale-file guard stopped, or a path this host cannot read out of its own folder.
+      // Something the person asked for was refused, and the sentence says why. A write's refusal
+      // belongs on the row it is about and stays there until a write to that path lands; a failure
+      // with no row to sit on — a path this host cannot read out of its own folder — is the one kind
+      // that has nowhere but the alert.
+      if (notice.path !== undefined) {
+        unsavedPaths.set(notice.path, notice.text);
+        syncGrant();
+        break;
+      }
       failureAlert.show(notice.text);
+      break;
+    case 'saved':
+      // The write landed, so the mark the refusal left goes with it.
+      unsavedPaths.delete(notice.path);
+      syncGrant();
       break;
   }
 }

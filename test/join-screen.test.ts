@@ -250,15 +250,36 @@ describe('display-name persistence', () => {
 });
 
 describe('brand heading', () => {
-  it('the mark and wordmark suffice — no session text beside them', () => {
+  it('the mark carries the brand and the words carry the one fact the bar has', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-    const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('id="follow-banner"'));
-    assert.ok(bar.includes('Selvage'), 'wordmark gone from the session bar');
+    const bar = barOf(html);
+    // A `Selvage` wordmark beside the mark was the brand twice and the fact never: what stands there
+    // now is whose room this is, or whose folder is exposed.
+    assert.ok(bar.includes('id="session-identity"'), 'the bar says nothing about which session it is');
+    assert.ok(!bar.includes('>Selvage<'), 'the wordmark is still in the session bar');
     assert.ok(!bar.includes('room-label'), 'session text still beside the brand');
-    assert.ok(!bar.includes('Shared session'), 'session text still beside the brand');
     const join = readFileSync(new URL('../src/browser/join.ts', import.meta.url), 'utf8');
     assert.ok(!join.includes('SESSION_HEADING'), 'session heading still exported');
-    assert.ok(!join.includes('Shared session'), 'session heading copy still exported');
+  });
+
+  it('names the folder a host is exposing, and whose room a guest is in', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /`Sharing “\$\{hostFolder\.name\}”`/, 'a host cannot read which folder it exposes');
+    assert.match(main, /`In \$\{host\.displayName\}'s session`/, 'a guest cannot read whose room it is');
+    assert.match(main, /'In a shared session'/, 'a guest before the roster arrives reads nothing');
+  });
+
+  it('shows room health as a dot, with its words only when there is something to say', () => {
+    const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    assert.match(html, /<span id="health" data-health="ok" title="Connected">/, 'no health dot in the bar');
+    assert.match(style, /#health-label:empty \{ display: none; \}/, 'a healthy room still says something');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    for (const state of ["'reconnecting'", "'away'"]) {
+      assert.ok(main.includes(`setHealth(${state})`), `the ${state} state reaches no dot`);
+    }
+    assert.match(main, /'Reconnecting…'/, 'the reconnecting state is wordless');
+    assert.match(main, /'Host away'/, 'the host-away state is wordless');
   });
 });
 
@@ -516,6 +537,18 @@ describe('failure display and diagnostics', () => {
   });
 });
 
+/**
+ * The session bar's own markup: from the bar's opening tag to the health strip under it, which is
+ * the next thing the shell draws. The bar used to end at the follow banner's id, and the banner is
+ * gone — a slice that runs to a missing id silently reads the whole page instead.
+ */
+function barOf(source: string): string {
+  const from = source.indexOf('<div id="session"');
+  const to = source.indexOf('<div id="session-note"');
+  assert.ok(from !== -1 && to > from, 'the session bar is not in the shell');
+  return source.slice(from, to);
+}
+
 describe('joined chrome', () => {
   const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -532,7 +565,7 @@ describe('joined chrome', () => {
   });
 
   it('the whole link bar copies — no separate Copy button', () => {
-    const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('id="follow-banner"'));
+    const bar = barOf(html);
     assert.ok(!bar.includes('Copy link'), 'separate copy button still in the bar');
     assert.ok(!bar.includes('copy-share'), 'the icon-only button survived beside the bar');
     assert.ok(/id="share-group"[^>]*role="button"/.test(bar), 'the bar is no button');
@@ -557,7 +590,7 @@ describe('joined chrome', () => {
   });
 
   it('the roster owns no stop control', () => {
-    assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a roster stop survived beside the banner one');
-    assert.ok(main.includes("labelSpan('Stop following')"), 'the banner lost its stop');
+    assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a roster stop survived beside the strip one');
+    assert.ok(main.includes("labelSpan('Stop following')"), 'the follow segment lost its stop');
   });
 });

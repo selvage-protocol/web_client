@@ -16,18 +16,11 @@ import type { Role } from '../engine/index.ts';
 import { iconSpan, labelSpan } from './icons.ts';
 import { rosterLabel } from './names.ts';
 
-/**
- * Marks a verb dead and says why, returning the reason as a line the row can
- * carry. The `title` is what a pointer device reads on hover; a finger has none,
- * so the returned element is unhidden there by the shell (`#roster .why`).
- */
-function dead(button: HTMLButtonElement, reason: string): HTMLElement {
-  button.disabled = true;
-  button.title = reason;
-  const why = document.createElement('span');
-  why.className = 'why';
-  why.textContent = reason;
-  return why;
+/** A verb's own words, in a span the narrow panel can hide while the tooltip keeps them. */
+function verbLabel(text: string): HTMLSpanElement {
+  const span = labelSpan(text);
+  span.className = 'label';
+  return span;
 }
 
 export interface RosterPeer {
@@ -69,6 +62,8 @@ export interface RosterView {
   onFollow(peerId: string): void;
   /** Opens the own-name edit. Absent where the page has no name to change. */
   onRename?: () => void;
+  /** The same copy handler the invite pill runs, for the lone host's own line. */
+  onCopyInvite?: () => void;
 }
 
 /**
@@ -92,6 +87,12 @@ const NAME_FIELD_LABEL = 'The name other participants see';
 export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], view: RosterView): void {
   list.replaceChildren();
   list.appendChild(selfRow(view));
+  if (peers.length === 0) {
+    const alone = aloneRow(view);
+    if (alone !== undefined) {
+      list.appendChild(alone);
+    }
+  }
   for (const peer of peers) {
     list.appendChild(peerRow(peer, peers, view));
   }
@@ -127,11 +128,15 @@ function selfRow(view: RosterView): HTMLElement {
     who.appendChild(name);
     const you = document.createElement('span');
     you.className = 'you';
-    you.textContent = 'you';
+    you.textContent = '(you)';
     who.appendChild(you);
     const host = view.selfRole === undefined ? undefined : hostMarker(view.selfRole);
     if (host !== undefined) {
-      who.appendChild(host);
+      const dot = document.createElement('span');
+      dot.className = 'sep';
+      dot.setAttribute('aria-hidden', 'true');
+      dot.textContent = '·';
+      who.append(dot, host);
     }
   } else {
     who.appendChild(nameField(rename));
@@ -139,26 +144,63 @@ function selfRow(view: RosterView): HTMLElement {
   row.appendChild(who);
   const actions = document.createElement('span');
   actions.className = 'actions';
-  const go = document.createElement('button');
-  go.type = 'button';
-  go.append(iconSpan('go'), labelSpan('Go to'));
-  const whyGo = dead(go, 'This is you.');
-  actions.appendChild(go);
-  const follow = document.createElement('button');
-  follow.type = 'button';
-  follow.append(iconSpan('follow'), labelSpan('Follow'));
-  const whyFollow = dead(follow, "You can't follow yourself.");
-  actions.appendChild(follow);
+  // One control, and it is the one this row can act on. A Go to and a Follow that can never work
+  // — this is the person looking, and nobody follows themselves — were two dead verbs and two lines
+  // explaining why: four elements saying one thing the row's own name already says.
   if (rename === undefined && view.onRename !== undefined) {
     const edit = document.createElement('button');
     edit.type = 'button';
-    edit.append(iconSpan('edit'), labelSpan('Rename'));
+    edit.append(iconSpan('edit'), verbLabel('Rename'));
     edit.title = RENAME_LABEL;
+    edit.setAttribute('aria-label', RENAME_LABEL);
     edit.addEventListener('click', () => view.onRename?.());
     actions.appendChild(edit);
   }
-  row.append(actions, whyGo, whyFollow);
+  row.append(actions);
   return row;
+}
+
+/**
+ * The line a lone host reads under its own row: nobody else is here, and the one act that changes
+ * that is the link. The action is the same copy handler as the pill's, with the same brief
+ * confirmation, because it is the same act.
+ */
+function aloneRow(view: RosterView): HTMLElement | undefined {
+  if (view.onCopyInvite === undefined) {
+    return undefined;
+  }
+  const row = document.createElement('li');
+  row.className = 'alone';
+  const text = document.createElement('span');
+  text.textContent = 'No one else yet.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'copy-invite';
+  const label = document.createElement('span');
+  label.textContent = COPY_LABEL;
+  button.appendChild(label);
+  button.addEventListener('click', () => {
+    view.onCopyInvite?.();
+    label.textContent = COPY_CONFIRM;
+    scheduleRevert(label);
+  });
+  row.append(text, button);
+  return row;
+}
+
+/** The control's own words, which are what it does. */
+const COPY_LABEL = 'Copy invite link';
+
+/** The confirmation a copy shows in place, in the pill's own words. */
+const COPY_CONFIRM = 'Link copied';
+
+/** How long the confirmation stands before the control's own words come back. */
+const COPY_CONFIRM_MS = 1500;
+
+function scheduleRevert(label: HTMLElement): void {
+  setTimeout(() => {
+    label.textContent = COPY_LABEL;
+  }, COPY_CONFIRM_MS);
 }
 
 /**
@@ -296,25 +338,28 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   actions.className = 'actions';
   const go = document.createElement('button');
   go.type = 'button';
-  go.append(iconSpan('go'), labelSpan('Go to'));
-  // Disabled, never mysteriously: the row says why, the way the self row's dead
-  // actions do.
-  const whyGo = peer.path === undefined ? dead(go, 'They have not opened a file yet.') : undefined;
-  go.addEventListener('click', () => view.onGoTo(peer.peerId));
-  actions.appendChild(go);
+  go.append(iconSpan('go'), verbLabel('Go to'));
+  if (peer.path === undefined) {
+    // A verb that cannot work is not a verb: the row says where the peer is instead of offering a
+    // press that explains, on a phone, that there is nothing to go to.
+    const waiting = document.createElement('span');
+    waiting.className = 'waiting';
+    waiting.textContent = 'not in a file yet';
+    actions.appendChild(waiting);
+  } else {
+    go.addEventListener('click', () => view.onGoTo(peer.peerId));
+    actions.appendChild(go);
+  }
   const follow = document.createElement('button');
   follow.type = 'button';
   if (view.followedPeerId === peer.peerId) {
     follow.append(iconSpan('follow'), labelSpan('Following'));
     follow.disabled = true;
   } else {
-    follow.append(iconSpan('follow'), labelSpan('Follow'));
+    follow.append(iconSpan('follow'), verbLabel('Follow'));
     follow.addEventListener('click', () => view.onFollow(peer.peerId));
   }
   actions.appendChild(follow);
   row.appendChild(actions);
-  if (whyGo !== undefined) {
-    row.appendChild(whyGo);
-  }
   return row;
 }

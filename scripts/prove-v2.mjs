@@ -359,14 +359,16 @@ async function openFromTheTree(page, path, deadlineMs = 30_000) {
   const deadline = Date.now() + deadlineMs;
   for (;;) {
     const report = await page.evaluate(`(() => {
-      // A row's text is the file's badge and its name — MDnotes.md — and the name is the one
-      // span in it that carries no class.
+      // A row's text is the file's badge and its name — MDnotes.md — and the name is the span the
+      // row's own chrome does not wear: a badge, a presence container and the label span the tree's
+      // own styles hang off are the others.
       const wanted = ${JSON.stringify(path)};
       const name = wanted.slice(wanted.lastIndexOf('/') + 1);
       const rows = [...document.querySelectorAll('#tree button.row')];
       const row = rows.find((node) =>
         [...node.querySelectorAll('span')].some(
-          (span) => span.className === '' && span.textContent === name,
+          (span) =>
+            (span.className === 'label' || span.className === '') && span.textContent === name,
         ),
       );
       if (row !== undefined) {

@@ -1,8 +1,8 @@
 /**
- * Flow-review regressions: every landing announces itself, unpublished
- * files read as advisories, the drop signal reaches the page as a notice,
- * duplicate names disambiguate, the join URL persists, unreachable servers
- * read plainly, and tree directories keep their openness.
+ * Flow-review regressions: what a landing says, what the room knows about a
+ * file, the drop signal reaches the page as a notice, duplicate names
+ * disambiguate, the join URL persists, unreachable servers read plainly, and
+ * tree directories keep their openness.
  */
 
 import { describe, it } from 'node:test';
@@ -11,7 +11,14 @@ import assert from 'node:assert/strict';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { persistJoinUrl } from '../src/browser/share.ts';
-import { dirOpen, rowsKey, showUnpublishedBadge, unpublishedPillText } from '../src/browser/tree-state.ts';
+import {
+  EMPTY_FILE_TITLE,
+  EMPTY_IN_ROOM_TITLE,
+  IN_THE_ROOM_TITLE,
+  dirOpen,
+  roomMark,
+  rowsKey,
+} from '../src/browser/tree-state.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 
 // Minimal DOM: the binding owns one <style> element for peer colours.
@@ -140,7 +147,9 @@ describe('landing notices (tree and editor agree)', () => {
     binding.dispose();
   });
 
-  it('follow re-lands announce who and where', async () => {
+  it('a follow re-land raises the indicator and no sentence of its own', async () => {
+    // The strip above the editor carries who is followed and where the caret went, so a status
+    // sentence saying the same thing was one line too many.
     const overrides = {
       peers: [SAM],
       presence: [{ clientId: 7, peer: SAM, state: { path: 'a.txt', selection: selectionAt(1) } }],
@@ -148,19 +157,24 @@ describe('landing notices (tree and editor agree)', () => {
     };
     const { binding, engine, notices } = setup(new Map([['a.txt', 'aaa'], ['b.txt', 'bbb']]), overrides);
     await binding.follow('peer-sam');
-    assert.ok(notices.some((notice) => notice.kind === 'status' && notice.text === 'Following sam in a.txt'));
+    assert.ok(notices.some((notice) => notice.kind === 'follow' && notice.following?.peerId === 'peer-sam'));
+    assert.equal(
+      notices.some((notice) => notice.kind === 'status' && notice.text.includes('Following')),
+      false,
+      `a follow sentence survived in ${JSON.stringify(notices)}`,
+    );
     overrides.presence = [{ clientId: 7, peer: SAM, state: { path: 'b.txt', selection: selectionAt(1) } }];
     engine.__emit({ type: 'presenceChanged' });
     await waitFor(
-      'follow re-land status',
-      () => (notices.some((notice) => notice.kind === 'status' && notice.text === 'Following sam in b.txt') ? true : undefined),
+      'the re-land',
+      () => (notices.filter((notice) => notice.kind === 'follow').length >= 3 ? true : undefined),
     );
     assert.equal(binding.currentPath(), 'b.txt');
     binding.dispose();
   });
 });
 
-describe('unpublished files', () => {
+describe('what a row says about the room', () => {
   it('a listed path nobody sent reads unpublished; a held one does not', async () => {
     const { binding } = setup(new Map([['a.txt', 'aaa']]), { grant: ['a.txt', 'todo.txt'] });
     assert.equal(binding.isUnpublished('todo.txt'), true);
@@ -171,18 +185,40 @@ describe('unpublished files', () => {
     binding.dispose();
   });
 
-  it('only the open file may wear the unpublished badge — never an unopened one', () => {
-    assert.equal(showUnpublishedBadge('todo.txt', 'todo.txt', true), true);
-    assert.equal(showUnpublishedBadge('todo.txt', undefined, true), false);
-    assert.equal(showUnpublishedBadge('todo.txt', 'notes.md', true), false);
-    assert.equal(showUnpublishedBadge('todo.txt', 'todo.txt', false), false);
+  it('the room’s own open set is what the `●` is drawn from, and the text from what is here', async () => {
+    const { binding, overrides } = setup(new Map([['a.txt', 'aaa']]), { held: ['a.txt'] });
+    assert.equal(binding.isOpenInRoom('a.txt'), true);
+    assert.equal(binding.isOpenInRoom('b.txt'), false);
+    assert.equal(binding.hasText('a.txt'), true);
+    assert.equal(binding.hasText('b.txt'), false);
+    // A path the room holds whose text has not arrived is the case the guest cannot tell apart
+    // from an empty file, which is what the tag's two-reason tooltip is for.
+    overrides.held = ['a.txt', 'b.txt'];
+    // A path with no text here is not an empty file and does not claim to be one: `isTextEmpty` is
+    // about text this window holds, and whether the room's copy is empty is the row's to decide
+    // (`roomMark`), because a guest cannot tell the two apart and a host can.
+    assert.equal(binding.isTextEmpty('b.txt'), false);
+    assert.deepEqual(roomMark({ inRoom: true, textHere: false, textEmpty: false, host: false }), {
+      kind: 'empty',
+      title: EMPTY_IN_ROOM_TITLE,
+    });
+    assert.deepEqual(roomMark({ inRoom: true, textHere: false, textEmpty: false, host: true }), {
+      kind: 'empty',
+      title: EMPTY_FILE_TITLE,
+    });
+    assert.deepEqual(roomMark({ inRoom: true, textHere: true, textEmpty: false, host: false }), {
+      kind: 'in-room',
+      title: IN_THE_ROOM_TITLE,
+    });
+    assert.deepEqual(roomMark({ inRoom: false, textHere: true, textEmpty: false, host: false }), {
+      kind: 'none',
+    });
+    binding.dispose();
   });
 
-  it('the pill names the reason on a phone, where its title can never be read', () => {
-    // A pointer device hovers the pill and reads the reason; a finger cannot, so
-    // the pill itself says who has not shared the file.
-    assert.equal(unpublishedPillText(false), 'not yet shared');
-    assert.match(unpublishedPillText(true), /host/);
+  it('a host’s own empty file says the one true thing, a guest’s says both it cannot tell apart', () => {
+    assert.equal(EMPTY_FILE_TITLE, 'The file is empty.');
+    assert.match(EMPTY_IN_ROOM_TITLE, /Either the file is empty, or the host has not sent its text yet/);
   });
 });
 
@@ -259,8 +295,17 @@ describe('tree directory openness', () => {
 });
 
 describe('what a tree re-render reads', () => {
+  const chrome = {
+    current: 'src/main.ts',
+    touch: false,
+    draft: '',
+    local: '',
+    unsaved: '',
+    hostAway: false,
+    marks: 'src/main.ts:in-room\nsrc/lib.ts:',
+  };
+
   it('is a function of the listing and the row chrome', () => {
-    const chrome = { current: 'src/main.ts', unpublished: false, touch: false };
     const key = rowsKey(['src/main.ts', 'src/lib.ts'], chrome);
     // The same rows and the same chrome read the same, whatever else moved: this is
     // what lets a presence frame repaint badges instead of rebuilding the tree.
@@ -268,16 +313,25 @@ describe('what a tree re-render reads', () => {
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts', 'src/new.ts'], chrome), key);
     assert.notEqual(rowsKey(['src/lib.ts', 'src/main.ts'], chrome), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, current: 'src/lib.ts' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, unpublished: true }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, touch: true }), key);
+    // The create row, the folders this session made, a refused write and the host's absence are all
+    // row chrome: a frame that changes one of them has to redraw the rows it changed.
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, draft: 'file:src' }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, local: 'docs' }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, unsaved: 'src/main.ts' }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, hostAway: true }), key);
+    // A row's own mark is chrome too: the room picking a document up changes what every row says
+    // while the listing reads the same.
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, marks: 'src/main.ts:empty' }), key);
   });
 
   it('separates the row chrome from the listing', () => {
     // The parts cannot be read as one another: a path carries no NUL and no line feed
     // (a name with a control character is not a granted path), and the chrome's own
     // fields come before the listing's.
-    const chrome = { current: undefined, unpublished: false, touch: false };
-    assert.notEqual(rowsKey(['a'], chrome), rowsKey([], { ...chrome, current: 'a' }));
-    assert.notEqual(rowsKey([], chrome), rowsKey([], { ...chrome, unpublished: true }));
+    const blank = { ...chrome, current: undefined };
+    assert.notEqual(rowsKey(['a'], blank), rowsKey([], { ...blank, current: 'a' }));
+    assert.notEqual(rowsKey([], blank), rowsKey([], { ...blank, draft: 'file:' }));
+    assert.notEqual(rowsKey([], blank), rowsKey([], { ...blank, local: 'docs' }));
   });
 });
