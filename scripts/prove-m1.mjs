@@ -16,7 +16,8 @@
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { peerColour } from '../src/bridge/index.ts';
-import { SelvageEngine as Engine } from '../src/engine/index.ts';
+import { PeerEngine } from '../src/bridge/index.ts';
+import { listingSource, pageEngine } from '../src/browser/relay.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
@@ -148,8 +149,17 @@ function check(name, condition) {
   console.log(`ok: ${name}`);
 }
 
-// The room is minted by this checkout's own engine: one copy, no harness caveat.
-const hostEngine = await Engine.host(BASE, 'prove-host', { client: 'web-prove/host' });
+// The room is minted by this checkout's own engine: one copy, no harness caveat. `§7.1` seals the
+// room state from the host's listing, so the tree is walked before the mint, as the page does.
+const hostListing = listingSource([NOTES, MAIN, 'todo.txt']);
+const hostEngine = pageEngine(
+  await PeerEngine.host({
+    baseUrl: BASE,
+    displayName: 'prove-host',
+    listing: hostListing,
+    client: 'web-prove/host',
+  }),
+);
 const invite = hostEngine.inviteUrl();
 if (invite === undefined) throw new Error('host minted no invite');
 console.log(`room minted: ${hostEngine.session().roomId}`);
@@ -160,20 +170,23 @@ hostFiles.texts.set(MAIN, SEED_MAIN);
 const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 hostBridge.documentOpened(NOTES);
 hostBridge.documentOpened(MAIN);
-await hostEngine.grant([NOTES, MAIN, 'todo.txt']);
 console.log('host shares two documents and a three-path listing');
 
 // The page joins with the default `/meta` check — no skip — and the handshake
-// negotiates the wire version on top.
+// speaks the one wire version on top.
 let guestSocket;
 const capturingFactory = (url) => {
   guestSocket = nativeWebSocketFactory(url);
   return guestSocket;
 };
-const guestEngine = await Engine.join(invite, 'prove-web', {
-  webSocketFactory: capturingFactory,
-  client: CLIENT_ID,
-});
+const guestEngine = pageEngine(
+  await PeerEngine.join({
+    invite,
+    displayName: 'prove-web',
+    webSocketFactory: capturingFactory,
+    client: CLIENT_ID,
+  }),
+);
 console.log(`guest joined as ${guestEngine.session().role} over native WebSocket, meta checked`);
 
 const seen = { languages: [] };
@@ -303,11 +316,15 @@ check('host edit converges on the guest', true);
 
 // The degraded `/meta` a cross-origin page sees: the read fails like any
 // unreachable endpoint, advisory, never a refusal — the join still lands.
-const degraded = await Engine.join(invite, 'prove-degraded', {
-  webSocketFactory: nativeWebSocketFactory,
-  fetchImpl: () => Promise.reject(new Error('CORS blocked')),
-  client: CLIENT_ID,
-});
+const degraded = pageEngine(
+  await PeerEngine.join({
+    invite,
+    displayName: 'prove-degraded',
+    webSocketFactory: nativeWebSocketFactory,
+    fetchImpl: () => Promise.reject(new Error('CORS blocked')),
+    client: CLIENT_ID,
+  }),
+);
 check('join survives an unreadable /meta', degraded.session().role === 'guest');
 await degraded.disconnect();
 
@@ -325,7 +342,11 @@ hostBridge.documentChanged(NOTES);
 await waitFor(
   'room to converge after reconnect',
   () => (guestEngine.text(NOTES) === afterReconnect ? true : undefined),
-  15_000,
+  // A re-seat re-announces this connection's holds on the renewal clock (`§13.7` renews the whole
+  // set) and the host publishes the state that names them on its own, so a cut socket's room can
+  // take up to two renewal periods to converge: 27.7 s measured here against a server whose
+  // `awareness_renew_ms` is 15 000, where the version-1 engine's server-side open set was instant.
+  45_000,
 );
 stop();
 check('room converges after reconnect', true);

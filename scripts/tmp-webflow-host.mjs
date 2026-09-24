@@ -1,5 +1,6 @@
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
-import { SelvageEngine as Engine } from '../src/engine/index.ts';
+import { PeerEngine } from '../src/bridge/index.ts';
+import { listingSource, pageEngine } from '../src/browser/relay.ts';
 
 const BASE = process.env.SELVAGE_BASE ?? 'ws://100.64.0.3:8080';
 
@@ -19,7 +20,15 @@ class MemHost {
   report(_report) {}
 }
 
-const hostEngine = await Engine.host(BASE, 'demo-host', { client: 'webflow-review/host' });
+// `§7.1` seals the room state from the host's listing, so the tree is walked before the mint.
+const hostEngine = pageEngine(
+  await PeerEngine.host({
+    baseUrl: BASE,
+    displayName: 'demo-host',
+    listing: listingSource(['notes.md', 'src/main.ts', 'todo.txt']),
+    client: 'webflow-review/host',
+  }),
+);
 const invite = hostEngine.inviteUrl();
 const session = hostEngine.session();
 console.log(`ROOM=${session.roomId}`);
@@ -36,7 +45,6 @@ hostFiles.texts.set('todo.txt', 'buy milk\nfix the thing\n');
 const bridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 bridge.documentOpened('notes.md');
 bridge.documentOpened('src/main.ts');
-await hostEngine.grant(['notes.md', 'src/main.ts', 'todo.txt']);
 console.log('GRANTED=notes.md,src/main.ts,todo.txt');
 hostEngine.setSelection('notes.md', { anchor: 0, head: 10 });
 

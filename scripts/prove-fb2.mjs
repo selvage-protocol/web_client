@@ -11,8 +11,9 @@
  */
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
-import { SelvageEngine as Engine } from '../src/engine/index.ts';
-import { sessionUrl } from '../src/engine/index.ts';
+import { PeerEngine } from '../src/bridge/index.ts';
+import { listingSource, pageEngine } from '../src/browser/relay.ts';
+import { fragmentOf } from '../src/browser/join.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
@@ -113,7 +114,16 @@ function check(name, condition) {
   console.log(`ok: ${name}`);
 }
 
-const hostEngine = await Engine.host(BASE, 'prove-fb2-host', { client: 'web-prove-fb2/host' });
+// `§7.1` seals the room state from the host's listing, so the tree is walked before the mint.
+const listing = listingSource([NOTES, MAIN]);
+const hostEngine = pageEngine(
+  await PeerEngine.host({
+    baseUrl: BASE,
+    displayName: 'prove-fb2-host',
+    listing,
+    client: 'web-prove-fb2/host',
+  }),
+);
 const invite = hostEngine.inviteUrl();
 if (invite === undefined) throw new Error('host minted no invite');
 console.log(`room minted: ${hostEngine.session().roomId}`);
@@ -124,13 +134,16 @@ hostFiles.texts.set(MAIN, SEED_MAIN);
 const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 hostBridge.documentOpened(NOTES);
 hostBridge.documentOpened(MAIN);
-await hostEngine.grant([NOTES, MAIN]);
 console.log('host shares notes.md and src/main.ts');
 
-const guestEngine = await Engine.join(invite, 'prove-fb2-web', {
-  webSocketFactory: nativeWebSocketFactory,
-  client: CLIENT_ID,
-});
+const guestEngine = pageEngine(
+  await PeerEngine.join({
+    invite,
+    displayName: 'prove-fb2-web',
+    webSocketFactory: nativeWebSocketFactory,
+    client: CLIENT_ID,
+  }),
+);
 console.log('guest joined the way the page does');
 
 const seen = { languages: [] };
@@ -190,17 +203,24 @@ const inviteUrl = new URL(invite);
 const room = inviteUrl.searchParams.get('room');
 const token = inviteUrl.searchParams.get('token');
 if (room === null || token === null) throw new Error('invite names no room');
-const share = buildShareLink(BASE, room, token);
+const share = buildShareLink(BASE, room, token, fragmentOf(invite));
 console.log(`share: ${share}`);
 check('share link is the room\'s own page', share.startsWith(`${pageOriginOf(BASE)}/?`));
 check('share link names no ws://', !share.includes('ws://'));
 const back = parsePageLink(share);
 check('share link round-trips into room and token', back?.room === room && back?.token === token);
 check('share link reads back as the room\'s own server', serverBaseOf(back.origin) === BASE);
-const rejoin = await Engine.join(sessionUrl(serverBaseOf(back.origin), back.room, back.token), 'prove-fb2-rejoin', {
-  webSocketFactory: nativeWebSocketFactory,
-  client: CLIENT_ID,
-});
+// The link is the whole invite, `§5.1`'s fragment included: a page link without the two keys is a
+// join the engine refuses where it reads it, so the round trip has to carry them.
+check('share link carries the invite\'s own fragment', back?.fragment === fragmentOf(invite));
+const rejoin = pageEngine(
+  await PeerEngine.join({
+    invite: share,
+    displayName: 'prove-fb2-rejoin',
+    webSocketFactory: nativeWebSocketFactory,
+    client: CLIENT_ID,
+  }),
+);
 check('share link round-trips back into a join', rejoin.session().role === 'guest');
 await rejoin.disconnect();
 

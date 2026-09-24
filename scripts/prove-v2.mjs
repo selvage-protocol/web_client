@@ -12,8 +12,8 @@
  *
  * The server is one origin: `selvaged --serve-page dist` answers `/` with the built page and
  * `/session` with the room, so the link's origin *is* the address the guest dials —
- * `PROTOCOL.md` §5.1's shape, with no second server to point at. No version flag is needed: a
- * server built from this revision seats both, and `--serve-version-1-only` is the opt-out.
+ * `PROTOCOL.md` §5.1's shape, with no second server to point at. No version flag is needed or
+ * exists: a server built from this revision seats `selvage/2`, the one wire.
  *
  * Screenshots go to `.tmp/prove-v2/` — inside the checkout, where `/tmp` is never used, and
  * ignored by git, which keeps a proof run from leaving anything in the tree.
