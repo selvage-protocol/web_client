@@ -311,6 +311,11 @@ describe('roster rows', () => {
     field.fire('blur', { relatedTarget: save });
     field.fire('blur', { relatedTarget: cancel });
     assert.equal(events.length, before, 'a press on one of the edit\u2019s own controls cancels first');
+    // A browser that does not focus a button on mousedown reports no `relatedTarget` at all, so
+    // the press is recorded on the way down too and the button's own click still lands.
+    save.fire('mousedown');
+    field.fire('blur', { relatedTarget: null });
+    assert.equal(events.length, before, 'a mousedown on a control cancels the edit instead of pressing it');
     // Anywhere else is leaving it, and it dismisses exactly as Cancel does.
     field.fire('blur', { relatedTarget: null });
     assert.deepEqual(events.at(-1), ['cancel'], 'a click outside the edit does not dismiss it');

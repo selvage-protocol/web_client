@@ -199,6 +199,16 @@ function nameField(rename: RosterRename): HTMLElement {
   cancel.textContent = 'Cancel';
   cancel.title = RENAME_CANCEL_LABEL;
   cancel.addEventListener('click', () => rename.cancel());
+  // A press on the edit's own controls is not leaving the edit. `relatedTarget` says so where
+  // the browser focuses the button on mousedown; where it does not (Safari reports none), the
+  // press is recorded on the way down, so the button's own click still lands instead of the
+  // edit being dismissed out from under it.
+  let pressed = false;
+  for (const control of [save, cancel]) {
+    control.addEventListener('mousedown', () => {
+      pressed = true;
+    });
+  }
   field.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -211,7 +221,8 @@ function nameField(rename: RosterRename): HTMLElement {
     }
   });
   field.addEventListener('blur', (event: FocusEvent) => {
-    if (event.relatedTarget === save || event.relatedTarget === cancel) {
+    if (pressed || event.relatedTarget === save || event.relatedTarget === cancel) {
+      pressed = false;
       return;
     }
     rename.cancel();
