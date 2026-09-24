@@ -949,6 +949,7 @@ function drawRoster(participants: Participant[]): void {
     followedPeerId: binding?.following()?.peerId,
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
+    selfRole: engine?.session().role,
     renaming:
       renamingName === undefined
         ? undefined

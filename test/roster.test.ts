@@ -215,6 +215,32 @@ describe('roster rows', () => {
     assert.equal(buttons[2].disabled, false, 'the rename control is dead');
   });
 
+  it('marks the host, and only the host', () => {
+    // The room names each seat's role (`§13.4`) and the page's own design note has the roster
+    // draw it: `guest` is the room's ordinary seat, where a badge on every row but one is noise.
+    const { list } = render([SAM, JO]);
+    const jo = rowNamed(list, 'jo');
+    const sam = rowNamed(list, 'sam');
+    assert.ok(jo !== undefined && sam !== undefined, 'a peer row went missing');
+    const marks = withClass(jo, 'role');
+    assert.equal(marks.length, 1, 'the host row carries no marker');
+    assert.equal(marks[0].textContent, 'host');
+    assert.equal(withClass(sam, 'role').length, 0, 'a guest is marked as something');
+  });
+
+  it('marks the own row when this connection is the host', () => {
+    // The room's peer list never carries this connection's own seat (`§13.4`), so a host alone
+    // in a room has no other row that could say who is hosting.
+    const { list } = render([], { selfRole: 'host' });
+    const self = list.children[0];
+    const marks = withClass(self, 'role');
+    assert.equal(marks.length, 1, 'the own row of a host says nothing about it');
+    assert.equal(marks[0].textContent, 'host');
+    // A guest's own row is unmarked, and a row with no role at all is too.
+    assert.equal(withClass(render([]).list.children[0], 'role').length, 0);
+    assert.equal(withClass(render([], { selfRole: 'guest' }).list.children[0], 'role').length, 0);
+  });
+
   it('your own row offers the rename control, in the shared words', () => {
     const calls = [];
     const { list } = render([SAM], { onRename: () => void calls.push('rename') });

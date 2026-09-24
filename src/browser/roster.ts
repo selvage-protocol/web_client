@@ -57,6 +57,12 @@ export interface RosterView {
   selfName: string;
   /** The swatch colour for the own row; the page passes the peer-colour mapping. */
   selfColour?: string;
+  /**
+   * The role the room gives this connection's own seat, which the room's peer list never
+   * carries (`§13.4`): without it the one row a host alone in a room can see would not say
+   * that it is the host.
+   */
+  selfRole?: Role;
   /** The own-name edit in progress, when one is open. */
   renaming?: RosterRename;
   onGoTo(peerId: string): void;
@@ -119,6 +125,10 @@ function selfRow(view: RosterView): HTMLElement {
     you.className = 'you';
     you.textContent = 'you';
     who.appendChild(you);
+    const host = view.selfRole === undefined ? undefined : hostMarker(view.selfRole);
+    if (host !== undefined) {
+      who.appendChild(host);
+    }
   } else {
     who.appendChild(nameField(rename));
   }
@@ -182,6 +192,30 @@ function nameField(rename: RosterRename): HTMLInputElement {
   return field;
 }
 
+/**
+ * The marker a row wears when the room's state gives its seat a role worth
+ * naming: `host`, the one peer whose connection holds the host key and whose
+ * leaving puts the room into its grace (`§13.8`).
+ *
+ * A quiet line beside the name, in the own row's `you` shape, because the
+ * roster is the page's account of who is here and the role is part of who: the
+ * page's own design note has the roster draw peers with their roles, and the
+ * grant tree has no room for one. It is not drawn for `guest` — the room's
+ * ordinary seat, where a badge would be noise on every row but one — and
+ * `viewer` is left out deliberately: it is a statement about what a peer may
+ * write, the read-only state is the editor's own to show, and no row here is
+ * about permission.
+ */
+function hostMarker(role: Role): HTMLElement | undefined {
+  if (role !== 'host') {
+    return undefined;
+  }
+  const marker = document.createElement('span');
+  marker.className = 'role';
+  marker.textContent = 'host';
+  return marker;
+}
+
 function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView): HTMLElement {
   const row = document.createElement('li');
   row.classList.add('peer');
@@ -205,6 +239,10 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
     name.title = peer.peerId;
   }
   who.appendChild(name);
+  const host = hostMarker(peer.role);
+  if (host !== undefined) {
+    who.appendChild(host);
+  }
   row.appendChild(who);
   const actions = document.createElement('span');
   actions.className = 'actions';
