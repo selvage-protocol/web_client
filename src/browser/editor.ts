@@ -48,7 +48,7 @@ export type BindingNotice =
    * nothing through it would look healthy while nothing typed could reach the room.
    */
   | { kind: 'reconnecting' }
-  | { kind: 'status'; text: string }
+  | { kind: 'status'; text: string; topic: StatusTopic }
   /**
    * Something the person asked for did not happen, and the sentence says why: a write the
    * stale-file guard refused, or a path this host could not read out of its own folder. It is
@@ -56,6 +56,21 @@ export type BindingNotice =
    * would be the silent overwrite the guard exists to prevent.
    */
   | { kind: 'failure'; text: string };
+
+/**
+ * What a status sentence is about. The binding raises all of them; the page decides which ones it
+ * shows, because a sentence whose fact is already on screen — under a control, in the roster, or
+ * as the card that came back — is a second reading of the same thing rather than news.
+ *
+ * - `role`: this connection is a `viewer` (`§13.9`), so its documents take no edit. The editor is
+ *   read-only and nothing else on the page says why.
+ * - `refusal`: a go-to the room could not answer. The click had no other answer.
+ * - `follow`: a follow landing and the end of a follow. The follow banner names who and offers
+ *   Stop, the tree and the buffer show where, and the roster shows who left.
+ * - `error`: what the room said about the session itself. Nothing else carries it.
+ * - `terminal`: the room is over. The card comes back with the room's own sentence.
+ */
+export type StatusTopic = 'role' | 'refusal' | 'follow' | 'error' | 'terminal';
 
 /** Another participant, as the roster draws one row. */
 export interface Participant {
@@ -254,7 +269,7 @@ export class MonacoBinding implements EditorHost {
       return;
     }
     if (this.terminalReason !== undefined) {
-      this.onNotice({ kind: 'status', text: roomGoneMessage(this.terminalReason) });
+      this.onNotice({ kind: 'status', topic: 'terminal', text: roomGoneMessage(this.terminalReason) });
       return;
     }
     if (this.fronted.has(path) && this.models.get(path)?.isDisposed() === false) {
@@ -278,7 +293,7 @@ export class MonacoBinding implements EditorHost {
           // through the read-only guard echoes the state instead of landing
           // silently in the local model.
           if (this.terminalReason !== undefined) {
-            this.onNotice({ kind: 'status', text: roomGoneMessage(this.terminalReason) });
+            this.onNotice({ kind: 'status', topic: 'terminal', text: roomGoneMessage(this.terminalReason) });
             return;
           }
           // A local edit ends the follow: the caret has moved to the peer's
@@ -487,6 +502,7 @@ export class MonacoBinding implements EditorHost {
       if (mode === 'go') {
         this.onNotice({
           kind: 'status',
+          topic: 'refusal',
           text: `nothing to go to: ${this.displayLabel(peerId)} is not in a document`,
         });
         return 'refused';
@@ -519,6 +535,7 @@ export class MonacoBinding implements EditorHost {
       if (mode === 'go') {
         this.onNotice({
           kind: 'status',
+          topic: 'refusal',
           text: `nothing to go to: ${this.displayLabel(peerId)}'s caret does not resolve here`,
         });
       }
@@ -536,7 +553,7 @@ export class MonacoBinding implements EditorHost {
     // file, and the status line stays for news.
     if (mode === 'follow') {
       this.onNotice({ kind: 'follow', following: this.following() });
-      this.onNotice({ kind: 'status', text: `Following ${this.followingName} in ${path}` });
+      this.onNotice({ kind: 'status', topic: 'follow', text: `Following ${this.followingName} in ${path}` });
     }
     return 'landed';
   }
@@ -553,7 +570,7 @@ export class MonacoBinding implements EditorHost {
     if (outcome === 'gone' && this.followingPeerId === peerId) {
       const name = this.followingName;
       this.clearFollow();
-      this.onNotice({ kind: 'status', text: `${name} left the room, so following stopped` });
+      this.onNotice({ kind: 'status', topic: 'follow', text: `${name} left the room, so following stopped` });
     }
   }
 
@@ -608,6 +625,7 @@ export class MonacoBinding implements EditorHost {
       this.viewerSaid = true;
       this.onNotice({
         kind: 'status',
+        topic: 'role',
         text: 'you are a viewer in this room, so its documents are read-only.',
       });
     }
@@ -844,11 +862,11 @@ export class MonacoBinding implements EditorHost {
         this.onNotice({ kind: 'hostBack', name: report.peer.display_name });
         break;
       case 'roomGone':
-        this.onNotice({ kind: 'status', text: `room closed: ${report.reason}` });
+        this.onNotice({ kind: 'status', topic: 'terminal', text: `room closed: ${report.reason}` });
         this.enterTerminal(report.reason);
         break;
       case 'sessionError':
-        this.onNotice({ kind: 'status', text: `session error ${report.code}: ${report.message}` });
+        this.onNotice({ kind: 'status', topic: 'error', text: `session error ${report.code}: ${report.message}` });
         break;
       case 'saveFailed':
         this.onNotice({
@@ -860,7 +878,7 @@ export class MonacoBinding implements EditorHost {
         this.onNotice({ kind: 'reconnecting' });
         break;
       case 'disconnected':
-        this.onNotice({ kind: 'status', text: 'disconnected' });
+        this.onNotice({ kind: 'status', topic: 'terminal', text: 'disconnected' });
         this.onNotice({ kind: 'disconnected' });
         break;
       default:

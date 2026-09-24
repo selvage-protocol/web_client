@@ -46,16 +46,26 @@
         --shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.8);
       }
       [hidden] { display: none !important; }
+      /* The page is a column so anything the deployment appends after `#app` — the demo's
+         non-commercial notice and its terms link — is laid out inside the viewport rather than
+         under a full-height app. `#app` keeps its own dynamic height as the flex basis and gives
+         up exactly the room such a footer takes; with nothing after it, it is the whole viewport.
+         `height: 100%` is what a browser without `dvh` falls back to. */
       html, body { height: 100%; margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
         background: var(--background); color: var(--foreground); }
+      body { display: flex; flex-direction: column; min-height: 100%; min-height: 100dvh; }
       /* `dvh`, not `vh`: the dynamic viewport follows the browser chrome and, on
-         the platforms that resize the layout viewport, the soft keyboard. The
-         `100%` above is what a browser without `dvh` falls back to. The bottom
+         the platforms that resize the layout viewport, the soft keyboard. The bottom
          inset keeps the last row off a phone's home indicator, and `border-box`
          is what keeps that inset *inside* the height: content-box would make the
          app taller than the viewport it was measured against.
-         (`viewport-fit=cover` in the meta is what makes the inset non-zero.) */
-      #app { display: flex; flex-direction: column; height: 100%; height: 100dvh;
+         (`viewport-fit=cover` in the meta is what makes the inset non-zero.)
+         `position: relative` and `overflow: hidden` are the app's own box: the pre-join
+         backdrop is drawn inside it and clipped to it, so a deployment's notice under the
+         page is neither covered by the blur nor left unclickable behind it. */
+      #app { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+        height: 100%; height: 100dvh;
+        position: relative; overflow: hidden;
         box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
       .icon { display: inline-flex; flex: none; }
       .icon svg { width: 1em; height: 1em; }
@@ -119,15 +129,19 @@
          in Chromium at 1024 px, 139 px of it with the label beside it. What is left
          clips instead, which is the case this bound is for: the head stays, and the
          title and the clipboard carry the whole. */
+      /* **Blurred in every state.** The link *is* the room key, and a key belongs on the
+         clipboard, not on a screen: a screen-share, a screenshot or someone standing behind the
+         guest defeats any state that revealed it, so hover, focus, focus-visible and active all
+         keep `color: transparent` and the blur's `text-shadow`. The words beside it are the
+         affordance — what the control does is *Copy invite link* — and the whole link is one
+         press away on the clipboard. The field stays a real readonly input, so the phone's
+         hand-copy fallback can select it, and `title` still carries the whole bytes. */
       #share { flex: 0 1 auto; width: auto; min-width: 0; max-width: 100%; font-size: 0.85em; padding: 0;
         background: none; border: none; color: transparent;
         field-sizing: content;
-        text-shadow: 0 0 5px var(--muted-foreground);
-        transition: color 180ms ease, text-shadow 180ms ease; }
+        text-shadow: 0 0 5px var(--muted-foreground); }
       #share:focus { border: none; outline: none; }
       #share-group:focus-within { border-color: var(--primary); }
-      #share-group:hover #share, #share-group:focus-within #share {
-        color: var(--muted-foreground); text-shadow: none; }
       #share-group, #share-group *, #share-group.copied, #share-group.copied * {
         cursor: pointer; }
       #share-group .icon { display: inline-flex; flex: none; }
@@ -194,7 +208,11 @@
         font-weight: 500; flex: none; }
       /* The own-name edit: the row's name becomes the field it is about, sized to the row
          rather than to the card's field, and it takes the room the name had. */
+      #roster .rename-edit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.3em; }
       #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
+      /* The edit's visible ways out, sized to the row rather than to the card: two small verbs
+         beside the name, and the finger-sized floor the touch query gives every button. */
+      #roster .rename-save, #roster .rename-cancel { font-size: 0.8em; padding: 0.25em 0.5em; }
       #roster li.self .swatch { background: var(--primary); }
       #roster .actions { display: flex; gap: 0.25em; flex: none; }
       /* Quiet verbs: present at rest, no chrome to add up around two names. */
@@ -250,7 +268,7 @@
          a document on a touch device, and 1.15em of the page's 14 px because
          a shrunken fraction of the editor's own size is what the veil's blur
          turns into an artifact. */
-      #preview { position: fixed; inset: 0; display: flex; min-height: 0;
+      #preview { position: absolute; inset: 0; display: flex; min-height: 0;
         pointer-events: none; user-select: none; }
       #preview .fake-side { width: 21rem; flex: none; background: var(--card);
         border-right: 1px solid var(--border); padding: 0.7em 0 1.4em; overflow: hidden;
@@ -278,7 +296,7 @@
       #preview .fake-main .tok-key { color: var(--primary); }
       #preview .fake-main .tok-lit { color: var(--warning); }
       #preview .fake-main .tok-comment { color: var(--muted-foreground); }
-      #veil { position: fixed; inset: 0; background: rgba(17, 17, 27, 0.6);
+      #veil { position: absolute; inset: 0; background: rgba(17, 17, 27, 0.6);
         backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px); }
       #join { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
         width: min(24rem, calc(100vw - 2rem)); box-sizing: border-box; margin: 0;
@@ -333,6 +351,12 @@
       /* The start action's own failure, under the button that asked for the name. */
       #host-error { margin: 0.6rem 0 0; color: var(--danger); font-size: 0.9em; }
       #host-error:empty { display: none; }
+      /* What choosing the folder shares: the one thing the card says about the room a guest
+         gets, so the warning below is not the only sentence about it. Written by the bundle
+         (it is copy with one home, `host.ts`), so it is hidden while it is empty. */
+      #host-share { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
+        line-height: 1.5; }
+      #host-share:empty { display: none; }
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
       #download { display: flex; align-items: center; justify-content: center; flex: none;
@@ -406,14 +430,18 @@
         #panel-toggle { display: flex; flex: none; width: 100%; justify-content: flex-start;
           gap: 0.5em; padding: 0.5em 0.9em; background: var(--card); border-width: 0 0 1px;
           border-radius: 0; font-weight: 600; color: var(--muted-foreground); }
-        /* A sheet over the keyboard rather than a card centred under it. */
-        #join { top: auto; bottom: 0; transform: translateX(-50%); width: 100%;
-          max-height: 85dvh; border-width: 1px 0 0; border-radius: 14px 14px 0 0;
+        /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
+           the top of the screen empty and stood over the non-commercial notice the demo appends
+           under the page, so what a phone shows first is the thing to do and the notice below it
+           is reachable by a short scroll. The bottom inset keeps the last row off the home
+           indicator. */
+        #join { top: max(0.75rem, env(safe-area-inset-top)); transform: translateX(-50%);
+          max-height: calc(100dvh - 1.5rem);
           padding-bottom: calc(1.3rem + env(safe-area-inset-bottom)); }
       }
       /* The reveal is a fade everywhere else; without motion it lands at once. */
       @media (prefers-reduced-motion: reduce) {
-        #share, #share-group, #join-button, #host-button, #tree summary .chev, #join input {
+        #share-group, #join-button, #host-button, #tree summary .chev, #join input {
           transition: none !important;
         }
         #join-button:active:not(:disabled), #host-button:active:not(:disabled) { transform: none; }
@@ -518,8 +546,8 @@
              are in the markup and the shell's own script hides the one that does not apply
              before the first paint (the bundle's `initJoinCard` reaches the same answer when
              it takes over), so a screen reader is read one of them and it is the right one. -->
-        <h1 id="start-heading">Start a shared session</h1>
-        <h1 id="join-heading" hidden>Join a shared session</h1>
+        <h1 id="start-heading">Start a Selvage session</h1>
+        <h1 id="join-heading" hidden>Join a Selvage session</h1>
         <p id="join-message" hidden></p>
         <!-- The hold that is there before any script is: a deployment that
              defers every script has no guard until one runs, and the room's
@@ -560,8 +588,9 @@
              `button` keeps it out of the join form's submission, so the pre-bundle hold on that
              form has nothing to do with it. -->
         <div id="host-wrap" hidden>
-          <button id="host-button" type="button" hidden>Start a session here</button>
+          <button id="host-button" type="button" hidden>Choose a folder to share</button>
           <p id="host-error" role="alert"></p>
+          <p id="host-share"></p>
           <p id="host-note"></p>
         </div>
       </div>

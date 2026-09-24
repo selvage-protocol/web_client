@@ -199,9 +199,9 @@ describe('the card is the flow, not a page of prose', () => {
     // Two headings, because the card is two intents: a page that starts a room and a page
     // an invite named. The shell's own script hides one of them before the first paint, so
     // exactly one is read — and it is the one the address bar calls for.
-    assert.match(card, /<h1 id="start-heading">Start a shared session<\/h1>/, 'no heading for the start card');
-    assert.match(card, /<h1 id="join-heading" hidden>Join a shared session<\/h1>/, 'no heading for the join card');
-    for (const heading of ['Join a shared session', 'Start a shared session']) {
+    assert.match(card, /<h1 id="start-heading">Start a Selvage session<\/h1>/, 'no heading for the start card');
+    assert.match(card, /<h1 id="join-heading" hidden>Join a Selvage session<\/h1>/, 'no heading for the join card');
+    for (const heading of ['Join a Selvage session', 'Start a Selvage session']) {
       assert.equal((html.match(new RegExp(heading, 'g')) ?? []).length, 1, `the heading is repeated: ${heading}`);
     }
     assert.equal((html.match(/<h1/g) ?? []).length, 2, 'a third heading is on the card');
@@ -262,20 +262,43 @@ describe('the primary control reads deliberate', () => {
 });
 
 describe('the invite link', () => {
-  it('is revealed by a fade instead of snapping', () => {
-    const share = rule('#share');
-    assert.match(share, /color:\s*transparent/, 'the link is not masked at rest');
-    const transition = share.match(/transition:[^;}]*/)?.[0] ?? '';
-    assert.match(transition, /color/, `the reveal does not fade the text: ${transition}`);
-    assert.match(transition, /text-shadow|opacity/, `the reveal does not fade the mask: ${transition}`);
+  it('stays blurred in every state, hover and focus included', () => {
+    // The link *is* the room key, so it belongs on the clipboard rather than on a screen: a
+    // screen-share, a screenshot or someone standing behind the guest defeats any state that
+    // revealed it. The readout is masked by `color: transparent` and drawn back only as the
+    // blur's `text-shadow`; the words beside it (`Copy invite link`) are the affordance, and one
+    // press puts the whole link on the clipboard.
+    const base = rule('#share');
+    assert.match(base, /color:\s*transparent/, 'the readout is not masked at rest');
+    assert.match(base, /text-shadow:\s*0 0 5px/, 'the masked value is not drawn as a blur');
+
+    // Every rule that could put the value back on screen, under any state the page has. A rule
+    // that reveals on `:hover`, `:focus`, `:focus-visible`, `:focus-within`, `:active` or
+    // `[aria-pressed]` is the same defect wearing a different selector.
+    const states = /:(?:hover|focus|focus-visible|focus-within|active)\b|\[aria-pressed/;
+    const reveals = [];
+    for (const match of style.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = (match[1] ?? '').trim();
+      const body = match[2] ?? '';
+      // The readout itself, not the group it sits in: the pill's border and the copy flash are
+      // not the value.
+      if (!/#share(?!-)/.test(selector)) continue;
+      if (!states.test(selector)) continue;
+      if (/color:|text-shadow:|filter:|opacity:|-webkit-text-security/.test(body)) {
+        reveals.push(`${selector} { ${body.trim()} }`);
+      }
+    }
+    assert.deepEqual(reveals, [], `a state puts the room key back on screen: ${reveals.join(' | ')}`);
   });
 
   it('honours prefers-reduced-motion', () => {
     const at = style.indexOf('prefers-reduced-motion');
     assert.ok(at !== -1, 'no reduced-motion block in the shell');
     const block = style.slice(at);
-    assert.ok(block.includes('#share'), 'the reveal keeps animating under reduced motion');
+    assert.ok(block.includes('#share-group'), 'the copy control lost its reduced-motion cut');
     assert.match(block, /transition:\s*none/, 'reduced motion is not honoured with a cut');
+    // Nothing about the readout changes any more, so there is no reveal to animate at all.
+    assert.ok(!/#share(?!-)/.test(block), 'the readout still declares a reveal animation');
   });
 
   it('shortens the room id and the token, not just a long host', () => {
@@ -519,9 +542,10 @@ describe('the message homes', () => {
   });
 
   it('a status sentence has a home, and does not take the room\u2019s warning down', () => {
-    // The editor raises `status` for the sentence a `viewer` is owed, for a go-to the room
-    // could not answer, for a follow landing, for a session error — and the page had no case
-    // for the kind at all, so every one of them was written and thrown away.
+    // The editor raises `status` for the sentence a `viewer` is owed, a go-to the room could not
+    // answer, a follow landing, an error the room reported — and the page had no case for the
+    // kind at all, so every one of them was written and thrown away. The page shows the topics
+    // with no other surface (`SHOWN_STATUS_TOPICS`, above) and the strip's own rules are these.
     const element = makeElement();
     const timer = ticking();
     const note = wireSessionNote(element as unknown as HTMLElement, {
@@ -599,16 +623,33 @@ describe('the message homes', () => {
     note.hide();
   });
 
-  it('the page routes the status kind to the strip', () => {
-    // What the binding raises for a viewer, a go-to that cannot act or a follow landing is
-    // this kind, and the page's switch is where it gets its home. The same shape as the
-    // reconnecting pin below and in `scripts/prove-flow2.mjs`.
+  it('the page shows the status topics that have no other surface, and only those', () => {
+    // The owner's own pass: the follow banner already reads "Following vscodium" with a Stop
+    // control, and the notice bar was saying "Following vscodium in test" right above it — the
+    // same fact twice, one of them chrome that appears and disappears. The binding still raises
+    // every topic; the page's switch is where the ones with another surface stop.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(
       main,
-      /case 'status':[\s\S]{0,600}?sessionNote\.status\(notice\.text\)/,
+      /case 'status':[\s\S]{0,400}?SHOWN_STATUS_TOPICS\.has\(notice\.topic\)[\s\S]{0,120}?sessionNote\.status\(notice\.text\)/,
       'a status notice reaches no line on the page',
     );
+    const shown = /SHOWN_STATUS_TOPICS[^=]*=\s*new Set\(\[([^\]]*)\]\)/.exec(main);
+    assert.ok(shown !== null, 'the shown-topics set left the page');
+    const topics = (shown[1] ?? '').match(/'[a-z]+'/g) ?? [];
+    // The viewer's read-only line has no other surface; a go-to the room could not answer is the
+    // click's only answer; a session error is the room's own word.
+    assert.deepEqual(topics.slice().sort(), ["'error'", "'refusal'", "'role'"].sort());
+    for (const dropped of ['follow', 'terminal']) {
+      assert.ok(
+        !topics.includes(`'${dropped}'`),
+        `the ${dropped} topic is shown again, and something else on the page already states it`,
+      );
+    }
+    // The dropped topics still leave the binding: it is the page that stops repeating them.
+    const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
+    assert.match(editor, /topic: 'follow'/g, 'the binding stopped raising the follow sentence');
+    assert.match(editor, /topic: 'terminal'/g, 'the binding stopped raising the terminal sentence');
   });
 
   it('the end of the room comes back as the card, not as a strip', () => {

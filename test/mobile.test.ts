@@ -326,3 +326,27 @@ describe('what a phone cannot hover', () => {
     assert.ok(main.includes('peerAt('), 'a tap never asks whose caret it landed on');
   });
 });
+
+describe('the pre-join card on a phone, and the page under it', () => {
+  it('anchors the card near the top rather than to the bottom of the screen', () => {
+    // Measured in Chromium 152 at 390x844: the card was a sheet at the bottom, so the top
+    // ~45 % of the screen was empty and the footer the demo appends under the page sat below
+    // the fold. The card is anchored near the top now, and its first line is the action.
+    const card = declarations(mediaBlock(PHONE_QUERY), '#join');
+    assert.ok(!/bottom:\s*0/.test(card), `the card is still a bottom sheet: ${card}`);
+    assert.ok(!/top:\s*auto/.test(card), `the card is still taken out of the top: ${card}`);
+    assert.match(card, /top:\s*max\(/, `the card is not anchored near the top: ${card}`);
+    assert.match(card, /env\(safe-area-inset-bottom\)/, 'the card lost the home-indicator inset');
+  });
+
+  it('opens the page under the app, so a deployment footer is not pushed below the fold', () => {
+    // The demo's nginx injects a non-commercial notice and a terms link before `</body>`, after
+    // `#app`. A full-height app laid out after it pushed that notice past the fold.
+    assert.match(style, /body\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/, 'the page is not a column');
+    assert.match(style, /body\s*\{[^}]*min-height:\s*100dvh/, 'the column has no dynamic minimum height');
+    const app = declarations(style, '#app');
+    assert.match(app, /flex:\s*1 1 auto/, 'the app does not give up room to a footer');
+    assert.match(app, /min-height:\s*0/, 'the app cannot shrink for a footer');
+    assert.ok(app.includes('height: 100dvh'), 'the app lost the dynamic viewport that follows the keyboard');
+  });
+});

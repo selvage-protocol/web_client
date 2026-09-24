@@ -14,10 +14,13 @@ import assert from 'node:assert/strict';
 import {
   ProtocolError,
   code as errCode,
+  encodeKey,
   parseSessionUrl,
 } from '../src/engine/index.ts';
 import {
   DISPLAY_NAME_KEY,
+  INCOMPLETE_INVITE_SENTENCE,
+  inviteShortfall,
   joinOnEnter,
   loadDisplayName,
   resolveJoin,
@@ -256,6 +259,54 @@ describe('brand heading', () => {
     const join = readFileSync(new URL('../src/browser/join.ts', import.meta.url), 'utf8');
     assert.ok(!join.includes('SESSION_HEADING'), 'session heading still exported');
     assert.ok(!join.includes('Shared session'), 'session heading copy still exported');
+  });
+});
+
+describe('a damaged invite is a card sentence, not an engine one', () => {
+  const key = encodeKey(new Uint8Array(32).fill(7));
+  const whole = `#k=${key}&h=${key}`;
+  const addressBar = { base: BASE, room: 'r-1', token: 'tok' };
+
+  it('reads a whole fragment, and the cut ones a chat app leaves', () => {
+    assert.equal(
+      inviteShortfall({ ...addressBar, fragment: whole }),
+      undefined,
+      'a whole invite was called damaged',
+    );
+    // A truncation cuts the fragment first: it is the longest part of the link and it sits
+    // after the `#`, so the room and the token arrive whole while a key ends mid-spelling.
+    const cut = inviteShortfall({ ...addressBar, fragment: whole.slice(0, whole.length - 4) });
+    assert.ok(cut !== undefined && /32-byte key/.test(cut), `no shortfall named: ${cut}`);
+    assert.ok(
+      inviteShortfall({ ...addressBar, fragment: '' }) !== undefined,
+      'a link with no fragment at all passed',
+    );
+    assert.ok(
+      inviteShortfall({ ...addressBar, fragment: `#k=${key}` }) !== undefined,
+      'a fragment with no host key passed',
+    );
+  });
+
+  it('the sentence a person meets is plain and names the host as the next step', () => {
+    assertPlain(INCOMPLETE_INVITE_SENTENCE);
+    assert.match(INCOMPLETE_INVITE_SENTENCE, /incomplete/);
+    assert.match(INCOMPLETE_INVITE_SENTENCE, /host/);
+    assert.ok(
+      !INCOMPLETE_INVITE_SENTENCE.includes('32-byte'),
+      'the engine\u2019s reason is the first thing a person meets',
+    );
+  });
+
+  it('the page checks the address bar at load, and keeps the precise reason for the console', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /^reportIncompleteInvite\(\);/m, 'nothing checks the invite when the page loads');
+    assert.match(main, /const reason = inviteShortfall\(target\)/);
+    assert.match(
+      main,
+      /console\.error\(`\[selvage\] invite incomplete/,
+      'the precise reason is not kept anywhere',
+    );
+    assert.match(main, /params\.get\('debug'\) === '1'/, 'the precise reason has no opt-in on the card');
   });
 });
 

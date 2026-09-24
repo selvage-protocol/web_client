@@ -290,8 +290,30 @@ describe('roster rows', () => {
     field.fire('keydown', { key: 'Enter', preventDefault: () => {} });
     assert.deepEqual(events, [['commit', 'ada']], 'Enter does not send the typed name');
     field.fire('keydown', { key: 'Escape', preventDefault: () => {} });
-    field.fire('blur');
+    field.fire('blur', { relatedTarget: null });
     assert.deepEqual(events, [['commit', 'ada'], ['cancel'], ['cancel']], 'the ways out went wrong');
+
+    // The visible pair: a field that only answers Enter is an action with no button, so a
+    // confirm and a cancel stand beside it for a person who does not know the keys.
+    const save = withClass(self, 'rename-save')[0];
+    const cancel = withClass(self, 'rename-cancel')[0];
+    assert.ok(save !== undefined && cancel !== undefined, 'the edit offers no visible confirm or cancel');
+    assert.equal(save.textContent, 'Save', 'the confirm control is not named');
+    assert.equal(cancel.textContent, 'Cancel', 'the cancel control is not named');
+    save.fire('click');
+    assert.deepEqual(events.at(-1), ['commit', 'ada'], 'the confirm control does not send the name');
+    cancel.fire('click');
+    assert.deepEqual(events.at(-1), ['cancel'], 'the cancel control sends something');
+
+    // Focus moving into the edit's own controls is not leaving it: a press on Save or Cancel
+    // must not have the edit cancelled out from under it first, or the press lands on nothing.
+    const before = events.length;
+    field.fire('blur', { relatedTarget: save });
+    field.fire('blur', { relatedTarget: cancel });
+    assert.equal(events.length, before, 'a press on one of the edit\u2019s own controls cancels first');
+    // Anywhere else is leaving it, and it dismisses exactly as Cancel does.
+    field.fire('blur', { relatedTarget: null });
+    assert.deepEqual(events.at(-1), ['cancel'], 'a click outside the edit does not dismiss it');
   });
 
   it('peer colours stay on the swatch, data-driven', () => {
