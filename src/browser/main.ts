@@ -1184,6 +1184,14 @@ function onNotice(notice: BindingNotice): void {
     case 'hostBack':
       sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
       break;
+    case 'status':
+      // News about what someone just asked for or what the room just said about this
+      // connection: the sentence the editor raises when this window is a `viewer`, a go-to
+      // the room could not answer, a follow landing, a session error. The strip is the
+      // room's one line, so a later sentence replaces an earlier one and the room's own
+      // warning is not the news's to take down (`SessionNote.status`).
+      sessionNote.status(notice.text);
+      break;
     case 'grant':
       syncGrant();
       break;

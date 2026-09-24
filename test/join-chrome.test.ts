@@ -518,6 +518,99 @@ describe('the message homes', () => {
     assert.equal(element.dataset.tone, '', 'the countdown left its tone on the line');
   });
 
+  it('a status sentence has a home, and does not take the room\u2019s warning down', () => {
+    // The editor raises `status` for the sentence a `viewer` is owed, for a go-to the room
+    // could not answer, for a follow landing, for a session error — and the page had no case
+    // for the kind at all, so every one of them was written and thrown away.
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.status('you are a viewer in this room, so its documents are read-only.');
+    assert.equal(
+      element.textContent,
+      'you are a viewer in this room, so its documents are read-only.',
+      'the sentence a viewer is owed reaches no line',
+    );
+    assert.equal(element.dataset.tone, 'plain', 'news wears the warning\u2019s tone');
+    // One line, so a later sentence replaces it rather than stacking under it.
+    note.status('Following sam in notes.md');
+    assert.equal(element.textContent, 'Following sam in notes.md', 'two sentences stacked');
+    assert.equal(timer.runs.length, 2, 'a replaced sentence kept its own clock');
+    // The replaced sentence's clock is cancelled, so it cannot wipe the newer sentence early.
+    timer.runs[0]?.();
+    timer.runs[1]?.();
+    assert.equal(element.textContent, '', 'the sentence stood for ever');
+  });
+
+  it('a sentence said again while it stands is not restarted', () => {
+    // A follow re-lands and re-says itself on every frame the peer moves. Re-writing it would
+    // restart the stand and re-announce an unchanged line in the note's polite live region.
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.status('Following sam in notes.md');
+    assert.equal(timer.runs.length, 1);
+    note.status('Following sam in notes.md');
+    assert.equal(timer.runs.length, 1, 'the same sentence was written back and re-armed');
+    assert.equal(element.textContent, 'Following sam in notes.md');
+    timer.runs[0]?.();
+    assert.equal(element.textContent, '', 'the sentence stood for ever');
+    // Once it has left, the same words are news again.
+    note.status('Following sam in notes.md');
+    assert.equal(element.textContent, 'Following sam in notes.md', 'a cleared sentence never returns');
+    note.hide();
+  });
+
+  it('echoes the room\u2019s own warning rather than replacing it', () => {
+    // The countdown and the dropped line are armed by one event each and nothing re-arms them,
+    // so a sentence taking the strip from either deletes the only reading of a room that is
+    // closing or out of reach.
+    const element = makeElement();
+    const timer = ticking();
+    const note = wireSessionNote(element as unknown as HTMLElement, {
+      countParts: countStub(),
+      now: () => 0,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+    note.countdown(30_000);
+    note.status('nothing to go to: sam is not in a document');
+    assert.match(element.textContent, /^The host left\./, 'news took the countdown down');
+    assert.equal(element.dataset.tone, 'grace', 'the countdown lost its tone');
+    // A countdown that started after the news: the warning wins whenever it arrives.
+    note.hide();
+    note.status('Following sam in notes.md');
+    note.countdown(30_000);
+    assert.match(element.textContent, /^The host left\./, 'the warning never took the strip');
+    // And the dropped line, which stands until the room answers.
+    note.dropped(RECONNECTING_NOTE);
+    note.status('Following sam in notes.md');
+    assert.equal(element.textContent, RECONNECTING_NOTE, 'news took the dropped line down');
+    note.hide();
+  });
+
+  it('the page routes the status kind to the strip', () => {
+    // What the binding raises for a viewer, a go-to that cannot act or a follow landing is
+    // this kind, and the page's switch is where it gets its home. The same shape as the
+    // reconnecting pin below and in `scripts/prove-flow2.mjs`.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /case 'status':[\s\S]{0,600}?sessionNote\.status\(notice\.text\)/,
+      'a status notice reaches no line on the page',
+    );
+  });
+
   it('the end of the room comes back as the card, not as a strip', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(
