@@ -560,6 +560,11 @@ interface Seat {
  */
 async function seatSession(seat: Seat): Promise<void> {
   const { monaco, engine: seated, session } = seat;
+  // The engine this page holds for the life of the session, and the one every later line reads:
+  // the own row's colour and role, the fallback read of a path this window has no model for, a
+  // rename, the leave's teardown and the one on `beforeunload`. It is dropped with the session
+  // (`leaveSession`), so a page between sessions holds none.
+  engine = seated;
   selfName = seat.displayName;
   // The folder, when this window has one, is what a create writes to; a guest is offered no control
   // and reads the empty tree's own sentence instead.

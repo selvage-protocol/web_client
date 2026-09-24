@@ -305,6 +305,31 @@ async function waitForPage(page, label, predicate, deadlineMs = 30_000) {
 }
 
 /**
+ * The card's own two lines, waited on. `PAGE_TEXT` reads the editor, and a card is not in it: a
+ * page that left a session has nothing in the editor left to read.
+ */
+async function waitForCard(page, label, wanted, deadlineMs = 30_000) {
+  const deadline = Date.now() + deadlineMs;
+  for (;;) {
+    const card = await page.evaluate(`(() => {
+      const pane = document.getElementById('join');
+      const message = document.getElementById('join-message');
+      return (pane !== null && !pane.hidden ? 'shown\\u0000' : 'hidden\\u0000') +
+        (message === null ? '' : message.textContent);
+    })()`);
+    if (wanted(card)) {
+      return card;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `timed out after ${deadlineMs}ms waiting for ${label}; the card held ${JSON.stringify(card)}`,
+      );
+    }
+    await delay(200);
+  }
+}
+
+/**
  * The guest's own act, made the way a person makes it: a name in the card and Join. A page that
  * was handed the room in its address bar still joins from that card, and the link it joins by is
  * the address bar's own — the card's paste field is hidden while the address *is* the invite.
@@ -443,8 +468,57 @@ async function main() {
 
     const role = await chromium.evaluate(`document.body.innerText.includes('guest')`);
     log('the page reads itself as a guest:', role);
+    await chromium.shot(resolve(IMAGES, 'prove-v2-both-directions.png'));
+
+    // Leaving from the page, which is the one thing a guest could previously only do by closing
+    // the tab. The control is pressed the way a person presses it, and what the page is left with
+    // is read back: the chrome gone, the card back with the sentence and the next step, and — the
+    // half a reload would otherwise undo — no room, token or key left in the address bar.
+    const pressed = await chromium.evaluate(`(() => {
+      const leave = document.getElementById('leave');
+      if (leave === null) {
+        throw new Error('the chrome has no leave control');
+      }
+      leave.click();
+      return leave.textContent;
+    })()`);
+    if (pressed !== 'Leave') {
+      throw new Error(`the leave control reads ${JSON.stringify(pressed)}`);
+    }
+    const left = await waitForCard(
+      chromium,
+      'the card to come back after leaving',
+      (card) => card.startsWith('shown') && card.includes('Left the session.'),
+    );
+    if (!left.includes('Paste a fresh invite link to join another session.')) {
+      throw new Error(`the card after leaving names no next step: ${JSON.stringify(left)}`);
+    }
+    const after = await chromium.evaluate(`(() => ({
+      session: document.getElementById('session').hidden,
+      workspace: document.getElementById('workspace').hidden,
+      address: location.pathname + location.search + location.hash,
+    }))()`);
+    if (after.session !== true || after.workspace !== true) {
+      throw new Error(`the session chrome stayed up after leaving: ${JSON.stringify(after)}`);
+    }
+    if (/room=|token=|#k=/.test(after.address)) {
+      throw new Error(`the address bar still carries the room: ${JSON.stringify(after.address)}`);
+    }
+    log('the guest left: the chrome is gone, the card is back, the address bar holds no room');
+    await chromium.shot(resolve(IMAGES, 'prove-v2-guest-left.png'));
+
+    // And the room saw it go: a leave is a `peer.left` like any other (§9), not a socket that
+    // happened to end.
+    const stillHere = await waitFor(
+      () => (host.session().peers.some((peer) => peer.display_name === 'Bob') ? undefined : false),
+      'the room to drop the guest that left',
+    );
+    log('the room dropped the guest that left:', stillHere === false);
+
     log(`wrote ${relative(ROOT, IMAGES)}/prove-v2-*.png`);
-    log('a real browser joined a selvage/2 room by its fragment link and exchanged an edit with the host, both directions');
+    log(
+      'a real browser joined a selvage/2 room by its fragment link, exchanged an edit with the host both ways, and left it from the page',
+    );
   } finally {
     // Every failure path comes through here: a browser that never launched, an invite that did
     // not carry both keys, the page timing out. The server's pipes and the host's socket hold
