@@ -112,11 +112,14 @@
       /* Sized to its value by `fitReadout` (and to nothing when there is none,
          where the readonly text is empty), so the bar shows the whole link.
          `field-sizing` fits it exactly where the engine supports it; the
-         `size` attribute is the fallback. It shrinks into the pill's own bound
-         rather than overflowing it, which is what clips a link longer than the
-         display was built for: the head stays, and the title and the clipboard
-         carry the whole. */
-      #share { flex: 0 1 auto; width: auto; max-width: 100%; font-size: 0.85em; padding: 0;
+         `size` attribute is the fallback. `max-width: 100%` caps it at the pill's own
+         content box, and `min-width: 0` is what lets it give up the room the words and
+         the icon take: without it the field's automatic minimum size is its content, so
+         the value it could not shrink was painted past the pill's right edge — measured
+         in Chromium at 1024 px, 139 px of it with the label beside it. What is left
+         clips instead, which is the case this bound is for: the head stays, and the
+         title and the clipboard carry the whole. */
+      #share { flex: 0 1 auto; width: auto; min-width: 0; max-width: 100%; font-size: 0.85em; padding: 0;
         background: none; border: none; color: transparent;
         field-sizing: content;
         text-shadow: 0 0 5px var(--muted-foreground);
@@ -128,9 +131,13 @@
       #share-group, #share-group *, #share-group.copied, #share-group.copied * {
         cursor: pointer; }
       #share-group .icon { display: inline-flex; flex: none; }
-      /* Below 640 px the readout is hidden and the icon alone would be an empty box;
-         the words take its place there (the rule in that query, below). */
-      #share-group .share-label { display: none; font-weight: 600; white-space: nowrap; }
+      /* The words stand at every width. An icon and a blurred link say nothing about
+         what the control does, which is the one thing a host has to read here — and
+         above 640 px the label used to be the thing this query's own rule hid. On a
+         phone the readout goes and these words take the row (the rule in that query,
+         below); `flex: none` keeps them whole while the readout shrinks into the
+         pill's bound. */
+      #share-group .share-label { flex: none; font-weight: 600; white-space: nowrap; }
       #share-group:hover { border-color: var(--primary); }
       #share-group.copied { border-color: var(--primary); }
       #share-group .confirm { position: absolute; inset: 0; display: inline-flex;
@@ -332,8 +339,10 @@
       @media (max-width: 640px) {
         #session { flex-wrap: wrap; row-gap: 0.4em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
+        /* The readout goes and the words take the row: at this width the icon beside a
+           hidden field was an empty box, and the words stand here for what they name
+           (the base rule shows them at every width). */
         #share-group #share { display: none; }
-        #share-group .share-label { display: inline; }
         /* A copy the browser refused needs the field itself: it holds the whole link
            by then, and it is the only thing the person can select by hand. The label
            stands down for it, having nothing left to name. */
