@@ -5,8 +5,10 @@
  * and re-walks the three headline flows: (1) a go-to lands silently — the tree
  * row and the buffer name the file — while a follow re-land announces who and
  * where, (2) a granted-but-unpublished file reads unpublished after opening,
- * (3) a cut socket raises the reconnect sentence and the reseated room
- * converges again. Duplicate names and the join error copy ride along.
+ * and one the room asks this window's host for is supplied from its working
+ * copy although the window never opened it, (3) a cut socket raises the
+ * reconnect sentence and the reseated room converges again. Duplicate names and
+ * the join error copy ride along.
  *
  * The binding's transient sentences are read by text, the way the page reads
  * them: the notice kind is the binding's own vocabulary, and the page routes it
@@ -108,7 +110,10 @@ function makeEditor() {
 }
 
 class MemHost {
+  /** What this window has in front of it, which is not everything the folder holds. */
   texts = new Map();
+  /** The folder this window shares: a path the room asks for is read from here. */
+  disk = new Map();
   text(path) {
     return this.texts.get(path);
   }
@@ -124,8 +129,9 @@ class MemHost {
   async save(_path) {
     return true;
   }
-  async readGrantedFile(_path) {
-    return undefined;
+  async readGrantedFile(path) {
+    const text = this.disk.get(path);
+    return text === undefined ? { kind: 'refused', cause: 'missing' } : { kind: 'text', text };
   }
   renderCursors(_cursors) {}
   report(_report) {}
@@ -147,8 +153,12 @@ function check(name, condition) {
 }
 
 // `§7.1` seals the room state from the host's listing, so the tree is walked before the mint:
-// todo.txt is listed but never opened or seeded, which is the unpublished case below.
-const listing = listingSource([NOTES, MAIN, TODO]);
+// todo.txt is listed but never opened or seeded, which is the unpublished case below, and
+// shared/held.txt is listed and on the host's disk but never opened in its window, which is the
+// case the room's own hold reaches.
+const HELD = 'shared/held.txt';
+const HELD_TEXT = 'the host’s own copy of it\n';
+const listing = listingSource([NOTES, MAIN, TODO, HELD]);
 const hostEngine = pageEngine(
   await PeerEngine.host({
     baseUrl: BASE,
@@ -164,6 +174,9 @@ console.log(`room minted: ${hostEngine.session().roomId}`);
 const hostFiles = new MemHost();
 hostFiles.texts.set(NOTES, SEED_NOTES);
 hostFiles.texts.set(MAIN, SEED_MAIN);
+hostFiles.disk.set(NOTES, SEED_NOTES);
+hostFiles.disk.set(MAIN, SEED_MAIN);
+hostFiles.disk.set(HELD, HELD_TEXT);
 const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 hostBridge.documentOpened(NOTES);
 hostBridge.documentOpened(MAIN);
@@ -184,9 +197,17 @@ const guestEngine = pageEngine(
 );
 
 const notices = [];
+const editor = makeEditor();
+/** The last model the binding put in front of the editor, which is where a guest's buffer is read. */
+let frontedModel;
+editor.setModel = (model) => {
+  if (model !== undefined && model !== null) {
+    frontedModel = model;
+  }
+};
 const binding = new MonacoBinding({
   engine: guestEngine,
-  editor: makeEditor(),
+  editor,
   onNotice: (notice) => void notices.push(notice),
   createModel: (text, language) => makeModel(text, language),
 });
@@ -226,6 +247,29 @@ await binding.openDocument(TODO);
 check('unpublished file opens empty', guestEngine.text(TODO) === '');
 check('unpublished file reads unpublished', binding.isUnpublished(TODO) === true);
 check('published file reads published', binding.isUnpublished(NOTES) === false);
+
+// (2b) A path this window's host never opened, held by the guest: the hold is the ask, the host
+// reads its working copy for it, and the guest's buffer is given what arrived. Nothing chooses
+// the host's replica here — the host only ever looked at its own disk.
+await binding.openDocument(HELD);
+check('a listed path nobody has published opens empty', guestEngine.text(HELD) === '');
+check('and reads unpublished', binding.isUnpublished(HELD) === true);
+check('the empty buffer is the guest’s own', frontedModel.__text() === '');
+await waitFor(
+  'the host to publish its working copy',
+  () => (guestEngine.text(HELD) === HELD_TEXT ? true : undefined),
+  // The hold goes out with the state that commits this connection's key, and the host's own
+  // read is one round trip behind it: the bound is a wire's, not the renewal clock's.
+  20_000,
+);
+check('the guest is given the host’s copy', true);
+await waitFor(
+  'the guest’s buffer to hold it',
+  () => (frontedModel.__text() === HELD_TEXT ? true : undefined),
+  10_000,
+);
+check('the guest’s buffer holds the host’s copy', true);
+check('and the path reads published once the text has arrived', binding.isUnpublished(HELD) === false);
 
 // Duplicate names disambiguate in the roster vocabulary: the twin takes the
 // host's name, so the guest's peer list itself holds the clash.
