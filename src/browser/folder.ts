@@ -16,9 +16,15 @@
  * safer error. The visible cost is a top-level `Build/` that a case-sensitive checkout would
  * have shared and this does not.
  *
- * Every handle here is structural (an interface with the four methods this module calls) rather
- * than `FileSystemDirectoryHandle`, so the suite drives the whole module with hand-built doubles
- * and no browser (§4.1 of the study).
+ * Every handle here is structural (an interface with the methods this module calls) rather than
+ * `FileSystemDirectoryHandle`, so the suite drives the whole module with hand-built doubles and
+ * no browser (§4.1 of the study).
+ *
+ * `create` is the one act that puts a name the host typed into the folder, and it is held to the
+ * same rules as sharing one: the shared excludes, the binary-name rule and the path bounds are
+ * applied before anything is resolved, and a name the folder already holds is refused rather than
+ * adopted. What it makes is a host-side act for the listing to publish: the walk that publishes is
+ * the caller's, and it finds the new path because the folder now holds it.
  */
 
 import {
@@ -66,6 +72,16 @@ export interface FolderFileHandle {
   createWritable(): Promise<FolderWritable>;
 }
 
+/**
+ * The one option this module passes to a handle lookup: the API's own create.
+ *
+ * Without it a lookup for a name that is not there rejects (`NotFoundError`), which is what every
+ * read and write here relies on; with it the entry is made and its handle returned.
+ */
+export interface FolderLookupOptions {
+  create?: boolean;
+}
+
 /** One entry of a directory listing: the two fields the walk reads. */
 export interface FolderEntry {
   readonly name: string;
@@ -76,8 +92,11 @@ export interface FolderDirectoryHandle {
   readonly kind: 'directory';
   readonly name: string;
   values(): AsyncIterableIterator<FolderEntry>;
-  getDirectoryHandle(name: string): Promise<FolderDirectoryHandle>;
-  getFileHandle(name: string): Promise<FolderFileHandle>;
+  getDirectoryHandle(
+    name: string,
+    options?: FolderLookupOptions,
+  ): Promise<FolderDirectoryHandle>;
+  getFileHandle(name: string, options?: FolderLookupOptions): Promise<FolderFileHandle>;
 }
 
 /** The picker, as this module calls it. Injected so the suite needs no browser. */
@@ -143,6 +162,28 @@ export type FolderWrite =
   | { kind: 'written' }
   | { kind: 'refused'; cause: FolderWriteRefusal; sentence: string };
 
+/** What a create makes: one file, or one directory, at a path a person typed. */
+export type NewEntryKind = 'file' | 'directory';
+
+/** Why nothing was created. */
+export type FolderCreateRefusal =
+  /** A name the grant's own rules refuse: an exclude, a key name, `..`, an absolute path. */
+  | 'not-granted'
+  /** A file whose name declares a format a room cannot carry (the listing's binary rule). */
+  | 'binary'
+  /** Something is already at that path. The page replaces and renames nothing the folder holds. */
+  | 'exists'
+  /** A directory the path goes through is not there. Create makes one segment, not a tree. */
+  | 'missing'
+  /** A segment the path goes through is a file, not a directory. */
+  | 'not-a-file'
+  /** The person revoked write access, or the folder moved with the tab open. */
+  | 'not-permitted';
+
+export type FolderCreate =
+  | { kind: 'created'; path: string; entry: NewEntryKind }
+  | { kind: 'refused'; cause: FolderCreateRefusal; sentence: string };
+
 /**
  * What the editor's host half needs of a working copy: a read for a path the room asked for,
  * and a write of the text the room settled on. Structural, so the binding's own tests drive it
@@ -151,6 +192,30 @@ export type FolderWrite =
 export interface FolderWork {
   read(path: string): Promise<GrantedRead>;
   write(path: string, text: string): Promise<FolderWrite>;
+}
+
+/**
+ * What a refused create says, per cause.
+ *
+ * The same kind of sentence a refused write gets: it names the path, says plainly that nothing was
+ * made, and where a person can act it names the next step. `exists` is the one that has to be said
+ * rather than implied, because the API's own `create` would have opened what is there instead.
+ */
+export function folderCreateSentence(cause: FolderCreateRefusal, path: string): string {
+  switch (cause) {
+    case 'not-granted':
+      return `${path} is not a path this room shares, so it was not created.`;
+    case 'binary':
+      return `${path} is a name that declares a format a room cannot carry, so it was not created. Name a text file instead.`;
+    case 'exists':
+      return `${path} is already in the folder, so nothing was created. This page does not rename or replace what the folder holds — name something else.`;
+    case 'missing':
+      return `${path} is not in the folder: the directory it goes through has to exist before a name inside it can be created. Create that directory first.`;
+    case 'not-a-file':
+      return `${path} goes through something that is a file, not a directory, so nothing was created.`;
+    case 'not-permitted':
+      return `${path} could not be created: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
+  }
 }
 
 /**
@@ -458,6 +523,126 @@ export class FolderWorkingCopy implements FolderWork {
       this.stamps.set(path, seen);
     }
     return { kind: 'written' };
+  }
+
+  /**
+   * Creates one file or one directory at a path a person typed, and refuses rather than adopting
+   * what is already there.
+   *
+   * The path is walked one segment at a time, as every other operation here walks it: the shared
+   * rule decides the name before anything is resolved, each segment the path goes through has to be
+   * a directory of the folder, and only the last segment is made — with the API's own create. A
+   * directory the path goes through is not created: a name typed into a directory the tree does not
+   * show is far more often a typo than an intention, and the refusal names the segment that is not
+   * there. (`GET /grant` publishes files, so a directory is published by the files inside it; a
+   * directory this makes joins the listing when the first file does.)
+   *
+   * A created file is stamped from its own read-back, and that is load-bearing: the write guard
+   * refuses a path this page has no stamp for (`unread`), and a file this page has just made must
+   * be writable rather than unreachable. The path also joins the set a read is served from, so the
+   * listing the caller publishes a moment later and this module's own memory agree.
+   *
+   * What this cannot promise: the probe for an existing name and the create are two steps and the
+   * API has no exclusive create, so an entry that appears between them is adopted rather than
+   * replaced. Nothing is written by the create itself, and the read-back is a read like any other.
+   * A symbolic link is not a case here: Chromium answers `NotFoundError` for one (see `refusalOf`),
+   * so a create over a link's name makes a plain file beside it.
+   */
+  async create(path: string, entry: NewEntryKind): Promise<FolderCreate> {
+    const refuse = (cause: FolderCreateRefusal): FolderCreate => ({
+      kind: 'refused',
+      cause,
+      sentence: folderCreateSentence(cause, path),
+    });
+    if (!isGrantedPath(path, FOLDER_PLATFORM)) {
+      return refuse('not-granted');
+    }
+    if (entry === 'file' && isBinaryNamedPath(path)) {
+      return refuse('binary');
+    }
+    const dir = await this.directoryOf(path);
+    if ('cause' in dir) {
+      if (dir.cause === 'not-a-file') {
+        return refuse('not-a-file');
+      }
+      // The walk reports a refusal about permission with the grant's own word for a name it will
+      // not serve; here the name has already passed the shared rule, so it is the access that went.
+      return refuse(dir.cause === 'not-granted' ? 'not-permitted' : 'missing');
+    }
+    const leaf = leafOf(path);
+    let taken: boolean;
+    try {
+      taken = await this.present(dir.handle, leaf, entry);
+    } catch (error: unknown) {
+      if (permissionRefusal(error)) {
+        return refuse('not-permitted');
+      }
+      throw error;
+    }
+    if (taken) {
+      return refuse('exists');
+    }
+    let handle: FolderFileHandle | undefined;
+    try {
+      handle =
+        entry === 'file'
+          ? await dir.handle.getFileHandle(leaf, { create: true })
+          : undefined;
+      if (entry === 'directory') {
+        await dir.handle.getDirectoryHandle(leaf, { create: true });
+      }
+    } catch (error: unknown) {
+      if (permissionRefusal(error)) {
+        return refuse('not-permitted');
+      }
+      const cause = refusalOf(error);
+      if (cause === undefined) {
+        throw error;
+      }
+      return refuse(cause === 'not-a-file' ? 'not-a-file' : 'missing');
+    }
+    if (handle !== undefined) {
+      try {
+        this.stamps.set(path, (await handle.getFile()).lastModified);
+      } catch {
+        // The entry is made and the stamp is not: an unstamped path is one the write guard refuses
+        // (`unread`), which is the safe side of failing to look at a file that is now there.
+      }
+    }
+    if (this.listed !== undefined) {
+      this.listed = new Set([...this.listed, path]);
+    }
+    return { kind: 'created', path, entry };
+  }
+
+  /**
+   * Whether a name is already taken in `dir`, asked without the API's create so the lookup cannot
+   * make what it was only asked about. A name that is there as the other kind counts: this page
+   * replaces nothing, and a create over it would be that replacement. A failure this module cannot
+   * read is thrown rather than read as a free name.
+   */
+  private async present(
+    dir: FolderDirectoryHandle,
+    name: string,
+    entry: NewEntryKind,
+  ): Promise<boolean> {
+    try {
+      if (entry === 'file') {
+        await dir.getFileHandle(name);
+      } else {
+        await dir.getDirectoryHandle(name);
+      }
+      return true;
+    } catch (error: unknown) {
+      const cause = refusalOf(error);
+      if (cause === 'missing') {
+        return false;
+      }
+      if (cause === 'not-a-file') {
+        return true;
+      }
+      throw error;
+    }
   }
 
   /** The directory holding `path`, walked one segment at a time from the picked folder. */

@@ -45,6 +45,12 @@ export interface TreeViewOptions {
   pinned: Set<string>;
   /** Whether this device has no hover, which is what the unpublished pill's words depend on. */
   touch: () => boolean;
+  /**
+   * Whether this window can put a file into the folder the room is drawn from (`main.ts`: a host
+   * that holds one). It decides what an empty listing says, and nothing else: a guest's empty room
+   * is the host's to fill, while a host's own empty folder is a thing this page can act on.
+   */
+  canCreate?: () => boolean;
   /** A row was clicked: the page decides what opening a path means. */
   open(path: string): void;
 }
@@ -54,6 +60,7 @@ export class GrantTreeView {
   private readonly source: TreeSource;
   private readonly pinned: Set<string>;
   private readonly touch: () => boolean;
+  private readonly canCreate: () => boolean;
   private readonly open: (path: string) => void;
   /** What the rows were last built from, so a frame that changes none of it rebuilds none. */
   private drawnRows = '';
@@ -67,6 +74,7 @@ export class GrantTreeView {
     this.source = options.source;
     this.pinned = options.pinned;
     this.touch = options.touch;
+    this.canCreate = options.canCreate ?? ((): boolean => false);
     this.open = options.open;
   }
 
@@ -105,7 +113,12 @@ export class GrantTreeView {
     if (listing.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'empty';
-      empty.textContent = 'The host has not shared any files yet.';
+      // An empty room reads differently to the two people looking at it: a guest is waiting on
+      // the host, and a host is the one who can fill it — with the row above the tree, which is
+      // why this sentence names an act rather than the absence of files.
+      empty.textContent = this.canCreate()
+        ? 'You have not shared anything from this folder yet. Create a file, and it joins the room.'
+        : 'The host has not shared any files yet.';
       this.pane.appendChild(empty);
       return;
     }

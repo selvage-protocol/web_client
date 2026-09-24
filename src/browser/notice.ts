@@ -26,7 +26,11 @@ export interface NoticeOptions {
 
 /** The three runs of the countdown's sentence, and the way its number is written. */
 export interface CountParts {
-  /** What `replaceChildren` is given: the lead, the number's own element, the tail. */
+  /**
+   * What `replaceChildren` is given. The countdown's default is one element holding the whole
+   * sentence — the strip is a flex row, so a run left as its own child would wear the row's gap
+   * (see `defaultCountParts`).
+   */
   parts: (Node | string)[];
   /** Writes one reading of the number. */
   number: (text: string) => void;
@@ -163,15 +167,26 @@ export function graceWording(graceMs: number): string {
   return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
-/** The number's own element, `role="timer"` and silent: the count is not read out. */
+/**
+ * The number's own element, `role="timer"` and silent: the count is not read out.
+ *
+ * The three runs go inside one wrapper element, and that is not decoration. The strip that shows
+ * them is a flex row (for the dot beside the sentence), and every child of a flex container is a
+ * flex item with the container's `gap` on each side of it — so three runs directly under it put
+ * `gap`-width spaces around the substituted number, which is neither the width of a space nor the
+ * same for `30 seconds` as for `a moment`. One wrapper keeps the sentence one flow: the spaces in it
+ * are the words' own, and the gap stays where it was written, between the dot and the sentence.
+ */
 function defaultCountParts(lead: string, tail: string): CountParts {
+  const sentence = document.createElement('span');
   const number = document.createElement('span');
   // `role="timer"` carries `aria-live: off`, and the explicit pair keeps that true whatever a
   // browser's default is: the sentence is announced once, the count is not announced at all.
   number.setAttribute('role', 'timer');
   number.setAttribute('aria-live', 'off');
+  sentence.append(document.createTextNode(lead), number, document.createTextNode(tail));
   return {
-    parts: [document.createTextNode(lead), number, document.createTextNode(tail)],
+    parts: [sentence],
     number: (text: string): void => {
       number.textContent = text;
     },

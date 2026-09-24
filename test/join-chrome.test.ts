@@ -668,14 +668,30 @@ describe('the host leaving and coming back', () => {
   });
 
   it('the count is in an element of its own, which the live region does not announce', (t) => {
-    const attributes: Record<string, string> = {};
-    const number = {
-      textContent: '',
-      setAttribute: (name: string, value: string): void => void (attributes[name] = value),
-    };
-    const runs: unknown[] = [];
+    // Two elements are made now — the sentence's own wrapper and the number inside it (see
+    // `defaultCountParts`: the strip is a flex row, so the sentence has to be one of its runs) —
+    // and the assertions below are about the same one: the number is its own element, the strip's
+    // run does not change while its text does, and only the number carries the announcement
+    // attributes.
+    const made: Array<{
+      textContent: string;
+      attributes: Record<string, string>;
+      children: unknown[];
+      append: (...nodes: unknown[]) => void;
+      setAttribute: (name: string, value: string) => void;
+    }> = [];
     (globalThis as { document?: unknown }).document = {
-      createElement: () => number,
+      createElement: () => {
+        const element = {
+          textContent: '',
+          attributes: {} as Record<string, string>,
+          children: [] as unknown[],
+          append: (...nodes: unknown[]): void => void element.children.push(...nodes),
+          setAttribute: (name: string, value: string): void => void (element.attributes[name] = value),
+        };
+        made.push(element);
+        return element;
+      },
       createTextNode: (text: string) => ({ textContent: text }),
     };
     t.after(() => {
@@ -690,10 +706,19 @@ describe('the host leaving and coming back', () => {
       cancel: timer.cancel,
     });
     note.countdown(2000);
+    const [sentence, number] = made;
+    assert.ok(sentence !== undefined && number !== undefined, 'the sentence and its number are built');
     // The strip stays a polite region for the sentence; the number carries `role="timer"`,
     // whose own live setting is off, so the count is never read out.
-    assert.deepEqual(attributes, { role: 'timer', 'aria-live': 'off' });
-    runs.push(...element.replaced);
+    assert.deepEqual(number.attributes, { role: 'timer', 'aria-live': 'off' });
+    assert.deepEqual(sentence.attributes, {}, 'the sentence announces something of its own');
+    assert.deepEqual(element.replaced, [sentence], 'the strip was handed a run per part');
+    assert.deepEqual(
+      sentence.children,
+      [{ textContent: 'The host left. The room closes in ' }, number, { textContent: ' unless the host returns.' }],
+      'the sentence is not the lead, the number and the tail',
+    );
+    const runs = [...element.replaced];
     assert.equal(number.textContent, '2 seconds');
     clock += 1000;
     timer.runs[0]?.();
@@ -810,6 +835,126 @@ describe('the host leaving and coming back', () => {
         !branch.includes('sessionNote.hide()'),
         `${kind} hides the host-is-back sentence with the countdown`,
       );
+    }
+  });
+});
+
+describe('the countdown is one sentence, whatever the number says', () => {
+  /**
+   * The strip is a flex row, so every child of it wears the row's `gap` on both sides. The
+   * countdown substitutes its time into the middle of one sentence, which means the default build
+   * has to hand the strip *one* run: three runs directly under it space `30 seconds` by the row's
+   * gap instead of by a space, and space `a moment` the same way — the spacing the owner read as
+   * too large, and different from the words around it. The stylesheet carries the same note.
+   */
+  function makeDocument() {
+    // `textContent` is derived from the children, the way a real element's is: the assertions below
+    // read the sentence as a reader of the strip would, so the fake has to compose it.
+    const make = (tag: string) => {
+      const children: unknown[] = [];
+      const element = {
+        tag,
+        nodeType: 1,
+        children,
+        attributes: {} as Record<string, string>,
+        append: (...nodes: unknown[]) => void children.push(...nodes),
+        setAttribute: (name: string, value: string) => void (element.attributes[name] = value),
+        get textContent(): string {
+          return children
+            .map((child) => String((child as { textContent: unknown }).textContent))
+            .join('');
+        },
+        set textContent(value: string) {
+          children.length = 0;
+          children.push({ nodeType: 3, textContent: value });
+        },
+      };
+      return element;
+    };
+    return {
+      createElement: make,
+      createTextNode: (text: string) => ({ nodeType: 3, textContent: text }),
+    };
+  }
+
+  it('hands the strip one run, with the number in an element of its own', () => {
+    const real = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = makeDocument();
+    try {
+      const element = makeElement();
+      const timer = ticking();
+      const note = wireSessionNote(element as unknown as HTMLElement, {
+        // No `countParts` stub: this is the page's own build, which is what the strip receives.
+        now: () => 0,
+        schedule: timer.schedule,
+        cancel: timer.cancel,
+      });
+      note.countdown(30_000);
+
+      const runs = element.replaced;
+      assert.equal(runs.length, 1, 'the strip was handed a run per part, so its gap spaces them');
+      const sentence = runs[0] as {
+        children: Array<{ textContent: string; attributes?: Record<string, string> }>;
+      };
+      assert.equal(sentence.children.length, 3, 'the sentence is not lead, number, tail');
+      assert.equal(sentence.children[0]?.textContent, 'The host left. The room closes in ');
+      assert.equal(sentence.children[1]?.textContent, '30 seconds');
+      assert.equal(sentence.children[2]?.textContent, ' unless the host returns.');
+      // The count is not announced: the sentence is, once, through the live region it sits in.
+      assert.equal(sentence.children[1]?.attributes?.['role'], 'timer');
+      assert.equal(sentence.children[1]?.attributes?.['aria-live'], 'off');
+      assert.equal(element.textContent, 'The host left. The room closes in 30 seconds unless the host returns.');
+      note.hide();
+    } finally {
+      (globalThis as { document?: unknown }).document = real;
+    }
+  });
+
+  it('keeps one run for every form of the reading, a word as well as a number', () => {
+    const real = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = makeDocument();
+    try {
+      const element = makeElement();
+      const timer = ticking();
+      const note = wireSessionNote(element as unknown as HTMLElement, {
+        now: () => 0,
+        schedule: timer.schedule,
+        cancel: timer.cancel,
+      });
+      // Every form `graceWording` can produce, including the branch that is a word rather than a
+      // number and the singular/plural pair: the run count and the spacing are the sentence's, and
+      // the reading only ever replaces the middle run's text.
+      for (const [graceMs, reading] of [
+        [500, 'a moment'],
+        [1000, '1 second'],
+        [2000, '2 seconds'],
+        [60_000, '1 minute'],
+        [3_600_000, '1 hour'],
+      ] as Array<[number, string]>) {
+        note.countdown(graceMs);
+        const runs = element.replaced;
+        assert.equal(runs.length, 1, `the run count for ${reading} is not the sentence's`);
+        const sentence = runs[0] as { children: Array<{ textContent: string }> };
+        assert.equal(sentence.children.length, 3, `${reading} is not lead, number, tail`);
+        assert.equal(sentence.children[1]?.textContent, reading);
+        assert.equal(
+          sentence.children[0]?.textContent,
+          'The host left. The room closes in ',
+          `${reading} changed the lead`,
+        );
+        assert.equal(
+          sentence.children[2]?.textContent,
+          ' unless the host returns.',
+          `${reading} changed the tail`,
+        );
+        assert.equal(
+          element.textContent,
+          `The host left. The room closes in ${reading} unless the host returns.`,
+        );
+      }
+      note.hide();
+    } finally {
+      (globalThis as { document?: unknown }).document = real;
     }
   });
 });

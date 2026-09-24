@@ -3287,3 +3287,192 @@ EXIT=0
   submit held before any script on a page whose address *is* an invite relies on the class, not on
   the snapshot. That is the case the shell's own settle already covers, since it paints the class
   before it settles.
+
+## A host creates the file the room was missing (2026-09-24)
+
+The owner decided a browser host may put a file into the folder it picked: a room's shape is what
+that folder holds, so a fresh room whose folder is empty was a dead end — the editor stood
+read-only in front of nobody and the tree said the host had shared nothing, with no way out.
+`DESIGN.md` §4.2 states the rule now ("**A host may create** a file or a directory in that folder —
+a host-side act the listing then publishes"), and rename and delete stay absent.
+
+### The folder layer
+
+`src/browser/folder.ts` grew `create(path, entry)`, held to the same rules as sharing a name:
+`isGrantedPath` (the excludes, the key names, no `..`, no absolute path, the 4096-byte path bound),
+`isBinaryNamedPath` for a file, and a refusal rather than an adoption of a name the folder already
+holds. The path is walked one segment at a time as every other operation here walks it, only the
+last segment is made, and it is made with the API's own create (`getFileHandle(name, {create: true})`
+/ `getDirectoryHandle(name, {create: true})`). A directory the path goes through is **not** made: a
+name typed into a directory the tree does not show is a typo far more often than an intention, and
+the refusal names the segment that is not there.
+
+**A created file is stamped from its own read-back**, and that is load-bearing: the write guard
+refuses a path this page has no stamp for (`unread`), so without it the page could make a file and
+then not save into it. The created path also joins the set a read is served from, so the module's
+own memory and the walk the caller publishes a moment later agree.
+
+What the create does not promise, stated where it is: the probe for an existing name and the create
+are two steps and the API has no exclusive create, so an entry appearing between them is adopted
+rather than replaced — nothing is written by the create itself, and the read-back is a read. A name
+that is a symbolic link is not a case here (Chromium answers `NotFoundError` for one), so a create
+over a link's name makes a plain file beside it.
+
+The refusals are `not-granted`, `binary`, `exists`, `missing`, `not-a-file` and `not-permitted`,
+each with the same kind of sentence a refused write gets: it names the path, says nothing was made,
+and where a person can act it names the next step. `exists` says out loud that this page does not
+rename or replace what the folder holds, which is the one refusal the API's own create would have
+answered by silently opening what is there.
+
+A failure **after** the entry is made is reported as itself and never as "not created": the entry
+is on disk from the moment the layer answers, so the publish and the open are the act's own steps
+and each says what it was (`CreateOutcome` in `new-entry.ts`) — *"… is in the folder, but the room
+was not told the listing changed: …"*, or *"… is in the folder and the room lists it, but this page
+could not open it: …"*. The first row that said "was not created" for a failure in either would be
+telling a person their file is missing while it sits in their folder, and a retry of the same name
+would then answer `exists`. Only a failure from the folder layer itself, thrown before anything was
+made, reads as "not created".
+
+### The act, and how the room learns it
+
+`src/browser/new-entry.ts` holds the page's order for the act — **create, re-walk, publish, open** —
+and `main.ts` wires the page's folder, its `ListingSource` and its opener into it:
+
+- the re-walk is what a listing is, so the new path is published because the folder holds it and not
+  because anything names it; the source the room's state is sealed from is replaced *before* the
+  room is told, so a state sealed later cannot carry a listing the folder no longer has;
+- a created **file is opened**, because content arrives when a file is opened — a listed path nobody
+  opened reads empty to every guest, which is the page's own unpublished pill. Something has to be
+  the first file in an empty room, and this is it;
+- a **directory** is not opened and is not in a listing (a room's listing is files), so the create
+  publishes the folder as it stands and nothing appears until a file is inside it. The row says so
+  rather than leaving a person looking at an unchanged tree.
+
+### The row, and the empty room
+
+`public/index.html` carries the row in the panel under **Shared**: a name field and two buttons,
+**New file** and **New folder**. The kind is the button's, because a name cannot say which `docs`
+is and a trailing slash would be a convention the person has to know; Enter in the field runs the
+leading action, which is the file. The row is hidden in the shell and revealed by the bundle for the
+window that holds the folder, so a guest is offered nothing it could not use. A refusal stands under
+the field it is about, in the layer's own sentence, and the typed name is left in place to be fixed.
+
+The empty tree no longer reads the same to both people in the room: a guest still reads *"The host
+has not shared any files yet."*, and a host now reads *"You have not shared anything from this
+folder yet. Create a file, and it joins the room."* — with the row right above it. That is the dead
+end this wave closes.
+
+### Proved
+
+`npm run test:ci` is 510 tests over 126 suites, green. The folder layer's own tests carry the create,
+its refusals and the guard; `test/new-entry.test.ts` drives the row and the whole act (folder →
+listing → the guest's own tree derivation) with no DOM, and pins `main.ts`'s wiring by its text, the
+way the page's other chrome is; `test/tree-view.test.ts` holds the empty state to what each side of
+the room reads. **Red without it**, each mutation alone and the tree restored after: with the
+read-back stamp removed, *stamps the file it made, so the room can save into it* is the one failure
+(35 tests, 1 fail); with the created path kept out of the set a read is served from, *serves the file
+it just made, before the caller re-walks*; with the exists probe removed, *will not overwrite or
+adopt a name the folder already holds*.
+
+`scripts/prove-m1.mjs` gained a leg: a real room minted with an empty listing, a real guest seated
+in it that sees nothing, then the page's own `createInFolder` making `notes.md`, the walk
+republished, the file opened, and the guest receiving both the path and the text the host then types
+(`empty room minted: …`, `the guest sees the path the host created`, `PROOF OK`). With the listing
+update taken out of its publish the leg fails at *the guest to receive the created path*, so it is
+not vacuous; skipping only the explicit `grant()` call still passes, because the open republishes
+the room's state from the already-replaced source.
+
+**What is not proved in a browser.** A page-hosting browser proof does not exist in this revision:
+the driver that used to press *Start a session here* (`prove-host-version`) went with the version-1
+client, and what is left in the main checkout is its scratch init script under `.tmp/`. Adding one
+means a second copy of the Chromium launch and `selvaged --serve-page` bootstrap `prove-v2.mjs`
+carries inline, so the create flow's DOM half is pinned by the unit tests and by the text pins, and
+its room half by the `prove-m1` leg above. The one thing no automation answers remains the picker's
+dialog, so a browser proof would stand in for `showDirectoryPicker` with the origin private file
+system's handle, as the recorded run did.
+
+## The blurred preview was as wide as the bar (2026-09-24)
+
+Owner, from a screenshot of the demo: the share pill spanned nearly the whole session bar and
+crowded everything beside it. Cause, measured rather than guessed: `displayShareLink` shortened the
+host, the room id and the token, and **not `§5.1`'s fragment** — where a `selvage/2` link's length
+is, two keys of 43 characters each. A 1440 × 900 bar measured **1249 px of pill** (87%), 1027 px
+(71%) at the desktop font size.
+
+The fragment's values are shortened now, middle-first like every other part, with their keys left
+whole (a shortened key would read as a different key), and the pill itself is bounded
+(`#share-group { max-width: min(100%, 40vw) }`, lifted in the phone query where the readout is
+hidden and the label takes the row). Measured in Chromium with the shell's own stylesheet:
+
+| case | viewport | pill | % of bar | readout | clipped |
+|---|---|---|---|---|---|
+| before | 1440 | 1249 px | 87% | 1228 px | yes |
+| before, desktop font | 1440 | 1027 px | 71% | 987 px | no |
+| after | 1440 | 531 px | 37% | 490 px | no |
+| after, desktop font | 1440 | 405 px | 28% | 364 px | no |
+| after, desktop font | 900 | 360 px | 40% | 339 px | the bound |
+| after, desktop font | 700 | 280 px | 40% | 259 px | the bound |
+| phone, 390 | 390 | 359 px | 92% | hidden | — |
+
+The phone row is unchanged in shape: the readout is hidden there and the *Copy invite link* label
+takes the row full width. On a narrow bar the bound can clip the display's tail; the head stays, and
+the element's `title` and the clipboard keep the whole link. The blur, the clipboard-not-display
+rule, the copy affordance and its states, and the hover reveal are untouched — the change is the
+display string and one `max-width`. `test/session-over.test.ts` pins the sealed link's display and
+the bound, each shown red with its own guard reverted.
+
+## The countdown's reading wore the row's gap (2026-09-24)
+
+Owner, from the same pass: the grace sentence's spacing is too large and is not the same around a
+number as around a word. Cause: `#session-note` is a **flex row** (for the dot beside the sentence),
+and `defaultCountParts` handed it three runs — lead text, the number's span, tail text. Every child
+of a flex container is a flex item, so each run wears the row's `gap` on both sides, and the
+substituted number was spaced by `0.6em` of gap instead of by a space; the lead's own trailing space
+and the tail's leading one are trimmed at those items' edges, so nothing put a space back.
+
+Measured in Chromium with the shell's own stylesheet, glyph box to glyph box, the space on each side
+of the reading:
+
+| shape | viewport | a moment | 1 second | 2 seconds | 1 minute | 1 hour |
+|---|---|---|---|---|---|---|
+| three runs (before) | 1280 | 8.39 / 8.39 | 8.39 / 8.39 | 8.39 / 8.39 | 8.39 / 8.39 | 8.39 / 8.39 |
+| one run (after) | 1280 | 4.88 / 4.88 | 4.88 / 4.88 | 4.88 / 4.88 | 4.88 / 4.88 | 4.88 / 4.88 |
+| three runs (before) | 390 | 19.88 | 25.19 | 20.39 | 25.33 | 36.31 |
+| one run (after) | 390 | 4.88 | 4.88 | 4.88 | 4.88 | 4.88 |
+
+A space in this font is 4.88 px and the row's gap is 8.39 px, so the sentence was 7.06 px wider than
+the same words as plain text — and on a phone, where the row is over-full and the runs are squeezed,
+the space *did* differ by form (19.9–36.3 px), which is the "not the same" the owner saw. The fix is
+one element: `defaultCountParts` now builds the whole sentence inside a wrapper span, so the strip
+still gets one run and the spaces inside it are the words' own. `role="timer"` and `aria-live="off"`
+survive on the number, the strip is still the polite region that announces the sentence, and the
+strip's height is unchanged (one line at 1280, two at 390). `test/join-chrome.test.ts` pins the
+shape, the attributes and every form of the reading; reverting the wrapper turns three named tests
+red.
+
+Nothing else in the page substitutes text into a sentence this way: the only other assembled
+sentences are `hostBackSentence` and the two room-gone sentences, which are plain strings, and the
+roster's labels are `.textContent` on their own elements.
+
+## The vendored engine and bridge, re-synced (2026-09-24)
+
+`src/{engine,bridge}` are `vscode_client`'s copies and had drifted one fix behind: the caret repaint
+PR #112 added (`0e9779c` "paint a peer's caret on the frame that brings its document", `a7255b0`), so
+this page could show a peer's caret only on a frame that happened to follow its document's text. The
+branch's last commit takes them again:
+
+```
+$ bash scripts/sync-engine.sh /home/user/projects/selvage/vscode_client
+src/{engine,bridge} match /home/user/projects/selvage/vscode_client/src (HEAD 20ee85e)
+```
+
+`vscode_client` was fast-forwarded to its `origin/main` (`20ee85e`) first, and the copy was checked
+against that commit's *tracked* tree rather than against a working tree:
+`git archive --format=tar 20ee85e src/engine src/bridge | tar -x` into `.tmp/`, then `diff -r` both
+ways — identical, 25 files each side. The whole change is 16 lines in `src/bridge/bridge.ts` (a
+guarded `renderCursors` after an apply settles and on the frame that brings a document's text); the
+engine is byte-identical. Nothing the create flow reads changed: `has()`, the listing refresh and the
+repainting path are where they were. `scripts/sync-engine.sh`'s header now names `20ee85e`.
+
+The same drift is in `nvim_client/vendor/` and is being fixed in that repository separately, so the
+two are not the same change.

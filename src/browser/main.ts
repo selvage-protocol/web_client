@@ -32,6 +32,9 @@ import {
   folderPickerOf,
   pickFolder,
 } from './folder.ts';
+import type { NewEntryKind } from './folder.ts';
+import { createInFolder, newFolderCreatedSentence, wireNewEntry } from './new-entry.ts';
+import type { CreateOutcome } from './new-entry.ts';
 import {
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
@@ -177,6 +180,11 @@ const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
+const newEntryRow = document.getElementById('new-entry') as HTMLElement;
+const newFileName = document.getElementById('new-name') as HTMLInputElement;
+const newFileButton = document.getElementById('new-file') as HTMLButtonElement;
+const newFolderButton = document.getElementById('new-folder') as HTMLButtonElement;
+const newEntryMessage = document.getElementById('new-message') as HTMLElement;
 const followBanner = document.getElementById('follow-banner') as HTMLElement;
 const appPane = document.getElementById('app') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
@@ -298,6 +306,60 @@ let renderedPath: string | undefined;
 let tree: GrantTreeView | undefined;
 /** Whether a host start is running: the picker is a single flight, whatever the button says. */
 let hosting = false;
+/** The folder this tab's room is drawn from, when this tab is the host: what a create writes to. */
+let hostFolder: FolderWorkingCopy | undefined;
+/**
+ * Publishes the room's listing after this host's own folder changed (`§7.1`). The source the mint
+ * sealed the room from is replaced with the walk's own answer before the room is told, so a state
+ * sealed later cannot carry a listing the folder no longer has.
+ */
+let republishGrant: ((paths: readonly string[]) => Promise<void>) | undefined;
+
+/**
+ * Creates a file or a directory in the folder this tab picked, and puts it in the room.
+ *
+ * The order is the one that makes each step true. The create is the folder's own, and its refusals
+ * are the folder's own sentences. The re-walk is what a listing is, so the new path is published
+ * because the folder holds it and not because this function names it — the same walk a watcher
+ * would have triggered had the create been made by something else on the disk. And a created file
+ * is opened, which is what makes its text reach the room at all: content arrives when a file is
+ * opened, so a listed path nobody opened reads empty to every guest.
+ */
+async function createEntry(path: string, entry: NewEntryKind): Promise<string | undefined> {
+  const folder = hostFolder;
+  if (folder === undefined || binding === undefined) {
+    return undefined;
+  }
+  let outcome: CreateOutcome;
+  try {
+    outcome = await createInFolder({ folder, publish: republishGrant, open: openPath }, path, entry);
+  } catch (error: unknown) {
+    // What reaches here is the folder layer's own unnamed failure, thrown before the entry was made:
+    // the steps after it belong to the act and report themselves (`CreateOutcome`), so a file that
+    // did land is never reported as one that did not.
+    return `${path} was not created: ${describe(error)}`;
+  }
+  if (outcome.kind === 'refused' || outcome.kind === 'incomplete') {
+    return outcome.sentence;
+  }
+  syncGrant();
+  return outcome.entry === 'file' ? undefined : newFolderCreatedSentence(path);
+}
+
+/**
+ * The control that asks for a name, offered only to a window that holds a folder: a guest has
+ * nothing to create in, and the sentence the empty tree carries is its own answer.
+ */
+const newEntry = wireNewEntry({
+  surface: {
+    row: newEntryRow,
+    file: newFileButton,
+    folder: newFolderButton,
+    name: newFileName,
+    message: newEntryMessage,
+  },
+  create: createEntry,
+});
 
 // Enter runs the action the field belongs to: the name is the card's own field and runs what
 // the card leads with, while the paste box is the invite path and always joins.
@@ -470,6 +532,11 @@ interface Seat {
   shareLink: string;
   /** The folder this window was handed, when it is the host: absent for a guest. */
   folder?: FolderWorkingCopy;
+  /**
+   * Publishes a listing this host's folder changed under, replacing the source the room's state is
+   * sealed from (`§7.1`). A guest has none.
+   */
+  republish?: (paths: readonly string[]) => Promise<void>;
 }
 
 /**
@@ -482,6 +549,11 @@ interface Seat {
 async function seatSession(seat: Seat): Promise<void> {
   const { monaco, engine: seated, session } = seat;
   selfName = seat.displayName;
+  // The folder, when this window has one, is what a create writes to; a guest is offered no control
+  // and reads the empty tree's own sentence instead.
+  hostFolder = seat.folder;
+  republishGrant = seat.republish;
+  newEntry.show(seat.folder !== undefined);
   fullShareLink = seat.shareLink;
   // The bar shows the link with the page's own origin dropped and its long parts shortened,
   // and sized to what it shows; the title and the clipboard below keep the full bytes.
@@ -534,6 +606,7 @@ async function seatSession(seat: Seat): Promise<void> {
     source: binding,
     pinned: openDirs,
     touch: () => touchOnly,
+    canCreate: () => hostFolder !== undefined,
     open: (path) => {
       binding?.stopFollowing();
       void openPath(path);
@@ -627,6 +700,10 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
       fragmentOf(engine.inviteUrl() ?? ''),
     ),
     folder,
+    republish: async (paths) => {
+      listing.replace(paths);
+      await engine.grant(paths);
+    },
   });
   markHosting(window.sessionStorage, session.roomId);
   saveDisplayName(window.localStorage, displayName);
@@ -988,6 +1065,12 @@ function leaveSession(sentence: string): void {
   linkGuard = undefined;
   binding = undefined;
   engine = undefined;
+  // The folder goes with the session: a control that outlived it would create in a folder this
+  // window is no longer serving.
+  hostFolder = undefined;
+  republishGrant = undefined;
+  newEntry.show(false);
+  newEntry.reset();
   editorApi = undefined;
   desktopEditorOptions = undefined;
   opening = undefined;

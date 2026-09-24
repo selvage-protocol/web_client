@@ -284,6 +284,35 @@ describe('the share bar shows the link, not a prefix of it', () => {
     assert.ok(readout.size <= 46, `the readout was padded past its value: ${readout.size}`);
     assert.ok(main.includes('fitReadout'), 'the bar leaves the readout at its intrinsic width');
   });
+
+  it("shortens the fragment of a sealed link, which is where its length is", () => {
+    // Two keys of 43 characters each, and the display shortened only the query: a `selvage/2` link
+    // read 134 characters, and the pill measured 1249 px of a 1440 px bar. The keys stay whole — a
+    // shortened key would read as a different key — and each value becomes the marker the rest of
+    // the display is shortened with, so the bar still says the link carries more than its query.
+    const key = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcdefg';
+    const hostKey = 'ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210-_gfedcba';
+    const shown = displayShareLink(
+      `http://127.0.0.1:8081/?room=r-0d9b7546196d&token=${TOKEN}#k=${key}&h=${hostKey}`,
+      'http://127.0.0.1:8081',
+    );
+    assert.equal(shown, '/?room=r-0d9b…6196d&token=32dc6a…248ea#k=…&h=…');
+    assert.ok(shown.length <= 52, `the sealed link's display is long enough to fill the bar: ${shown.length}`);
+    assert.ok(!shown.includes(key.slice(0, 20)), `a key is in the display: ${shown}`);
+  });
+
+  it('bounds the pill itself, so the preview cannot take the bar', () => {
+    // The display is short because the link is shortened; this is the ceiling under that, for a
+    // link longer than the display is built for (a long host, a shape this module has not seen).
+    // The phone query lifts it: there the readout is hidden and the label takes the row instead.
+    const rule = style.match(/#share-group\s*\{[^}]*\}/)?.[0] ?? '';
+    assert.match(rule, /max-width:\s*min\(100%,\s*40vw\)/, `the pill is unbounded: ${rule}`);
+    const phone = style.slice(
+      style.indexOf('@media (max-width: 640px)'),
+      style.indexOf('@media (any-hover: none)'),
+    );
+    assert.match(phone, /#share-group\s*\{[^}]*max-width:\s*none/, 'the phone row lost its width');
+  });
 });
 
 describe('the paste hint on the bare card', () => {
