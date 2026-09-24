@@ -21,6 +21,8 @@ export type {
   PersistedHost,
 } from './host.ts';
 export {
+  ABSENCE_CHARGE,
+  FRAME_BUDGET,
   MISSING_FRAGMENT,
   PEER_MUTATIONS,
   PeerSession,
