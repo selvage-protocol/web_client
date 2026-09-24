@@ -182,6 +182,17 @@
          which the `(any-hover: none)` block below unhides — on a finger. */
       #roster .why { display: none; font-size: 0.8em; color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
+      /* The row a browser host creates a file or a directory with. It sits in the panel and not
+         inside the tree: the tree is the room's listing, which is files, so a directory only joins
+         it when a file is inside — a control drawn in the tree would go with the thing it makes.
+         The kind is the button's, so the name field carries no convention of its own. */
+      #new-entry { display: flex; flex-wrap: wrap; gap: 0.35em; align-items: center;
+        padding: 0 0.55em 0.5em; }
+      #new-name { flex: 1 1 7em; min-width: 0; font-size: 0.85em; padding: 0.35em 0.5em; }
+      #new-entry button { font-size: 0.8em; padding: 0.35em 0.6em; }
+      #new-message { flex: 1 1 100%; margin: 0; font-size: 0.8em; line-height: 1.45;
+        color: var(--muted-foreground); }
+      #new-message:empty { display: none; }
       #tree { margin: 0; padding: 0; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
       #tree > ul { padding-left: 0; }
@@ -340,7 +351,7 @@
            root is 14 px, so the fields' own `1rem` never cleared the floor.
            `#share` is a readonly field the clipboard fallback focuses, and it
            is visible wherever the phone sheet that hides it does not apply. */
-        #join input, #join-message, #share { font-size: 16px; }
+        #join input, #join-message, #share, #new-name { font-size: 16px; }
         /* 44 px is the smallest a fingertip is expected to hit. The floor is on
            the box, not on the content: `min-height` sits inside the padding
            otherwise, which rendered the copy strip 63 px tall. */
@@ -525,6 +536,17 @@
           <h2>People</h2>
           <ul id="roster"></ul>
           <h2>Shared</h2>
+          <!-- A browser host may create a file or a directory in the folder it picked: a room's
+               shape is what that folder holds, so an empty one is otherwise a dead end. The
+               shell hides the row and the bundle reveals it to the window that holds the folder,
+               so a guest reads the sentence the empty tree carries instead. -->
+          <div id="new-entry" hidden>
+            <input id="new-name" type="text" autocomplete="off" spellcheck="false"
+              aria-label="Name for the new file or folder" placeholder="notes.md" />
+            <button id="new-file" type="button">New file</button>
+            <button id="new-folder" type="button">New folder</button>
+            <p id="new-message" role="alert"></p>
+          </div>
           <div id="tree"></div>
         </div>
         <div id="editor"></div>

@@ -15,6 +15,8 @@
  */
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
+import { FolderWorkingCopy } from '../src/browser/folder.ts';
+import { createInFolder } from '../src/browser/new-entry.ts';
 import { peerColour } from '../src/bridge/index.ts';
 import { PeerEngine } from '../src/bridge/index.ts';
 import { listingSource, pageEngine } from '../src/browser/relay.ts';
@@ -132,6 +134,70 @@ class MemHost {
   report(report) {
     this.reports.push(report);
   }
+}
+
+/**
+ * The folder a browser host is handed, in memory: the four methods `FolderWorkingCopy` calls, so
+ * the page's own layer decides what may be created and walks the path the way it does in a browser.
+ */
+function newFolderHandle() {
+  let stamps = 0;
+  const node = () => ({ kind: 'directory', children: new Map() });
+  const root = node();
+  const fileOf = (entry) => ({
+    kind: 'file',
+    name: entry.name,
+    async getFile() {
+      return {
+        lastModified: entry.lastModified,
+        size: new TextEncoder().encode(entry.text).length,
+        arrayBuffer: async () => new TextEncoder().encode(entry.text).buffer,
+      };
+    },
+    async createWritable() {
+      let pending = '';
+      return {
+        async write(data) {
+          pending += data;
+        },
+        async close() {
+          entry.text = pending;
+          entry.lastModified += 1;
+        },
+      };
+    },
+  });
+  const handleOf = (dir) => ({
+    kind: 'directory',
+    name: 'project',
+    async *values() {
+      for (const [name, child] of dir.children) {
+        yield { name, kind: child.kind };
+      }
+    },
+    async getDirectoryHandle(name, options) {
+      let child = dir.children.get(name);
+      if (child === undefined) {
+        if (options?.create !== true) throw new DOMException('NotFoundError', 'NotFoundError');
+        child = node();
+        dir.children.set(name, child);
+      }
+      if (child.kind !== 'directory') throw new DOMException('TypeMismatchError', 'TypeMismatchError');
+      return handleOf(child);
+    },
+    async getFileHandle(name, options) {
+      let child = dir.children.get(name);
+      if (child === undefined) {
+        if (options?.create !== true) throw new DOMException('NotFoundError', 'NotFoundError');
+        stamps += 1;
+        child = { kind: 'file', name, text: '', lastModified: stamps };
+        dir.children.set(name, child);
+      }
+      if (child.kind !== 'file') throw new DOMException('TypeMismatchError', 'TypeMismatchError');
+      return fileOf(child);
+    },
+  });
+  return handleOf(root);
 }
 
 async function waitFor(label, predicate, timeoutMs) {
@@ -354,4 +420,81 @@ check('room converges after reconnect', true);
 binding.dispose();
 await guestEngine.disconnect();
 await hostEngine.disconnect();
+
+// A room whose folder held nothing, and the first file put into it. This is the page's own create
+// (`createInFolder`): the folder layer makes the file and stamps it, the walk that follows is what
+// the room is told, and the created file is opened — which is what makes its text reach the room at
+// all, since content arrives when a file is opened. The folder is a double because the picker's
+// dialog is the one thing no driver here can answer, and the guest below is a real second client.
+const createListing = listingSource([]);
+const createHost = pageEngine(
+  await PeerEngine.host({
+    baseUrl: BASE,
+    displayName: 'create-host',
+    listing: createListing,
+    client: 'web-prove/create-host',
+  }),
+);
+const createInvite = createHost.inviteUrl();
+if (createInvite === undefined) throw new Error('the create host minted no invite');
+console.log(`empty room minted: ${createHost.session().roomId}`);
+const createFiles = new MemHost();
+const createFilesBridge = new SessionBridge({ engine: createHost, host: createFiles });
+const createdFolder = new FolderWorkingCopy(newFolderHandle());
+
+const watching = pageEngine(
+  await PeerEngine.join({
+    invite: createInvite,
+    displayName: 'create-guest',
+    webSocketFactory: nativeWebSocketFactory,
+    client: CLIENT_ID,
+  }),
+);
+await waitFor(
+  'the guest to be seated in a room that lists nothing',
+  () => (watching.session().role === 'guest' && watching.grantedPaths().length === 0 ? true : undefined),
+  10_000,
+);
+check('the guest is in an empty room', true);
+
+const CREATED = 'notes.md';
+const outcome = await createInFolder(
+  {
+    folder: createdFolder,
+    publish: async (paths) => {
+      createListing.replace(paths);
+      await createHost.grant(paths);
+    },
+    open: async (path) => {
+      // The host's own read of the file it just made: empty, and the seed the room receives.
+      createFiles.texts.set(path, '');
+      createFilesBridge.documentOpened(path);
+    },
+  },
+  CREATED,
+  'file',
+);
+check('the page created the file in the folder it holds', outcome.kind === 'created');
+const listed = await waitFor(
+  'the guest to receive the created path',
+  () => (watching.grantedPaths().includes(CREATED) ? true : undefined),
+  10_000,
+);
+check('the guest sees the path the host created', listed === true);
+console.log(`guest listing: ${watching.grantedPaths().join(', ')}`);
+
+// The host types into the file it just made: the room's text reaches the guest, which is what the
+// page's own open is for.
+const CREATE_TEXT = '# typed into the file the page created\n';
+createFiles.texts.set(CREATED, CREATE_TEXT);
+createFilesBridge.documentChanged(CREATED);
+await waitFor(
+  'the guest to receive the created file\'s text',
+  () => (watching.text(CREATED) === CREATE_TEXT ? true : undefined),
+  10_000,
+);
+check('the created file\'s text reaches the guest', true);
+
+await watching.disconnect();
+await createHost.disconnect();
 console.log('PROOF OK');

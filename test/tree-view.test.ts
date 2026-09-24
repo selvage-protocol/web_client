@@ -107,6 +107,7 @@ function makeView(state) {
     source: makeSource(state),
     pinned: new Set(),
     touch: () => state.touch ?? false,
+    canCreate: () => state.canCreate ?? false,
     open: (path) => void state.opened.push(path),
   });
   return { pane, view };
@@ -195,5 +196,33 @@ describe('the grant tree redraws what changed', () => {
     view.render();
     withClass(pane, 'row').click();
     assert.deepEqual(state.opened, ['src/main.ts']);
+  });
+});
+
+describe('an empty listing', () => {
+  /**
+   * The dead end this sentence exists for: a fresh room whose folder holds nothing shows a
+   * read-only editor and no explanation, and the two people looking at it can do different things
+   * about it. The host holds the folder and may create in it; a guest is waiting on the host.
+   */
+  it('reads differently to the person who can fill it', () => {
+    const state = {
+      listing: [],
+      current: undefined,
+      unpublished: false,
+      touch: false,
+      opened: [],
+      participants: [],
+    };
+
+    const guest = makeView({ ...state, canCreate: false });
+    guest.view.render();
+    assert.equal(withClass(guest.pane, 'empty').textContent, 'The host has not shared any files yet.');
+
+    const host = makeView({ ...state, canCreate: true });
+    host.view.render();
+    const line = withClass(host.pane, 'empty').textContent;
+    assert.match(line, /Create a file/);
+    assert.ok(!line.includes('The host'), 'a host is told about the host');
   });
 });

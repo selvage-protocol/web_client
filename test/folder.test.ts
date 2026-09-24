@@ -16,6 +16,7 @@ import {
   FOLDER_PICKER_OPTIONS,
   FolderWorkingCopy,
   decodableText,
+  folderCreateSentence,
   folderPickerOf,
   folderWriteSentence,
   pickFolder,
@@ -48,6 +49,13 @@ type TreeNode = FileNode | DirNode;
 function file(text: string, lastModified = 1): FileNode {
   return { kind: 'file', text, lastModified };
 }
+
+/**
+ * The stamp a created file is given. Chromium gives a fresh `lastModified` to a file it makes, and
+ * a double that reused one would hide the difference between a file this page made and one it
+ * never saw.
+ */
+let createdStamps = 100;
 
 function dir(children: Record<string, TreeNode>): DirNode {
   return { kind: 'directory', children };
@@ -108,10 +116,14 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
         yield { name: childName, kind: child.kind };
       }
     },
-    async getDirectoryHandle(childName: string) {
-      const child = node.children[childName];
+    async getDirectoryHandle(childName: string, options?: { create?: boolean }) {
+      let child = node.children[childName];
       if (child === undefined) {
-        throw domError('NotFoundError');
+        if (options?.create !== true) {
+          throw domError('NotFoundError');
+        }
+        child = dir({});
+        node.children[childName] = child;
       }
       if (child.kind !== 'directory') {
         // The real API tells the two apart: absent is `NotFoundError`, present-and-not-a-
@@ -120,10 +132,15 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
       }
       return dirHandleOf(childName, child, log);
     },
-    async getFileHandle(childName: string) {
-      const child = node.children[childName];
+    async getFileHandle(childName: string, options?: { create?: boolean }) {
+      let child = node.children[childName];
       if (child === undefined) {
-        throw domError('NotFoundError');
+        if (options?.create !== true) {
+          throw domError('NotFoundError');
+        }
+        createdStamps += 1;
+        child = file('', createdStamps);
+        node.children[childName] = child;
       }
       if (child.kind !== 'file') {
         throw domError('TypeMismatchError');
@@ -464,6 +481,144 @@ describe('the bytes a room can carry', () => {
     assert.equal(decodableText(new Uint8Array([0x61, 0x00, 0x62])), undefined);
     assert.equal(decodableText(new Uint8Array([0xff, 0xfe, 0x61])), undefined);
     assert.equal(decodableText(new TextEncoder().encode('héllo — ✓')), 'héllo — ✓');
+  });
+});
+
+describe('the create, which is a name the host typed', () => {
+  it('makes a file the walk then lists, and writes no bytes doing it', async () => {
+    const { folder, tree, log } = projection(dir({ 'README.md': file('r') }));
+    await folder.list();
+    assert.deepEqual(await folder.create('notes.md', 'file'), {
+      kind: 'created',
+      path: 'notes.md',
+      entry: 'file',
+    });
+    // The folder holds it, so the room's own walk publishes it; the create itself wrote nothing.
+    assert.ok((tree.children['notes.md'] as FileNode).text === '');
+    assert.deepEqual(log.writes, []);
+    assert.deepEqual(await folder.list(), ['README.md', 'notes.md']);
+  });
+
+  it('serves the file it just made, before the caller re-walks', async () => {
+    // The listing the room is told comes from a walk the caller makes next, and the read a peer
+    // makes is served from the set the walk left behind. A create that did not join that set would
+    // publish a path its own read then refused.
+    const { folder } = projection(dir({}));
+    await folder.list();
+    assert.equal((await folder.create('notes.md', 'file')).kind, 'created');
+    assert.deepEqual(await folder.read('notes.md'), { kind: 'text', text: '' });
+  });
+
+  it('makes a file inside a directory the folder already holds', async () => {
+    const { folder, tree } = projection(dir({ 'src': dir({ 'main.ts': file('m') }) }));
+    assert.equal((await folder.create('src/notes.md', 'file')).kind, 'created');
+    assert.ok('notes.md' in (tree.children['src'] as DirNode).children);
+    assert.deepEqual(await folder.list(), ['src/main.ts', 'src/notes.md']);
+  });
+
+  it('makes a directory, which the listing is not', async () => {
+    // A room's listing is files (`PROTOCOL.md` §5): a directory is published by the files inside
+    // it, so this one is in the folder and in no listing, which is what the row's sentence says.
+    const { folder, tree } = projection(dir({ 'README.md': file('r') }));
+    await folder.list();
+    assert.equal((await folder.create('docs', 'directory')).kind, 'created');
+    assert.equal((tree.children['docs'] as DirNode).kind, 'directory');
+    assert.deepEqual(await folder.list(), ['README.md']);
+  });
+
+  it('stamps the file it made, so the room can save into it', async () => {
+    // Without the stamp taken from the read-back the write guard refuses the page's own new file
+    // as `unread`, and a fresh room's first file is exactly the one a host then types into.
+    const { folder, tree } = projection(dir({}));
+    await folder.list();
+    await folder.create('notes.md', 'file');
+    assert.equal(folder.stampOf('notes.md'), (tree.children['notes.md'] as FileNode).lastModified);
+    assert.deepEqual(await folder.write('notes.md', 'typed into the room\n'), { kind: 'written' });
+    assert.equal((tree.children['notes.md'] as FileNode).text, 'typed into the room\n');
+  });
+
+  it('refuses a name the room may not share, in the words sharing it uses', async () => {
+    const { folder } = projection(dir({ '.env': file('S=1') }));
+    for (const path of ['.env', '../outside.txt', '/etc/passwd', 'a\\b', '.git/config', 'x'.repeat(5000)]) {
+      const outcome = await folder.create(path, 'file');
+      assert.equal(refusalCause(outcome), 'not-granted', `${path} was not refused`);
+    }
+    assert.match(folderCreateSentence('not-granted', '.env'), /is not a path this room shares/);
+  });
+
+  it('refuses a file name that declares a format a room cannot carry', async () => {
+    const { folder, tree } = projection(dir({}));
+    for (const path of ['logo.png', 'bundle.zip', 'archive.tar.gz']) {
+      assert.equal(refusalCause(await folder.create(path, 'file')), 'binary');
+    }
+    // The rule is about the format a file's name declares, so a directory may wear the name.
+    assert.equal((await folder.create('assets.png', 'directory')).kind, 'created');
+    assert.equal((tree.children['assets.png'] as DirNode).kind, 'directory');
+    assert.match(folderCreateSentence('binary', 'logo.png'), /declares a format a room cannot carry/);
+  });
+
+  it('will not overwrite or adopt a name the folder already holds', async () => {
+    const { folder, tree, log } = projection(
+      dir({ 'notes.txt': file('kept\n'), 'src': dir({ 'main.ts': file('m') }) }),
+    );
+    assert.equal(refusalCause(await folder.create('notes.txt', 'file')), 'exists');
+    assert.equal(refusalCause(await folder.create('notes.txt', 'directory')), 'exists');
+    // The other direction too: a directory is not replaced by a file of its name, and a file is
+    // not replaced by a directory of it.
+    assert.equal(refusalCause(await folder.create('src', 'file')), 'exists');
+    assert.equal(refusalCause(await folder.create('src', 'directory')), 'exists');
+    assert.equal((tree.children['notes.txt'] as FileNode).text, 'kept\n');
+    assert.deepEqual(log.writes, []);
+    assert.match(folderCreateSentence('exists', 'notes.txt'), /already in the folder/);
+  });
+
+  it('refuses a path whose directory is not there, rather than making a tree', async () => {
+    const { folder, tree } = projection(dir({ 'notes.txt': file('n') }));
+    assert.equal(refusalCause(await folder.create('docs/notes.md', 'file')), 'missing');
+    assert.equal((tree.children['docs'] as TreeNode | undefined), undefined);
+    // A segment that is a file is not a directory to walk through either.
+    assert.equal(refusalCause(await folder.create('notes.txt/inner.md', 'file')), 'not-a-file');
+    assert.match(folderCreateSentence('missing', 'docs/notes.md'), /has to exist/);
+  });
+
+  it('says the person lost write access rather than blaming the name', async () => {
+    const locked: FolderDirectoryHandle = {
+      kind: 'directory',
+      name: 'project',
+      async *values() {},
+      async getDirectoryHandle() {
+        throw domError('NotFoundError');
+      },
+      async getFileHandle(_name: string, options?: { create?: boolean }) {
+        if (options?.create === true) {
+          throw domError('NotAllowedError');
+        }
+        throw domError('NotFoundError');
+      },
+    };
+    const folder = new FolderWorkingCopy(locked);
+    const outcome = await folder.create('notes.md', 'file');
+    assert.equal(refusalCause(outcome), 'not-permitted');
+    assert.match(folderCreateSentence('not-permitted', 'notes.md'), /write access/);
+  });
+
+  it('leaves a failure it cannot name to the caller rather than guessing at one', async () => {
+    const odd: FolderDirectoryHandle = {
+      kind: 'directory',
+      name: 'project',
+      async *values() {},
+      async getDirectoryHandle() {
+        throw domError('NotFoundError');
+      },
+      async getFileHandle(_name: string, options?: { create?: boolean }) {
+        if (options?.create === true) {
+          throw domError('QuotaExceededError');
+        }
+        throw domError('NotFoundError');
+      },
+    };
+    const folder = new FolderWorkingCopy(odd);
+    await assert.rejects(() => folder.create('notes.md', 'file'), /QuotaExceededError/);
   });
 });
 
