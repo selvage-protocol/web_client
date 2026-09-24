@@ -62,6 +62,8 @@ import {
   fetchAndSave,
   fetchCostsSentence,
   fetchingSentence,
+  fetchStandMs,
+  stillAskingSentence,
   stillEmptySentence,
 } from './fetch-download.ts';
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
@@ -1386,6 +1388,21 @@ function announce(text: string): void {
 }
 
 /**
+ * The server's own renewal window, which is the bound `§7.1`'s fold is measured in.
+ *
+ * The page reads it rather than assuming the default: an ask made inside a window somebody else
+ * opened is answered at that window's end, and a server that advertises another window gets
+ * another stand. `undefined` only when there is no seated session to read it from.
+ */
+function awarenessRenewMs(): number | undefined {
+  try {
+    return engine?.session().keepalive.awareness_renew_ms;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Saves a path out of the room, fetching its text first when this window has none.
  *
  * The fetch is the page's own open (`fetch-download.ts` says why it has to be the same call), and
@@ -1435,7 +1452,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
       return binding?.requestText(candidate) ?? Promise.resolve();
     },
     save: (candidate, text) => downloadDocument(candidate, text, downloadSink),
-  })
+  }, { standMs: fetchStandMs(awarenessRenewMs()) })
     .then((outcome) => {
       feedback.idle();
       if (outcome.kind === 'saved') {
@@ -1445,6 +1462,14 @@ function startDownload(path: string, feedback: RowFeedback): void {
       }
       if (outcome.kind === 'failed') {
         feedback.note(outcome.sentence, [again]);
+        return;
+      }
+      if (outcome.kind === 'pending') {
+        // Nothing has arrived for the path, so the text may still be on its way. Nothing here says
+        // the file is empty and nothing offers to save one: that would be the page claiming a fact
+        // about the room's answer, and there is no answer yet. `Try again` is the whole of what a
+        // person can do about it.
+        feedback.note(stillAskingSentence(path), [again, { label: '✕', run: () => feedback.clear() }]);
         return;
       }
       feedback.note(stillEmptySentence(path), [

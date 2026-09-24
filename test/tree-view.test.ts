@@ -687,15 +687,15 @@ describe('a row’s own actions', () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].path, 'notes.md');
     const feedback: RowFeedback = calls[0].feedback;
-    feedback.busy('Fetching notes.md…');
-    assert.equal(withClass(pane, 'download').attributes['aria-label'], 'Fetching notes.md…');
+    feedback.busy('Asking the host for notes.md…');
+    assert.equal(withClass(pane, 'download').attributes['aria-label'], 'Asking the host for notes.md…');
     assert.ok(
       withClass(pane, 'download').parentElement.classes.includes('busy'),
       'the row does not show that it is working',
     );
     feedback.idle();
     assert.equal(withClass(pane, 'download').attributes['aria-label'], 'Download notes.md');
-    feedback.note('notes.md is still empty — the host has not sent its text yet.', [
+    feedback.note('notes.md is still empty — the host sent no text for it.', [
       { label: 'Try again', run: () => {} },
     ]);
     const note = withClass(pane, 'row-note');
@@ -705,15 +705,15 @@ describe('a row’s own actions', () => {
     assert.equal(note.children[1].textContent, 'Try again');
     // A redraw replaces the row, and the line and the progress are redrawn with it: a fetch that
     // lands rebuilds the tree in the moment the person was meant to read what it cost.
-    feedback.busy('Fetching notes.md…');
+    feedback.busy('Asking the host for notes.md…');
     state.listing = ['notes.md', 'app.ts'];
     view.render();
     assert.equal(allWithClass(pane, 'row-note').length, 1, 'the redraw took the row’s line with it');
     // The listing was replaced, so the rows are new elements: the label is looked up by what it
     // says, which is what a person reads off the control.
-    assert.ok(labelled(pane, 'Fetching notes.md…') !== undefined, 'the redraw took the row’s progress');
+    assert.ok(labelled(pane, 'Asking the host for notes.md…') !== undefined, 'the redraw took the row’s progress');
     assert.ok(
-      labelled(pane, 'Fetching notes.md…').parentElement.classes.includes('busy'),
+      labelled(pane, 'Asking the host for notes.md…').parentElement.classes.includes('busy'),
       'the busy state is gone',
     );
     feedback.idle();
@@ -729,7 +729,7 @@ describe('a row’s own actions', () => {
     view.render();
     withClass(pane, 'download').fire('click');
     const first: RowFeedback = calls[0].feedback;
-    first.note('notes.md is still empty — the host has not sent its text yet.', [
+    first.note('notes.md is still empty — the host sent no text for it.', [
       { label: 'Try again', run: () => first.note('trying again') },
     ]);
     state.listing = ['notes.md', 'app.ts'];
@@ -752,7 +752,7 @@ describe('a row’s own actions', () => {
     const feedback = calls[0].feedback;
     const costs = 'Fetching opens notes.md in the room, so every peer receives it.';
     feedback.note(costs);
-    feedback.note('notes.md is still empty — the host has not sent its text yet.', [
+    feedback.note('notes.md is still empty — the host sent no text for it.', [
       { label: 'Try again', run: () => {} },
     ]);
     feedback.clear(costs);
