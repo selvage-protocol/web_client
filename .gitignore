@@ -3,3 +3,4 @@ chrome-profile*/
 *.log
 .DS_Store
 .tmp/
+.tmp-*/
