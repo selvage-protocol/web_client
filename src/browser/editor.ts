@@ -159,6 +159,17 @@ export class MonacoBinding implements EditorHost {
   private appliedReadOnly: boolean | undefined;
   /** Every landing stamps the cycle: a newer frame supersedes an older one still opening. */
   private landingCycle = 0;
+  /**
+   * Paths this window read the text of before the room sent anything for them.
+   *
+   * Reading a room path gives the replica a document for it, so the engine's `has` answers "this
+   * window has looked" as readily as "the room sent something": a listed path nobody published
+   * would read as published the moment its empty text was read. The two are told apart here, and
+   * {@link roomPaths} is the other half of the reading.
+   */
+  private readonly readPaths = new Set<string>();
+  /** Paths the room has sent text for, which is what makes a listed path published. */
+  private readonly roomPaths = new Set<string>();
 
   constructor(options: BindingOptions) {
     this.engine = options.engine;
@@ -200,6 +211,8 @@ export class MonacoBinding implements EditorHost {
           this.backgroundTick();
           break;
         case 'documentChanged':
+          // The room sent text for this path, which is what a listed one is waiting for.
+          this.roomPaths.add(event.path);
           this.backgroundTick();
           this.renderCursors(this.bridge.cursors());
           break;
@@ -393,6 +406,12 @@ export class MonacoBinding implements EditorHost {
    * this is settled by the time the opener asks.
    */
   isUnpublished(path: string): boolean {
+    if (this.roomPaths.has(path)) {
+      return false;
+    }
+    if (this.readPaths.has(path)) {
+      return true;
+    }
     return !this.engine.has(path);
   }
 
@@ -595,12 +614,12 @@ export class MonacoBinding implements EditorHost {
   /**
    * The role the room's state gives this connection (`§13.4`), read on every event.
    *
-   * A `selvage/2` room seats a connection as `viewer` and never as anything else: `§13.9` has a
+   * A room seats a connection as `viewer` and never as anything else: `§13.9` has a
    * viewer keep its own edit and publish none of it, so a buffer that accepted a keystroke would
    * show text the room never receives, and the sentence is said once rather than on every state
    * that arrives. It is read here rather than at the events that name a roster or a listing,
    * because this connection's own role is in neither: a state can relabel it and move nothing
-   * else. A `selvage/1` room seats nobody as a viewer, so this never fires there.
+   * else.
    */
   private roomRole(): void {
     this.applyEditability();
@@ -653,6 +672,11 @@ export class MonacoBinding implements EditorHost {
    * starts empty, which is what a listing the host cannot serve looks like.
    */
   private async initialText(path: string): Promise<string> {
+    // Whether the room had this path is asked before its text is read, because the read is what
+    // gives the replica a document for it: afterwards `has` cannot tell the two apart.
+    if (!this.engine.has(path)) {
+      this.readPaths.add(path);
+    }
     if (this.folder === undefined || this.bridge.role() !== 'host' || this.engine.has(path)) {
       return this.engine.text(path);
     }

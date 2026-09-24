@@ -16,18 +16,11 @@
  * is left is honest instead of silent: the warning is on the card before the click, and the
  * load after a reload says what the reload cost.
  *
- * A room's *version* is the server's to seat and this page's to pin (`PROTOCOL.md` §2, §10), which
- * is the other thing the card has to say before a click: a page that cannot mint at a version the
- * server seats gets that sentence here, where the control would be, rather than a button whose
- * only outcome is a refusal.
+ * Reading a room's *version* is not part of this: there is one wire, every client speaks it, and
+ * a page that can mint does.
  */
 
-import type { HostDecision } from '../engine/index.ts';
-
 import type { ServerRead } from './meta-read.ts';
-
-/** The refusal half of a hosting decision: the room was not started, and here is why. */
-export type HostRefusal = Extract<HostDecision, { outcome: 'refuse' }>;
 
 /** The tab's own memory: gone when the tab is, and shared with no other tab or origin. */
 export type HostStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -74,25 +67,8 @@ export const HOST_NEEDS_THE_SERVERS_PAGE =
  * belongs to a page that is not the server's.
  */
 export const HOST_UNREAD_NOTE =
-  'This page\u2019s own address has not answered /meta, so which wire versions it seats is not known yet \u2014 starting a session here asks it again and the handshake reports the truth. ' +
+  'This page\u2019s own address has not answered /meta, so whether it is a Selvage server is not known yet \u2014 starting a session here asks it again and the handshake reports the truth. ' +
   HOST_TAB_WARNING;
-
-/**
- * Why a room was not started: this page cannot mint at a version the server seats, and the choice
- * is refused rather than fallen back from (`PROTOCOL.md` §2, §10).
- *
- * The versions are `/meta`'s own words, so the sentence reports what the server said rather than a
- * reading of it, and the pin is named where the pin is the reason: a pin is taken off the address
- * the same way it was put there. Both refusals offer the same way out, because a person told no has
- * to be able to ask for something else.
- */
-export function hostRefusalSentence(refusal: HostRefusal): string {
-  const offered = refusal.offered.length === 0 ? 'nothing' : refusal.offered.join(', ');
-  if (refusal.reason === 'pin-not-seated') {
-    return `This page is pinned to ${refusal.pin}, and this server does not seat it: its /meta offers ${offered}. The room was not started and the pin was not fallen back from \u2014 take ?wire off the address to let the server decide, or pin the version it does seat.`;
-  }
-  return `This server does not seat selvage/2, the encrypted wire: its /meta offers ${offered}. A room started here would be one the server can read, so none was started \u2014 pin this page to what the server does seat (?wire=1) if a room the server can read is what you want.`;
-}
 
 /** Marks this tab as hosting `roomId`, so a reload can say what it cost. */
 export function markHosting(storage: HostStorage, roomId: string): void {
@@ -158,24 +134,19 @@ export type HostAvailability =
  *
  * The picker comes first either way: it is the one the browser owns, and a page that cannot hand
  * over a folder is told so before anything is read. Then what this page's own origin said about
- * itself, and then what the server seats with this page's pin laid over it.
+ * itself.
  */
 export function hostAvailability(options: {
   /** Whether this browser has a directory picker at all. */
   picker: boolean;
   /** What the page's own origin answered when this card asked it (`meta-read.ts`). */
   read: ServerRead;
-  /** The version the server seats and this page's pin settle on, or the refusal standing there. */
-  decision: HostDecision;
 }): HostAvailability {
   if (!options.picker) {
     return { kind: 'explained', note: HOST_NEEDS_A_BROWSER };
   }
   if (options.read.kind === 'not-a-server') {
     return { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE };
-  }
-  if (options.read.kind === 'server' && options.decision.outcome === 'refuse') {
-    return { kind: 'explained', note: hostRefusalSentence(options.decision) };
   }
   if (options.read.kind === 'no-answer') {
     return { kind: 'unchecked', note: HOST_UNREAD_NOTE };

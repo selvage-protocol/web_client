@@ -22,12 +22,12 @@ export const nativeWebSocketFactory: WebSocketFactory = (url: string): WebSocket
  * mechanism wording. The token never appears. Diagnostics keep the server and the raw
  * cause, but they live in the console (or behind `?debug=1`), never in default UI.
  *
- * A message this does not recognise (the card's own refusals — the name, the folder,
- * the wire version — among them) passes through untouched: they are already sentences
- * written for this card, and rewriting one would only lose what it says.
+ * A message this does not recognise (the card's own refusals — the name, the folder
+ * among them) passes through untouched: they are already sentences written for this card,
+ * and rewriting one would only lose what it says.
  *
  * - refusals the handshake named (`room_unknown`, `token_invalid`,
- *   `room_gone`, `host_present`, `unsupported_version`) say what to check;
+ *   `room_gone`, `host_present`) say what to check;
  * - a close code buried in a transport message maps the same way, because
  *   the refusal and the socket race and either may arrive first;
  * - a transport that never came up, an abandoned attempt, or a hello with

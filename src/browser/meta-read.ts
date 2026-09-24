@@ -58,10 +58,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * not a Selvage server, and a card that offered its action there would be offering a button whose
  * only outcome is a refusal deeper in.
  *
- * Recognised is the body §2 defines: the member a client reads (`wire_versions`), the server's own
- * identification, the capability list, and the clocks. `roles` is the one member left out of it:
- * §2 lets a server that seats no `selvage/1` write nothing there, and the member leaves the body
- * with that version, so a `selvage/2`-only server is a Selvage server without it.
+ * Recognised is the body §2 defines: the version list a client reads (`wire_versions`), the server's own
+ * identification, the capability list, and the clocks. `roles` is the one member left out of it —
+ * a body that does not write it is still the §2 body, and requiring it would refuse a real server.
  */
 export function isSelvageMeta(body: unknown): body is Meta {
   if (!isObject(body)) {
