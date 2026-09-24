@@ -99,12 +99,18 @@ export function abbreviateHost(host: string, maxLength = 24): string {
 
 /**
  * What the share bar shows: the guest link with its long parts shortened
- * middle-first — the host, the room id and the token, each on its own bound —
- * and, when the link is on this page's own origin, without the scheme and the
- * host at all: the guest is looking at the page the link points to, and the
- * pill only has room for something that reads at a glance. Display only: the
+ * middle-first — the host, the room id, the token and each value of `§5.1`'s fragment,
+ * each on its own bound — and, when the link is on this page's own origin, without the
+ * scheme and the host at all: the guest is looking at the page the link points to, and
+ * the pill only has room for something that reads at a glance. Display only: the
  * caller keeps the full link for the element's title and for the clipboard, so
  * the abbreviation is a paint, never a credential.
+ *
+ * The fragment is shortened because it is where a `selvage/2` link's length is: the two keys are
+ * 43 characters each, so a link whose query was already abbreviated still read across the whole
+ * session bar. Its keys stay whole — a shortened key would read as a different key — and each
+ * value becomes the same marker the other parts are shortened with, because no readable prefix of
+ * both keys fits the pill. The whole link is the element's title and the clipboard's.
  */
 export function displayShareLink(link: string, pageOrigin = '', maxHost = 24): string {
   try {
@@ -124,16 +130,33 @@ export function displayShareLink(link: string, pageOrigin = '', maxHost = 24): s
         return short === value ? whole : `${lead}${key}=${short}`;
       },
     );
+    const fragment = abbreviateFragment(url.hash);
     if (pageOrigin !== '' && url.origin === new URL(pageOrigin).origin) {
-      return `${url.pathname}${query}${url.hash}`;
+      return `${url.pathname}${query}${fragment}`;
     }
-    if (host === url.hostname && query === url.search) {
+    if (host === url.hostname && query === url.search && fragment === url.hash) {
       return link;
     }
-    return `${url.protocol}//${host}${url.port === '' ? '' : `:${url.port}`}${url.pathname}${query}${url.hash}`;
+    return `${url.protocol}//${host}${url.port === '' ? '' : `:${url.port}`}${url.pathname}${query}${fragment}`;
   } catch {
     return link;
   }
+}
+
+/**
+ * `§5.1`'s fragment as the bar shows it: every key whole, every value the marker the rest of the
+ * display shortens to.
+ *
+ * A fragment value is not percent-decoded before this: `§5.1`'s keys are base64url and have
+ * nothing to decode, and a value that did carry an escape is safer shortened as it arrived than
+ * decoded into the display.
+ */
+function abbreviateFragment(hash: string): string {
+  return hash.replace(
+    /(#|&)([A-Za-z0-9._~-]+)=([^&]*)/g,
+    (whole: string, lead: string, key: string, value: string) =>
+      value === '' ? whole : `${lead}${key}=…`,
+  );
 }
 
 /**

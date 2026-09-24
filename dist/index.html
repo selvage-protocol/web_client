@@ -94,8 +94,13 @@
       /* The countdown is the warning; the host's return is news, not a warning. */
       #session-note[data-tone="plain"] { color: var(--foreground); }
       #session-note:empty { display: none; }
+      /* The pill is a preview and not a field: it is sized to what it shows (below), and
+         bounded to a share of the bar so a link longer than the display is built to show —
+         a long host, a shape this module has not seen — cannot crowd what stands beside it.
+         The phone query below lifts the bound, where the readout is hidden and the label
+         takes the row instead. */
       #share-group { display: flex; align-items: center; gap: 0.4em; flex: 0 1 auto;
-        min-width: 0; max-width: 100%; padding: 0.3em 0.45em 0.3em 0.7em;
+        min-width: 0; max-width: min(100%, 40vw); padding: 0.3em 0.45em 0.3em 0.7em;
         background: var(--input); border: 1px solid var(--border); border-radius: var(--radius);
         color: var(--muted-foreground); position: relative;
         transition: border-color 0.15s ease; }
