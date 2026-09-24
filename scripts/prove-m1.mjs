@@ -296,9 +296,11 @@ console.log(
 );
 
 // Renaming yourself (`PROTOCOL.md` §5), through the page's own wrapper and over the wire. The
-// round trip is read on the *other* side, because a client's own seat is not in the room's peer
-// list (`§13.4`): the connection that asked keeps the name it is seated under itself, which is why
-// the page holds one, and the room relabels the seat for everyone else.
+// room relabels the seat for everyone else, and it announces the same change to the connection
+// that asked (§5: to every peer in the room, the one that renamed included), so both sides are
+// read here — the mover's own name is what a re-hello after a drop carries (§9.1). The page keeps
+// a copy of the name itself because the request returns before that event (§5 puts the response
+// first), not because the room withholds it.
 await guestEngine.rename('prove-web-renamed');
 const renamed = await waitFor(
   'the room to relabel the guest for the host',
@@ -310,10 +312,15 @@ check(
   'and no longer names that seat the old way',
   hostEngine.peers().every((peer) => peer.display_name !== 'prove-web'),
 );
-check(
-  'the renaming connection still holds the name it was seated under',
-  guestEngine.session().peer.display_name === 'prove-web',
+const selfRenamed = await waitFor(
+  'the renaming connection to hold the new name',
+  () =>
+    guestEngine.session().peer.display_name === 'prove-web-renamed'
+      ? guestEngine.session().peer
+      : undefined,
+  10_000,
 );
+check('the renaming connection holds the name the room has', selfRenamed.display_name === 'prove-web-renamed');
 
 // The grant tree unions the listing with the open documents, directories first.
 const listing = await waitFor(

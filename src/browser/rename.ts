@@ -1,11 +1,11 @@
 /**
  * Renaming yourself, apart from the page it happens on.
  *
- * `PROTOCOL.md` §5 has the server relabel the seats it lists, and a connection's
- * own seat is not one of them: the room's peer list never carries it (`§13.4`),
- * so a client that sent the request and waited to be told would keep showing the
- * old name. The page therefore keeps the name it is seated under itself
- * (`selfName`), sends the change over the bridge, and answers for the outcome.
+ * `PROTOCOL.md` §5 announces an accepted rename to the whole room as `peer.renamed`, the mover
+ * included, and the engine follows that event for this connection's own seat, so a re-hello
+ * carries the name the room has (`§9.1`). It is not yet the new name when the request returns,
+ * because §5 puts the event after the response: the page therefore keeps the name it is seated
+ * under itself (`selfName`), sends the change over the bridge, and answers for the outcome.
  *
  * The two sentences are the vocabulary's, not this module's invention: the
  * confirmation is the desktop clients' own line for the moment, word for word
