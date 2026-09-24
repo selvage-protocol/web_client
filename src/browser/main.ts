@@ -1,5 +1,6 @@
 import { SelvageEngine, fetchMeta, sessionBase, sessionUrl } from '../engine/index.ts';
 import type { Meta, SessionBase } from '../engine/index.ts';
+import { CLIENT_ID } from './client-id.ts';
 import type { RoomEngine } from './relay.ts';
 import { hostDecision, hostRoom2, joinRoom2, listingSource, wireVersionOf } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
@@ -437,10 +438,10 @@ async function runJoin(held: HeldJoin): Promise<void> {
   }
 }
 
-/** The client identity every connection from this page carries. */
+/** The client identity every connection from this page carries (`client-id.ts`). */
 const CLIENT_OPTIONS = {
   webSocketFactory: nativeWebSocketFactory,
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 } as const;
 
 /** What the host button says, before and after an attempt. */

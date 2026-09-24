@@ -43,13 +43,8 @@ const SELVAGED = process.env.SELVAGED ?? siblingSelvaged();
 
 mkdirSync(`${SHOTS}/${TAG}`, { recursive: true });
 mkdirSync(`${SHOTS}/profiles-${TAG}`, { recursive: true });
-// Chromium's process singleton lives beside the profile directory, and a unix socket
-// path is capped at 107 bytes: under this worktree's profile path it falls back to the
-// temp directory, which is just as long. The profiles stay in the checkout (on disk);
-// only these transient socket directories go to a short-name directory outside it.
-const CHROME_TMP = process.env.GHOST_CHROME_TMP ?? '/tmp/gt';
-mkdirSync(CHROME_TMP, { recursive: true });
-process.env.TMPDIR = CHROME_TMP;
+// Chromium's process singleton needs a short socket path (`tmp-cdp.mjs` hands it a relative
+`.tmp/chromium`, inside the checkout and inside the 108-byte bound).
 
 const lines = [];
 let failed = 0;

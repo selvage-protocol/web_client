@@ -1,12 +1,25 @@
 // Minimal CDP driver: launch nix-store Chromium headless, drive via raw WebSocket.
 import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const CHROME = '/nix/store/33pxss8h71cl7vmfpy21bidsw0lj1g8q-chromium-152.0.7977.82/bin/chromium';
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export async function launch({ port = 9333, profile = '/tmp/selvage-guest-profile', width = 1280, height = 900 } = {}) {
+/**
+ * Chrome scratch belongs in the checkout: `/tmp` is RAM-backed on this host, and `.tmp/` is
+ * ignored and removed with the run. Both paths are relative and the browser is spawned with the
+ * checkout as its working directory, because the path of Chromium's process-singleton socket is
+ * bounded at about 108 bytes — an absolute `.tmp/…` under a worktree is past it (`prove-v2.mjs`
+ * carries the long form of this). Both are arguments, and `SELVAGE_CHROMIUM_TMPDIR` is the
+ * environment's own answer for the socket directory, so a caller that wants another passes one.
+ */
+export async function launch({ port = 9333, profile = '.tmp/chromium/cdp', width = 1280, height = 900 } = {}) {
   profile = `${profile}-${Date.now()}`;
+  mkdirSync(resolve(ROOT, profile), { recursive: true });
+  const tmp = process.env['SELVAGE_CHROMIUM_TMPDIR'] ?? '.tmp/chromium';
   const browser = spawn(CHROME, [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
@@ -16,7 +29,7 @@ export async function launch({ port = 9333, profile = '/tmp/selvage-guest-profil
     '--hide-scrollbars',
     `--window-size=${width},${height}`,
     'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: tmp } });
   const wsUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timed out waiting for DevTools url')), 20000);
     let buf = '';

@@ -13,6 +13,7 @@
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { SelvageEngine as Engine } from '../src/engine/index.ts';
 import { sessionUrl } from '../src/engine/index.ts';
+import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
@@ -128,7 +129,7 @@ console.log('host shares notes.md and src/main.ts');
 
 const guestEngine = await Engine.join(invite, 'prove-fb2-web', {
   webSocketFactory: nativeWebSocketFactory,
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 console.log('guest joined the way the page does');
 
@@ -198,7 +199,7 @@ check('share link round-trips into room and token', back?.room === room && back?
 check('share link reads back as the room\'s own server', serverBaseOf(back.origin) === BASE);
 const rejoin = await Engine.join(sessionUrl(serverBaseOf(back.origin), back.room, back.token), 'prove-fb2-rejoin', {
   webSocketFactory: nativeWebSocketFactory,
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 check('share link round-trips back into a join', rejoin.session().role === 'guest');
 await rejoin.disconnect();

@@ -17,6 +17,7 @@
 
 import { SessionBridge, applyChange } from '../src/bridge/index.ts';
 import { SelvageEngine as Engine } from '../src/engine/index.ts';
+import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
@@ -162,7 +163,7 @@ const capturingFactory = (url) => {
 };
 const guestEngine = await Engine.join(invite, 'flow2-guest', {
   webSocketFactory: capturingFactory,
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 
 const notices = [];

@@ -10,7 +10,7 @@ const SHOT = '/home/user/projects/selvage/ai_notes/.tmp/vision-webflow';
 const PAGE = 'http://127.0.0.1:8081/';
 const INVITE = 'ws://100.64.0.3:8080/session?room=r-0c2a06c3766b&token=becfd3f33b70a0a4c0bfc448c8045ca5';
 
-const cdp = await launch({ port: 9344, profile: '/tmp/selvage-prof-wf2' });
+const cdp = await launch({ port: 9344, profile: '.tmp/selvage-prof-wf2' });
 const errors = [];
 cdp.on('Log.entryAdded', (p) => errors.push('LOG: ' + JSON.stringify(p.entry).slice(0, 300)));
 cdp.on('Runtime.exceptionThrown', (p) => errors.push('EXC: ' + JSON.stringify(p.exceptionDetails).slice(0, 300)));

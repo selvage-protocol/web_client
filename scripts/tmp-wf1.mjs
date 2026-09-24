@@ -1,6 +1,6 @@
 // Smoke: landing with no params.
 import { launch } from './tmp-cdp.mjs';
-const cdp = await launch({ port: 9333, profile: '/tmp/selvage-prof-2' });
+const cdp = await launch({ port: 9333, profile: '.tmp/selvage-prof-2' });
 await cdp.navigate('http://127.0.0.1:8081/');
 await cdp.shot('/home/user/projects/selvage/ai_notes/.tmp/vision-webflow/01-landing-no-params.png');
 const state = await cdp.evaluate(`({

@@ -14,6 +14,7 @@
 
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
 import { SelvageEngine as WebEngine } from '../src/engine/index.ts';
+import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 import { SelvageEngine as HostEngine } from '../../vscode_client/src/engine/engine.ts';
 
@@ -96,7 +97,7 @@ const capturingFactory = (url) => {
 const guestEngine = await WebEngine.join(invite, 'prove-web', {
   webSocketFactory: capturingFactory,
   meta: 'skip',
-  client: 'web_client/0.1.0',
+  client: CLIENT_ID,
 });
 console.log(`guest joined as ${guestEngine.session().role} over native WebSocket`);
 

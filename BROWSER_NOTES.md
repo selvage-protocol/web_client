@@ -1904,12 +1904,12 @@ same driver run twice, under `GHOST_TAG=before-fix` and `after-fix`):
   `caret-{before-typing,after-three-enters,after-cursor-move}.png`.
 
 Nothing outside the checkout is written: the Chromium profiles, the shots and
-the driver's logs live under `.tmp/ghost-caret/`, and the one unix-socket
-directory Chromium insists on per launch goes to `/tmp/gt` (a profile path this
-deep exceeds the 107-byte socket bound). A `rawKeyDown` with no text — `ArrowDown`
-and `Home` — never reaches Monaco in this headless Chromium; the driver moves a
-caret by clicking the line instead, and records that here so a later driver does
-not trust a key batch.
+the driver's logs live under `.tmp/ghost-caret/`, and the unix-socket directory
+Chromium insists on per launch is `.tmp/chromium`, relative to the checkout root
+so it stays inside the 108-byte socket bound however deep the checkout sits. A
+`rawKeyDown` with no text — `ArrowDown` and `Home` — never reaches Monaco in this
+headless Chromium; the driver moves a caret by clicking the line instead, and
+records that here so a later driver does not trust a key batch.
 
 Open questions:
 
@@ -2617,9 +2617,10 @@ prints `src/{engine,bridge} match … (HEAD 700a59e)` and `diff -r` over both di
 the only other thing the script may report is nothing at all, which is what it did for `src/bridge`.
 
 One more thing that revision made false here: `scripts/prove-v2.mjs` started its server with
-`--serve-version-2`, and a server built from this revision seats both versions by default with that
-flag gone. The proof failed to start — an unknown argument — rather than being wrong about a room,
-and it now starts `selvaged --serve-page dist` alone.
+`--serve-version-2`, the flag that seated `selvage/2` alone and has since been replaced by
+`--serve-version-1-only`: a server built from this revision seats both versions by default. The
+proof failed to start — an unknown argument — rather than being wrong about a room, and it now
+starts `selvaged --serve-page dist` alone.
 
 The vendor commit carries a rebuilt `dist/` too, and it has to. The engine gaining a declaration
 shifts esbuild's minified names across the whole bundle even while nothing calls it yet, so a copy
@@ -3286,6 +3287,3 @@ EXIT=0
   submit held before any script on a page whose address *is* an invite relies on the class, not on
   the snapshot. That is the case the shell's own settle already covers, since it paints the class
   before it settles.
-- **`scripts/tmp-cdp.mjs` still defaults its Chromium profile under `/tmp`**, as the last wave
-  recorded. Both browser proofs use a relative `.tmp/`, and it is a scratch script, so it is left
-  and written down again rather than changed here.

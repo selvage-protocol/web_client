@@ -84,13 +84,13 @@ only, rebind the published port to `127.0.0.1:8080:8080` there.
 **The image is on the registry.** `v0.1.0` published
 `ghcr.io/selvage-protocol/selvage-web`, and every `v*` tag republishes it
 (`.github/workflows/image.yml`) with the tags `<version>-<sha>`, `<version>` and
-`latest`; `0.3.1` is the current release. `docker compose pull` fetches the published
+`latest`; `0.4.0` is the current release. `docker compose pull` fetches the published
 page; the compose file builds
 from this checkout when the registry name is absent. The hand run is the same page:
 
 ```sh
 docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-  --publish 80:8080 ghcr.io/selvage-protocol/selvage-web:0.3.1
+  --publish 80:8080 ghcr.io/selvage-protocol/selvage-web:0.4.0
 ```
 
 The image carries this repository's committed `dist/` (the checks job proves a build
