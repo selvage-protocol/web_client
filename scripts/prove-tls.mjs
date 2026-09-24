@@ -10,7 +10,9 @@
  * Usage: SELVAGE_TLS_BASE=wss://selvage.dontblameme.dev node scripts/prove-tls.mjs
  */
 import { applyChange, SessionBridge } from '../src/bridge/index.ts';
-import { fetchMeta, SelvageEngine as Engine } from '../src/engine/index.ts';
+import { PeerEngine } from '../src/bridge/index.ts';
+import { listingSource, pageEngine } from '../src/browser/relay.ts';
+import { fetchMeta } from '../src/engine/index.ts';
 import { metaUrl } from '../src/engine/index.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
@@ -105,12 +107,20 @@ check('proof targets the TLS endpoint', BASE.startsWith('wss://'));
 const meta = metaUrl(BASE);
 check(`meta derives to https (${meta})`, meta.startsWith('https://'));
 
-// The real `/meta` check over https: reachable and the wire version matches.
+// The real `/meta` check over https: reachable, and it names the wire this client speaks.
 const metaDoc = await fetchMeta(BASE);
-check('https /meta answers with selvage/1', (metaDoc.wire_versions ?? []).includes('selvage/1'));
+check('https /meta answers with selvage/2', (metaDoc.wire_versions ?? []).includes('selvage/2'));
 
-// Host over wss, through the proxy to the same selvaged.
-const hostEngine = await Engine.host(BASE, 'prove-tls-host', { client: 'web-prove-tls/host' });
+// Host over wss, through the proxy to the same selvaged. `§7.1` seals the room state from the
+// host's listing, so the tree is walked before the mint.
+const hostEngine = pageEngine(
+  await PeerEngine.host({
+    baseUrl: BASE,
+    displayName: 'prove-tls-host',
+    listing: listingSource([NOTES]),
+    client: 'web-prove-tls/host',
+  }),
+);
 const invite = hostEngine.inviteUrl();
 if (invite === undefined) throw new Error('host minted no invite');
 check(`invite is wss (${invite.slice(0, 8)}…)`, invite.startsWith('wss://'));
@@ -120,13 +130,16 @@ const hostFiles = new MemHost();
 hostFiles.texts.set(NOTES, SEED);
 const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 hostBridge.documentOpened(NOTES);
-await hostEngine.grant([NOTES]);
 
 // Guest joins the way the page does: default `/meta` check, native socket.
-const guestEngine = await Engine.join(invite, 'prove-tls-web', {
-  webSocketFactory: nativeWebSocketFactory,
-  client: CLIENT_ID,
-});
+const guestEngine = pageEngine(
+  await PeerEngine.join({
+    invite,
+    displayName: 'prove-tls-web',
+    webSocketFactory: nativeWebSocketFactory,
+    client: CLIENT_ID,
+  }),
+);
 check('guest joins over wss', guestEngine.session().role === 'guest');
 
 const guestModels = [];

@@ -86,9 +86,8 @@ export const SELECTION_INTERVAL_MS = 100;
 
 export interface BindingOptions {
   /**
-   * The seated room, whichever version it is: the version-1 engine class, or the version-2
-   * relay's. `RoomEngine` is what this binding asks of either, and `relay.ts` is where the two
-   * are made to answer the same questions.
+   * The room this binding drives. `RoomEngine` is what it asks of the engine, and `relay.ts` is
+   * where the page's own socket and crypto are wired into it.
    */
   engine: RoomEngine;
   editor: monaco.editor.IStandaloneCodeEditor;
@@ -159,7 +158,6 @@ export class MonacoBinding implements EditorHost {
   private appliedReadOnly: boolean | undefined;
   /** Every landing stamps the cycle: a newer frame supersedes an older one still opening. */
   private landingCycle = 0;
-
   constructor(options: BindingOptions) {
     this.engine = options.engine;
     this.editor = options.editor;
@@ -390,7 +388,9 @@ export class MonacoBinding implements EditorHost {
    * but never sent by anyone, so its buffer starts empty. Empty is not the
    * same as unpublished — a file that arrived and was emptied reads `has` —
    * and the hold taken by the open brings the sync before it resolves, so
-   * this is settled by the time the opener asks.
+   * this is settled by the time the opener asks. `has` is the engine's
+   * receipt and only that: reading a path's text does not fabricate a
+   * document, so a window that has merely looked still reads unpublished.
    */
   isUnpublished(path: string): boolean {
     return !this.engine.has(path);
@@ -595,12 +595,12 @@ export class MonacoBinding implements EditorHost {
   /**
    * The role the room's state gives this connection (`§13.4`), read on every event.
    *
-   * A `selvage/2` room seats a connection as `viewer` and never as anything else: `§13.9` has a
+   * A room seats a connection as `viewer` and never as anything else: `§13.9` has a
    * viewer keep its own edit and publish none of it, so a buffer that accepted a keystroke would
    * show text the room never receives, and the sentence is said once rather than on every state
    * that arrives. It is read here rather than at the events that name a roster or a listing,
    * because this connection's own role is in neither: a state can relabel it and move nothing
-   * else. A `selvage/1` room seats nobody as a viewer, so this never fires there.
+   * else.
    */
   private roomRole(): void {
     this.applyEditability();

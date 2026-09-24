@@ -320,7 +320,7 @@ describe('Enter and a refusal where the start card cannot host', () => {
 
   it('both join refusals go through it, rather than writing the line straight in', () => {
     const preflight = sliceBetween(main, 'function attemptJoin', 'async function runJoin');
-    const refused = sliceBetween(main, 'async function runJoin', 'const CLIENT_OPTIONS');
+    const refused = sliceBetween(main, 'async function runJoin', '/** What the host button says');
     for (const [where, body] of [['the pre-flight', preflight], ['a refused join', refused]]) {
       assert.match(body, /showJoinFailure\(/, `${where} writes its refusal without opening the path`);
       assert.ok(

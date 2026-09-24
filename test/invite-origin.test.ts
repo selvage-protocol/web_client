@@ -50,7 +50,8 @@ describe('the server a link names', () => {
     );
     // A trailing query on the page's own address is not part of it, and a trailing fragment is
     // carried rather than read as part of the address: `§5.1`'s fragment is the room key and the
-    // host key, and one that names neither (`#x`) leaves the join a `selvage/1` one.
+    // host key, and one that names neither (`#x`) is a fragment the engine refuses where it reads
+    // it (`peer.ts`).
     assert.deepEqual(
       resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'https://edit.example/?debug=1#x'),
       { base: 'wss://edit.example', room: 'r-1', token: 'tok', fragment: '#x' },

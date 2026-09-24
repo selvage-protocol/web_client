@@ -1,5 +1,8 @@
 import type { WebSocketFactory, WebSocketLike } from '../engine/index.ts';
-import { close, code as errCode, isProtocolError } from '../engine/index.ts';
+import { code as errCode, isProtocolError } from '../engine/index.ts';
+// §11's close codes, from the module that owns them rather than from the engine's index: the index
+// re-exports what an editor adapter drives, and a socket's own close code is not one of those.
+import { close } from '../engine/envelope.ts';
 
 /**
  * The engine's socket, from the browser's own WebSocket.
@@ -22,12 +25,12 @@ export const nativeWebSocketFactory: WebSocketFactory = (url: string): WebSocket
  * mechanism wording. The token never appears. Diagnostics keep the server and the raw
  * cause, but they live in the console (or behind `?debug=1`), never in default UI.
  *
- * A message this does not recognise (the card's own refusals — the name, the folder,
- * the wire version — among them) passes through untouched: they are already sentences
- * written for this card, and rewriting one would only lose what it says.
+ * A message this does not recognise (the card's own refusals — the name, the folder
+ * among them) passes through untouched: they are already sentences written for this card,
+ * and rewriting one would only lose what it says.
  *
  * - refusals the handshake named (`room_unknown`, `token_invalid`,
- *   `room_gone`, `host_present`, `unsupported_version`) say what to check;
+ *   `room_gone`, `host_present`) say what to check;
  * - a close code buried in a transport message maps the same way, because
  *   the refusal and the socket race and either may arrive first;
  * - a transport that never came up, an abandoned attempt, or a hello with
@@ -51,8 +54,6 @@ export function describeJoinError(error: unknown, _base?: string): string {
         return 'The session already ended. Ask the host for a fresh link and retry.';
       case errCode.hostPresent:
         return 'The session already has its host. Ask the host for a guest link and retry.';
-      case errCode.unsupportedVersion:
-        return 'The page and the session disagree. Reload the page and retry.';
       case errCode.helloRequired:
         return 'Got no answer. Check the link and retry.';
       default:
@@ -71,8 +72,6 @@ export function describeJoinError(error: unknown, _base?: string): string {
         return 'The session already ended. Ask the host for a fresh link and retry.';
       case close.hostPresent:
         return 'The session already has its host. Ask the host for a guest link and retry.';
-      case close.unsupportedVersion:
-        return 'The page and the session disagree. Reload the page and retry.';
       case close.protocolError:
         return 'The join was refused. Check the link and retry.';
       default:

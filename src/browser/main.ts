@@ -1,8 +1,7 @@
-import { SelvageEngine, fetchMeta, sessionBase, sessionUrl } from '../engine/index.ts';
-import type { Meta, SessionBase } from '../engine/index.ts';
-import { CLIENT_ID } from './client-id.ts';
+import { sessionBase, sessionUrl } from '../engine/index.ts';
+import type { SessionBase } from '../engine/index.ts';
 import type { RoomEngine } from './relay.ts';
-import { hostDecision, hostRoom2, joinRoom2, listingSource, wireVersionOf } from './relay.ts';
+import { hostRoom, joinRoom, listingSource } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
@@ -37,7 +36,6 @@ import {
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
   hostAvailability,
-  hostRefusalSentence,
   markHosting,
   takeHostingNotice,
 } from './host.ts';
@@ -64,7 +62,7 @@ import {
   sessionOverMessage,
 } from './ended.ts';
 import type { ShareBox } from './share-box.ts';
-import { describeJoinErrorForDisplay, joinFailureDetail, nativeWebSocketFactory } from './transport.ts';
+import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
 import { schemeMatchBase, serverBaseOf } from './servers.ts';
 import {
@@ -438,12 +436,6 @@ async function runJoin(held: HeldJoin): Promise<void> {
   }
 }
 
-/** The client identity every connection from this page carries (`client-id.ts`). */
-const CLIENT_OPTIONS = {
-  webSocketFactory: nativeWebSocketFactory,
-  client: CLIENT_ID,
-} as const;
-
 /** What the host button says, before and after an attempt. */
 const HOST_BUTTON_LABEL = 'Start a session here';
 
@@ -563,10 +555,9 @@ async function join(held: HeldJoin): Promise<void> {
   // Scheme-match: the socket and the `/meta` read derived from this base
   // both speak TLS on an https page — never a ws:// or http:// subrequest.
   const base = schemeMatchBase(figured.base, pageProtocol);
-  // §5.1: the fragment is the room key and the host key, and it is what makes this a version-2
-  // join. It travels on the connection URL the version-2 engine dials and nowhere else: the
-  // version-1 engine reads its query with a splitter of its own (`urls.ts`), where a fragment
-  // glues into the token, and a link that carries one was a working join before this.
+  // §5.1: the fragment is the room key and the host key, and it travels on the connection URL
+  // the engine dials. A link without both keys is refused where it is read, by the engine's own
+  // sentence (`peer.ts`), which is the local refusal `§5.1` states.
   const address = sessionUrl(base, figured.room, figured.token);
   const invite = address + figured.fragment;
   lastBase = base;
@@ -574,15 +565,12 @@ async function join(held: HeldJoin): Promise<void> {
   // A stack that never arrives throws before the button disables, so the card keeps its copy
   // and the guest can retry.
   const monaco = await prepareEditor();
-  // The default `/meta` check runs: same-origin it reads the version, and where
+  // The default `/meta` check runs: same-origin it reads the server, and where
   // the page is cross-origin the read fails like any unreachable endpoint —
   // advisory, never a refusal — while the handshake negotiates the truth.
   // The button stays `Joining…` throughout: attemptJoin owns it, and the gate
   // makes a second submit while this runs a duplicate, never a second join.
-  const engine =
-    wireVersionOf(invite) === 'selvage/2'
-      ? await joinRoom2(invite, displayName)
-      : await SelvageEngine.join(address, displayName, CLIENT_OPTIONS);
+  const engine = await joinRoom(invite, displayName);
   await seatSession({
     monaco,
     engine,
@@ -622,36 +610,11 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
   }
   lastBase = base;
   const monaco = await prepareEditor();
-  // The version is the server's word (`PROTOCOL.md` §2), with this page's own pin on top of it.
-  // The picker was asked before this read, and it has to be: `showDirectoryPicker` needs the
-  // click's own transient activation, which a `/meta` round trip can spend. Nothing before this
-  // point opens a socket either, so a refusal is a room that was never dialled.
-  const decision = hostDecision(await readMeta(base), window.location.search);
-  if (decision.outcome === 'refuse') {
-    throw new Error(hostRefusalSentence(decision));
-  }
-  const version2 = decision.version === 'selvage/2';
-  // A host's listing is what a `selvage/2` room's state is sealed from, so the walk has to come
-  // before the mint: a host that minted first would put an empty room in front of its first
-  // guest. The version-1 engine is told the listing afterwards instead, because its server holds
-  // the grant and this is the frame that puts it there.
-  const listing = version2 ? listingSource(await folder.list()) : undefined;
-  const engine =
-    version2 && listing !== undefined
-      ? await hostRoom2(base, displayName, listing)
-      : await SelvageEngine.host(base, displayName, CLIENT_OPTIONS);
+  // A host's listing is what the room's state is sealed from (`§7.1`), so the walk has to come
+  // before the mint: a host that minted first would put an empty room in front of its first guest.
+  const listing = listingSource(await folder.list());
+  const engine = await hostRoom(base, displayName, listing);
   const session = engine.session();
-  try {
-    if (listing === undefined) {
-      await engine.grant(await folder.list());
-    }
-  } catch (error) {
-    // A server older than `doc.grant` answers `unknown_method` rather than faulting, and the
-    // room still works: it offers what someone opens and nothing more, which is worth saying.
-    failureAlert.show(
-      `The room could not be told what the folder holds, so it offers only what someone opens: ${describe(error)}`,
-    );
-  }
   await seatSession({
     monaco,
     engine,
@@ -707,8 +670,8 @@ async function attemptHost(): Promise<void> {
     // The same plain copy the join path shows (`transport.ts`): a socket that would not come up,
     // or a handshake that refused, is one situation whichever action opened it — and the
     // engine's own wording for it ("the WebSocket reported an error") names a mechanism rather
-    // than a next step. The card's own refusals — the name, the folder, the wire version — pass
-    // through it untouched, because they are already sentences written for this card.
+    // than a next step. The card's own refusals — the name and the folder — pass through it
+    // untouched, because they are already sentences written for this card.
     const base = lastBase === '' ? fallbackBase() : lastBase;
     console.error(`[selvage] hosting failed (${joinFailureDetail(error, base)})`);
     hostError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
@@ -722,19 +685,16 @@ async function attemptHost(): Promise<void> {
 /**
  * Reveals the host action, or the sentence that stands where it would.
  *
- * Three facts decide it, and all of them are settled before any control is offered: this browser
- * can hand a page a folder, this page's own origin is a Selvage server, and the version that
- * server seats is one this page can mint at. A page that is not the server's own page — the
- * page-only image in front of other servers, a bare `file://` open, a static dev server — gets
- * the sentence instead, because a room started there would have no server to be seated on and its
- * invite would point at an address the room does not live at. So does a page whose room could
- * only be refused (`PROTOCOL.md` §2): the sentence is shown where the control would be, rather
- * than a button whose every click ends in it.
+ * Two facts decide it, and both are settled before any control is offered: this browser can hand a
+ * page a folder, and this page's own origin is a Selvage server. A page that is not the server's
+ * own page — the page-only image in front of other servers, a bare `file://` open, a static dev
+ * server — gets the sentence instead, because a room started there would have no server to be
+ * seated on and its invite would point at an address the room does not live at.
  *
- * A read that did not answer is not the third of those facts. `/meta` is advisory (§2), a deadline
- * that passed says nothing about what the server seats, and the offer stands with a note saying
- * what was not read; one more ask, given longer, replaces that note with the truth if the server
- * answers after all. Nothing here can take the offer back once a click is being answered.
+ * A read that did not answer is not the second of those facts. `/meta` is advisory (§2), a deadline
+ * that passed says nothing about the origin, and the offer stands with a note saying what was not
+ * read; one more ask, given longer, replaces that note with the truth if the server answers after
+ * all. Nothing here can take the offer back once a click is being answered.
  *
  * Both intents are offered it. On a bare page starting a room is the card's own action, and on
  * a page an invite named it is the quiet one under the join: a person holding a link is still a
@@ -770,11 +730,7 @@ async function offerHosting(): Promise<void> {
  * there is an action at all.
  */
 function showHosting(picker: boolean, read: ServerRead): void {
-  const availability = hostAvailability({
-    picker,
-    read,
-    decision: hostDecision(read.kind === 'server' ? read.meta : undefined, window.location.search),
-  });
+  const availability = hostAvailability({ picker, read });
   hostWrap.hidden = false;
   hostNote.textContent = availability.note;
   hostButton.hidden = availability.kind === 'explained';
@@ -783,20 +739,6 @@ function showHosting(picker: boolean, read: ServerRead): void {
 /** This page's own origin, read as the session base a room started here would be seated on. */
 function pageBase(): SessionBase | undefined {
   return sessionBase(serverBaseOf(window.location.href));
-}
-
-/**
- * `/meta`, read best effort for the *mint* (the endpoint is advisory, and the handshake reports
- * the truth): an endpoint that did not answer at all — unreachable, not JSON, no fetch — is not an
- * answer about wire versions, so it decides nothing and the attempt is made. The card's own read,
- * which has to tell "no answer" from "not a Selvage server", is `readServerMeta` in `meta-read.ts`.
- */
-async function readMeta(base: string): Promise<Meta | undefined> {
-  try {
-    return await fetchMeta(base);
-  } catch {
-    return undefined;
-  }
 }
 
 /**

@@ -21,25 +21,14 @@ import {
   HOST_UNREAD_NOTE,
   clearHostingMark,
   hostAvailability,
-  hostRefusalSentence,
   markHosting,
   takeHostingNotice,
 } from '../src/browser/host.ts';
 import { META_REREAD_TIMEOUT_MS } from '../src/browser/meta-read.ts';
 import type { ServerRead } from '../src/browser/meta-read.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
-import type { HostRefusal, HostStorage } from '../src/browser/host.ts';
-import { hostDecision } from '../src/browser/relay.ts';
+import type { HostStorage } from '../src/browser/host.ts';
 import type { Meta } from '../src/engine/index.ts';
-
-/** The refusal a decision is, or a failure loud enough to read: every caller here means to refuse. */
-function refusalOf(meta: Meta | undefined, search: string): HostRefusal {
-  const decision = hostDecision(meta, search);
-  if (decision.outcome !== 'refuse') {
-    throw new Error(`not a refusal: ${decision.outcome} at ${decision.version}`);
-  }
-  return decision;
-}
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
@@ -101,41 +90,32 @@ describe('the host action in the shell', () => {
 });
 
 describe('whether the card offers to start a room', () => {
-  /** What a server that seats both versions answers, which is what the card is offered under. */
-  const bothSeated = hostDecision({ wire_versions: ['selvage/1', 'selvage/2'] }, '');
+  /** What a Selvage server answers, which is what the card is offered under. */
+  const sealedMeta: Meta = { wire_versions: ['selvage/2'] };
   /** What a `/meta` read said, in the three shapes the card has to tell apart. */
   const server = (meta: Meta): ServerRead => ({ kind: 'server', meta });
-  const bothSeatedMeta: Meta = { wire_versions: ['selvage/1', 'selvage/2'] };
 
   it('offers it only where a folder can be picked and the page is the server', () => {
-    assert.deepEqual(
-      hostAvailability({ picker: true, read: server(bothSeatedMeta), decision: bothSeated }),
-      { kind: 'offered', note: HOST_TAB_WARNING },
-    );
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
+      kind: 'offered',
+      note: HOST_TAB_WARNING,
+    });
   });
 
   it('explains a browser that cannot hand over a folder, and says joining still works', () => {
-    const availability = hostAvailability({
-      picker: false,
-      read: server(bothSeatedMeta),
-      decision: bothSeated,
-    });
+    const availability = hostAvailability({ picker: false, read: server(sealedMeta) });
     assert.equal(availability.note, HOST_NEEDS_A_BROWSER);
     assert.equal(availability.kind, 'explained');
     assert.match(HOST_NEEDS_A_BROWSER, /Joining a room here still works/);
   });
 
   it("explains a page that is not the server's own page rather than guessing at one", () => {
-    const availability = hostAvailability({
-      picker: true,
-      read: { kind: 'not-a-server' },
-      decision: bothSeated,
-    });
+    const availability = hostAvailability({ picker: true, read: { kind: 'not-a-server' } });
     assert.deepEqual(availability, { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE });
     // A picker that cannot pick is the first answer either way: the /meta read is not worth
     // making where there is nothing to do with its answer.
     assert.equal(
-      hostAvailability({ picker: false, read: { kind: 'not-a-server' }, decision: bothSeated }).kind,
+      hostAvailability({ picker: false, read: { kind: 'not-a-server' } }).kind,
       'explained',
     );
   });
@@ -144,11 +124,7 @@ describe('whether the card offers to start a room', () => {
     // M1: `/meta` is advisory (§2), so a deadline that passed is not an answer about this
     // origin. The offer stands with a note that says what was not read — the sentence for a
     // page that is not a Selvage server's is the one answer that would be untrue here.
-    const availability = hostAvailability({
-      picker: true,
-      read: { kind: 'no-answer' },
-      decision: hostDecision(undefined, ''),
-    });
+    const availability = hostAvailability({ picker: true, read: { kind: 'no-answer' } });
     assert.equal(availability.kind, 'unchecked');
     assert.equal(availability.note, HOST_UNREAD_NOTE);
     assert.ok(
@@ -156,63 +132,25 @@ describe('whether the card offers to start a room', () => {
       'a read that did not answer still says the page was not served by a Selvage server',
     );
     assert.match(availability.note, /has not answered \/meta/);
-    // And the decision behind it is the unpinned one: nothing was read, so a click attempts
-    // `selvage/2` and the handshake reports the truth.
-    assert.deepEqual(hostDecision(undefined, ''), { outcome: 'mint', version: 'selvage/2' });
-  });
-
-  it('explains a version the server does not seat, instead of a control that could only refuse', () => {
-    // A server that seats `selvage/1` alone, and a page that pins nothing: the room would be one
-    // the server can read, so there is no room to offer and the sentence says why.
-    const meta: Meta = { wire_versions: ['selvage/1'] };
-    const refusal = refusalOf(meta, '');
-    const availability = hostAvailability({
-      picker: true,
-      read: server(meta),
-      decision: refusal,
+    // A body that answered and is a Selvage server's is the offer, whatever it seats: there is
+    // no version to decide and no control whose only outcome is a refusal.
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
+      kind: 'offered',
+      note: HOST_TAB_WARNING,
     });
-    assert.equal(availability.kind, 'explained');
-    assert.equal(availability.note, hostRefusalSentence(refusal));
-    assert.match(availability.note, /does not seat selvage\/2/);
-    // `/meta`'s own words: what the server said, not a reading of it.
-    assert.match(availability.note, /selvage\/1/);
-    // And the way out, because a person told no has to be able to ask for something else.
-    assert.match(availability.note, /\?wire=1/);
-  });
-
-  it('offers the action to a server that seats the encrypted wire alone', () => {
-    // A Selvage server is recognised by its body, not by version-1 compatibility: a server whose
-    // `/meta` names `selvage/2` and nothing below it is one this page can host an encrypted room
-    // on, which is the whole point of the version.
-    const meta: Meta = { wire_versions: ['selvage/2'] };
-    assert.equal(
-      hostAvailability({ picker: true, read: server(meta), decision: hostDecision(meta, '') }).kind,
-      'offered',
-    );
-  });
-
-  it('says a pin is the reason where the pin is the reason', () => {
-    const refusal = refusalOf({ wire_versions: ['selvage/2'] }, '?wire=1');
-    assert.equal(refusal.reason, 'pin-not-seated');
-    const sentence = hostRefusalSentence(refusal);
-    assert.match(sentence, /pinned to selvage\/1/);
-    assert.match(sentence, /offers selvage\/2/);
-    assert.match(sentence, /not fallen back from/);
   });
 });
 
 describe('the card reads its own origin, and keeps the offer for an answer it did not get', () => {
   const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 
-  it('asks with the reader that tells no answer from an answer, not the decision\'s', () => {
-    // `readMeta` is the *mint*'s read: best effort, `undefined` for everything that is not a
-    // body, because a `/meta` that could not be read decides nothing about versions. The card
-    // cannot use it for the offer — that reading is what told a person on `selvaged`'s own page
-    // that the page was not a Selvage server's.
+  it('asks with the reader that tells no answer from an answer', () => {
+    // `readServerMeta` (`meta-read.ts`) is the one read the offer rests on: a response that
+    // arrived is an answer about this origin whatever it was, and a deadline that passed is not.
+    // The offer has no second question behind it — there is one wire and this page speaks it — so
+    // nothing else stands between a `file://` open and a real answer.
     const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
     assert.match(offering, /readServerMeta\(base\)/, 'the card does not read its own origin');
-    assert.ok(!/metaAccepts/.test(offering), 'the offer still rests on version-1 compatibility');
-    assert.ok(!/\breadMeta\(/.test(offering), 'the offer still reads through the mint\'s best-effort read');
   });
 
   it('looks a second time with a longer deadline, and only a real answer changes the card', () => {
@@ -234,7 +172,7 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
     assert.ok(META_REREAD_TIMEOUT_MS > 2000, 'the second ask is no longer than the first');
   });
 
-  it('draws the button and the note from the decision it just made', () => {
+  it('draws the button and the note from the availability it just made', () => {
     assert.match(main, /hostNote\.textContent = availability\.note/, 'the note is not what is written');
     assert.match(
       main,

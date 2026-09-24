@@ -15,7 +15,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { launch } from './tmp-cdp.mjs';
-import { SelvageEngine as Engine } from '../src/engine/index.ts';
+import { PeerEngine } from '../src/bridge/index.ts';
+import { listingSource, pageEngine } from '../src/browser/relay.ts';
 import { SessionBridge, applyChange } from '../src/bridge/index.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
@@ -44,7 +45,7 @@ const SELVAGED = process.env.SELVAGED ?? siblingSelvaged();
 mkdirSync(`${SHOTS}/${TAG}`, { recursive: true });
 mkdirSync(`${SHOTS}/profiles-${TAG}`, { recursive: true });
 // Chromium's process singleton needs a short socket path (`tmp-cdp.mjs` hands it a relative
-`.tmp/chromium`, inside the checkout and inside the 108-byte bound).
+// `.tmp/chromium`, inside the checkout and inside the 108-byte bound).
 
 const lines = [];
 let failed = 0;
@@ -104,7 +105,9 @@ function pageUrlFor(invite) {
     room: url.searchParams.get('room') ?? '',
     token: url.searchParams.get('token') ?? '',
   });
-  return `${PAGE}?${query.toString()}`;
+  // `§5.1`'s fragment is the room key and the host key, and the page reads a room from it:
+  // a page URL without one is a join the engine refuses.
+  return `${PAGE}?${query.toString()}${url.hash}`;
 }
 
 const DOM = {
@@ -215,11 +218,25 @@ const SEED = Array.from({ length: 15 }, (_, index) => `line ${index + 1}`).join(
 
 async function ghostRooms() {
   // (a) The room shares nothing at all: no granted path, no open document.
-  const emptyHost = await Engine.host(BASE, 'empty-host', { client: 'tmp-ghost-caret/host' });
-  // (b) The room lists a file but has nothing open.
-  const listedHost = await Engine.host(BASE, 'listed-host', { client: 'tmp-ghost-caret/host' });
+  const emptyHost = pageEngine(
+    await PeerEngine.host({
+      baseUrl: BASE,
+      displayName: 'empty-host',
+      listing: listingSource([]),
+      client: 'tmp-ghost-caret/host',
+    }),
+  );
+  // (b) The room lists a file but has nothing open. `§7.1` seals the state from the listing, so
+  // the listing is what the mint is handed.
+  const listedHost = pageEngine(
+    await PeerEngine.host({
+      baseUrl: BASE,
+      displayName: 'listed-host',
+      listing: listingSource(['todo.txt']),
+      client: 'tmp-ghost-caret/host',
+    }),
+  );
   const listedInvite = listedHost.inviteUrl();
-  await listedHost.grant(['todo.txt']);
 
   let cdp;
   try {
@@ -311,13 +328,19 @@ async function ghostRooms() {
 }
 
 async function caretRoom() {
-  const host = await Engine.host(BASE, 'caret-host', { client: 'tmp-ghost-caret/host' });
+  const host = pageEngine(
+    await PeerEngine.host({
+      baseUrl: BASE,
+      displayName: 'caret-host',
+      listing: listingSource(['notes.md']),
+      client: 'tmp-ghost-caret/host',
+    }),
+  );
   const invite = host.inviteUrl();
   if (invite === undefined) throw new Error('the host minted no invite');
   const texts = new MemHost();
   texts.texts.set('notes.md', SEED);
   new SessionBridge({ engine: host, host: texts }).documentOpened('notes.md');
-  await host.grant(['notes.md']);
 
   const url = pageUrlFor(invite);
   let peer;

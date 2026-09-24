@@ -12,8 +12,8 @@
  *
  * The server is one origin: `selvaged --serve-page dist` answers `/` with the built page and
  * `/session` with the room, so the link's origin *is* the address the guest dials —
- * `PROTOCOL.md` §5.1's shape, with no second server to point at. No version flag is needed: a
- * server built from this revision seats both, and `--serve-version-1-only` is the opt-out.
+ * `PROTOCOL.md` §5.1's shape, with no second server to point at. No version flag is needed or
+ * exists: a server built from this revision seats `selvage/2`, the one wire.
  *
  * Screenshots go to `.tmp/prove-v2/` — inside the checkout, where `/tmp` is never used, and
  * ignored by git, which keeps a proof run from leaving anything in the tree.
@@ -89,7 +89,7 @@ function selvagedBinary() {
   throw new Error('no selvaged found; set SELVAGE_SELVAGED to one');
 }
 
-/** `selvaged` serving the built page and seating both versions, on an ephemeral loopback port. */
+/** `selvaged` serving the built page, on an ephemeral loopback port. */
 async function startServer() {
   const binary = selvagedBinary();
   const page = resolve(ROOT, 'dist');
@@ -419,7 +419,7 @@ async function main() {
   await chromium.navigate(pageLink);
     await joinFromTheCard(chromium, 'Bob');
     // The room's listing is the guest's to see; the document itself arrives when it is opened,
-    // which is the page's rule for both versions and not a version-2 one.
+    // which is the page's rule and not a wire version's.
     await openFromTheTree(chromium, PATH);
     const seen = await waitForPage(chromium, "the room's text to arrive", (text) => text.includes(SEED.trim()));
     log('the page holds', JSON.stringify(seen));

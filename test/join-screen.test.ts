@@ -120,9 +120,9 @@ describe('join targets', () => {
   it('a pasted wire invite keeps working with extras, fragments and a second ?', () => {
     // Foreign params are ignored; a fragment or an appended `?debug=1` must
     // not glue into the token the way the address-bar `?debug=1` once did. The
-    // fragment itself is carried — it is `§5.1`'s fragment, which is how a
-    // version-2 invite names its two keys — and one that names neither leaves
-    // the join a version-1 one.
+    // fragment itself is carried — it is `§5.1`'s fragment, which is how an
+    // invite names its two keys, and what it names is read where the link is
+    // handed to the engine.
     for (const invite of [
       'ws://other:8080/session?room=r-1&token=tok&debug=1&foo=bar',
       'ws://other:8080/session?token=tok&room=r-1&utm_source=x',
@@ -268,7 +268,6 @@ describe('join failures in plain words', () => {
     ['bad room refusal', new ProtocolError(errCode.roomUnknown, 'room_unknown')],
     ['bad token refusal', new ProtocolError(errCode.tokenInvalid, 'token_invalid')],
     ['closed room refusal', new ProtocolError(errCode.roomGone, 'the room is gone')],
-    ['version refusal', new ProtocolError(errCode.unsupportedVersion, 'selvage/0 speaks')],
     ['hello with no answer', new ProtocolError(errCode.helloRequired, 'the server did not answer session.hello in time')],
     ['abandoned attempt', new Error('the connection attempt was abandoned')],
     ['unusable server address', new TypeError("Failed to construct 'WebSocket': The URL 'junk' is invalid.")],
