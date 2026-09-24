@@ -8,7 +8,7 @@ import { MonacoBinding } from './editor.ts';
 import type { BindingNotice, Following, Participant } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import { buildShareLink, displayShareLink, fitReadout, pageQueryParams, persistJoinUrl } from './share.ts';
-import { fragmentOf } from './join.ts';
+import { MAX_DISPLAY_NAME_UNITS, fragmentOf } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   cardIntentOf,
@@ -48,10 +48,12 @@ import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
 import { renderRoster } from './roster.ts';
+import { renameSelf } from './rename.ts';
 import { wireShareBox } from './share-box.ts';
 import {
   HOST_BACK_STAND_MS,
   RECONNECTING_NOTE,
+  TRANSIENT_STAND_MS,
   hostBackSentence,
   hostPresent,
   wireFailureAlert,
@@ -927,12 +929,36 @@ async function copyShareLink(): Promise<void> {
 /**
  * Who is here: the own name first, then one row per peer. Where someone is
  * reads on the grant tree, not here; the follow banner owns the one stop.
+ *
+ * An own-name edit holds the list still (`renamingName`): a presence frame lands
+ * every few hundred milliseconds while anybody types, and a list redrawn under
+ * the field would take the cursor with it. The rows the person cannot see for
+ * those seconds are redrawn the moment the edit ends, and nothing is lost — a
+ * roster is a read of the room as it stands, not a queue.
  */
 function syncRoster(participants: Participant[]): void {
+  if (renamingName !== undefined) {
+    return;
+  }
+  drawRoster(participants);
+}
+
+/** The list as it stands, with the own-name edit open if one is. */
+function drawRoster(participants: Participant[]): void {
   renderRoster(rosterList, participants, {
     followedPeerId: binding?.following()?.peerId,
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
+    renaming:
+      renamingName === undefined
+        ? undefined
+        : {
+            value: renamingName,
+            maxLength: MAX_DISPLAY_NAME_UNITS,
+            commit: (value) => void commitRename(value),
+            cancel: () => endRename(),
+          },
+    onRename: () => startRename(),
     onGoTo: (peerId) => {
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
@@ -946,6 +972,53 @@ function syncRoster(participants: Participant[]): void {
       });
     },
   });
+}
+
+/**
+ * The own-name edit, open or not. The page owns it rather than the row: the
+ * name the row shows and the name the room is told are both the page's, and
+ * the row is drawn from this state (`drawRoster`).
+ */
+let renamingName: string | undefined;
+
+function startRename(): void {
+  if (renamingName !== undefined || binding === undefined) {
+    return;
+  }
+  renamingName = selfName;
+  // Opening the field is the one drawing that happens while an edit is open, so it does
+  // not go through the hold `syncRoster` keeps.
+  drawRoster(binding.participants());
+}
+
+function endRename(): void {
+  renamingName = undefined;
+  syncRoster(binding?.participants() ?? []);
+}
+
+/**
+ * Sends the typed name and answers for it, over the page.
+ *
+ * `rename.ts` owns the order of the answers and the words; what is here is what
+ * the page is: the row it redraws, the strip it says the confirmation in, the
+ * alert a refusal stands on, and the two places the name in force lives — the
+ * own row's `selfName` and the prefill the next join reads.
+ */
+async function commitRename(raw: string): Promise<void> {
+  endRename();
+  await renameSelf(raw, {
+    current: () => selfName,
+    rename: async (name) => {
+      await engine?.rename(name);
+    },
+    remember: (name) => saveDisplayName(window.localStorage, name),
+    applied: (name) => {
+      selfName = name;
+    },
+    refused: (sentence) => failureAlert.show(sentence),
+    said: (sentence) => sessionNote.say(sentence, TRANSIENT_STAND_MS),
+  });
+  syncRoster(binding?.participants() ?? []);
 }
 
 /** The room's listing as a tree. Directories open and shut; files open and fetch. */

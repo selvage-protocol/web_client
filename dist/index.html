@@ -191,6 +191,9 @@
       #roster .name { font-weight: 700; color: var(--foreground); white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis; }
       #roster .you { color: var(--muted-foreground); font-size: 0.75em; font-weight: 500; flex: none; }
+      /* The own-name edit: the row's name becomes the field it is about, sized to the row
+         rather than to the card's field, and it takes the room the name had. */
+      #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
       #roster li.self .swatch { background: var(--primary); }
       #roster .actions { display: flex; gap: 0.25em; flex: none; }
       /* Quiet verbs: present at rest, no chrome to add up around two names. */
@@ -373,7 +376,7 @@
            root is 14 px, so the fields' own `1rem` never cleared the floor.
            `#share` is a readonly field the clipboard fallback focuses, and it
            is visible wherever the phone sheet that hides it does not apply. */
-        #join input, #join-message, #share, #new-name { font-size: 16px; }
+        #join input, #join-message, #share, #new-name, #roster .rename { font-size: 16px; }
         /* 44 px is the smallest a fingertip is expected to hit. The floor is on
            the box, not on the content: `min-height` sits inside the padding
            otherwise, which rendered the copy strip 63 px tall. */

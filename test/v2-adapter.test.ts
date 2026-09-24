@@ -131,11 +131,13 @@ function stubEngine(): {
   engine: Parameters<typeof pageEngine>[0];
   reseat(): void;
   emit(event: EngineEvent): void;
+  renamed(): string | undefined;
 } {
   const listeners = new Set<(event: EngineEvent) => void>();
   let peer = { peer_id: 'p-first', display_name: 'sam', role: 'guest' };
   let documents = ['notes.md'];
   let granted = ['shared/'];
+  let renamed: string | undefined;
   return {
     engine: {
       session: () => ({
@@ -164,6 +166,7 @@ function stubEngine(): {
       },
       grantedPaths: () => granted,
       grant: async (paths) => void (granted = [...paths]),
+      rename: async (name) => void (renamed = name),
       disconnect: () => {},
       inviteUrl: () => undefined,
     } as unknown as Parameters<typeof pageEngine>[0],
@@ -179,6 +182,7 @@ function stubEngine(): {
         listener(event);
       }
     },
+    renamed: () => renamed,
   };
 }
 
@@ -258,6 +262,15 @@ describe('the wrapper the page drives', () => {
 
     await room.close('notes.md');
     assert.deepEqual(room.openDocuments(), [], 'a closed document stayed held');
+  });
+
+  it('carries a rename through to the engine the page handed it', async () => {
+    // The page's own row is not a seat the room lists (`§13.4`), so the page tells the room the
+    // new name itself and keeps it: what this wrapper owes is the one call it sits in front of.
+    const stub = stubEngine();
+    const room = pageEngine(stub.engine);
+    await room.rename('ada');
+    assert.equal(stub.renamed(), 'ada', 'the rename never reached the engine');
   });
 });
 

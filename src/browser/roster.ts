@@ -1,9 +1,15 @@
 /**
  * Roster rows: who is here, glanceable. Each row carries the peer's colour
- * swatch, their name, and the two verbs — never path text (where someone is
- * reads on the grant tree, as a badge on their file). The own name leads
- * with a you marker and no actions. The follow banner owns the one stop
+ * swatch, their name, the role the room gives them, and the two verbs — never
+ * path text (where someone is reads on the grant tree, as a badge on their
+ * file). The own name leads, with a you marker, the name it is seated under
+ * and one control of its own to change it. The follow banner owns the one stop
  * control, so a followed row reads Following and offers nothing to press.
+ *
+ * The own row's edit is a field the page opens and closes, not the roster's
+ * own state: the page holds it, stops re-drawing the list while it is open — a
+ * presence frame every few hundred milliseconds would take the field out from
+ * under the person typing in it — and re-draws when it ends.
  */
 
 import type { Role } from '../engine/index.ts';
@@ -34,14 +40,43 @@ export interface RosterPeer {
   path: string | undefined;
 }
 
+/** The own-name edit, open: the page drives it, the roster draws it. */
+export interface RosterRename {
+  /** What the field opens with: the name this window is seated under. */
+  value: string;
+  /** The protocol's bound, so the field cannot offer more than the room takes. */
+  maxLength: number;
+  /** Enter: the name to send. The page validates and sends it. */
+  commit(value: string): void;
+  /** Escape, or leaving the field: nothing is sent. */
+  cancel(): void;
+}
+
 export interface RosterView {
   followedPeerId: string | undefined;
   selfName: string;
   /** The swatch colour for the own row; the page passes the peer-colour mapping. */
   selfColour?: string;
+  /** The own-name edit in progress, when one is open. */
+  renaming?: RosterRename;
   onGoTo(peerId: string): void;
   onFollow(peerId: string): void;
+  /** Opens the own-name edit. Absent where the page has no name to change. */
+  onRename?: () => void;
 }
+
+/**
+ * The rename intent's words, which both desktop clients give their command
+ * (`docs/studies/client-command-parity.md` §5): the row's own control is a
+ * verb, and this is what a pointer reads on it.
+ */
+const RENAME_LABEL = 'Set the name other participants see';
+
+/**
+ * What the field is called, in the words the join card already gives the same
+ * question: one page, one way to ask a person what the room should call them.
+ */
+const NAME_FIELD_LABEL = 'The name other participants see';
 
 /** Draws the self row plus one row per peer, replacing the list contents. */
 export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], view: RosterView): void {
@@ -55,8 +90,12 @@ export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], vi
 /**
  * The own row, drawn with the same anatomy as a peer row — swatch, name and
  * actions slot — so it reads as a roster member rather than a section
- * header. The actions stay, disabled with the reason: going to or following
- * yourself is meaningless, and the `you` marker stays quiet beside the name.
+ * header. The two verbs stay, disabled with the reason: going to or following
+ * yourself is meaningless. The third is the one thing this row can act on,
+ * replacing the name with the field it is about while the edit is open: the
+ * room labels the seats it lists and this connection's own is not one of them
+ * (`PROTOCOL.md` §5), so the name here is the page's to keep and the page's to
+ * change.
  */
 function selfRow(view: RosterView): HTMLElement {
   const row = document.createElement('li');
@@ -70,14 +109,19 @@ function selfRow(view: RosterView): HTMLElement {
   row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
-  const name = document.createElement('span');
-  name.className = 'name';
-  name.textContent = view.selfName;
-  who.appendChild(name);
-  const you = document.createElement('span');
-  you.className = 'you';
-  you.textContent = 'you';
-  who.appendChild(you);
+  const rename = view.renaming;
+  if (rename === undefined) {
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = view.selfName;
+    who.appendChild(name);
+    const you = document.createElement('span');
+    you.className = 'you';
+    you.textContent = 'you';
+    who.appendChild(you);
+  } else {
+    who.appendChild(nameField(rename));
+  }
   row.appendChild(who);
   const actions = document.createElement('span');
   actions.className = 'actions';
@@ -91,8 +135,51 @@ function selfRow(view: RosterView): HTMLElement {
   follow.append(iconSpan('follow'), labelSpan('Follow'));
   const whyFollow = dead(follow, "You can't follow yourself.");
   actions.appendChild(follow);
+  if (rename === undefined && view.onRename !== undefined) {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.append(iconSpan('edit'), labelSpan('Rename'));
+    edit.title = RENAME_LABEL;
+    edit.addEventListener('click', () => view.onRename?.());
+    actions.appendChild(edit);
+  }
   row.append(actions, whyGo, whyFollow);
   return row;
+}
+
+/**
+ * The name the field is about, and the three ways out of it: Enter sends, and
+ * Escape or leaving the field sends nothing. A blur cancels rather than
+ * commits, so a click somewhere else cannot send a half-typed name — the
+ * control that opened the field is one press away from opening it again.
+ *
+ * Both controls are reachable by keyboard and the field takes focus when it is
+ * drawn: the edit was asked for by a press, so the person is in it already.
+ */
+function nameField(rename: RosterRename): HTMLInputElement {
+  const field = document.createElement('input');
+  field.type = 'text';
+  field.className = 'rename';
+  field.value = rename.value;
+  field.maxLength = rename.maxLength;
+  field.setAttribute('aria-label', NAME_FIELD_LABEL);
+  field.title = NAME_FIELD_LABEL;
+  field.spellcheck = false;
+  field.autocomplete = 'off';
+  field.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      rename.commit(field.value);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      rename.cancel();
+    }
+  });
+  field.addEventListener('blur', () => rename.cancel());
+  field.focus?.();
+  return field;
 }
 
 function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView): HTMLElement {
