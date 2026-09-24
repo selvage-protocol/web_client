@@ -3324,6 +3324,15 @@ and where a person can act it names the next step. `exists` says out loud that t
 rename or replace what the folder holds, which is the one refusal the API's own create would have
 answered by silently opening what is there.
 
+A failure **after** the entry is made is reported as itself and never as "not created": the entry
+is on disk from the moment the layer answers, so the publish and the open are the act's own steps
+and each says what it was (`CreateOutcome` in `new-entry.ts`) — *"… is in the folder, but the room
+was not told the listing changed: …"*, or *"… is in the folder and the room lists it, but this page
+could not open it: …"*. The first row that said "was not created" for a failure in either would be
+telling a person their file is missing while it sits in their folder, and a retry of the same name
+would then answer `exists`. Only a failure from the folder layer itself, thrown before anything was
+made, reads as "not created".
+
 ### The act, and how the room learns it
 
 `src/browser/new-entry.ts` holds the page's order for the act — **create, re-walk, publish, open** —

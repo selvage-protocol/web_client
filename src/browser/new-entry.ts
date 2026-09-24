@@ -66,6 +66,27 @@ export interface CreateInFolder {
 }
 
 /**
+ * What became of a create: refused, made, or **made and then not finished**.
+ *
+ * The third is the one worth its own name. The entry is in the folder from the moment `create`
+ * answers, so a failure after that is not a create that did not happen, and a row that said so
+ * would be telling a person their file is missing while it sits in their folder — and a retry of
+ * the same name would then answer `exists`, which reads as a contradiction rather than as the
+ * truth. Each phase is reported as the phase it is.
+ */
+export type CreateOutcome = FolderCreate | { kind: 'incomplete'; path: string; sentence: string };
+
+/** What a create that reached the folder but not the room says. */
+export function listingNotPublishedSentence(path: string, reason: string): string {
+  return `${path} is in the folder, but the room was not told the listing changed: ${reason}. The folder holds it, and the next listing this page publishes carries it.`;
+}
+
+/** What a created file that could not be opened says: the room has the path and not its text. */
+export function createdFileNotOpenedSentence(path: string, reason: string): string {
+  return `${path} is in the folder and the room lists it, but this page could not open it: ${reason}. Its text reaches the room when it is opened.`;
+}
+
+/**
  * The whole act, in the order that makes each step true: make it, re-walk, publish, open.
  *
  * A created file is opened because content arrives when a file is opened — a listed path nobody
@@ -73,23 +94,36 @@ export interface CreateInFolder {
  * there is nothing to open, and the room learns it when the first file inside it appears.
  *
  * The two refusals are the folder's own sentence, returned untouched so the row says what the
- * layer said. A failure thrown here is one the layer could not name, and it is the caller's to
- * word.
+ * layer said; a failure thrown by `create` is the layer's own and is left to the caller to word.
+ * The steps after it are this act's, and each is reported as itself (`CreateOutcome`).
  */
 export async function createInFolder(
   options: CreateInFolder,
   path: string,
   entry: NewEntryKind,
-): Promise<FolderCreate> {
+): Promise<CreateOutcome> {
   const outcome = await options.folder.create(path, entry);
   if (outcome.kind === 'refused') {
     return outcome;
   }
-  await options.publish?.(await options.folder.list());
+  try {
+    await options.publish?.(await options.folder.list());
+  } catch (error: unknown) {
+    return { kind: 'incomplete', path, sentence: listingNotPublishedSentence(path, describe(error)) };
+  }
   if (outcome.entry === 'file') {
-    await options.open(path);
+    try {
+      await options.open(path);
+    } catch (error: unknown) {
+      return { kind: 'incomplete', path, sentence: createdFileNotOpenedSentence(path, describe(error)) };
+    }
   }
   return outcome;
+}
+
+/** A failure's own words, which is what both phases above report beside the path. */
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** What an empty name is answered with, under the field it is about. */

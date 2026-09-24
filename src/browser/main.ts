@@ -32,8 +32,9 @@ import {
   folderPickerOf,
   pickFolder,
 } from './folder.ts';
-import type { FolderCreate, NewEntryKind } from './folder.ts';
+import type { NewEntryKind } from './folder.ts';
 import { createInFolder, newFolderCreatedSentence, wireNewEntry } from './new-entry.ts';
+import type { CreateOutcome } from './new-entry.ts';
 import {
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
@@ -329,13 +330,16 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<string | 
   if (folder === undefined || binding === undefined) {
     return undefined;
   }
-  let outcome: FolderCreate;
+  let outcome: CreateOutcome;
   try {
     outcome = await createInFolder({ folder, publish: republishGrant, open: openPath }, path, entry);
   } catch (error: unknown) {
+    // What reaches here is the folder layer's own unnamed failure, thrown before the entry was made:
+    // the steps after it belong to the act and report themselves (`CreateOutcome`), so a file that
+    // did land is never reported as one that did not.
     return `${path} was not created: ${describe(error)}`;
   }
-  if (outcome.kind === 'refused') {
+  if (outcome.kind === 'refused' || outcome.kind === 'incomplete') {
     return outcome.sentence;
   }
   syncGrant();

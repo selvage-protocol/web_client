@@ -129,6 +129,7 @@ function page(tree: DirNode) {
   };
   return {
     folder,
+    tree,
     listing,
     published,
     opened,
@@ -265,6 +266,54 @@ describe('the create, from the page to the room', () => {
     await app.create('src/notes.md', 'file');
     assert.deepEqual(app.published, [['src/notes.md']]);
     assert.deepEqual(guestTree(app.published.at(-1) ?? []), ['src/']);
+  });
+
+  it('says a create that reached the folder and not the room as exactly that', async () => {
+    // The entry is on disk from the moment `create` answers, so a failure after it is not a create
+    // that did not happen: a row that said "was not created" would be telling a person their file
+    // is missing while it sits in their folder, and a retry of the same name would answer `exists`.
+    const app = page(dirOf());
+    const outcome = await createInFolder(
+      {
+        folder: app.folder,
+        publish: async () => {
+          throw new Error('the relay closed');
+        },
+        open: async (path) => void app.opened.push(path),
+      },
+      'notes.md',
+      'file',
+    );
+    assert.equal(outcome.kind, 'incomplete');
+    assert.match(
+      outcome.kind === 'incomplete' ? outcome.sentence : '',
+      /notes\.md is in the folder, but the room was not told the listing changed: the relay closed/,
+    );
+    // It is there, which is what the sentence had to say; the open is past the failure and did not run.
+    assert.equal((app.tree.children['notes.md'] as FileNode | undefined)?.kind, 'file');
+    assert.deepEqual(app.opened, []);
+  });
+
+  it('says a created file that could not be opened as exactly that', async () => {
+    const app = page(dirOf());
+    const outcome = await createInFolder(
+      {
+        folder: app.folder,
+        publish: async (paths) => void app.published.push([...paths]),
+        open: async () => {
+          throw new Error('the editor is gone');
+        },
+      },
+      'notes.md',
+      'file',
+    );
+    assert.equal(outcome.kind, 'incomplete');
+    assert.match(
+      outcome.kind === 'incomplete' ? outcome.sentence : '',
+      /the room lists it, but this page could not open it: the editor is gone/,
+    );
+    // The listing did go out, which is what the sentence says: the room has the path, not the text.
+    assert.deepEqual(app.published, [['notes.md']]);
   });
 
   it("keeps a listed path open in the guest's tree before the walk publishes it", async () => {
