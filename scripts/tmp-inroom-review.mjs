@@ -847,12 +847,15 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
     });
     if (row === undefined) return null;
     const button = row.querySelector('.download');
-    const label = button.getAttribute('aria-label');
+    const path = (button.getAttribute('aria-label') ?? '').replace(/^Download /, '');
     button.click();
-    return label;
+    return path;
   })()`);
   facts.downloadTarget = target;
   log('a file with no text here, saved from its row:', JSON.stringify(target));
+  if (target === null) {
+    throw new Error('no row offered a download: nothing to photograph');
+  }
   await waitFor(
     page,
     'the row to say what the fetch costs',
@@ -869,10 +872,18 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   // Where it ended. The row gains `●` when the text lands — the fetch is what put it in the room —
   // and a fetch the host did not answer says so and offers the person the choice, including trying
   // again, which is the page's own answer to a host that was slow the first time.
+  // The path the driver clicked, and no other: a fetch of `notes.md` is not a fetch of `main.ts`.
   const landed = async () =>
-    (await page.evaluate(GUEST_ROWS)).rows.some(
-      (row) => row.inRoom === true && /main[.]ts/.test(row.text),
-    );
+    (await page.evaluate(
+      `(() => {
+        const wanted = ${JSON.stringify(target)};
+        const leaf = wanted.slice(wanted.lastIndexOf('/') + 1);
+        const row = [...document.querySelectorAll('#tree button.row')].find((candidate) =>
+          [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
+        );
+        return row !== undefined && row.querySelector('.in-room') !== null;
+      })()`,
+    )) === true;
   let outcome = { landed: false, note: null };
   for (let tick = 0; tick < 80 && !outcome.landed; tick += 1) {
     outcome = { landed: await landed(), note: await page.evaluate(ROW_NOTE) };
@@ -939,23 +950,25 @@ async function main() {
   const written = [];
   const facts = { footer: FOOTER, shots: written, console: [] };
   log('serving', server.origin, FOOTER ? 'with the demo footer' : 'without a footer');
-  const mouse = await launchChromium({ pointer: 'mouse' });
-  let invite;
+  const browsers = [];
   try {
+    const mouse = await launchChromium({ pointer: 'mouse' });
+    browsers.push({ name: 'desktop', page: mouse });
     await mouse.setViewport(DESKTOP);
     const desktop = await reviewDesktop(mouse, server, written);
     facts.desktop = desktop.facts;
-    invite = desktop.invite;
+    const touch = await launchChromium({ pointer: 'touch' });
+    browsers.push({ name: 'phone', page: touch });
+    facts.phone = await reviewTouch(touch, server, desktop.invite, written, mouse);
   } finally {
-    facts.console.push(...mouse.logged.map((line) => `desktop ${line}`));
-  }
-  const touch = await launchChromium({ pointer: 'touch' });
-  try {
-    facts.phone = await reviewTouch(touch, server, invite, written, mouse);
-  } finally {
-    facts.console.push(...touch.logged.map((line) => `phone ${line}`));
-    await touch.stop();
-    await mouse.stop();
+    // Whatever happened — a `waitFor` that timed out, a browser that would not launch, the guest's
+    // clipboard refusing — both browsers and the server are stopped and their logs collected. A
+    // failure that left a Chromium and a `selvaged` behind, with a CDP socket still open, is a driver
+    // that hangs after the error instead of exiting.
+    for (const { name, page: browser } of browsers) {
+      facts.console.push(...browser.logged.map((line) => `${name} ${line}`));
+      await browser.stop();
+    }
     server.stop();
   }
   writeFileSync(resolve(OUT, 'facts.json'), `${JSON.stringify(facts, null, 2)}\n`);
