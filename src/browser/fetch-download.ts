@@ -93,6 +93,12 @@ export async function fetchAndSave(
 ): Promise<FetchSaveOutcome> {
   if (ports.has(path)) {
     const text = ports.text(path);
+    // Even a path this window already holds is not saved while what it holds is nothing: the room
+    // reports an empty document both for an empty file and for one whose text has not come, and the
+    // person is offered the choice rather than handed a file that may be a lie (`canSaveAtOnce`).
+    if (text === '') {
+      return { kind: 'empty', text };
+    }
     ports.save(path, text);
     return { kind: 'saved', text };
   }
@@ -118,6 +124,48 @@ export async function fetchAndSave(
   }
   ports.save(path, text);
   return { kind: 'saved', text };
+}
+
+/**
+ * Whether a download can go straight to the browser's own save, with no fetch behind it.
+ *
+ * The test is the *text*, and not the room's receipt of the path. An empty document is exactly what a
+ * room holds for a file whose text the host has not sent yet: `has(path)` is true for it, as it is for
+ * a file that is genuinely empty, and the page cannot tell the two apart. Saving on that receipt is
+ * how a guest ends up with an empty file named `src/main.ts` on its disk and nothing to say the real
+ * contents were still coming — the defect this module exists to prevent, and the one the in-room
+ * driver caught: the fetch that had timed out left the room holding an empty document, the next press
+ * of the row's action took this path, and an empty file was saved without a word.
+ *
+ * So an empty answer is never saved without being asked for: it goes through `fetchAndSave`, which
+ * offers `Save empty file` beside the reason it might be empty.
+ */
+export function canSaveAtOnce(text: string): boolean {
+  return text !== '';
+}
+
+/**
+ * Which document, if any, the page should put in front of the editor after the room's set moved.
+ *
+ * The rule that gives a phone a file to look at — nothing is open here, so open the first document
+ * the room names — has to leave out the documents this window fetched only to save them. A fetch is
+ * a background act by design ("without changing what the editor shows"), and it *is* what puts a path
+ * in the room's set: a guest who downloads a row it has never opened would otherwise watch the
+ * editor switch to the file it just asked to save, which is the opposite of what was asked for. The
+ * first bug the in-room driver caught after the strip landed was exactly this.
+ */
+export function documentToAutoOpen(
+  documents: readonly string[],
+  open: string | undefined,
+  background: ReadonlySet<string>,
+): string | undefined {
+  if (open !== undefined) {
+    return undefined;
+  }
+  return documents
+    .slice()
+    .sort()
+    .find((path) => !background.has(path));
 }
 
 function reason(error: unknown): string {

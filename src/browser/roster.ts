@@ -16,20 +16,6 @@ import type { Role } from '../engine/index.ts';
 import { iconSpan, labelSpan } from './icons.ts';
 import { rosterLabel } from './names.ts';
 
-/**
- * Marks a verb dead and says why, returning the reason as a line the row can carry. The `title` is
- * what a pointer device reads on hover; a finger has none, so the returned element is unhidden there
- * by the shell (`#roster .why`).
- */
-function dead(button: HTMLButtonElement, reason: string): HTMLElement {
-  button.disabled = true;
-  button.title = reason;
-  const why = document.createElement('span');
-  why.className = 'why';
-  why.textContent = reason;
-  return why;
-}
-
 /** A verb's own words, in a span the narrow panel can hide while the tooltip keeps them. */
 function verbLabel(text: string): HTMLSpanElement {
   const span = labelSpan(text);
@@ -353,11 +339,17 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   const go = document.createElement('button');
   go.type = 'button';
   go.append(iconSpan('go'), verbLabel('Go to'));
-  // Disabled, never mysteriously: the row says why, the way the self row's dead
-  // actions do.
-  const whyGo = peer.path === undefined ? dead(go, 'They have not opened a file yet.') : undefined;
-  go.addEventListener('click', () => view.onGoTo(peer.peerId));
-  actions.appendChild(go);
+  if (peer.path === undefined) {
+    // A verb that cannot work is not a verb: the row says where the peer is instead of offering a
+    // press that explains, on a phone, that there is nothing to go to.
+    const waiting = document.createElement('span');
+    waiting.className = 'waiting';
+    waiting.textContent = 'not in a file yet';
+    actions.appendChild(waiting);
+  } else {
+    go.addEventListener('click', () => view.onGoTo(peer.peerId));
+    actions.appendChild(go);
+  }
   const follow = document.createElement('button');
   follow.type = 'button';
   if (view.followedPeerId === peer.peerId) {
@@ -369,8 +361,5 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   }
   actions.appendChild(follow);
   row.appendChild(actions);
-  if (whyGo !== undefined) {
-    row.appendChild(whyGo);
-  }
   return row;
 }

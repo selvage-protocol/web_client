@@ -9,11 +9,14 @@
  * at all and offers the choice instead.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   FETCH_STAND_MS,
+  canSaveAtOnce,
+  documentToAutoOpen,
   fetchAndSave,
   fetchCostsSentence,
   fetchFailedSentence,
@@ -68,6 +71,17 @@ describe('a path this window already holds', () => {
     assert.deepEqual(held.saved, [['src/main.ts', 'let a = 1;\n']]);
     assert.deepEqual(held.polls, [], 'a file this window holds was fetched again');
   });
+
+  it('is not saved while what it holds is nothing', async () => {
+    // The room answers a fetch that timed out by holding an empty document for the path, and the
+    // path then reads as held. Saving that is the same empty file by another door: the person is
+    // offered the choice instead.
+    const arrivedEmpty = room('');
+    arrivedEmpty.deliver();
+    const outcome = await fetchAndSave('src/main.ts', arrivedEmpty.ports, { wait: arrivedEmpty.wait });
+    assert.equal(outcome.kind, 'empty');
+    assert.deepEqual(arrivedEmpty.saved, [], 'a held-but-empty path was saved without being asked');
+  });
 });
 
 describe('a path whose text has not been fetched', () => {
@@ -118,8 +132,43 @@ describe('a path whose text has not been fetched', () => {
     assert.deepEqual(refusing.saved, []);
   });
 
+  it('never saves an empty answer at once, however the room reports the path', () => {
+    // The receipt and the text are different facts: a room holds an empty document both for a file
+    // that is empty and for one whose text the host has not sent, and only the text can be saved
+    // without lying. The driver caught the page saving on the receipt.
+    assert.equal(canSaveAtOnce(''), false, 'an empty answer was saved without being asked for');
+    assert.equal(canSaveAtOnce('\n'), true, 'a file of one newline is text');
+    assert.equal(canSaveAtOnce('fn main() {}'), true);
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /if \(canSaveAtOnce\(text\)\)/, 'the page saves on the receipt again');
+    assert.ok(
+      !/if \(binding\.hasText\(path\)\)/.test(main),
+      'a path the room merely holds is saved as if its text were here',
+    );
+  });
+
   it('gives the room ten seconds before it offers the choice', () => {
     assert.equal(FETCH_STAND_MS, 10_000);
+  });
+});
+
+describe('what the fetch must not do', () => {
+  it('does not put the file it fetched in front of the editor', () => {
+    // A fetch is a background act: it is what puts a path in the room's open set, and the page's own
+    // rule — nothing is open here, so open the first document the room names — would otherwise switch
+    // the editor to the file the person only asked to save. The in-room driver caught exactly this.
+    const background = new Set(['src/main.rs']);
+    assert.equal(documentToAutoOpen(['src/main.rs'], undefined, background), undefined);
+    // A document that is in the room for somebody else's reason is still opened.
+    assert.equal(documentToAutoOpen(['README.md', 'src/main.rs'], undefined, background), 'README.md');
+    // And a window that already has a file open is left alone, whatever arrived.
+    assert.equal(documentToAutoOpen(['README.md'], 'notes.md', background), undefined);
+    // The page names every path it fetches, so this is the whole of the rule.
+    assert.match(
+      readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8'),
+      /backgroundFetches\.add\(candidate\)/,
+      'the page fetches without naming what it fetched',
+    );
   });
 });
 

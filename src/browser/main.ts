@@ -56,7 +56,14 @@ import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
 import type { CreateResult, RowFeedback } from './tree-view.ts';
-import { fetchAndSave, fetchCostsSentence, fetchingSentence, stillEmptySentence } from './fetch-download.ts';
+import {
+  canSaveAtOnce,
+  documentToAutoOpen,
+  fetchAndSave,
+  fetchCostsSentence,
+  fetchingSentence,
+  stillEmptySentence,
+} from './fetch-download.ts';
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
 import { EMPTY_IN_ROOM_TITLE, IN_THE_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
@@ -428,6 +435,15 @@ let hostAway = false;
 let readOnly = false;
 /** Whether the cost of fetching has been said this session: it is said once. */
 let saidFetchCosts = false;
+/**
+ * The paths this window fetched only to save them.
+ *
+ * A fetch is a background act — it must not change what the editor shows — but it *is* what puts a
+ * path in the room's open set, and the rule that gives a phone a file to look at opens the first
+ * document when nothing is open here. So the paths fetched behind the editor are named, and that
+ * rule skips them (`documentToAutoOpen`).
+ */
+const backgroundFetches = new Set<string>();
 
 /**
  * Creates a file or a directory in the folder this tab picked, and puts it in the room.
@@ -1356,9 +1372,13 @@ function startDownload(path: string, feedback: RowFeedback): void {
   }
   const here = (candidate: string): string =>
     binding?.text(candidate) ?? engine?.text(candidate) ?? '';
-  if (binding.hasText(path)) {
+  const text = here(path);
+  // Straight to the browser's save when there is text in this window; an empty answer is never saved
+  // without being asked for, because a room holds an empty document both for an empty file and for
+  // one the host has not sent yet (`canSaveAtOnce`).
+  if (canSaveAtOnce(text)) {
     try {
-      downloadDocument(path, here(path), downloadSink);
+      downloadDocument(path, text, downloadSink);
     } catch (error: unknown) {
       feedback.note(`Could not download ${path}: ${describe(error)}`, [
         { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } },
@@ -1379,7 +1399,10 @@ function startDownload(path: string, feedback: RowFeedback): void {
   void fetchAndSave(path, {
     has: (candidate) => binding?.hasText(candidate) ?? false,
     text: here,
-    open: (candidate) => binding?.requestText(candidate) ?? Promise.resolve(),
+    open: (candidate) => {
+      backgroundFetches.add(candidate);
+      return binding?.requestText(candidate) ?? Promise.resolve();
+    },
     save: (candidate, text) => downloadDocument(candidate, text, downloadSink),
   })
     .then((outcome) => {
@@ -1540,6 +1563,7 @@ function leaveSession(sentence: string): void {
   hostAway = false;
   readOnly = false;
   saidFetchCosts = false;
+  backgroundFetches.clear();
   setHealth('ok');
   editorApi = undefined;
   desktopEditorOptions = undefined;
@@ -1655,11 +1679,11 @@ function onNotice(notice: BindingNotice): void {
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself.
       syncGrant();
-      if (binding?.currentPath() === undefined && notice.documents.length > 0) {
-        const first = notice.documents.slice().sort()[0];
-        if (first !== undefined) {
-          void openPath(first);
-        }
+      // A room that names a document should not leave a phone on a blank editor — but a document
+      // this window fetched only to save it is not one the person asked to look at.
+      const first = documentToAutoOpen(notice.documents, binding?.currentPath(), backgroundFetches);
+      if (first !== undefined) {
+        void openPath(first);
       }
       break;
     case 'peers':

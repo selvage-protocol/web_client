@@ -75,8 +75,15 @@ function makeElement(tag) {
       node.parentElement = element;
       return node;
     },
+    /** A real `appendChild` moves its node: this one does too, or a re-append would duplicate it. */
     appendChild: (node) => {
-      element.children.push(node);
+      const previous = node.parentElement;
+      if (previous !== undefined && previous !== element) {
+        previous.children = previous.children.filter((known) => known !== node);
+      }
+      if (!element.children.includes(node)) {
+        element.children.push(node);
+      }
       node.parentElement = element;
       return node;
     },
@@ -328,6 +335,26 @@ describe('what a row says about the room', () => {
     view.render();
     return rowFor(pane, 'main.rs');
   }
+
+  it('gains its `●` when the room picks the file up, with the listing unchanged', () => {
+    // The `●` is about the room's open set, and a path is in the listing from the grant alone: a
+    // document arriving can change the mark while the listing reads exactly the same.
+    const state = {
+      listing: ['main.rs'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    const built = pane.children[0];
+    state.inRoom = ['main.rs'];
+    state.textHere = ['main.rs'];
+    view.render();
+    assert.notEqual(pane.children[0], built, 'the room picking a file up redrew nothing');
+    assert.equal(withClass(rowFor(pane, 'main.rs'), 'in-room').textContent, '●');
+  });
 
   it('wears `●` when the room holds the file and this window has text for it', () => {
     const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'] });
@@ -613,7 +640,7 @@ describe('a row’s own actions', () => {
   });
 
   it('reports progress in the action’s own place and a sentence under the row', () => {
-    const { pane, view, calls } = downloadable();
+    const { pane, view, calls, state } = downloadable();
     view.render();
     withClass(pane, 'download').fire('click');
     assert.equal(calls.length, 1);
@@ -635,8 +662,44 @@ describe('a row’s own actions', () => {
     assert.match(String(note.children[0]), /still empty/);
     assert.equal(note.children.length, 2, 'the note drew no action');
     assert.equal(note.children[1].textContent, 'Try again');
+    // A redraw replaces the row, and the line and the progress are redrawn with it: a fetch that
+    // lands rebuilds the tree in the moment the person was meant to read what it cost.
+    feedback.busy('Fetching notes.md…');
+    state.listing = ['notes.md', 'app.ts'];
+    view.render();
+    assert.equal(allWithClass(pane, 'row-note').length, 1, 'the redraw took the row’s line with it');
+    // The listing was replaced, so the rows are new elements: the label is looked up by what it
+    // says, which is what a person reads off the control.
+    assert.ok(labelled(pane, 'Fetching notes.md…') !== undefined, 'the redraw took the row’s progress');
+    assert.ok(
+      labelled(pane, 'Fetching notes.md…').parentElement.classes.includes('busy'),
+      'the busy state is gone',
+    );
+    feedback.idle();
     feedback.clear();
     assert.equal(allWithClass(pane, 'row-note').length, 0, 'the note outlived its dismissal');
+  });
+
+  it('keeps its own words after a redraw, reachable through the line the row is showing', () => {
+    // A fetch that lands rebuilds the tree, and the `Try again` on the line the row was showing must
+    // still reach the row that is on screen: a control that writes into a thrown-away row is a button
+    // that does nothing at all.
+    const { pane, view, calls, state } = downloadable();
+    view.render();
+    withClass(pane, 'download').fire('click');
+    const first: RowFeedback = calls[0].feedback;
+    first.note('notes.md is still empty — the host has not sent its text yet.', [
+      { label: 'Try again', run: () => first.note('trying again') },
+    ]);
+    state.listing = ['notes.md', 'app.ts'];
+    view.render();
+    const retry = withClass(pane, 'row-note').children[1];
+    retry.fire('click');
+    // The line the second attempt writes is in the tree that is on screen, not in the old one.
+    assert.equal(allWithClass(pane, 'row-note').length, 1);
+    assert.equal(String(withClass(pane, 'row-note').children[0]), 'trying again');
+    first.clear();
+    assert.equal(allWithClass(pane, 'row-note').length, 0);
   });
 
   it('offers no download for a host’s file the room does not hold', () => {

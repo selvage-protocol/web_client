@@ -25,6 +25,15 @@ export interface RowChrome {
   unsaved: string;
   /** Whether the host is away and the grace is running (a guest's dimming). */
   hostAway: boolean;
+  /**
+   * What each row says about the room: its text is here, the room holds it, it reads empty.
+   *
+   * Part of the row chrome because the *listing* does not carry it. A path is in a listing from the
+   * grant alone, so a document arriving — which is what the `●` is about — can change every row on
+   * screen while the listing reads exactly the same, and a frame that redrew nothing would leave
+   * every mark stale.
+   */
+  marks: string;
 }
 
 export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
@@ -35,6 +44,7 @@ export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
     chrome.local,
     chrome.unsaved,
     chrome.hostAway ? '1' : '0',
+    chrome.marks,
     listing.join('\n'),
   ].join('\u0000');
 }

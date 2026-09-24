@@ -313,9 +313,12 @@ describe('what a phone cannot hover', () => {
     assert.match(group, /aria-label="Copy invite link"/, 'the control lost its accessible name');
   });
 
-  it('shows a dead roster verb’s reason as row text', () => {
-    assert.match(declarations(style, '#roster .why'), /display:\s*none/);
-    assert.match(declarations(mediaBlock(TOUCH_QUERY), '#roster .why'), /display:\s*block/);
+  it('says where a peer is in the row, for the finger that cannot hover it', () => {
+    // There is no dead verb left to explain: a peer with nothing open reads where they are, at every
+    // width and with no `title` behind it. What is pinned is the line's own style, which is text on
+    // screen rather than a tooltip.
+    assert.match(declarations(style, '#roster .waiting'), /color:\s*var\(--muted-foreground\)/);
+    assert.doesNotMatch(style, /#roster \.why/, 'a dead verb’s explanation is still in the shell');
   });
 
   it('carries a tap-revealed line for the peer a caret belongs to', () => {

@@ -302,6 +302,7 @@ describe('what a tree re-render reads', () => {
     local: '',
     unsaved: '',
     hostAway: false,
+    marks: 'src/main.ts:in-room\nsrc/lib.ts:',
   };
 
   it('is a function of the listing and the row chrome', () => {
@@ -319,6 +320,9 @@ describe('what a tree re-render reads', () => {
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, local: 'docs' }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, unsaved: 'src/main.ts' }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, hostAway: true }), key);
+    // A row's own mark is chrome too: the room picking a document up changes what every row says
+    // while the listing reads the same.
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, marks: 'src/main.ts:empty' }), key);
   });
 
   it('separates the row chrome from the listing', () => {

@@ -144,45 +144,69 @@ describe('roster rows', () => {
     assert.equal(calls.length, 0);
   });
 
-  it('Go to is unavailable while the peer is in no document, with the reason', () => {
+  it('offers no Go to while the peer is in no document, and says where they are', () => {
     const { list } = render([JO]);
-    const row = list.children.find((child) => child.classes.includes('peer'));
-    const buttons = [];
-    const walk = (element) => {
-      if (element.tag === 'button') buttons.push(element);
-      for (const child of element.children) walk(child);
-    };
-    walk(row);
-    assert.equal(buttons[0].disabled, true);
-    assert.ok(buttons[0].title.length > 0, 'a peer Go to is disabled with no reason');
+    const row = rowNamed(list, 'jo');
+    assert.equal(
+      buttonsIn(row).some((button) => /Go to/.test(textOf(button))),
+      false,
+      'a peer with no file open is offered a Go to that can only refuse',
+    );
+    assert.equal(
+      withClass(row, 'waiting')[0].textContent,
+      'not in a file yet',
+      'the row says nothing about where the peer is',
+    );
   });
 
-  it('keeps every disabled action reasoned, peer row and self row alike', () => {
-    const { list } = render([JO, SAM]);
+  it('has no dead control left in it at all', () => {
+    // Every disabled verb that used to sit here — the self row's Go to and Follow, a peer's Go to
+    // with no file open — is gone, with its reason: a control that can never work is clutter rather
+    // than honesty, and the row says the true thing in its place.
+    const { list } = render([JO, SAM, { ...SAM, peerId: 'peer-bo', displayName: 'bo', path: undefined }]);
     const dead = [];
     const walk = (element) => {
       if (element.tag === 'button' && element.disabled) dead.push(element);
       for (const child of element.children) walk(child);
     };
     walk(list);
-    assert.ok(dead.length > 0, 'nothing is disabled: the check covers nothing');
-    for (const button of dead) {
-      assert.ok(button.title.length > 0, `a disabled action names no reason: ${textOf(button)}`);
-    }
+    assert.deepEqual(dead.map((button) => textOf(button)), []);
+    // A followed peer's own control is the one disabled thing left, and it is a state rather than a
+    // verb: `Following` with nothing to press until the strip's own Stop.
+    const followed = render([SAM], { followedPeerId: 'peer-sam' });
+    assert.equal(
+      buttonsIn(rowNamed(followed.list, 'sam')).filter((button) => button.disabled).length,
+      1,
+    );
   });
 
-  it('says a dead verb’s reason in the row too, for the finger that cannot hover it', () => {
+  it('says where a peer is when the answer is nowhere, instead of a verb that explains', () => {
     const { list } = render([JO, SAM], { followedPeerId: 'peer-jo' });
     const reasons = [];
+    const waiting = [];
     const walk = (element) => {
       if (element.className === 'why') reasons.push(element.textContent);
+      if (element.className === 'waiting') waiting.push(element.textContent);
       for (const child of element.children) walk(child);
     };
     walk(list);
-    // The host's unavailable go-to: the same sentence its `title` carries, on screen for a phone
-    // (`#roster .why`). The self row used to add two of these for two verbs that could never work;
-    // it has one control now and nothing to explain.
-    assert.deepEqual(reasons, ['They have not opened a file yet.']);
+    // A peer with no file open reads `not in a file yet` in muted text; there is no Go to to press
+    // and nothing to explain on a phone. The self row's two dead verbs and their two lines went the
+    // same way: a control that can never work is clutter, not honesty.
+    assert.deepEqual(reasons, []);
+    assert.deepEqual(waiting, ['not in a file yet']);
+    const row = rowNamed(list, 'jo');
+    assert.equal(
+      buttonsIn(row).some((button) => /Go to/.test(textOf(button))),
+      false,
+      'a peer with no file open still offers Go to',
+    );
+    // One with a file open keeps the verb.
+    assert.equal(
+      buttonsIn(rowNamed(list, 'sam')).some((button) => /Go to/.test(textOf(button))),
+      true,
+      'a peer in a file lost Go to',
+    );
   });
 
   it('the self row is a roster row: swatch, name, a quiet (you), and the one verb it can act on', () => {

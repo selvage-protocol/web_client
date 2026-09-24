@@ -315,9 +315,12 @@
         border-color: transparent; color: var(--muted-foreground); }
       #roster .actions button:hover:not(:disabled) { background: var(--muted-hover);
         border-color: var(--border-strong); color: var(--foreground); }
-      /* A disabled verb's reason: a `title` on a pointer device, and this line —
-         which the `(any-hover: none)` block below unhides — on a finger. */
-      #roster .why { display: none; font-size: 0.8em; color: var(--muted-foreground); }
+      /* Where a peer is, when the answer is nowhere: a quiet line where Go to would stand, rather
+         than a disabled verb and a sentence explaining it. */
+      #roster .waiting { flex: none; font-size: 0.8em; color: var(--muted-foreground); }
+      /* The lone host's own line, under the row that says who they are. */
+      #roster li.alone { font-size: 0.85em; color: var(--muted-foreground); }
+      #roster li.alone .copy-invite { font-size: 0.8em; padding: 0.25em 0.5em; }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
          will appear. The kind is the button's, so the field carries no convention of its own — and
@@ -561,10 +564,9 @@
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
         #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
-        /* A disabled verb explains itself in its `title` on a pointer device;
-           a phone has no hover, so the row says it in words instead. */
+        /* A row that has to wrap does: the actions are always visible at this size, and a long
+           name takes the line it needs rather than pushing them off it. */
         #roster li { flex-wrap: wrap; }
-        #roster .why { display: block; flex-basis: 100%; }
         #alert, #peek {
           bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
         }

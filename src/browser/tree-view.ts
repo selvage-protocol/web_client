@@ -147,6 +147,25 @@ export class GrantTreeView {
   private draftPlaced = false;
   /** The create row's own list item, which is what moves as the name is typed. */
   private draftItem: HTMLElement | undefined;
+  /**
+   * The inline line a row is showing, by path.
+   *
+   * Kept here rather than only in the DOM because a redraw replaces every row: a fetch that lands
+   * rebuilds the tree (its text is in the room now), and a note that went with the old element would
+   * vanish in the moment the person was supposed to read it — the sentence about what fetching costs
+   * the room stands five seconds, and the fetch itself takes a few milliseconds.
+   */
+  private readonly notes = new Map<string, HTMLElement>();
+  /**
+   * The rows whose own work is running, with the tooltip that says what it is.
+   *
+   * Here for the same reason the notes are: a fetch that lands rebuilds the tree — its text is in
+   * the room now — and a spinner that went with the old element would vanish while the work it was
+   * reporting was still going on.
+   */
+  private readonly busy = new Map<string, string>();
+  /** The action element each row's download is drawn in, so a rebuild can put its state back. */
+  private readonly actionHosts = new Map<string, { wrap: HTMLElement; button: HTMLButtonElement }>();
 
   constructor(options: TreeViewOptions) {
     this.pane = options.pane;
@@ -169,6 +188,7 @@ export class GrantTreeView {
       local: this.local().join('\n'),
       unsaved: [...this.unsaved().keys()].join('\n'),
       hostAway: this.hostAway(),
+      marks: this.markKey(listing, current),
     });
     if (rows === this.drawnRows) {
       this.refreshBadges();
@@ -185,6 +205,10 @@ export class GrantTreeView {
     this.badges.clear();
     this.draft = undefined;
     this.draftRow = undefined;
+    this.draftItem = undefined;
+    this.notes.clear();
+    this.busy.clear();
+    this.actionHosts.clear();
     this.menu = undefined;
     this.pane.replaceChildren();
   }
@@ -312,6 +336,20 @@ export class GrantTreeView {
       root.appendChild(this.placeDraft());
     }
     this.pane.appendChild(root);
+    // A row's own line, and its own progress, are redrawn with the row they belong to.
+    for (const [path, note] of this.notes) {
+      const row = this.hosts.get(path)?.parentElement;
+      row?.parentElement?.appendChild(note);
+    }
+    for (const [path, label] of this.busy) {
+      const host = this.actionHosts.get(path);
+      if (host === undefined) {
+        continue;
+      }
+      host.wrap.classList.add('busy');
+      host.button.setAttribute('aria-label', label);
+      host.button.title = label;
+    }
     if (hadFocus && this.draftInput !== undefined) {
       this.draftInput.focus();
       if (caret?.[0] !== undefined && caret[0] !== null) {
@@ -520,6 +558,23 @@ export class GrantTreeView {
     return row;
   }
 
+  /**
+   * What every row's mark reads, as one string, so a mark that moves redraws the rows.
+   *
+   * The listing cannot carry this: a path is listed from the grant alone, so a document arriving —
+   * which is exactly what `●` is about — can change every mark on screen while the listing reads the
+   * same. Without it, a fetched file's row would never gain its dot.
+   */
+  private markKey(listing: readonly string[], current: string | undefined): string {
+    const paths = current === undefined || listing.includes(current) ? listing : [...listing, current];
+    return paths
+      .map((path) => {
+        const mark = this.markFor(path);
+        return mark.kind === 'none' ? `${path}:` : `${path}:${mark.kind}`;
+      })
+      .join('\n');
+  }
+
   /** What the room knows about a path, in the shape `roomMark` reads. */
   private markFor(path: string): ReturnType<typeof roomMark> {
     return roomMark({
@@ -549,36 +604,56 @@ export class GrantTreeView {
   private downloadChrome(path: string, name: string): HTMLElement {
     const wrap = document.createElement('span');
     wrap.className = 'row-actions';
-    const button = this.iconButton('download', `Download ${name}`, () => this.runDownload(path, wrap, button));
+    const button = this.iconButton('download', `Download ${name}`, () => this.runDownload(path));
     button.classList.add('download');
     wrap.appendChild(button);
+    this.actionHosts.set(path, { wrap, button });
     return wrap;
   }
 
-  private runDownload(path: string, wrap: HTMLElement, button: HTMLButtonElement): void {
-    const download = this.options.download;
-    if (download === undefined) {
-      return;
-    }
-    const item = wrap.parentElement;
-    let note: HTMLElement | undefined;
+  private runDownload(path: string): void {
+    this.options.download?.(path, this.rowFeedback(path));
+  }
+
+  /**
+   * What this row's own work says, resolved *by path* every time it is asked.
+   *
+   * Not by element: a fetch that lands rebuilds the tree, and a control reached after that — the
+   * `Try again` on the line the row is showing, say — would otherwise write its progress and its
+   * next sentence into the row a rebuild has already thrown away, and a person pressing it would
+   * see nothing happen at all. That was a real defect, found by the in-room driver.
+   */
+  private rowFeedback(path: string): RowFeedback {
     const label = `Download ${leafOf(path)}`;
-    const feedback: RowFeedback = {
+    const noteHost = (): Element | null | undefined =>
+      this.hosts.get(path)?.parentElement?.parentElement;
+    return {
       busy: (text) => {
-        wrap.classList.add('busy');
-        button.setAttribute('aria-label', text);
-        button.title = text;
+        this.busy.set(path, text);
+        const host = this.actionHosts.get(path);
+        if (host === undefined) {
+          return;
+        }
+        host.wrap.classList.add('busy');
+        host.button.setAttribute('aria-label', text);
+        host.button.title = text;
       },
       idle: () => {
-        wrap.classList.remove('busy');
-        button.setAttribute('aria-label', label);
-        button.title = label;
+        this.busy.delete(path);
+        const host = this.actionHosts.get(path);
+        if (host === undefined) {
+          return;
+        }
+        host.wrap.classList.remove('busy');
+        host.button.setAttribute('aria-label', label);
+        host.button.title = label;
       },
       note: (text, actions) => {
+        let note = this.notes.get(path);
         if (note === undefined) {
           note = document.createElement('p');
           note.className = 'row-note';
-          item?.appendChild(note);
+          this.notes.set(path, note);
         }
         note.replaceChildren(text);
         for (const action of actions ?? []) {
@@ -588,13 +663,14 @@ export class GrantTreeView {
           button.addEventListener('click', action.run);
           note.appendChild(button);
         }
+        noteHost()?.appendChild(note);
       },
       clear: () => {
+        const note = this.notes.get(path);
+        this.notes.delete(path);
         note?.remove();
-        note = undefined;
       },
     };
-    download(path, feedback);
   }
 
   /** One icon-only control of a row. */
