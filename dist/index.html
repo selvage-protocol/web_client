@@ -84,9 +84,52 @@
       input::placeholder { color: var(--placeholder); }
       #session { display: flex; gap: 0.9em; align-items: center; padding: 0.6em 1.1em;
         background: var(--card); border-bottom: 1px solid var(--border); }
-      #brand { display: inline-flex; align-items: center; gap: 0.5em; flex: none;
-        font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
-      #brand .mark { width: 1.6em; height: 1.6em; flex: none; }
+      /* The mark carries the brand and the words carry the one fact this bar has about *which*
+         session it is: whose room, or whose folder is exposed. A `Selvage` wordmark beside them
+         would be the brand twice and the fact never. */
+      #brand { display: inline-flex; align-items: center; gap: 0.5em; min-width: 0;
+        flex: 0 1 auto; font-weight: 650; letter-spacing: -0.01em; }
+      #brand .mark { width: 1.35em; height: 1.35em; flex: none; }
+      #session-identity { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* The dot is the glanceable half of health: green and wordless while the room is fine, amber
+         with its own name while the socket is re-dialling, red while the host is away and the grace
+         is running. The sentence with the countdown is the strip below. */
+      #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
+        font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
+      #health .dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex: none;
+        background: #a6e3a1; }
+      #health[data-health='reconnecting'] { color: var(--warning); }
+      #health[data-health='reconnecting'] .dot { background: var(--warning);
+        animation: health-pulse 1.4s ease-in-out infinite; }
+      #health[data-health='away'] { color: var(--danger); }
+      #health[data-health='away'] .dot { background: var(--danger); }
+      #health-label:empty { display: none; }
+      @keyframes health-pulse { 50% { opacity: 0.35; } }
+      @media (prefers-reduced-motion: reduce) {
+        #health[data-health='reconnecting'] .dot { animation: none; }
+      }
+      /* The way out: the one destructive thing in the bar, at its far right, with a border so it
+         reads as the button it is — and never anything to its right. */
+      #leave-wrap { position: relative; flex: none; margin-left: auto; display: flex; }
+      #leave { flex: none; background: none; border-color: var(--border-strong);
+        color: var(--danger); font-weight: 600; }
+      #leave:hover:not(:disabled) { background: rgba(243, 139, 168, 0.14);
+        border-color: var(--danger); color: var(--danger); }
+      /* The host's question, under the button that asked it: the two answers are one glance from
+         the question, which is the whole point of anchoring it here rather than saying it at the
+         far left of the bar. */
+      #leave-confirm { position: absolute; top: calc(100% + 0.5em); right: 0; z-index: 8;
+        width: max-content; max-width: min(22rem, calc(100vw - 2rem)); box-sizing: border-box;
+        padding: 0.8em 0.9em; background: var(--card); border: 1px solid var(--border-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow); }
+      #leave-question { margin: 0 0 0.7em; font-size: 0.9em; line-height: 1.45;
+        font-weight: 500; color: var(--foreground); }
+      #leave-confirm .confirm-actions { display: flex; gap: 0.5em; justify-content: flex-end; }
+      #leave-confirm .confirm-actions button { font-size: 0.85em; }
+      #leave-confirm .confirm-actions .danger { background: var(--danger);
+        border-color: var(--danger); color: #1e1e2e; font-weight: 700; }
+      #leave-confirm .confirm-actions .danger:hover:not(:disabled) { background: #f7a8bf;
+        border-color: #f7a8bf; }
       /* The owner's mark, whose pixels are in this document: a 104 px render of
          the master the site owns (`public/mark-transparent.png`, resampled by
          the same renderer the build's icons use), carried once and worn by the
@@ -185,22 +228,68 @@
         border-radius: var(--radius); box-shadow: var(--shadow); color: var(--foreground);
         font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #peek:empty { display: none; }
-      #follow-banner { display: flex; gap: 0.8em; align-items: center;
-        padding: 0.5em 1.1em; font-weight: 600; border-bottom: 3px solid;
-        color: var(--foreground); }
-      #follow-banner button { font-weight: normal; font-size: 0.9em; }
       #workspace { display: flex; flex: 1; min-height: 0; }
-      /* The phone's own way into the panel below: a touch-only browser has no
-         hover and no room for a permanent 42% of the screen, so the tree and
-         the roster live behind a disclosure control that exists only there. */
+      /* The panel and the editor, and the panel's own edge between them: 1 px drawn, a wider
+         invisible hit area, and the rail the panel becomes when it is shut. */
+      #side { width: 21rem; flex: none; overflow-y: auto; background: var(--card);
+        padding: 0.9em 0.7em 1.2em; container-type: inline-size; container-name: side; }
+      #side-resizer { position: relative; flex: none; width: 8px; margin-left: -4px;
+        cursor: col-resize; touch-action: none; background: none; }
+      #side-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3.5px;
+        width: 1px; background: var(--border); }
+      #side-resizer:hover::before, #side-resizer[data-dragging='true']::before,
+      #side-resizer:focus-visible::before { background: var(--primary); width: 2px; left: 3px; }
+      #side-resizer:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
+      #side-rail { display: none; }
+      #side-resizer[data-collapsed='true'] { width: 20px; margin-left: 0; cursor: default; }
+      #side-resizer[data-collapsed='true']::before { display: none; }
+      #side-resizer[data-collapsed='true'] #side-rail { display: flex; align-items: center;
+        justify-content: center; width: 100%; height: 100%; box-sizing: border-box;
+        background: var(--card); border-width: 0 1px 0 0; border-radius: 0;
+        color: var(--muted-foreground); padding: 0; }
+      #side-resizer[data-collapsed='true'] #side-rail:hover { color: var(--foreground);
+        background: var(--muted-hover); }
+      #pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+      /* The open file's one line. It is also the phone's disclosure, where the panel has no other
+         way to be reached and the row is the only thing on screen that says which file is open. */
+      #file-strip { display: flex; align-items: center; gap: 0.7em; flex: none;
+        padding: 0.4em 0.9em; background: var(--card); border-bottom: 1px solid var(--border);
+        font-size: 0.9em; min-height: 2.2em; }
+      #file-strip-path { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; color: var(--foreground); }
+      #file-strip-path .dir { color: var(--muted-foreground); }
+      #file-strip-path .leaf { font-weight: 700; }
+      #file-strip-path.none { color: var(--muted-foreground); }
+      #file-strip-chips { display: inline-flex; align-items: center; gap: 0.5em; flex: none;
+        font-size: 0.85em; color: var(--muted-foreground); }
+      #file-strip-chips .chip { border: 1px solid var(--border-strong); border-radius: 3px;
+        padding: 0 0.35em; white-space: nowrap; }
+      #file-strip-chips .chip.warn { color: var(--warning); border-color: var(--warning); }
+      #file-strip-chips .chip.room { border: none; padding: 0; }
+      #file-strip-follow { display: inline-flex; align-items: center; gap: 0.5em; min-width: 0;
+        font-weight: 600; border-radius: var(--radius); }
+      #file-strip-follow:empty { display: none; }
+      #file-strip-follow button { font-size: 0.85em; font-weight: normal; }
+      #file-strip .spacer { flex: 1 1 auto; }
+      #download { display: flex; align-items: center; justify-content: center; flex: none;
+        margin-left: auto; padding: 0.4em 0.6em; color: var(--muted-foreground); }
+      #download:hover:not(:disabled) { color: var(--foreground); }
       #panel-toggle { display: none; }
       #panel-toggle .chev { transition: transform 0.12s ease; }
       #panel-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
-      #side { width: 21rem; flex: none; overflow-y: auto; border-right: 1px solid var(--border);
-        background: var(--card); padding: 0.9em 0.7em 1.2em; }
       #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
         color: var(--muted-foreground); margin: 1.5em 0 0.5em; padding: 0 0.55em; }
       #side h2:first-child { margin-top: 0; }
+      /* The panel's second heading carries the two create verbs, always visible: the entry point to
+         making something is not something a person should have to hover to find. */
+      .panel-head { display: flex; align-items: center; justify-content: space-between;
+        gap: 0.5em; margin: 1.5em 0 0.5em; padding-right: 0.35em; }
+      .panel-head h2 { margin: 0; }
+      #shared-actions { display: inline-flex; gap: 0.25em; flex: none; }
+      #shared-actions button { padding: 0.25em; background: none; border-color: transparent;
+        color: var(--muted-foreground); }
+      #shared-actions button:hover:not(:disabled) { background: var(--muted-hover);
+        border-color: var(--border-strong); color: var(--foreground); }
       #roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2em; }
       #roster li { display: flex; gap: 0.5em; align-items: center; padding: 0.45em 0.55em;
         border-radius: var(--radius); }
@@ -230,17 +319,24 @@
          which the `(any-hover: none)` block below unhides — on a finger. */
       #roster .why { display: none; font-size: 0.8em; color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
-      /* The row a browser host creates a file or a directory with. It sits in the panel and not
-         inside the tree: the tree is the room's listing, which is files, so a directory only joins
-         it when a file is inside — a control drawn in the tree would go with the thing it makes.
-         The kind is the button's, so the name field carries no convention of its own. */
-      #new-entry { display: flex; flex-wrap: wrap; gap: 0.35em; align-items: center;
-        padding: 0 0.55em 0.5em; }
-      #new-name { flex: 1 1 7em; min-width: 0; font-size: 0.85em; padding: 0.35em 0.5em; }
-      #new-entry button { font-size: 0.8em; padding: 0.35em 0.6em; }
-      #new-message { flex: 1 1 100%; margin: 0; font-size: 0.8em; line-height: 1.45;
+      /* The editable row a browser host creates a file or a directory with, drawn where the entry
+         will appear. The kind is the button's, so the field carries no convention of its own — and
+         no placeholder: a greyed example reads as a filled value. */
+      #tree .new-row { list-style: none; margin: 2px 0; }
+      #tree .new-row-body { padding: 0 0.55em 0.4em; }
+      #tree .new-line { display: flex; align-items: center; gap: 0.3em; }
+      #tree .new-line .icon { color: var(--muted-foreground); flex: none; }
+      #tree .new-name { flex: 1 1 5em; min-width: 0; font-size: 0.85em; padding: 0.3em 0.45em; }
+      #tree .new-name.invalid { border-color: var(--danger); }
+      #tree .new-slash { flex: none; color: var(--muted-foreground); }
+      #tree .new-slash[hidden] { display: none; }
+      #tree .new-commit, #tree .new-cancel { flex: none; padding: 0.25em 0.4em;
+        background: none; color: var(--muted-foreground); }
+      #tree .new-commit:hover:not(:disabled) { color: #a6e3a1; border-color: var(--border-strong); }
+      #tree .new-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--border-strong); }
+      #tree .new-hint { margin: 0.3em 0 0; font-size: 0.78em; line-height: 1.4;
         color: var(--muted-foreground); }
-      #new-message:empty { display: none; }
+      #tree .new-line .icon.busy { animation: health-pulse 1.1s ease-in-out infinite; }
       #tree { margin: 0; padding: 0; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
       #tree > ul { padding-left: 0; }
@@ -260,13 +356,54 @@
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
-      #tree button.row .unpub { font-size: 0.68em; font-weight: 500; white-space: nowrap;
+      /* What the room knows about a row: its text is in the room (`●`), or the room holds it and
+         nothing has arrived (`empty`), or the folder refused a write to it (`⚠`). */
+      #tree button.row .in-room { color: #a6e3a1; font-size: 0.7em; flex: none; }
+      #tree button.row .empty-tag, #tree button.row .unsaved { font-size: 0.68em; font-weight: 500;
+        white-space: nowrap; color: var(--muted-foreground); border: 1px solid var(--border-strong);
+        border-radius: 3px; padding: 0 0.3em; flex: none; }
+      #tree button.row .unsaved { color: var(--warning); border-color: var(--warning); }
+      #tree button.row.away { opacity: 0.55; }
+      #tree summary .local { font-size: 0.68em; font-weight: 500; white-space: nowrap;
         color: var(--muted-foreground); border: 1px solid var(--border-strong);
-        border-radius: 3px; padding: 0 0.3em; }
+        border-radius: 3px; padding: 0 0.3em; margin-left: 0.4em; }
+      /* A row's own actions: out of the way of a pointer's reading, and always there for a finger. */
+      #tree .row-chrome { display: inline-flex; align-items: center; gap: 0.2em; margin-left: auto;
+        flex: none; }
+      #tree button.row .row-actions { display: inline-flex; align-items: center; flex: none;
+        margin-left: auto; }
+      #tree .icon-button { padding: 0.2em 0.3em; background: none; border-color: transparent;
+        color: var(--muted-foreground); }
+      #tree .icon-button:hover:not(:disabled) { background: var(--muted-hover);
+        border-color: var(--border-strong); color: var(--foreground); }
+      /* Revealed by a pointer's own hover or by the focus inside the row; on a touch device the
+         media query below shows them always, because there is no hover to reveal them with. */
+      #tree summary .icon-button, #tree button.row .row-actions { opacity: 0; }
+      #tree summary:hover .icon-button, #tree summary:focus-within .icon-button,
+      #tree button.row:hover .row-actions, #tree button.row:focus-within .row-actions,
+      #tree button.row .row-actions.busy { opacity: 1; }
+      #tree .row-actions.busy { color: var(--primary); }
+      #tree button.row .row-actions.busy .icon { animation: health-pulse 1.1s ease-in-out infinite; }
+      #tree li { position: relative; }
+      #tree .row-menu { position: absolute; right: 0.4em; top: 100%; z-index: 7;
+        display: flex; flex-direction: column; min-width: 11em; padding: 0.25em;
+        background: var(--card); border: 1px solid var(--border-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow); }
+      #tree .row-menu button { background: none; border-color: transparent; text-align: left;
+        justify-content: flex-start; font-size: 0.85em; }
+      #tree .row-menu button:hover { background: var(--muted-hover); border-color: var(--border-strong); }
+      /* A sentence that stands under the row it is about: a download that has not landed, and the
+         two things a person may do about it. */
+      #tree .row-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em;
+        margin: 0.2em 0 0.4em; padding: 0 0.55em; font-size: 0.78em; line-height: 1.45;
+        color: var(--muted-foreground); }
+      #tree .row-note button { font-size: 0.95em; padding: 0.2em 0.45em; }
       #tree .stale { color: var(--muted-foreground); font-size: 0.85em; padding: 0.5em 0.55em;
         margin: 0 0 0.5em; border-bottom: 1px solid var(--border); }
       #tree button.row:disabled { cursor: not-allowed; }
       #editor { flex: 1; min-height: 0; min-width: 0; }
+      #live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+        overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
       /* The editor the card stands over: a file tree beside the code the tree
          has open, in the page's own tokens. A picture, and nothing more: it
          takes no pointer, no cursor and no selection, and holds nothing a
@@ -365,15 +502,13 @@
       #host-share:empty { display: none; }
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
-      #download { display: flex; align-items: center; justify-content: center; flex: none;
-        padding: 0.4em 0.6em; color: var(--muted-foreground); }
-      #download:hover:not(:disabled) { color: var(--foreground); }
-      /* The leave control is quiet: it stands beside the share bar for the whole session and is
-         not what the bar is for. Its own words change when a host's press asks `leave.ts`. */
-      #leave { flex: none; background: none; border-color: transparent;
-        color: var(--muted-foreground); }
-      #leave:hover:not(:disabled) { background: var(--muted-hover);
-        border-color: var(--border-strong); color: var(--foreground); }
+      /* The panel's contents at a narrow width: the panel is the same panel, and its labels give
+         way to their tooltips rather than wrapping the tree out of its own column. */
+      @container side (max-width: 18rem) {
+        #roster .actions button { padding: 0.3em 0.45em; }
+        #roster .actions button .label { display: none; }
+        #tree button.row, #tree summary { padding-left: 0.35em; padding-right: 0.35em; }
+      }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
       @media (max-width: 640px) {
@@ -393,7 +528,7 @@
            and the border sat outside the 38% and the panel took 42%. The cap is
            60% because the panel is the disclosure a phone reads: at 38% a room
            with one other peer already pushed every file row below its own fold. */
-        #side { width: auto; border-right: none; border-bottom: 1px solid var(--border);
+        #side { width: auto !important; border-bottom: 1px solid var(--border);
           max-height: 60%; box-sizing: border-box; }
         #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
         /* Two panes do not fit behind a card at this width: the panel's own
@@ -413,12 +548,16 @@
            root is 14 px, so the fields' own `1rem` never cleared the floor.
            `#share` is a readonly field the clipboard fallback focuses, and it
            is visible wherever the phone sheet that hides it does not apply. */
-        #join input, #join-message, #share, #new-name, #roster .rename { font-size: 16px; }
+        #join input, #join-message, #share, #new-name, #tree .new-name, #roster .rename {
+          font-size: 16px; }
         /* 44 px is the smallest a fingertip is expected to hit. The floor is on
            the box, not on the content: `min-height` sits inside the padding
            otherwise, which rendered the copy strip 63 px tall. */
         button, summary, #tree button.row { min-height: 44px; }
-        #download { min-width: 44px; }
+        #shared-actions button { min-width: 44px; }
+        /* A touch device has no hover, so nothing a row holds back is reachable: the actions are
+           always drawn, and a directory's two-verb set is one visible `⋯`. */
+        #tree summary .icon-button, #tree button.row .row-actions { opacity: 1; }
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
         #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
@@ -433,9 +572,17 @@
       @media (any-hover: none) and (max-width: 640px) {
         /* The panel is a disclosure on a phone, not a permanent 42% cut: it is
            shut on join and a file open shuts it again (main.ts). */
-        #panel-toggle { display: flex; flex: none; width: 100%; justify-content: flex-start;
-          gap: 0.5em; padding: 0.5em 0.9em; background: var(--card); border-width: 0 0 1px;
-          border-radius: 0; font-weight: 600; color: var(--muted-foreground); }
+        /* Width is not a phone's business: no separator is drawn, and the panel is today's
+           full-width disclosure, opened from the file strip above the editor. */
+        #side-resizer { display: none; }
+        #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
+          box-sizing: border-box; }
+        #file-strip-path, #file-strip-path.none { font-weight: 600; color: var(--foreground); }
+        #download { display: none; }
+        #panel-toggle { display: flex; flex: none; align-items: center; justify-content: center;
+          gap: 0.4em; padding: 0 0.2em; background: none; border-color: transparent;
+          color: var(--muted-foreground); }
+        #panel-toggle:hover:not(:disabled) { border-color: transparent; background: none; }
         /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
            the top of the screen empty and stood over the non-commercial notice the demo appends
            under the page, so what a phone shows first is the thing to do and the notice below it
@@ -457,21 +604,36 @@
   <body>
     <div id="app">
       <div id="session" hidden>
-        <span id="brand"><span class="mark" aria-hidden="true"></span>Selvage</span>
+        <span id="brand"><span class="mark" aria-hidden="true"></span><span id="session-identity"></span></span>
         <div id="share-group" role="button" tabindex="0" aria-label="Copy invite link" title="Copy invite link">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg></span>
           <span class="share-label" aria-hidden="true">Copy invite link</span>
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
-        <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
+        <!-- The dot is the glanceable half of room health and the strip below is the sentence with
+             the countdown in it: a healthy room says nothing, and the two states that change what
+             typing means say their name where the connection is read. -->
+        <span id="health" data-health="ok" title="Connected">
+          <span class="dot" aria-hidden="true"></span><span id="health-label"></span>
+        </span>
         <!-- Leaving closes the tab without closing the tab: the session is dropped and the card
              comes back with a fresh link as the way in. A host's press asks first — its leaving
-             ends the room for everyone in it — and the two-step lives in `leave.ts`. -->
-        <button id="leave" type="button" aria-label="Leave the session"
-          title="Leave the session">Leave</button>
+             ends the room for everyone in it — and the question stands in the panel under its own
+             button, never at the other end of the bar (`leave.ts`). Nothing is ever placed to the
+             right of the control. -->
+        <div id="leave-wrap">
+          <button id="leave" type="button" aria-label="Leave the session"
+            aria-haspopup="dialog" aria-expanded="false" title="Leave the session">Leave</button>
+          <div id="leave-confirm" role="dialog" aria-label="Leaving ends the room" hidden>
+            <p id="leave-question"></p>
+            <div class="confirm-actions">
+              <button id="leave-cancel" type="button">Cancel</button>
+              <button id="leave-anyway" type="button" class="danger">Leave anyway</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="session-note" aria-live="polite"></div>
-      <div id="follow-banner" hidden></div>
       <!-- A picture of an editor for the card to stand over: none of it is
            real and nothing in it is reachable, so `inert` and `aria-hidden`
            between them keep a screen reader from reading a file tree that
@@ -601,28 +763,47 @@
         </div>
       </div>
       <div id="workspace" hidden>
-        <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="side">
-          <span class="icon chev" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span>Files and people
-        </button>
         <div id="side">
           <h2>People</h2>
           <ul id="roster"></ul>
-          <h2>Shared</h2>
-          <!-- A browser host may create a file or a directory in the folder it picked: a room's
-               shape is what that folder holds, so an empty one is otherwise a dead end. The
-               shell hides the row and the bundle reveals it to the window that holds the folder,
-               so a guest reads the sentence the empty tree carries instead. -->
-          <div id="new-entry" hidden>
-            <input id="new-name" type="text" autocomplete="off" spellcheck="false"
-              aria-label="Name for the new file or folder" placeholder="notes.md" />
-            <button id="new-file" type="button">New file</button>
-            <button id="new-folder" type="button">New folder</button>
-            <p id="new-message" role="alert"></p>
+          <div class="panel-head">
+            <h2>Shared</h2>
+            <!-- A browser host may create a file or a directory in the folder it picked: a room's
+                 shape is what that folder holds, so an empty one is otherwise a dead end. The two
+                 verb icons are revealed only to the window that holds the folder, and the row they
+                 open appears in the tree where the entry will be (`tree-view.ts`). -->
+            <span id="shared-actions" hidden>
+              <button id="new-file" type="button" aria-label="New file" title="New file"></button>
+              <button id="new-folder" type="button" aria-label="New folder" title="New folder"></button>
+            </span>
           </div>
           <div id="tree"></div>
         </div>
-        <div id="editor"></div>
+        <!-- The panel's own edge: 1 px drawn, 8 px hit area, a pointer's col-resize and a keyboard's
+             arrow keys. It is also where the panel goes when it is shut. A phone renders none of
+             it: width is not a thing a 390 px screen has room to negotiate (`sidebar.ts`). -->
+        <div id="side-resizer" role="separator" aria-orientation="vertical" tabindex="0"
+          aria-label="Resize the files and people panel" aria-valuemin="196" aria-valuemax="560"
+          aria-valuenow="294"><button id="side-rail" type="button" aria-label="Show files and people"
+          title="Show files and people"><span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></button></div>
+        <div id="pane">
+          <!-- The open file's whole state, in one line above the editor: which file, whether its
+               text is in the room, whether it is read-only, whether the folder refused the write,
+               who is being followed, and the way to save it. On a phone the same row is the panel's
+               own disclosure, which is what says which file is open when the panel is shut. -->
+          <div id="file-strip">
+            <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="side" hidden>
+              <span class="icon chev" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></span>
+            </button>
+            <span id="file-strip-path"></span>
+            <span id="file-strip-chips"></span>
+            <span id="file-strip-follow"></span>
+            <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
+          </div>
+          <div id="editor"></div>
+        </div>
       </div>
+      <div id="live" aria-live="polite"></div>
       <div id="peek" aria-live="polite"></div>
       <div id="alert" role="alert"></div>
     </div>

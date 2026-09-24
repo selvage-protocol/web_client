@@ -20,12 +20,13 @@ import { listingSource } from '../src/browser/relay.ts';
 import { grantLevels } from '../src/browser/tree.ts';
 import { grantUnion } from '../src/bridge/index.ts';
 import {
-  NEW_ENTRY_NEEDS_A_NAME,
+  checkNewEntry,
   createInFolder,
+  missingFolders,
+  newEntryHint,
   newEntryPath,
-  newFolderCreatedSentence,
-  wireNewEntry,
 } from '../src/browser/new-entry.ts';
+import type { NewEntryContext } from '../src/browser/new-entry.ts';
 
 const MAIN = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 const SHELL = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -323,147 +324,190 @@ describe('the create, from the page to the room', () => {
   });
 });
 
-describe('the row that asks for the name', () => {
-  it('creates a file from the typed name and clears the field', async () => {
-    const surface = makeRow();
-    const asked: Array<[string, string]> = [];
-    const row = wireNewEntry({
-      surface,
-      create: async (path, entry) => {
-        asked.push([path, entry]);
-        return undefined;
-      },
-    });
-    surface.name.value = ' notes.md ';
-    surface.file.fire('click');
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.deepEqual(asked, [['notes.md', 'file']]);
-    assert.equal(surface.name.value, '');
-    assert.equal(surface.message.textContent, '');
-    row.dispose();
-  });
 
-  it('creates a directory from the folder button, and says what the room learns', async () => {
-    const surface = makeRow();
-    const asked: Array<[string, string]> = [];
-    const row = wireNewEntry({
-      surface,
-      create: async (path, entry) => {
-        asked.push([path, entry]);
-        return newFolderCreatedSentence(path);
-      },
-    });
-    surface.name.value = 'docs';
-    surface.folder.fire('click');
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.deepEqual(asked, [['docs', 'directory']]);
-    assert.match(surface.message.textContent, /docs is in the folder/);
-    row.dispose();
-  });
+// -- the rules the create row applies as a person types ------------------------
 
-  it("shows a refusal's own sentence and leaves the name typed", async () => {
-    const surface = makeRow();
-    const row = wireNewEntry({
-      surface,
-      create: async () => '.env is not a path this room shares, so it was not created.',
-    });
-    surface.name.value = '.env';
-    surface.file.fire('click');
-    await Promise.resolve();
-    await Promise.resolve();
+/** A context with sensible defaults, so each test states only what it is about. */
+function context(overrides: Partial<NewEntryContext> = {}): NewEntryContext {
+  return {
+    kind: 'file',
+    raw: '',
+    parent: '',
+    room: 'demo-app',
+    listing: [],
+    localFolders: new Set<string>(),
+    ...overrides,
+  };
+}
+
+describe('the line under the field', () => {
+  it('says what Enter does and where the entry will land, at the root and in a directory', () => {
     assert.equal(
-      surface.message.textContent,
-      '.env is not a path this room shares, so it was not created.',
+      newEntryHint('file', '', 'demo-app'),
+      'Enter creates the file in demo-app · Esc cancels',
     );
-    assert.equal(surface.name.value, '.env', 'the refused name was cleared instead of kept');
-    row.dispose();
+    assert.equal(
+      newEntryHint('file', 'src', 'demo-app'),
+      'Enter creates the file in src/ · Esc cancels',
+    );
+    assert.equal(
+      newEntryHint('directory', 'src', 'demo-app'),
+      'Enter creates the folder in src/ · Esc cancels',
+    );
   });
 
-  it('asks for a name rather than creating one when the field is empty', async () => {
-    const surface = makeRow();
-    let asked = 0;
-    const row = wireNewEntry({
-      surface,
-      create: async () => {
-        asked += 1;
-        return undefined;
-      },
-    });
-    surface.name.value = '   ';
-    surface.file.fire('click');
-    await Promise.resolve();
-    assert.equal(asked, 0);
-    assert.equal(surface.message.textContent, NEW_ENTRY_NEEDS_A_NAME);
-    row.dispose();
-  });
-
-  it('runs the file action on Enter in the field, and steals the key from the form', () => {
-    const surface = makeRow();
-    const asked: Array<[string, string]> = [];
-    const row = wireNewEntry({
-      surface,
-      create: async (path, entry) => {
-        asked.push([path, entry]);
-        return undefined;
-      },
-    });
-    let prevented = 0;
-    surface.name.value = 'notes.md';
-    surface.name.fire('keydown', {
-      key: 'Enter',
-      preventDefault: () => void (prevented += 1),
-    });
-    assert.equal(prevented, 1);
-    assert.deepEqual(asked, [['notes.md', 'file']]);
-    row.dispose();
-  });
-
-  it('is hidden and emptied when the session it belonged to ends', () => {
-    const surface = makeRow();
-    const row = wireNewEntry({ surface, create: async () => undefined });
-    row.show(true);
-    assert.equal(surface.row.hidden, false);
-    surface.name.value = 'half-typed';
-    surface.message.textContent = 'a sentence';
-    row.reset();
-    row.show(false);
-    assert.equal(surface.row.hidden, true);
-    assert.equal(surface.name.value, '');
-    assert.equal(surface.message.textContent, '');
-    row.dispose();
+  it('is the instruction while the field is empty, and is not an error', () => {
+    const check = checkNewEntry(context());
+    assert.equal(check.line, 'Enter creates the file in demo-app · Esc cancels');
+    assert.equal(check.error, false);
+    assert.equal(check.path, undefined, 'an empty field would create something');
   });
 });
 
-describe('the page the row is wired into', () => {
-  // `main.ts` is the bundle's entry and reads the document as it loads, so what it wires is pinned
-  // by its own text, the way the page's other chrome is: the row is in the shell, it is shown to
-  // the window that holds a folder, and the act it drives is `createInFolder` with the page's own
-  // folder, listing and opener.
-  it('is in the shell, hidden, with every part the row wires', () => {
-    assert.match(SHELL, /id="new-entry" hidden/);
-    for (const id of ['new-entry', 'new-name', 'new-file', 'new-folder', 'new-message']) {
-      assert.ok(SHELL.includes(`id="${id}"`), `${id} is not in the shell`);
-    }
-    assert.match(MAIN, /wireNewEntry\(\{/);
-    for (const part of ['newEntryRow', 'newFileButton', 'newFolderButton', 'newFileName', 'newEntryMessage']) {
-      assert.ok(MAIN.includes(part), `${part} is not read from the shell`);
+describe('the live checks', () => {
+  it('refuses a name the room cannot share, in the grant rule’s own words', () => {
+    // The same rule the folder applies on commit (`isGrantedPath`), called rather than copied: a
+    // name the row takes is a name the folder takes.
+    for (const name of ['.env', 'a/../b', '/abs', 'src/.git/config']) {
+      const check = checkNewEntry(context({ raw: name }));
+      assert.equal(check.error, true, `${name} was accepted`);
+      assert.match(check.line, /is not a path this room shares\./, `wrong refusal for ${name}: ${check.line}`);
+      assert.equal(check.path, undefined);
     }
   });
 
-  it('is offered to the host that holds the folder, and taken down with the session', () => {
-    assert.match(MAIN, /newEntry\.show\(seat\.folder !== undefined\)/);
-    assert.match(MAIN, /canCreate: \(\) => hostFolder !== undefined/);
-    assert.match(MAIN, /newEntry\.show\(false\)/);
-    assert.match(MAIN, /newEntry\.reset\(\)/);
-    assert.match(MAIN, /hostFolder = undefined/);
+  it('refuses a format a room cannot carry, and names the alternative', () => {
+    const check = checkNewEntry(context({ raw: 'logo.png' }));
+    assert.equal(check.error, true);
+    assert.equal(check.line, 'logo.png declares a format a room cannot carry. Name a text file.');
+    // A directory named after a format is governed by the directory excludes alone: the binary
+    // rule is about files, which is the rule the folder itself applies.
+    assert.equal(checkNewEntry(context({ raw: 'assets.png', kind: 'directory' })).error, false);
+  });
+
+  it('refuses a name that is already in the folder, file or directory', () => {
+    const listing = ['README.md', 'src/main.ts'];
+    assert.equal(
+      checkNewEntry(context({ raw: 'README.md', listing })).line,
+      'README.md is already in the folder. Pick another name.',
+    );
+    // A directory is taken by any listed path that goes through it, which is the only way a listing
+    // of files can say a directory exists.
+    assert.equal(
+      checkNewEntry(context({ raw: 'src', kind: 'directory', listing })).line,
+      'src is already in the folder. Pick another name.',
+    );
+    // And by one this session made, which no listing carries.
+    assert.equal(
+      checkNewEntry(
+        context({ raw: 'docs', kind: 'directory', localFolders: new Set(['docs']) }),
+      ).line,
+      'docs is already in the folder. Pick another name.',
+    );
+  });
+
+  it('refuses a path that goes through a file', () => {
+    const check = checkNewEntry(context({ raw: 'main.rs/x', listing: ['main.rs'] }));
+    assert.equal(check.error, true);
+    assert.equal(check.line, 'main.rs is a file, not a folder.');
+  });
+
+  it('previews the directories a path will make, without calling it an error', () => {
+    const check = checkNewEntry(context({ raw: 'docs/intro.md' }));
+    assert.equal(check.error, false, 'making a directory was refused rather than previewed');
+    assert.equal(check.line, 'Also creates the folder docs/.');
+    assert.equal(check.path, 'docs/intro.md', 'the preview took the path away');
+    // Deeper paths say every folder they will make, outermost first.
+    assert.deepEqual(missingFolders('docs/api/intro.md', context()), ['docs', 'docs/api']);
+    assert.equal(
+      checkNewEntry(context({ raw: 'docs/api/intro.md' })).line,
+      'Also creates the folders docs/ and docs/api/.',
+    );
+    // A directory the listing already implies is not one of them.
+    assert.deepEqual(missingFolders('src/app/intro.md', context({ listing: ['src/main.ts'] })), [
+      'src/app',
+    ]);
+    // Nor is one this session made.
+    assert.deepEqual(
+      missingFolders('docs/intro.md', context({ localFolders: new Set(['docs']) })),
+      [],
+    );
+  });
+
+  it('is the instruction again as soon as the name is one the room can take', () => {
+    const check = checkNewEntry(context({ raw: 'notes.md', listing: ['README.md'] }));
+    assert.equal(check.error, false);
+    assert.equal(check.line, 'Enter creates the file in demo-app · Esc cancels');
+    assert.equal(check.path, 'notes.md');
+  });
+
+  it('trims, and reads a typed name inside a directory as a path below it', () => {
+    assert.equal(newEntryPath('  notes.md  '), 'notes.md');
+    assert.equal(newEntryPath('docs/'), 'docs');
+    const check = checkNewEntry(context({ raw: ' notes.md ', parent: 'src', listing: ['src/main.ts'] }));
+    assert.equal(check.path, 'src/notes.md');
+    assert.equal(checkNewEntry(context({ raw: 'main.ts', parent: 'src', listing: ['src/main.ts'] })).error, true);
+  });
+});
+
+describe('the create the page runs for the row', () => {
+  it('marks a create that landed but was not finished, rather than reporting it as missing', async () => {
+    // The row closes on this one, and the path wears the sentence: the entry *is* in the folder, so
+    // a field left open saying it was not created would be telling the person their file is gone.
+    const app = page(dirOf());
+    const outcome = await createInFolder(
+      {
+        folder: app.folder,
+        publish: async (paths) => void app.published.push([...paths]),
+        open: async (path) => void app.opened.push(path),
+      },
+      'docs/intro.md',
+      'file',
+    );
+    assert.equal(outcome.kind, 'created');
+    assert.equal((app.tree.children['docs'] as DirNode | undefined)?.kind, 'directory');
+    assert.equal(((app.tree.children['docs'] as DirNode).children['intro.md'] as FileNode).kind, 'file');
+    assert.deepEqual(app.published, [['docs/intro.md']]);
+    assert.deepEqual(app.opened, ['docs/intro.md']);
+  });
+
+  it('refuses a directory through a file the folder holds, at the folder’s own word', async () => {
+    const app = page(dirOf({ 'main.rs': { kind: 'file', text: 'fn main() {}', lastModified: 1 } }));
+    const outcome = await createInFolder(
+      { folder: app.folder, publish: async () => {}, open: async () => {} },
+      'main.rs/x',
+      'file',
+    );
+    assert.equal(outcome.kind === 'refused' ? outcome.cause : '', 'not-a-file');
+  });
+});
+
+describe('the page the row is drawn in', () => {
+  it('carries both create verbs, always visible, for the window that holds a folder', () => {
+    for (const id of ['shared-actions', 'new-file', 'new-folder']) {
+      assert.ok(SHELL.includes(`id="${id}"`), `${id} is not in the shell`);
+    }
+    assert.ok(!SHELL.includes('id="new-entry"'), 'the old standing field is still in the shell');
+    assert.ok(!SHELL.includes('id="new-message"'), 'the old refusal line is still in the shell');
+    assert.ok(!SHELL.includes('placeholder="notes.md"'), 'the greyed example is still in the shell');
+    assert.match(MAIN, /newFileButton\.addEventListener\('click'/, 'the new-file verb does nothing');
+    assert.match(MAIN, /newFolderButton\.addEventListener\('click'/, 'the new-folder verb does nothing');
+    assert.match(MAIN, /sharedActions\.hidden = seat\.folder === undefined/, 'a guest is offered a create');
+  });
+
+  it('opens the editable row in the tree, where the entry will appear', () => {
+    const view = readFileSync(new URL('../src/browser/tree-view.ts', import.meta.url), 'utf8');
+    assert.match(view, /beginCreate\(kind: NewEntryKind, parent: string\)/, 'the tree opens no create row');
+    assert.match(view, /placeDraft\(\)/, 'the row is drawn nowhere in the tree');
+    assert.match(view, /classList\.toggle\('invalid', check\.error\)/, 'a refusal is not shown on the field');
+    assert.match(view, /checkNewEntry\(context\)/, 'the row applies rules of its own');
   });
 
   it('makes the entry in the order the room learns it in', () => {
     assert.match(
       MAIN,
       /createInFolder\(\{ folder, publish: republishGrant, open: openPath \}, path, entry\)/,
+      'the create runs in another order',
     );
     // The listing source the room was sealed from moves before the room is told, so a state sealed
     // from it later cannot carry a listing the folder no longer has.
@@ -471,5 +515,13 @@ describe('the page the row is wired into', () => {
     const granted = MAIN.indexOf('await engine.grant(paths)');
     assert.ok(replaced > 0 && granted > 0, 'nothing republishes the listing');
     assert.ok(replaced < granted, 'the room was told before the source the state is sealed from');
+  });
+
+  it('remembers the empty folders it made, as this session’s own rows', () => {
+    // A room's listing is files, so an empty directory is in none: without this, the folder a host
+    // just made would vanish from the tree and the next create into it would be refused.
+    assert.match(MAIN, /madeFolders\.add\(path\)/, 'a made directory is not remembered');
+    assert.match(MAIN, /localFolders: \(\) => madeFolders/, 'the tree is told about no local folders');
+    assert.match(MAIN, /madeFolders\.clear\(\)/, 'a session’s folders outlive it');
   });
 });

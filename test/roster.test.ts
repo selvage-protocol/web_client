@@ -179,40 +179,44 @@ describe('roster rows', () => {
       for (const child of element.children) walk(child);
     };
     walk(list);
-    // The self row's two dead verbs, and the host's unavailable go-to: the same
-    // sentences the `titles` carry, on screen for a phone (`#roster .why`).
-    assert.deepEqual(reasons, [
-      'This is you.',
-      "You can't follow yourself.",
-      'They have not opened a file yet.',
-    ]);
+    // The host's unavailable go-to: the same sentence its `title` carries, on screen for a phone
+    // (`#roster .why`). The self row used to add two of these for two verbs that could never work;
+    // it has one control now and nothing to explain.
+    assert.deepEqual(reasons, ['They have not opened a file yet.']);
   });
 
-  it('the self row is a roster row: swatch, name, quiet you, reasoned actions', () => {
-    const { list } = render([SAM], { selfColour: '#cba6f7', onRename: () => {} });
+  it('the self row is a roster row: swatch, name, a quiet (you), and the one verb it can act on', () => {
+    const { list } = render([SAM], { selfColour: '#cba6f7', selfRole: 'host', onRename: () => {} });
     const self = list.children[0];
     assert.ok(self.classes.includes('self'), 'self row is not first');
     assert.ok(textOf(self).includes('me'), `own name missing: ${textOf(self)}`);
-    assert.ok(/you/i.test(textOf(self)), `you marker missing: ${textOf(self)}`);
+    // `Ada (you) · host`: the reviewer read `Ada you host` as a sentence. The parentheses and the
+    // separator say they are markers rather than words.
+    assert.match(textOf(self), /me\s*\(you\)/, `the you marker is not parenthesised: ${textOf(self)}`);
+    assert.match(textOf(self), /\(you\)\s*·\s*host/, `the markers run together: ${textOf(self)}`);
     const swatch = self.children.find((child) => child.className === 'swatch');
     assert.ok(swatch !== undefined, 'self row carries no swatch');
     assert.equal(swatch.style.backgroundColor, '#cba6f7');
-    const you = [];
-    const walkYou = (element) => {
-      if (element.className === 'you') you.push(element);
-      for (const child of element.children) walkYou(child);
-    };
-    walkYou(self);
-    assert.equal(you.length, 1);
-    // Go to and Follow are dead with their reasons; the row's own third verb — the one thing
-    // about this row a person can act on — is live.
+    // One control, and it works. Go to and Follow on this row were two dead verbs plus two lines
+    // explaining why: four elements saying what the row's own name already says.
     const buttons = buttonsIn(self);
-    assert.equal(buttons.length, 3);
-    for (const button of buttons.slice(0, 2)) {
-      assert.equal(button.disabled, true);
-      assert.ok(button.title.length > 0, 'a self action names no reason');
-    }
-    assert.equal(buttons[2].disabled, false, 'the rename control is dead');
+    assert.equal(buttons.length, 1, `the own row offers ${buttons.length} controls`);
+    assert.equal(buttons[0].disabled, false, 'the rename control is dead');
+  });
+
+  it('a lone host reads that it is alone, with the one act that changes it', () => {
+    const calls = [];
+    const { list } = render([], { onCopyInvite: () => void calls.push('copy') });
+    const alone = list.children[1];
+    assert.ok(alone !== undefined && alone.className === 'alone', 'nothing says the room is empty');
+    assert.match(textOf(alone), /No one else yet\./);
+    const button = buttonsIn(alone).find((candidate) => textOf(candidate).includes('Copy invite link'));
+    assert.ok(button !== undefined, 'the empty-room line has no way to invite anyone');
+    button.fire('click');
+    assert.deepEqual(calls, ['copy'], 'the invite control copies nothing');
+    assert.equal(textOf(button), 'Link copied', 'the copy confirms nothing in place');
+    // The line is for a room with nobody else in it, and it goes the moment somebody arrives.
+    assert.equal(render([SAM]).list.children.length, 2, 'the alone line stands beside a peer');
   });
 
   it('marks the host, and only the host', () => {
@@ -253,7 +257,7 @@ describe('roster rows', () => {
     // A page with no name to change draws no control rather than a dead one.
     assert.equal(
       buttonsIn(render([SAM]).list.children[0]).length,
-      2,
+      0,
       'a rename control is offered with no handler',
     );
   });

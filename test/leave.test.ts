@@ -25,7 +25,7 @@ import assert from 'node:assert/strict';
 import {
   HOST_LEAVE_QUESTION,
   LEAVE_ASKING_LABEL,
-  LEAVE_ASK_MS,
+  LEAVE_CANCEL_LABEL,
   LEAVE_LABEL,
   wireLeave,
 } from '../src/browser/leave.ts';
@@ -35,20 +35,66 @@ import { forgetJoinUrl } from '../src/browser/share.ts';
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 
-/** A control a test drives: the button's words, what was asked, and what was done. */
+/**
+ * A control a test drives: the panel's own DOM, small enough to hold in the hand. Everything the
+ * module touches is here — the panel's hidden flag, the question line, the two answers, focus, and
+ * the document the outside-press watch hangs on.
+ */
 function control(hosting: boolean) {
-  const timer: Array<() => void> = [];
   const seen: string[] = [];
-  const button = { textContent: LEAVE_LABEL };
+  const outside: Array<(event: unknown) => void> = [];
+  const make = (tag: string) => {
+    const element = {
+      tag,
+      textContent: '',
+      hidden: false,
+      focused: false,
+      children: [] as unknown[],
+      listeners: {} as Record<string, Array<(event: unknown) => void>>,
+      contains: (node: unknown) => node === element || element.children.includes(node),
+      appendChild: (node: unknown) => void element.children.push(node),
+      focus: () => void (element.focused = true),
+      addEventListener: (type: string, run: (event: unknown) => void) => {
+        (element.listeners[type] ??= []).push(run);
+      },
+      removeEventListener: (type: string, run: (event: unknown) => void) => {
+        element.listeners[type] = (element.listeners[type] ?? []).filter((known) => known !== run);
+      },
+      fire: (type: string, event: unknown = {}) => {
+        for (const run of element.listeners[type] ?? []) run(event);
+      },
+      ownerDocument: {
+        addEventListener: (type: string, run: (event: unknown) => void) => {
+          if (type === 'pointerdown') outside.push(run);
+        },
+        removeEventListener: () => {},
+      },
+    };
+    return element;
+  };
+  const panel = make('div');
+  const question = make('p');
+  const button = make('button');
+  const cancel = make('button');
+  const go = make('button');
+  // The panel is what holds its own question and the two answers, which is what makes a press on
+  // either of them a press inside the panel.
+  panel.append
+    ? undefined
+    : undefined;
+  panel.children.push(question, cancel, go);
   const leave = wireLeave({
     hosting: () => hosting,
-    button,
-    ask: () => void seen.push('asked'),
+    surface: {
+      panel: panel as unknown as HTMLElement,
+      question: question as unknown as HTMLElement,
+      button: button as unknown as HTMLElement,
+      cancel: cancel as unknown as HTMLButtonElement,
+      go: go as unknown as HTMLButtonElement,
+    },
     leave: () => void seen.push('left'),
-    schedule: (run) => void timer.push(run),
-    cancel: () => {},
   });
-  return { button, seen, timer, leave };
+  return { panel, question, button, cancel, go, seen, outside, leave };
 }
 
 describe('the way out of a session', () => {
@@ -56,8 +102,16 @@ describe('the way out of a session', () => {
     // `docs/studies/client-command-parity.md` §5, "Leave": `Leave the session`.
     assert.match(
       html,
-      /<button id="leave" type="button" aria-label="Leave the session"\s*\n?\s*title="Leave the session">Leave<\/button>/,
+      /<button id="leave" type="button" aria-label="Leave the session"[^>]*>Leave<\/button>/,
       'the chrome carries no leave control, or not in the clients’ own words',
+    );
+    // Its own border, and the destructive colour: the reviewer read the old borderless label as
+    // text rather than as the way out, and for a host this press ends the room for everyone.
+    const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    assert.match(
+      style,
+      /#leave \{[^}]*border-color: var\(--border-strong\)[^}]*color: var\(--danger\)/,
+      'the way out is still styled like a label',
     );
     assert.match(main, /getElementById\('leave'\)/, 'the page never reaches the control');
     assert.match(main, /leaveControl\.press\(\)/, 'the control is never pressed');
@@ -67,45 +121,84 @@ describe('the way out of a session', () => {
     const guest = control(false);
     guest.leave.press();
     assert.deepEqual(guest.seen, ['left'], 'a guest’s press asked a question');
-    assert.equal(guest.button.textContent, LEAVE_LABEL);
-    assert.equal(guest.timer.length, 0, 'a guest’s press armed an ask');
+    assert.equal(guest.panel.hidden, false, 'a guest’s press raised a panel');
+    assert.equal(guest.button.textContent, '', 'the control’s own words changed');
   });
 
-  it('asks a host first, and leaves on the press that answers', () => {
+  it('asks a host first, in a panel anchored under the control that asked', () => {
     const host = control(true);
     host.leave.press();
-    assert.deepEqual(host.seen, ['asked'], 'a host’s press ended the room without asking');
-    assert.equal(host.button.textContent, LEAVE_ASKING_LABEL, 'the control does not ask the question');
-    assert.equal(host.timer.length, 1, 'the ask stands for ever');
-    host.leave.press();
-    assert.deepEqual(host.seen, ['asked', 'left'], 'the answer did not leave');
-    assert.equal(host.button.textContent, LEAVE_LABEL, 'the control kept the answered words');
+    assert.deepEqual(host.seen, [], 'a host’s press ended the room without asking');
+    assert.equal(host.panel.hidden, false, 'the question went nowhere a person can see');
+    assert.equal(host.question.textContent, HOST_LEAVE_QUESTION, 'the panel asks something else');
+    assert.equal(host.go.textContent, LEAVE_ASKING_LABEL, 'the destructive answer lost its words');
+    assert.equal(host.cancel.textContent, LEAVE_CANCEL_LABEL, 'the quiet answer lost its words');
+    // Focus lands on the answer that does not end the room: a stray Return is never the destructive
+    // one, and a person reading the question is already in it.
+    assert.equal(host.cancel.focused, true, 'focus did not land on Cancel');
+    assert.equal(host.go.focused, false);
   });
 
-  it('takes the ask back when it goes unanswered', () => {
+  it('leaves on the answer that says so, and on nothing else', () => {
     const host = control(true);
     host.leave.press();
-    host.timer[0]?.();
-    assert.deepEqual(host.seen, ['asked'], 'an expired ask left the session');
-    assert.equal(host.button.textContent, LEAVE_LABEL, 'the ask stayed on the control for ever');
+    host.cancel.fire('click');
+    assert.deepEqual(host.seen, [], 'Cancel left the room');
+    assert.equal(host.panel.hidden, true, 'Cancel left the question up');
+    assert.equal(host.button.focused, true, 'Cancel dropped focus on the floor');
     host.leave.press();
-    assert.deepEqual(host.seen, ['asked', 'asked'], 'the ask could not be raised again');
+    host.go.fire('click');
+    assert.deepEqual(host.seen, ['left'], 'the answer did not leave');
+    assert.equal(host.panel.hidden, true, 'the panel outlived the answer');
   });
 
-  it('names what leaving costs, in the strip the page already keeps for the room', () => {
+  it('takes the question away on Escape, and on a press anywhere else', () => {
+    const host = control(true);
+    host.leave.press();
+    let prevented = 0;
+    host.panel.fire('keydown', { key: 'Escape', preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 1, 'Escape was left to the browser');
+    assert.equal(host.panel.hidden, true, 'Escape did not take the question away');
+    assert.deepEqual(host.seen, [], 'Escape left the room');
+    host.leave.press();
+    host.outside[0]?.({ target: { tagName: 'DIV' } });
+    assert.equal(host.panel.hidden, true, 'a press anywhere else left the question standing');
+    // A press inside the panel, or on the control itself, is not a press anywhere else.
+    host.leave.press();
+    host.outside[0]?.({ target: host.go });
+    assert.equal(host.panel.hidden, false, 'a press on the panel’s own answer dismissed it');
+    host.outside[0]?.({ target: host.button });
+    assert.equal(host.panel.hidden, false, 'a press on the control that asked dismissed it');
+  });
+
+  it('asks no timer: a slow reader’s answer is still there when they get to it', () => {
+    // The earlier two-step morphed the control’s words and reverted them after six seconds, so a
+    // person still reading the question pressed a button that had changed back under them.
+    const host = control(true);
+    host.leave.press();
+    assert.equal(host.leave.asking(), true);
+    host.leave.press();
+    assert.equal(host.leave.asking(), false, 'a second press on the control left the question up');
+    assert.deepEqual(host.seen, [], 'a second press on the control ended the room');
+  });
+
+  it('asks the question in the panel the page stands under the control', () => {
     assert.equal(
       HOST_LEAVE_QUESTION,
       'Leaving ends the room for everyone in it, and nothing in it is saved.',
     );
-    assert.ok(LEAVE_ASK_MS >= 4000, 'the question is gone before it can be read');
-    assert.match(
-      main,
-      /ask: \(\) => sessionNote\.say\(HOST_LEAVE_QUESTION, LEAVE_ASK_MS\)/,
-      'the question has no home on the page',
-    );
+    assert.match(main, /'leave-confirm'/, 'the question has no panel on the page');
+    assert.match(main, /surface: \{/, 'the control is wired to no surface');
     // The control asks about the folder this window holds, not about the role the room has
     // not necessarily given it yet.
     assert.match(main, /hosting: \(\) => hostFolder !== undefined/, 'the page asks the wrong side');
+    // The panel is anchored to the control, in the page’s own markup: the question and its two
+    // answers are one glance apart.
+    assert.match(
+      html,
+      /<div id="leave-wrap">[\s\S]*?<button id="leave"[\s\S]*?<div id="leave-confirm"[\s\S]*?id="leave-cancel"[\s\S]*?id="leave-anyway"/,
+      'the question and its answers are not one unit under the control',
+    );
   });
 
   it('ends the session in the desktop clients’ words, with the card’s own next step', () => {

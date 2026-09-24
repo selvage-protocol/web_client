@@ -120,7 +120,7 @@ describe('link privacy', () => {
     const states = /:(?:hover|focus|focus-visible|focus-within|active)\b|\[aria-pressed/;
     let readoutRules = 0;
     for (const [, selector = '', body = ''] of style.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      if (!/#share(?!-)/.test(selector)) continue;
+      if (!/#share(?![\w-])/.test(selector)) continue;
       readoutRules += 1;
       if (!states.test(selector)) continue;
       assert.ok(

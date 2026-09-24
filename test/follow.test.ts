@@ -309,7 +309,14 @@ describe('follow', () => {
     engine.__emit({ type: 'peersChanged', peers: [] });
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(binding.following(), undefined);
-    assert.ok(notices.some((notice) => notice.kind === 'status' && notice.text.includes('left the room')));
+    // The reason travels with the follow going down, because the segment that stated the follow is
+    // what just left the screen and nothing else says why.
+    assert.ok(
+      notices.some(
+        (notice) => notice.kind === 'follow' && notice.following === undefined && notice.ended === 'sam left the room, so following stopped.',
+      ),
+      `no reason for the follow ending in ${JSON.stringify(notices)}`,
+    );
     binding.dispose();
   });
 });

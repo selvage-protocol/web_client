@@ -36,6 +36,9 @@ export type IconName =
   | 'file-lua'
   | 'file-docker'
   | 'folder'
+  | 'folder-add'
+  | 'file-add'
+  | 'close'
   | 'chevron'
   | 'go'
   | 'follow'
@@ -43,7 +46,8 @@ export type IconName =
   | 'edit'
   | 'link'
   | 'check'
-  | 'download';
+  | 'download'
+  | 'ellipsis';
 
 const FILE_OUTLINE =
   '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/>';
@@ -129,6 +133,15 @@ const ICONS: Record<IconName, string> = {
   'file-ini': CONFIG_FILE,
   folder:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 4.5c0-.8.7-1.5 1.5-1.5h3l1.5 2H13c.8 0 1.5.7 1.5 1.5v5c0 .8-.7 1.5-1.5 1.5H3c-.8 0-1.5-.7-1.5-1.5z"/></svg>',
+  // The two create verbs of the tree's own header and directory rows: the kind's own outline with
+  // a plus in its lower right, so "make one of these" reads at 14 px without a label.
+  'file-add': `${OUTLINE_OPEN}${FILE_OUTLINE}<path d="M10 11.5h4M12 9.5v4"/>${OUTLINE_CLOSE}`,
+  'folder-add':
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 4.5c0-.8.7-1.5 1.5-1.5h3l1.5 2H12c.8 0 1.5.7 1.5 1.5v1"/><path d="M1.5 4.5V12c0 .8.7 1.5 1.5 1.5h5"/><path d="M12 9.5v5M9.5 12h5"/></svg>',
+  // The row's other way out. `stop` is the follow-stop cross; this is the same shape under the
+  // name a cancel control is read by.
+  close:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   chevron:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg>',
   go: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h11M9 4l4 4-4 4"/></svg>',
@@ -143,6 +156,9 @@ const ICONS: Record<IconName, string> = {
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8.5l3.5 3.5 7-8"/></svg>',
   download:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5"/><path d="M2 12.5v1.5h12v-1.5"/></svg>',
+  // The touch row's one disclosure: three dots, the platform's own word for "the rest of it".
+  ellipsis:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>',
   ...(Object.fromEntries(
     (Object.keys(TYPED_FILE_TYPES) as TypedFileIcon[]).map((name) => [name, typedFile(TYPED_FILE_TYPES[name])]),
   ) as Record<TypedFileIcon, string>),

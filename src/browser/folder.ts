@@ -40,8 +40,12 @@ import type { GrantRefusal, GrantedRead } from '../bridge/index.ts';
  * The platform handed to the shared exclusion rule: none. A browser knows neither the host
  * filesystem's case folding nor its separator conventions, and `isGrantedPath` reads an empty
  * platform as "unknown — fold", which excludes more rather than less.
+ *
+ * Exported because the create row's live checks apply the same rule before a commit does
+ * (`new-entry.ts`): a name refused while it is being typed and a name refused on commit have to
+ * be refused by one rule, or a row would promise a file the folder then declines.
  */
-const FOLDER_PLATFORM = '';
+export const FOLDER_PLATFORM = '';
 
 /**
  * How many entries a walk will look at before it stops. The path count is the listing's own
@@ -531,11 +535,16 @@ export class FolderWorkingCopy implements FolderWork {
    *
    * The path is walked one segment at a time, as every other operation here walks it: the shared
    * rule decides the name before anything is resolved, each segment the path goes through has to be
-   * a directory of the folder, and only the last segment is made — with the API's own create. A
-   * directory the path goes through is not created: a name typed into a directory the tree does not
-   * show is far more often a typo than an intention, and the refusal names the segment that is not
-   * there. (`GET /grant` publishes files, so a directory is published by the files inside it; a
-   * directory this makes joins the listing when the first file does.)
+   * a directory of the folder, and only the last segment is made — with the API's own create.
+   *
+   * `createDirectories` decides what a path through a directory that is not there means. On, the
+   * segments are made on the way down, which is what a file typed as `docs/intro.md` needs: a
+   * directory that holds nothing is in nobody's listing — a room's listing is files — so the
+   * ordinary way to add a folder to a room is to add a file inside it, and a page that refused the
+   * path would be asking for an act it offers no way to take. Off, the walk stops at the missing
+   * segment and refuses it (`missing`), which is the rule a name typed into the wrong folder is
+   * caught by. The row's own live check previews both cases, so a commit is never where a person
+   * first learns the folder will be made (`new-entry.ts`).
    *
    * A created file is stamped from its own read-back, and that is load-bearing: the write guard
    * refuses a path this page has no stamp for (`unread`), and a file this page has just made must
@@ -548,7 +557,11 @@ export class FolderWorkingCopy implements FolderWork {
    * A symbolic link is not a case here: Chromium answers `NotFoundError` for one (see `refusalOf`),
    * so a create over a link's name makes a plain file beside it.
    */
-  async create(path: string, entry: NewEntryKind): Promise<FolderCreate> {
+  async create(
+    path: string,
+    entry: NewEntryKind,
+    options: { createDirectories?: boolean } = {},
+  ): Promise<FolderCreate> {
     const refuse = (cause: FolderCreateRefusal): FolderCreate => ({
       kind: 'refused',
       cause,
@@ -560,7 +573,7 @@ export class FolderWorkingCopy implements FolderWork {
     if (entry === 'file' && isBinaryNamedPath(path)) {
       return refuse('binary');
     }
-    const dir = await this.directoryOf(path);
+    const dir = await this.directoryOf(path, options.createDirectories === true);
     if ('cause' in dir) {
       if (dir.cause === 'not-a-file') {
         return refuse('not-a-file');
@@ -645,15 +658,22 @@ export class FolderWorkingCopy implements FolderWork {
     }
   }
 
-  /** The directory holding `path`, walked one segment at a time from the picked folder. */
+  /**
+   * The directory holding `path`, walked one segment at a time from the picked folder.
+   *
+   * With `create`, a segment that is not there is made on the way down — that is the whole of the
+   * "a name may carry its own directories" rule — and a segment that is a file is still refused,
+   * because making one over it would be the replacement this module never does.
+   */
   private async directoryOf(
     path: string,
+    create = false,
   ): Promise<{ handle: FolderDirectoryHandle } | { cause: GrantRefusal }> {
     const segments = path.split('/');
     let dir: FolderDirectoryHandle = this.handle;
     for (let index = 0; index < segments.length - 1; index += 1) {
       try {
-        dir = await dir.getDirectoryHandle(segments[index] ?? '');
+        dir = await dir.getDirectoryHandle(segments[index] ?? '', create ? { create: true } : {});
       } catch (error: unknown) {
         return { cause: namedRefusal(error) };
       }
