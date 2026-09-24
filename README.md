@@ -290,7 +290,9 @@ seam is asynchronous for exactly this client's sake, since WebCrypto has no sync
 The page speaks both versions. A **join** takes the version its link names: `§5.1`'s fragment
 carries the room key and the host key, so a link with both is a `selvage/2` room and a link with
 neither — every link this page has handed on until now — is `selvage/1`, whatever the page is
-pinned to. A **host** takes the version the server seats (`§2`): the page reads `/meta` best effort
+pinned to. A link whose fragment names one key and not the other is a `selvage/2` link missing
+half of what it needs: it is refused on the card by the name of the missing key, before a socket,
+and never joined in the clear instead (`§5.1`). A **host** takes the version the server seats (`§2`): the page reads `/meta` best effort
 and mints the encrypted wire wherever the server offers it, refuses in the card's own voice where a
 reachable `/meta` offers no `selvage/2` — never falling back to a room the server can read — and
 attempts `selvage/2` where `/meta` could not be read at all, since an endpoint that did not answer
