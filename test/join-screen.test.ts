@@ -120,9 +120,9 @@ describe('join targets', () => {
   it('a pasted wire invite keeps working with extras, fragments and a second ?', () => {
     // Foreign params are ignored; a fragment or an appended `?debug=1` must
     // not glue into the token the way the address-bar `?debug=1` once did. The
-    // fragment itself is carried — it is `§5.1`'s fragment, which is how a
-    // version-2 invite names its two keys — and one that names neither leaves
-    // the join a version-1 one.
+    // fragment itself is carried — it is `§5.1`'s fragment, which is how an
+    // invite names its two keys, and what it names is read where the link is
+    // handed to the engine.
     for (const invite of [
       'ws://other:8080/session?room=r-1&token=tok&debug=1&foo=bar',
       'ws://other:8080/session?token=tok&room=r-1&utm_source=x',

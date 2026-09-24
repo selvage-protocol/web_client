@@ -89,7 +89,7 @@ function selvagedBinary() {
   throw new Error('no selvaged found; set SELVAGE_SELVAGED to one');
 }
 
-/** `selvaged` serving the built page and seating both versions, on an ephemeral loopback port. */
+/** `selvaged` serving the built page, on an ephemeral loopback port. */
 async function startServer() {
   const binary = selvagedBinary();
   const page = resolve(ROOT, 'dist');
@@ -419,7 +419,7 @@ async function main() {
   await chromium.navigate(pageLink);
     await joinFromTheCard(chromium, 'Bob');
     // The room's listing is the guest's to see; the document itself arrives when it is opened,
-    // which is the page's rule for both versions and not a version-2 one.
+    // which is the page's rule and not a wire version's.
     await openFromTheTree(chromium, PATH);
     const seen = await waitForPage(chromium, "the room's text to arrive", (text) => text.includes(SEED.trim()));
     log('the page holds', JSON.stringify(seen));

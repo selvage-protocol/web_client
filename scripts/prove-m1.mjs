@@ -345,7 +345,7 @@ await waitFor(
   // A re-seat re-announces this connection's holds on the renewal clock (`§13.7` renews the whole
   // set) and the host publishes the state that names them on its own, so a cut socket's room can
   // take up to two renewal periods to converge: 27.7 s measured here against a server whose
-  // `awareness_renew_ms` is 15 000, where the version-1 engine's server-side open set was instant.
+  // `awareness_renew_ms` is 15 000.
   45_000,
 );
 stop();

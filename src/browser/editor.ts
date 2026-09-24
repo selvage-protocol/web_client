@@ -86,9 +86,8 @@ export const SELECTION_INTERVAL_MS = 100;
 
 export interface BindingOptions {
   /**
-   * The seated room, whichever version it is: the version-1 engine class, or the version-2
-   * relay's. `RoomEngine` is what this binding asks of either, and `relay.ts` is where the two
-   * are made to answer the same questions.
+   * The room this binding drives. `RoomEngine` is what it asks of the engine, and `relay.ts` is
+   * where the page's own socket and crypto are wired into it.
    */
   engine: RoomEngine;
   editor: monaco.editor.IStandaloneCodeEditor;
