@@ -107,8 +107,9 @@ export async function joinRoom(invite: string, displayName: string): Promise<Roo
  * holds, so the room's set is not this connection's — and it is kept here because this adapter is
  * the only caller of `open` and `close`. `peers` is the room state's roster, which the session
  * already carries. `rename` is the bridge's own method passed straight through, and the page
- * keeps the name it is seated under itself: the room re-labels the seats it lists, and this
- * connection's seat is not one of them (`§5`).
+ * keeps the name it is seated under itself: §5 announces the change to the room, the connection
+ * that asked included, but only after the request has returned, so the row wears the new name
+ * before the engine's own copy of it does.
  *
  * Nothing here is a snapshot of the session. `§9.1`'s reconnect re-hellos and re-seats under a new
  * peer id *inside* the relay, over the same engine object, so every answer below is read from the
