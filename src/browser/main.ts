@@ -5,7 +5,7 @@ import { hostRoom, joinRoom, listingSource } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
-import type { BindingNotice, Following, Participant } from './editor.ts';
+import type { BindingNotice, Following, Participant, StatusTopic } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import {
   buildShareLink,
@@ -15,7 +15,7 @@ import {
   pageQueryParams,
   persistJoinUrl,
 } from './share.ts';
-import { MAX_DISPLAY_NAME_UNITS, fragmentOf } from './join.ts';
+import { MAX_DISPLAY_NAME_UNITS, INCOMPLETE_INVITE_SENTENCE, fragmentOf, inviteShortfall } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   cardIntentOf,
@@ -43,6 +43,7 @@ import type { NewEntryKind } from './folder.ts';
 import { createInFolder, newFolderCreatedSentence, wireNewEntry } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
+  HOST_GUESTS_NOTE,
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
   hostAvailability,
@@ -187,6 +188,7 @@ const downloadButton = document.getElementById('download') as HTMLButtonElement;
 const leaveButton = document.getElementById('leave') as HTMLButtonElement;
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
+const hostShare = document.getElementById('host-share') as HTMLElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
@@ -258,6 +260,7 @@ initJoinCard(
   params,
   window.localStorage,
 );
+reportIncompleteInvite();
 settleFocusWhenReady(nameInput);
 /** This browser's directory picker, if it has one: what a browser host needs and what a
  * Firefox or Safari page does not have. Read once, because it cannot change under a load. */
@@ -270,6 +273,38 @@ if (hostingNotice !== undefined) {
   joinMessage.hidden = false;
 }
 void offerHosting();
+
+/**
+ * A damaged invite is reported when the page loads, not after a name is typed and Join pressed.
+ *
+ * A chat app that truncates a link cuts the fragment first: it is the longest part of the link and
+ * it sits after the `#`, so the room and the token arrive whole while `§5.1`'s two keys do not. The
+ * guest, who did nothing wrong, used to meet the engine's own sentence about a 32-byte key only
+ * after filling the card in. The fragment is checked here against the link the join would dial, the
+ * card says what a person can act on — the link is incomplete and the host has to send it again —
+ * and the precise reason stays in the console (and on the card under `?debug=1`).
+ */
+function reportIncompleteInvite(): void {
+  if (cardIntent !== 'join') {
+    return;
+  }
+  let target: JoinTarget;
+  try {
+    target = resolveJoin(addressBarInvite(linkIsTheInvite, params), '', window.location.href);
+  } catch {
+    // A page whose own address names no server: the join attempt has its own words for that.
+    return;
+  }
+  const reason = inviteShortfall(target);
+  if (reason === undefined) {
+    return;
+  }
+  console.error(`[selvage] invite incomplete (${reason})`);
+  showJoinFailure(
+    { invitePath, joinError },
+    params.get('debug') === '1' ? `${INCOMPLETE_INVITE_SENTENCE} (${reason})` : INCOMPLETE_INVITE_SENTENCE,
+  );
+}
 
 /**
  * Offers the card its focus without ever forcing layout before the page loads
@@ -473,6 +508,19 @@ function attemptJoin(): void {
     joinButton.textContent = 'Join';
     return;
   }
+  // A pasted link can be as damaged as the one in the address bar: the same check, the same
+  // sentence, and the precise reason in the console rather than on the card.
+  const shortfall = inviteShortfall(held.figured);
+  if (shortfall !== undefined) {
+    console.error(`[selvage] invite incomplete (${shortfall})`);
+    showJoinFailure(
+      { invitePath, joinError },
+      params.get('debug') === '1' ? `${INCOMPLETE_INVITE_SENTENCE} (${shortfall})` : INCOMPLETE_INVITE_SENTENCE,
+    );
+    joinButton.disabled = false;
+    joinButton.textContent = 'Join';
+    return;
+  }
   const outcome = joinGate.request(() => {
     void runJoin(held);
   });
@@ -511,7 +559,7 @@ async function runJoin(held: HeldJoin): Promise<void> {
 }
 
 /** What the host button says, before and after an attempt. */
-const HOST_BUTTON_LABEL = 'Start a session here';
+const HOST_BUTTON_LABEL = 'Choose a folder to share';
 
 /**
  * The editor stack and the shared-text opener guard, both of which a join and a host need
@@ -820,12 +868,17 @@ async function offerHosting(): Promise<void> {
 }
 
 /**
- * Puts one read of the page's own origin on the card: the note beside the action, and whether
- * there is an action at all.
+ * Puts one read of the page's own origin on the card: the note beside the action, what choosing a
+ * folder shares, and whether there is an action at all.
+ *
+ * The warning is worded for the card it stands on: a guest's card offers the start action as the
+ * alternative under Join, so the tab warning there opens with that (`host.ts`), and a guest who
+ * never touches the button is not told about a tab that is not theirs.
  */
 function showHosting(picker: boolean, read: ServerRead): void {
-  const availability = hostAvailability({ picker, read });
+  const availability = hostAvailability({ picker, read, scope: cardIntent });
   hostWrap.hidden = false;
+  hostShare.textContent = availability.kind === 'explained' ? '' : HOST_GUESTS_NOTE;
   hostNote.textContent = availability.note;
   hostButton.hidden = availability.kind === 'explained';
 }
@@ -1227,6 +1280,21 @@ function leaveSession(sentence: string): void {
   inviteInput.focus();
 }
 
+/**
+ * The status sentences the page shows, by topic — the ones whose fact nothing else on the page
+ * states.
+ *
+ * The binding raises every topic and this is where the page decides. A follow's sentences repeat
+ * the follow banner that is on screen (who, and a Stop control) and the tree row and buffer that
+ * say where; the roster is where a peer's arrival and departure read; the role is the editor's own
+ * read-only state; and a room that is over comes back as the card carrying the room's own
+ * sentence. Showing those here would be the same fact twice, one copy of it chrome that appears
+ * and disappears. What is left is what has no other surface: the viewer's read-only line — which
+ * is the one the owner could not discover — a go-to the room could not answer, and what the room
+ * said about the session itself.
+ */
+const SHOWN_STATUS_TOPICS: ReadonlySet<StatusTopic> = new Set(['role', 'refusal', 'error']);
+
 function onNotice(notice: BindingNotice): void {
   // A landing moves the current path outside openPath: the tree highlight
   // follows it here, on every notice kind, so go-to and follow re-lands
@@ -1293,12 +1361,12 @@ function onNotice(notice: BindingNotice): void {
       sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
       break;
     case 'status':
-      // News about what someone just asked for or what the room just said about this
-      // connection: the sentence the editor raises when this window is a `viewer`, a go-to
-      // the room could not answer, a follow landing, a session error. The strip is the
-      // room's one line, so a later sentence replaces an earlier one and the room's own
+      // News with no other home, and never a second copy of a control: see `SHOWN_STATUS_TOPICS`.
+      // The strip holds one line, so a later sentence replaces an earlier one and the room's own
       // warning is not the news's to take down (`SessionNote.status`).
-      sessionNote.status(notice.text);
+      if (SHOWN_STATUS_TOPICS.has(notice.topic)) {
+        sessionNote.status(notice.text);
+      }
       break;
     case 'grant':
       syncGrant();

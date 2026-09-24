@@ -207,13 +207,15 @@ export interface SessionNote {
   /** Shows one sentence that stands `standMs` and then takes itself down. */
   say(text: string, standMs: number): void;
   /**
-   * Shows one sentence of news about what the person just asked for — a landing, the role this
-   * connection has, a go-to the room could not answer — for the one transient stand.
+   * Shows one sentence of news about what the person just asked for or what the room said about
+   * this connection — the role it seated here, a go-to the room could not answer, an error the
+   * room reported — for the one transient stand. The page shows only the topics nothing else on
+   * it states (`main.ts`, `SHOWN_STATUS_TOPICS`); a follow's own sentences are the banner's.
    *
    * The strip holds one line, so a later sentence replaces an earlier one and the two never
-   * stack, and the same sentence said again while it stands is nothing to do: a follow re-lands
-   * and re-says itself on every frame the peer moves, and writing that back would restart the
-   * clock and re-announce an unchanged line in a polite live region.
+   * stack, and the same sentence said again while it stands is nothing to do: a repeated line
+   * would restart the clock and re-announce, in a polite live region, words that have not
+   * changed.
    *
    * It yields to the room's own warning: the grace countdown and the dropped line are each
    * armed by a single event and nothing re-arms them, so a sentence that took the strip from

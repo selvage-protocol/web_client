@@ -412,7 +412,7 @@ describe('MonacoBinding', () => {
     assert.deepEqual(notices, [
       { kind: 'documents', documents: ['a.txt'] },
       { kind: 'peers', count: 1, names: ['sam'] },
-      { kind: 'status', text: 'room closed: host left' },
+      { kind: 'status', topic: 'terminal', text: 'room closed: host left' },
       { kind: 'roomGone', reason: 'host left' },
     ]);
     assert.equal(await binding.save('a.txt'), true);
@@ -448,7 +448,7 @@ describe('MonacoBinding', () => {
     engine.fire({ type: 'peersChanged', peers: [] });
     assert.equal(editor.readOnly, true, "a viewer's document is not editable");
     assert.deepEqual(said(), [
-      { kind: 'status', text: 'you are a viewer in this room, so its documents are read-only.' },
+      { kind: 'status', topic: 'role', text: 'you are a viewer in this room, so its documents are read-only.' },
     ]);
 
     // Every state after it says nothing new, and the editor is not re-optioned either.

@@ -34,9 +34,42 @@ export const HOST_MARK_KEY = 'selvage.hosting';
  * The countdown is the room's own grace (`DESIGN.md` §4.4), which the server states and a
  * desktop host has the same, so the sentence names the shape and not a number that would go
  * stale.
+ *
+ * A guest's card leads with Join, so the warning there is not about the room the person is
+ * joining: the one host action on that card is the alternative under Join, and the sentence has
+ * to say whose tab it is about before it says what closing that tab costs — see
+ * `hostWarningFor`.
  */
-export const HOST_TAB_WARNING =
+const HOST_TAB_WARNING_BODY =
   'This tab is the host. Close or reload it and the room ends: whoever is in it keeps editing while a short countdown runs, and then the room closes and nothing in it is saved.';
+
+/** The same warning as it stands on a page whose own action is the start. */
+export const HOST_TAB_WARNING = HOST_TAB_WARNING_BODY;
+
+/**
+ * What a person choosing a folder is agreeing to share, so the cost of the room is not the only
+ * thing the card says about it: a guest reads the names of what is in the folder and nothing
+ * else, and a file's text reaches the room only when somebody opens it (`DESIGN.md` §4.2).
+ */
+export const HOST_GUESTS_NOTE =
+  'Guests you invite see the file names in the folder you share; a file\u2019s text is sent only when someone opens it.';
+
+/**
+ * Which of the card's two intents the host action stands on: the bare page where it leads, or the
+ * guest's card where it is the quiet alternative to Join.
+ */
+export type HostNoteScope = 'start' | 'join';
+
+/**
+ * The tab warning, worded for the card it stands on. On a guest's card it opens with the action
+ * it belongs to, because the warning sits under the start button and a guest who never touches
+ * that button is reading about a tab that is not theirs.
+ */
+export function hostWarningFor(scope: HostNoteScope): string {
+  return scope === 'join'
+    ? `If you start your own session instead, ${HOST_TAB_WARNING_BODY.replace(/^This /, 'this ')}`
+    : HOST_TAB_WARNING;
+}
 
 /** Why the host action is not offered: this browser has no directory picker. */
 export const HOST_NEEDS_A_BROWSER =
@@ -66,9 +99,14 @@ export const HOST_NEEDS_THE_SERVERS_PAGE =
  * person is told what was not read and what the click does about it, and never the sentence that
  * belongs to a page that is not the server's.
  */
-export const HOST_UNREAD_NOTE =
-  'This page\u2019s own address has not answered /meta, so whether it is a Selvage server is not known yet \u2014 starting a session here asks it again and the handshake reports the truth. ' +
-  HOST_TAB_WARNING;
+export function hostUnreadNote(scope: HostNoteScope): string {
+  return (
+    'This page\u2019s own address has not answered /meta, so whether it is a Selvage server is not known yet \u2014 starting a session here asks it again and the handshake reports the truth. ' +
+    hostWarningFor(scope)
+  );
+}
+
+export const HOST_UNREAD_NOTE = hostUnreadNote('start');
 
 /** Marks this tab as hosting `roomId`, so a reload can say what it cost. */
 export function markHosting(storage: HostStorage, roomId: string): void {
@@ -141,6 +179,8 @@ export function hostAvailability(options: {
   picker: boolean;
   /** What the page's own origin answered when this card asked it (`meta-read.ts`). */
   read: ServerRead;
+  /** Which card the action stands on, so the warning beside it says whose tab it is about. */
+  scope: HostNoteScope;
 }): HostAvailability {
   if (!options.picker) {
     return { kind: 'explained', note: HOST_NEEDS_A_BROWSER };
@@ -149,7 +189,7 @@ export function hostAvailability(options: {
     return { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE };
   }
   if (options.read.kind === 'no-answer') {
-    return { kind: 'unchecked', note: HOST_UNREAD_NOTE };
+    return { kind: 'unchecked', note: hostUnreadNote(options.scope) };
   }
-  return { kind: 'offered', note: HOST_TAB_WARNING };
+  return { kind: 'offered', note: hostWarningFor(options.scope) };
 }

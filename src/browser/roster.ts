@@ -78,6 +78,10 @@ export interface RosterView {
  */
 const RENAME_LABEL = 'Set the name other participants see';
 
+/** What the edit's two visible ways out are called, in the row's own words. */
+const RENAME_SAVE_LABEL = 'Set this name';
+const RENAME_CANCEL_LABEL = 'Leave the name as it is';
+
 /**
  * What the field is called, in the words the join card already gives the same
  * question: one page, one way to ask a person what the room should call them.
@@ -158,15 +162,22 @@ function selfRow(view: RosterView): HTMLElement {
 }
 
 /**
- * The name the field is about, and the three ways out of it: Enter sends, and
- * Escape or leaving the field sends nothing. A blur cancels rather than
- * commits, so a click somewhere else cannot send a half-typed name — the
- * control that opened the field is one press away from opening it again.
+ * The name the field is about, and the five ways out of it.
  *
- * Both controls are reachable by keyboard and the field takes focus when it is
- * drawn: the edit was asked for by a press, so the person is in it already.
+ * Enter sends and Escape cancels, as they always did; the confirm and cancel controls beside the
+ * field are the visible pair for a person who does not already know the keys — a field that only
+ * answers Enter is an action with no button. Clicking outside the edit dismisses it exactly as
+ * Cancel does, sending nothing: a stray click must not commit a half-typed name, and the choice
+ * is no longer silent because Cancel stands in the field's own row. The dismissal is what a blur
+ * is, with one exception: focus moving to the edit's own two controls is not leaving it, so their
+ * press is not cancelled out from under them.
+ *
+ * Both controls are reachable by keyboard and the field takes focus when it is drawn: the edit was
+ * asked for by a press, so the person is in it already.
  */
-function nameField(rename: RosterRename): HTMLInputElement {
+function nameField(rename: RosterRename): HTMLElement {
+  const group = document.createElement('span');
+  group.className = 'rename-edit';
   const field = document.createElement('input');
   field.type = 'text';
   field.className = 'rename';
@@ -176,6 +187,31 @@ function nameField(rename: RosterRename): HTMLInputElement {
   field.title = NAME_FIELD_LABEL;
   field.spellcheck = false;
   field.autocomplete = 'off';
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'rename-save';
+  save.textContent = 'Save';
+  save.title = RENAME_SAVE_LABEL;
+  save.addEventListener('click', () => rename.commit(field.value));
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'rename-cancel';
+  cancel.textContent = 'Cancel';
+  cancel.title = RENAME_CANCEL_LABEL;
+  cancel.addEventListener('click', () => rename.cancel());
+  // Leaving the edit is a `focusout` on the whole group, not a `blur` on the field: focus can
+  // move from the field to Save or Cancel and only then outside, and a listener on the field
+  // alone would miss that and leave the edit open. Focus moving between the edit's own parts is
+  // not leaving it; a press on Save or Cancel is recorded on the way down as well, because a
+  // browser that does not focus a button on mousedown (Safari) reports no `relatedTarget` and
+  // the button's own click must still land rather than be cancelled out from under it. Anything
+  // else dismisses exactly as Cancel does.
+  let pressed = false;
+  for (const control of [save, cancel]) {
+    control.addEventListener('mousedown', () => {
+      pressed = true;
+    });
+  }
   field.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -187,9 +223,21 @@ function nameField(rename: RosterRename): HTMLInputElement {
       rename.cancel();
     }
   });
-  field.addEventListener('blur', () => rename.cancel());
+  group.addEventListener('focusout', (event: FocusEvent) => {
+    if (
+      pressed ||
+      event.relatedTarget === field ||
+      event.relatedTarget === save ||
+      event.relatedTarget === cancel
+    ) {
+      pressed = false;
+      return;
+    }
+    rename.cancel();
+  });
+  group.append(field, save, cancel);
   field.focus?.();
-  return field;
+  return group;
 }
 
 /**

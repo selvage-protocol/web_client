@@ -81,8 +81,12 @@ describe('what the address bar makes the card', () => {
   });
 
   it('each intent has its own sentence, and each sentence has one home', () => {
-    assert.equal((html.match(/Start a shared session/g) ?? []).length, 1, 'the start heading is repeated');
-    assert.equal((html.match(/Join a shared session/g) ?? []).length, 1, 'the join heading is repeated');
+    assert.equal((html.match(/Start a Selvage session/g) ?? []).length, 1, 'the start heading is repeated');
+    assert.equal((html.match(/Join a Selvage session/g) ?? []).length, 1, 'the join heading is repeated');
+    // The card's only other brand was the small `svp` mark, so a guest could not tell what they
+    // were joining; both headings name the product now.
+    assert.match(html, /<h1 id="start-heading">Start a Selvage session<\/h1>/);
+    assert.match(html, /<h1 id="join-heading" hidden>Join a Selvage session<\/h1>/);
   });
 });
 

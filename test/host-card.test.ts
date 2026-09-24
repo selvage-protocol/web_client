@@ -14,6 +14,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  HOST_GUESTS_NOTE,
   HOST_MARK_KEY,
   HOST_NEEDS_A_BROWSER,
   HOST_NEEDS_THE_SERVERS_PAGE,
@@ -21,6 +22,8 @@ import {
   HOST_UNREAD_NOTE,
   clearHostingMark,
   hostAvailability,
+  hostUnreadNote,
+  hostWarningFor,
   markHosting,
   takeHostingNotice,
 } from '../src/browser/host.ts';
@@ -31,6 +34,7 @@ import type { HostStorage } from '../src/browser/host.ts';
 import type { Meta } from '../src/engine/index.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 
 /** The slice of a source file between two markers, both of which have to be there. */
 function sliceBetween(text: string, from: string, to: string): string {
@@ -82,10 +86,23 @@ describe('the host action in the shell', () => {
     assert.ok(!form.includes('host-wrap'), 'the host action sits inside the join form');
   });
 
-  it('asks with the words the product line uses, and warns about the tab', () => {
-    assert.match(html, /Start a session here/, 'the button does not say what it does');
-    assert.match(HOST_TAB_WARNING, /reload/i, 'the warning does not mention a reload');
-    assert.match(HOST_TAB_WARNING, /ends|closes/i, 'the warning does not say the room ends');
+  it('asks for a folder by name, and says what a guest gets', () => {
+    assert.match(html, /Choose a folder to share/, 'the button does not say what it does');
+    // The button asks for a folder; the line under it says what sharing one means, so the
+    // warning about the tab is not the only thing the card says about the room.
+    assert.match(main, /HOST_BUTTON_LABEL = 'Choose a folder to share'/, 'the label the bundle puts back differs from the shell');
+    assert.match(HOST_GUESTS_NOTE, /file names/i, 'the card never says what a guest sees');
+    assert.match(HOST_GUESTS_NOTE, /only when someone opens it/i, 'the card implies the text is sent up front');
+    assert.match(main, /HOST_GUESTS_NOTE/, 'the sentence is not the one the card writes');
+    assert.match(main, /hostShare\.textContent = availability\.kind === 'explained' \? '' : HOST_GUESTS_NOTE/);
+  });
+
+  it("scopes the tab warning to the start action on a guest's card", () => {
+    // A guest who followed a link read "This tab is the host. Close or reload it and the room
+    // ends..." under the join, as if it were about the room they just entered. On that card the
+    // start action is the alternative under Join, and the warning says so.
+    assert.match(hostWarningFor('start'), /^This tab is the host/);
+    assert.match(hostWarningFor('join'), /^If you start your own session instead, this tab is the host/);
   });
 });
 
@@ -96,26 +113,31 @@ describe('whether the card offers to start a room', () => {
   const server = (meta: Meta): ServerRead => ({ kind: 'server', meta });
 
   it('offers it only where a folder can be picked and the page is the server', () => {
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta), scope: 'start' }), {
       kind: 'offered',
       note: HOST_TAB_WARNING,
+    });
+    // The same offer on a guest's card carries the warning that names the action it belongs to.
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta), scope: 'join' }), {
+      kind: 'offered',
+      note: hostWarningFor('join'),
     });
   });
 
   it('explains a browser that cannot hand over a folder, and says joining still works', () => {
-    const availability = hostAvailability({ picker: false, read: server(sealedMeta) });
+    const availability = hostAvailability({ picker: false, read: server(sealedMeta), scope: 'start' });
     assert.equal(availability.note, HOST_NEEDS_A_BROWSER);
     assert.equal(availability.kind, 'explained');
     assert.match(HOST_NEEDS_A_BROWSER, /Joining a room here still works/);
   });
 
   it("explains a page that is not the server's own page rather than guessing at one", () => {
-    const availability = hostAvailability({ picker: true, read: { kind: 'not-a-server' } });
+    const availability = hostAvailability({ picker: true, read: { kind: 'not-a-server' }, scope: 'start' });
     assert.deepEqual(availability, { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE });
     // A picker that cannot pick is the first answer either way: the /meta read is not worth
     // making where there is nothing to do with its answer.
     assert.equal(
-      hostAvailability({ picker: false, read: { kind: 'not-a-server' } }).kind,
+      hostAvailability({ picker: false, read: { kind: 'not-a-server' }, scope: 'start' }).kind,
       'explained',
     );
   });
@@ -124,9 +146,15 @@ describe('whether the card offers to start a room', () => {
     // M1: `/meta` is advisory (§2), so a deadline that passed is not an answer about this
     // origin. The offer stands with a note that says what was not read — the sentence for a
     // page that is not a Selvage server's is the one answer that would be untrue here.
-    const availability = hostAvailability({ picker: true, read: { kind: 'no-answer' } });
+    const availability = hostAvailability({ picker: true, read: { kind: 'no-answer' }, scope: 'start' });
     assert.equal(availability.kind, 'unchecked');
     assert.equal(availability.note, HOST_UNREAD_NOTE);
+    // On a guest's card the same note carries the scoped warning, so its own opening sentence
+    // stands unchanged and only the warning under it names the action it belongs to.
+    assert.equal(
+      hostAvailability({ picker: true, read: { kind: 'no-answer' }, scope: 'join' }).note,
+      hostUnreadNote('join'),
+    );
     assert.ok(
       !availability.note.includes(HOST_NEEDS_THE_SERVERS_PAGE),
       'a read that did not answer still says the page was not served by a Selvage server',
@@ -134,7 +162,7 @@ describe('whether the card offers to start a room', () => {
     assert.match(availability.note, /has not answered \/meta/);
     // A body that answered and is a Selvage server's is the offer, whatever it seats: there is
     // no version to decide and no control whose only outcome is a refusal.
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta), scope: 'start' }), {
       kind: 'offered',
       note: HOST_TAB_WARNING,
     });
@@ -142,8 +170,6 @@ describe('whether the card offers to start a room', () => {
 });
 
 describe('the card reads its own origin, and keeps the offer for an answer it did not get', () => {
-  const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-
   it('asks with the reader that tells no answer from an answer', () => {
     // `readServerMeta` (`meta-read.ts`) is the one read the offer rests on: a response that
     // arrived is an answer about this origin whatever it was, and a deadline that passed is not.

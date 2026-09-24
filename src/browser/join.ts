@@ -10,7 +10,7 @@
  * here touches the DOM; `main.ts` wires it to the card.
  */
 
-import { MAX_DISPLAY_NAME_UNITS, parseSessionUrl, sessionBase } from '../engine/index.ts';
+import { MAX_DISPLAY_NAME_UNITS, parseInvite, parseSessionUrl, sessionBase, sessionUrl } from '../engine/index.ts';
 import type { SessionBase } from '../engine/index.ts';
 
 import { parsePageLink } from './share.ts';
@@ -75,6 +75,31 @@ export interface JoinTarget {
    * form of the link named the room to the connection URL the engine dials.
    */
   fragment: string;
+}
+
+/**
+ * What a guest meets when the invite's fragment cannot be read as `§5.1`'s two keys.
+ *
+ * A chat app that truncates a link cuts the fragment first: it is the longest part of the link
+ * and it sits after the `#`, so the room and the token arrive whole while the keys do not. The
+ * engine's own reason for that is precise and unreadable ("`h` is not a 32-byte key in the
+ * fragment's encoding"), and it is kept for the console and `?debug=1`; this is the sentence the
+ * card reads, in the same register as the one a dead room gets.
+ */
+export const INCOMPLETE_INVITE_SENTENCE =
+  'That invite link is incomplete. Ask the host for a fresh link and retry.';
+
+/**
+ * Why the invite's fragment cannot be read as `§5.1`'s two keys, or `undefined` when it can.
+ *
+ * The check runs on the link the engine would dial — the same `sessionUrl` the join builds — so
+ * what the card refuses is what the socket would refuse, before a name is typed or a socket is
+ * opened. Only the fragment is decided here: `room` and `token` are the address bar's own test
+ * for the card's intent (`cardIntentOf`).
+ */
+export function inviteShortfall(target: JoinTarget): string | undefined {
+  const read = parseInvite(`${sessionUrl(target.base, target.room, target.token)}${target.fragment}`);
+  return read.ok ? undefined : read.reason;
 }
 
 /**
@@ -282,9 +307,9 @@ export function joinOnEnter(
 export interface CardIntentElements {
   /** The card itself, whose class tells the stylesheet which action leads. */
   pane: { className: string };
-  /** `Start a shared session`: the heading read on a page that starts one. */
+  /** `Start a Selvage session`: the heading read on a page that starts one. */
   startHeading: { hidden: boolean };
-  /** `Join a shared session`: the heading read on a page a link named. */
+  /** `Join a Selvage session`: the heading read on a page a link named. */
   joinHeading: { hidden: boolean };
   /** The invite path's disclosure: open is the paste box and Join being asked for. */
   invitePath: { open: boolean };

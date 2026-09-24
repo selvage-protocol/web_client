@@ -108,12 +108,27 @@ describe('no top-right copy sentence', () => {
 });
 
 describe('link privacy', () => {
-  it('the link is masked at rest and reads on hover or focus', () => {
+  it('the link is masked at rest and blurred in every state, hover and focus included', () => {
+    // The link *is* the room key: it belongs on the clipboard, not on a screen, so hover,
+    // focus, focus-visible, focus-within and active all leave the readout masked. A
+    // screen-share, a screenshot or someone standing behind the guest would defeat any state
+    // that revealed it. The words beside it are the affordance instead.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const style = styleOf(html);
     assert.ok(/#share\s*\{[^}]*color:\s*transparent/.test(style), 'the link reads in full at rest');
-    assert.ok(/#share-group:hover[^{]*#share/.test(style), 'hover never reveals the link');
-    assert.ok(/focus-within/.test(style), 'focus never reveals the link');
+    const states = /:(?:hover|focus|focus-visible|focus-within|active)\b|\[aria-pressed/;
+    let readoutRules = 0;
+    for (const [, selector = '', body = ''] of style.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/#share(?!-)/.test(selector)) continue;
+      readoutRules += 1;
+      if (!states.test(selector)) continue;
+      assert.ok(
+        !/color:|text-shadow:|filter:|opacity:|-webkit-text-security/.test(body),
+        `a state reveals the room key: ${selector.trim()} { ${body.trim()} }`,
+      );
+    }
+    // The scan reached the readout's own rules, so a clean result means something.
+    assert.ok(readoutRules > 0, 'the scan found no #share rule at all');
   });
 });
 
