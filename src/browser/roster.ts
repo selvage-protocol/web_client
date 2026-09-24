@@ -199,10 +199,13 @@ function nameField(rename: RosterRename): HTMLElement {
   cancel.textContent = 'Cancel';
   cancel.title = RENAME_CANCEL_LABEL;
   cancel.addEventListener('click', () => rename.cancel());
-  // A press on the edit's own controls is not leaving the edit. `relatedTarget` says so where
-  // the browser focuses the button on mousedown; where it does not (Safari reports none), the
-  // press is recorded on the way down, so the button's own click still lands instead of the
-  // edit being dismissed out from under it.
+  // Leaving the edit is a `focusout` on the whole group, not a `blur` on the field: focus can
+  // move from the field to Save or Cancel and only then outside, and a listener on the field
+  // alone would miss that and leave the edit open. Focus moving between the edit's own parts is
+  // not leaving it; a press on Save or Cancel is recorded on the way down as well, because a
+  // browser that does not focus a button on mousedown (Safari) reports no `relatedTarget` and
+  // the button's own click must still land rather than be cancelled out from under it. Anything
+  // else dismisses exactly as Cancel does.
   let pressed = false;
   for (const control of [save, cancel]) {
     control.addEventListener('mousedown', () => {
@@ -220,8 +223,13 @@ function nameField(rename: RosterRename): HTMLElement {
       rename.cancel();
     }
   });
-  field.addEventListener('blur', (event: FocusEvent) => {
-    if (pressed || event.relatedTarget === save || event.relatedTarget === cancel) {
+  group.addEventListener('focusout', (event: FocusEvent) => {
+    if (
+      pressed ||
+      event.relatedTarget === field ||
+      event.relatedTarget === save ||
+      event.relatedTarget === cancel
+    ) {
       pressed = false;
       return;
     }

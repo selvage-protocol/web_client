@@ -436,7 +436,7 @@
            is reachable by a short scroll. The bottom inset keeps the last row off the home
            indicator. */
         #join { top: max(0.75rem, env(safe-area-inset-top)); transform: translateX(-50%);
-          max-height: calc(100dvh - 1.5rem);
+          max-height: calc(100dvh - max(0.75rem, env(safe-area-inset-top)) - 0.75rem);
           padding-bottom: calc(1.3rem + env(safe-area-inset-bottom)); }
       }
       /* The reveal is a fade everywhere else; without motion it lands at once. */

@@ -23,6 +23,9 @@
  *   node scripts/tmp-inroom-review.mjs
  *   node scripts/tmp-inroom-review.mjs --footer
  *   SELVAGE_SELVAGED=/path/to/selvaged SELVAGE_CHROMIUM=/path/to/chromium node scripts/tmp-inroom-review.mjs
+ *
+ * Plain `node` strips the types of the `.ts` files this imports, which needs Node 22.18+ or
+ * 23.6+ (the suite's own floor); on an older 22.x add `--experimental-strip-types`.
  */
 
 import { spawn } from 'node:child_process';
@@ -40,7 +43,6 @@ const ROOT = resolve(import.meta.dirname, '..');
 const OUT = resolve(ROOT, '.tmp', 'inroom-review');
 const DESKTOP = { width: 1280, height: 900 };
 const PHONE = { width: 390, height: 844 };
-const PORT = 9345;
 const FOOTER = process.argv.includes('--footer') || process.env['SELVAGE_FOOTER'] === '1';
 
 function log(...parts) {
@@ -92,7 +94,7 @@ async function startServer() {
     throw new Error('dist/index.html is missing; run `npm run build` first');
   }
   const child = spawn(selvagedBinary(), ['--listen', '127.0.0.1:0', '--serve-page', page], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'inherit'],
   });
   const address = await new Promise((resolve_, reject) => {
     let stdout = '';
@@ -165,14 +167,20 @@ const FOOTER_INJECTION = `(() => {
 
 /** The smallest CDP driver this needs: one page, evaluate, screenshot, device metrics. */
 async function launchChromium() {
-  const tmp = process.env['SELVAGE_CHROMIUM_TMPDIR'] ?? '.tmp/chromium';
+  // Chromium's scratch: the named base directory is a *base*, and only this script's own
+  // subdirectory under it is ever removed, so an absolute `SELVAGE_CHROMIUM_TMPDIR` (or a shared
+  // one) cannot have its other contents deleted. The default stays relative: Chromium puts its
+  // process-singleton socket under `TMPDIR`, that path is bounded at about 108 bytes, and an
+  // absolute path under a worktree is past it (`prove-host-version.mjs` carries the long form).
+  const base = process.env['SELVAGE_CHROMIUM_TMPDIR'] ?? '.tmp';
+  const tmp = `${base}/inroom-chromium`;
   rmSync(resolve(ROOT, tmp), { recursive: true, force: true });
   mkdirSync(resolve(ROOT, tmp), { recursive: true });
   const profile = `${tmp}/profile`;
   const browser = spawn(
     chromiumBinary(),
     [
-      `--remote-debugging-port=${PORT}`,
+      '--remote-debugging-port=0',
       `--user-data-dir=${profile}`,
       '--headless=new',
       '--no-sandbox',
@@ -509,7 +517,7 @@ async function main() {
       const followShot = await page.shot('05-following-a-peer.png');
       log('wrote', followShot);
     } finally {
-      guest.dispose();
+      await guest.disconnect();
     }
 
     // The pill under a held hover: the room key must stay blurred, because it belongs on the
