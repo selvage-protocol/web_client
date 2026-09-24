@@ -30,12 +30,13 @@ import type { HostStore } from './host.ts';
 import { encodeKey, mintSessionKey } from './sealed.ts';
 import type { FrameCrypto } from './crypto.ts';
 import { webCrypto } from './crypto-web.ts';
-import { openSocket } from './transport.ts';
+import { MAX_INBOUND_MESSAGE_BYTES, openSocket } from './transport.ts';
 import type { OpenSocket, WebSocketFactory, WebSocketLike } from './transport.ts';
 import { ProtocolError } from './errors.ts';
 import { DEFAULT_RECONNECT, attemptsForGrace } from './reconnect.ts';
 import type { ReconnectPolicy } from './reconnect.ts';
-import { fetchMeta } from './meta.ts';
+import { fetchMeta, joinRefusal } from './meta.ts';
+import type { Meta } from './envelope.ts';
 import { sessionBase, parseSessionUrl, sessionUrl } from './urls.ts';
 import type { SessionBase } from './urls.ts';
 import type { AwarenessState, OffsetSelection, Presence, Selection } from './presence.ts';
@@ -329,10 +330,17 @@ export class RelaySession {
       throw new Error('the invite does not address a session endpoint');
     }
     this.invitePair = { roomId: invite.room, roomKey: invite.roomKey, hostKey: invite.hostKey };
-    // §9.1: the room's own grace is what the retry budget has to span, read the way the
-    // version-1 engine reads it. Best effort — an unreachable `/meta` decides nothing — and it
-    // is awaited so a drop immediately after the join still finds the budget in place.
-    await this.applyGrace(parsed.base, options);
+    // `/meta` is the one check that precedes a socket (§10). This invite names `selvage/2`, and
+    // a reachable `/meta` that seats no version at that major is refused here, before anything
+    // is dialled, and never fallen back from (§2). The same read is where §9.1's grace comes
+    // from, and it is awaited so a drop immediately after the join still finds the budget in
+    // place. An unreachable `/meta` decides neither: the handshake does.
+    const meta = await this.readMeta(parsed.base, options);
+    const refusal = joinRefusal(meta, parsed.base);
+    if (refusal !== undefined) {
+      throw new ProtocolError('unsupported_version', refusal);
+    }
+    this.applyGrace(meta);
     const info = await this.dial(options, parsed.base, invite.socketUrl, options.displayName);
     this.info = info;
     await this.seat(options, {
@@ -351,19 +359,9 @@ export class RelaySession {
    * reaped answers `room_unknown` — terminal — while a budget that gave up early would lose a
    * room that was still joinable.
    */
-  private async applyGrace(base: SessionBase, options: RelayOptions): Promise<void> {
+  private applyGrace(meta: Meta | undefined): void {
     // An explicit budget is the caller's, exactly as the version-1 engine reads it.
-    if (!this.reconnect.enabled || this.maxAttemptsGiven) {
-      return;
-    }
-    let meta;
-    try {
-      meta = await fetchMeta(
-        base,
-        options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl },
-      );
-    } catch {
-      // Unreachable or not JSON: not an answer about the room's grace.
+    if (meta === undefined || !this.reconnect.enabled || this.maxAttemptsGiven) {
       return;
     }
     const graceMs = numberField(meta.keepalive, 'room_grace_ms');
@@ -371,6 +369,18 @@ export class RelaySession {
       return;
     }
     this.retryBudget = Math.max(this.retryBudget, attemptsForGrace(graceMs, this.reconnect));
+  }
+
+  /** `GET /meta`, or `undefined` when it is unreachable or not JSON: no answer, not a refusal. */
+  private async readMeta(base: SessionBase, options: RelayOptions): Promise<Meta | undefined> {
+    try {
+      return await fetchMeta(
+        base,
+        options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl },
+      );
+    } catch {
+      return undefined;
+    }
   }
 
   /** Opens the socket, says `session.hello` at `selvage/2`, and waits to be seated. */
@@ -483,6 +493,8 @@ export class RelaySession {
       crypto: this.crypto,
       keepalive,
       ...(this.awarenessId === undefined ? {} : { awarenessClientId: this.awarenessId }),
+      // A live connection keeps no per-frame record: it would grow for the life of the session.
+      recordFrames: false,
     });
     if (session === undefined) {
       throw new Error('the session could not be built from the invite');
@@ -565,6 +577,14 @@ export class RelaySession {
 
   text(path: string): string {
     return this.session?.text(path) ?? '';
+  }
+
+  /**
+   * The paths whose text changed since the last call, or `undefined` when no session is seated
+   * to say, in which case a reader treats every path as changed.
+   */
+  takeTouched(): string[] | undefined {
+    return this.session?.takeTouched();
   }
 
   heldPaths(): string[] {
@@ -1020,6 +1040,15 @@ export class RelaySession {
   }
 
   private enqueue(frame: QueuedFrame): void {
+    if (this.inbox.length >= MAX_INBOX_FRAMES) {
+      // The socket delivers faster than the session verifies, and the queue is this client's
+      // own memory (§2.1: a client bounds what it holds). Past the bound the connection is
+      // dropped the way a transport bound drops it: what is queued goes, and the close is an
+      // ordinary drop, which a guest re-seats from (§9.1) and a host ends on.
+      this.inbox.length = 0;
+      this.socket?.close(1008, 'inbound queue full');
+      return;
+    }
     this.inbox.push(frame);
     void this.drain();
   }
@@ -1291,8 +1320,16 @@ function awarenessClientId(crypto: FrameCrypto): number {
   return (((bytes[0] ?? 0) << 24) | ((bytes[1] ?? 0) << 16) | ((bytes[2] ?? 0) << 8) | (bytes[3] ?? 0)) >>> 0;
 }
 
+/**
+ * The most frames a relay queues ahead of its session. Each frame is verified and opened in
+ * turn, asynchronously, so a sender faster than that builds a queue; a conforming server's own
+ * outbound queue is a few dozen frames (`PROTOCOL.md` §12), so this is far past any room that
+ * is keeping up, and only a flood reaches it.
+ */
+export const MAX_INBOX_FRAMES = 4096;
+
 function defaultFactory(url: string): WebSocketLike {
-  return new WebSocket(url) as unknown as WebSocketLike;
+  return new WebSocket(url, { maxPayload: MAX_INBOUND_MESSAGE_BYTES }) as unknown as WebSocketLike;
 }
 
 /**
