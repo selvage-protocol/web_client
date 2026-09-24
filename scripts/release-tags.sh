@@ -27,6 +27,15 @@ if [ -z "$version" ]; then
     exit 1
 fi
 
+# The version becomes an image tag and is spliced into the workflows' shell steps, so it is
+# held to the shape a release names before anything reads it: `MAJOR.MINOR.PATCH` with an
+# optional `-prerelease` of letters, digits, dots and hyphens. A pull request that edits
+# package.json is refused here rather than handing a quote or a `$(` to a `run:` block.
+if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    echo "package.json version $version is not MAJOR.MINOR.PATCH[-prerelease]" >&2
+    exit 1
+fi
+
 case "$ref" in
     v*)
         if [ "$ref" != "v$version" ]; then
