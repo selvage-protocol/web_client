@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { hostDecision, hostPin, listingSource, pageEngine, wireVersionOf } from '../src/browser/relay.ts';
+import { PeerEngine } from '../src/bridge/index.ts';
 import { buildShareLink, parsePageLink } from '../src/browser/share.ts';
 import { fragmentOf, resolveJoin } from '../src/browser/join.ts';
 import { parseSessionUrl, sessionUrl } from '../src/engine/urls.ts';
@@ -32,12 +33,41 @@ describe('the version a link asks for', () => {
     assert.equal(wireVersionOf(`https://edit.example/?room=r-1&token=tok${KEYS}`), 'selvage/2');
   });
 
-  it('a fragment that names one key, or neither, is not', () => {
+  it('a fragment that names neither key is not', () => {
     // `#x` is a fragment a page's own address can already carry, and it names no key: it must not
     // send a join to an engine that would then refuse the invite it was handed.
     assert.equal(wireVersionOf('ws://edit.example/session?room=r-1&token=tok#x'), 'selvage/1');
-    assert.equal(wireVersionOf('ws://edit.example/session?room=r-1&token=tok#k=AAAA'), 'selvage/1');
-    assert.equal(wireVersionOf('ws://edit.example/session?room=r-1&token=tok#h=BBBB'), 'selvage/1');
+  });
+
+  it('a fragment that names one key is a selvage/2 link, refused by the missing key, never joined in the clear', async () => {
+    // §5.1 and `specification/vectors/peer/157`: a half-copied fragment goes to the version-2
+    // engine, whose reading of the link refuses it locally and names what is missing — and not to
+    // the version-1 engine, which would seat the guest in a room the server reads.
+    // Well-formed 32-byte spellings, so what is refused is the missing key and nothing else.
+    const key = 'A'.repeat(43);
+    const onlyK = `ws://edit.example/session?room=r-1&token=tok#k=${key}`;
+    const onlyH = `ws://edit.example/session?room=r-1&token=tok#h=${key}`;
+    assert.equal(wireVersionOf(onlyK), 'selvage/2');
+    assert.equal(wireVersionOf(onlyH), 'selvage/2');
+    for (const [invite, missing] of [
+      [onlyK, /`h`/],
+      [onlyH, /`k`/],
+    ] as const) {
+      let dialled = false;
+      await assert.rejects(
+        () =>
+          PeerEngine.join({
+            invite,
+            displayName: 'Bob',
+            webSocketFactory: () => {
+              dialled = true;
+              throw new Error('the engine dialled a link it should have refused');
+            },
+          }),
+        missing,
+      );
+      assert.equal(dialled, false, 'the partial fragment was refused only after a socket');
+    }
   });
 
   it('a link with no fragment at all is the version every published client speaks', () => {

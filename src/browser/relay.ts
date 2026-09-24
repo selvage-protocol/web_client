@@ -56,6 +56,13 @@ export const WIRE_VERSION_2 = 'selvage/2';
  * The version a pasted invite asks for, from the one thing that says it: `§5.1`'s fragment, which
  * carries the room key and the host key. A `selvage/1` invite has none, and a server seats a
  * version-2 room only for a connection that can read one.
+ *
+ * A fragment that names **either** key is a `selvage/2` invite, whole or not. §5.1 has this client
+ * refuse one missing `k` or `h` locally, by the name of the missing key, before a socket — which
+ * is the version-2 engine's own reading of the link — and never join it as version 1: a half-copied
+ * link joined in the clear would seat the guest in a room the server reads
+ * (`specification/vectors/peer/157`). A fragment that names neither (`#x`) carries no key and is
+ * not a version-2 link. This is the VS Code client's rule too.
  */
 export function wireVersionOf(invite: string): 'selvage/1' | 'selvage/2' {
   const hash = invite.indexOf('#');
@@ -68,7 +75,7 @@ export function wireVersionOf(invite: string): 'selvage/1' | 'selvage/2' {
       .split('&')
       .map((part) => part.split('=')[0] ?? ''),
   );
-  return names.has('k') && names.has('h') ? 'selvage/2' : 'selvage/1';
+  return names.has('k') || names.has('h') ? 'selvage/2' : 'selvage/1';
 }
 
 /**
