@@ -67,7 +67,7 @@ export type BindingNotice =
 
 /**
  * What a status sentence is about. The binding raises all of them; the page decides which ones it
- * shows, because a sentence whose fact is already on screen — under a control, in the roster, or
+ * shows, because a sentence whose fact is already on screen — under a control, in a menu, or
  * as the card that came back — is a second reading of the same thing rather than news.
  *
  * - `role`: this connection is a `viewer` (`§13.9`), so its documents take no edit. The editor is
@@ -76,13 +76,13 @@ export type BindingNotice =
  *   is carried with the peer it is about (`peerId`) so the page can stand it where that press was
  *   made.
  * - `follow`: a follow landing and the end of a follow. The follow banner names who and offers
- *   Stop, the tree and the buffer show where, and the roster shows who left.
+ *   Stop, the tree and the buffer show where, and the faces show who left.
  * - `error`: what the room said about the session itself. Nothing else carries it.
  * - `terminal`: the room is over. The card comes back with the room's own sentence.
  */
 export type StatusTopic = 'role' | 'refusal' | 'follow' | 'error' | 'terminal';
 
-/** Another participant, as the roster draws one row. */
+/** Another participant, as the bar draws one face. */
 export interface Participant {
   peerId: string;
   displayName: string;
@@ -244,10 +244,10 @@ export class MonacoBinding implements EditorHost {
     });
     this.stops.push(() => selection.dispose());
     // The follow and the pending go-to re-resolve on every room event: a caret move
-    // and a document arrival both land, and membership changes refresh the roster.
+    // and a document arrival both land, and membership changes refresh the faces.
     this.stopEngine = this.engine.on((event) => {
       // The role is re-read on every event: a room state can change this connection's own role
-      // without moving the roster or the listing, and neither of those is where this window's
+      // without moving the faces or the listing, and neither of those is where this window's
       // role is read from. `applyEditability` skips a state that changes nothing.
       this.roomRole();
       switch (event.type) {
@@ -306,7 +306,7 @@ export class MonacoBinding implements EditorHost {
    * re-opened on every frame would answer its own open with the room event
    * that supersedes it, and follow could never land.
    */
-  /** Whether the room is over: the roster is empty, the editor read-only. */
+  /** Whether the room is over: the faces are empty, the editor read-only. */
   isTerminal(): boolean {
     return this.terminalReason !== undefined;
   }
@@ -400,7 +400,7 @@ export class MonacoBinding implements EditorHost {
     this.badgeStyle.remove();
   }
 
-  // -- roster, grant tree, follow --------------------------------------------
+  // -- the faces, the grant tree, the follow --------------------------------
 
   /**
    * The room's other participants, read at the moment it is asked for. A peer with
@@ -408,7 +408,7 @@ export class MonacoBinding implements EditorHost {
    * always a caret colour to look it up by.
    */
   participants(): Participant[] {
-    // Past the end nobody is here: the roster clears instead of lingering
+    // Past the end nobody is here: the faces clear instead of lingering
     // with live-looking actions.
     if (this.terminalReason !== undefined) {
       return [];

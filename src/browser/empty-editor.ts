@@ -62,7 +62,7 @@ export interface EmptyEditorFacts {
   folder: string;
   /** How many files the room's listing carries. */
   files: number;
-  /** The host's display name, for the guest's sentence; empty before the roster arrives. */
+  /** The host's display name, for the guest's sentence; empty before the room's people arrive. */
   hostName: string;
   /** This device has no hover, so the panel is a disclosure to be offered where it is shut. */
   phone: boolean;
@@ -130,7 +130,7 @@ function panelActs(facts: EmptyEditorFacts): readonly EmptyEditorAction[] {
   return facts.phone && !facts.panelOpen ? [BROWSE_ACTION] : [];
 }
 
-/** The host's name, or the role, which is all a page knows before the roster arrives. */
+/** The host's name, or the role, which is all a page knows before the room's people arrive. */
 function hostNameOf(facts: EmptyEditorFacts): string {
   const name = facts.hostName.trim();
   return name === '' ? 'The host' : name;
@@ -198,7 +198,7 @@ export function renderEmptyEditor(
         button.className = action === 'new-file' ? 'primary' : '';
         button.dataset.action = action;
         if (action === 'follow' || action === 'stop-follow') {
-          // The same toggle the roster draws, in both states: a control that becomes a toggle on
+          // The same toggle the menu draws, in both states: a control that becomes a toggle on
           // its press is announced as one before the press too.
           button.setAttribute('aria-pressed', action === 'stop-follow' ? 'true' : 'false');
         }
