@@ -428,7 +428,6 @@ export interface NameField {
     setAttribute(name: string, value: string): void;
     removeAttribute?(name: string): void;
     focus?(): void;
-    addEventListener?(type: string, listener: () => void): void;
   };
   /** The line the refusal is written in, beside the field. */
   error: { textContent: string };
