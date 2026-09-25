@@ -63,6 +63,14 @@ export interface RosterRename {
   commit(value: string): void;
   /** Escape, or leaving the field: nothing is sent. */
   cancel(): void;
+  /**
+   * The person left the field with a name of their own in it, so the edit stays open and nothing is
+   * sent — and the list, which was held still the whole time they were in it, is drawn now. Without
+   * this the rows the hold missed wait for the next presence frame, which may never come: measured
+   * on the review's own run, a peer's rename that landed while the field was open left the roster
+   * naming the peer it had renamed.
+   */
+  leftOpen(): void;
 }
 
 export interface RosterView {
@@ -310,7 +318,11 @@ function nameField(rename: RosterRename): HTMLElement {
     // on, or nothing at all — is dismissed, where there is nothing of theirs to keep.
     if (field.value.trim() === '' || field.value === rename.opened) {
       rename.cancel();
+      return;
     }
+    // The edit stays open. The list has been held for as long as the person was in the field, and
+    // nothing else is going to draw it: the presence frame that landed meanwhile was skipped.
+    rename.leftOpen();
   });
   group.append(field, save, cancel);
   // The edit was asked for by a press, so the field is where the person is. Asked for on a
@@ -325,16 +337,18 @@ function nameField(rename: RosterRename): HTMLElement {
 }
 
 /**
- * Whether an open own-name edit holds the list still, which it does only while the person is in its
- * field.
+ * Whether an open own-name edit holds the list still, which it does while the person is anywhere in
+ * it — the field, or the ✓ and ✕ beside it.
  *
- * A redraw of the roster replaces the row the field is in, so a list drawn under somebody typing
- * would take the caret with it — but an edit left open with their attention elsewhere is not being
- * typed into, and holding the rows still for it is how a peer's rename stopped appearing on the
- * roster while a field nobody was in stood open.
+ * A redraw of the roster replaces the row the edit is in, so a list drawn under somebody typing would
+ * take the caret with it, and one drawn out from under a focused ✓ unmounts the control they are
+ * about to press: `replaceChildren` removes it before keyboard activation, and the press lands on
+ * nothing. An edit left open with their attention elsewhere is neither, and holding the rows still
+ * for it is how a peer's rename stopped appearing on the roster while a field nobody was in stood
+ * open.
  */
 export function renameHoldsTheList(field: HTMLInputElement | undefined, active: Element | null): boolean {
-  return field !== undefined && field === active;
+  return field !== undefined && field.parentElement?.contains(active) === true;
 }
 
 /**

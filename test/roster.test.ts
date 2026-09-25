@@ -322,6 +322,7 @@ describe('roster rows', () => {
       fresh: true,
       commit: (value) => void events.push(['commit', value]),
       cancel: () => void events.push(['cancel']),
+      leftOpen: () => void events.push(['leftOpen']),
     };
     const { list } = render([], { selfName: 'me', onRename: () => {}, renaming });
     const self = list.children[0];
@@ -355,22 +356,22 @@ describe('roster rows', () => {
     assert.deepEqual(events, [['commit', 'ada'], ['cancel']], 'Escape does not drop the typed name');
     // A click outside the edit keeps what the person typed and leaves the edit open, which is the
     // rule the tree's create row already followed: the field holds a name the person typed, and a
-    // stray click is not an answer.
+    // stray click is not an answer. The edit staying open is also the page being told to draw the
+    // list it held while they were in it.
     group.fire('focusout', { relatedTarget: null });
-    assert.deepEqual(events, [['commit', 'ada'], ['cancel']], 'a click outside the edit threw the typed name away');
+    assert.deepEqual(events, [['commit', 'ada'], ['cancel'], ['leftOpen']],
+      'a click outside the edit threw the typed name away, or left the list it held undrawn');
     // A field they have put nothing of their own in closes instead, which is the same rule in the
     // create row — its field opens empty, so a stray click there closes it — and this one opening on
     // the name already in force is what used to leave an edit standing for ever, with the page
     // holding the roster still behind it. Counted, because the escape above already answered
     // `cancel`: an assertion on the last answer alone would pass with this rule removed.
-    const dismissed = events.length;
-    group.fire('focusout', { relatedTarget: null });
-    assert.equal(events.length, dismissed, 'a click outside the untouched field was answered');
     field.value = 'me';
     field.fire('input');
+    const dismissed = events.length;
     group.fire('focusout', { relatedTarget: null });
-    assert.equal(events.length, dismissed + 1, 'a stray click left the field open on the name it opened with');
     assert.deepEqual(events.at(-1), ['cancel'], 'the dismissal answered with something else');
+    assert.equal(events.length, dismissed + 1, 'a stray click left the field open on the name it opened with');
     field.value = '';
     field.fire('input');
     group.fire('focusout', { relatedTarget: null });
@@ -432,6 +433,7 @@ describe('roster rows', () => {
       fresh: true,
       commit: () => {},
       cancel: () => {},
+      leftOpen: () => {},
     };
     const opening = render([SAM], { selfName: 'me', renaming });
     const first = withClass(opening.list.children[0], 'rename')[0];
@@ -455,24 +457,66 @@ describe('roster rows', () => {
     assert.equal(field.focused, false, 'a redraw took focus out of whatever the person was in');
   });
 
-  it('holds the list still only while the person is in the field', () => {
+  it('draws the list it held the moment a typed edit is left open', async () => {
+    // CodeRabbit's first finding on this pass, and it is right: the hold skips the presence frame
+    // that lands while the person is in the field, and a frame is the only other thing that draws
+    // the list — so leaving a typed edit open used to wait for a frame that may never come, which is
+    // the same stale roster by a narrower door.
+    const events = [];
+    const renaming = {
+      opened: 'me',
+      value: 'me',
+      maxLength: 32,
+      fresh: true,
+      commit: () => void events.push(['commit']),
+      cancel: () => void events.push(['cancel']),
+      leftOpen: () => void events.push(['leftOpen']),
+    };
+    const { list } = render([SAM], { selfName: 'me', renaming });
+    const group = withClass(list.children[0], 'rename-edit')[0];
+    const field = withClass(list.children[0], 'rename')[0];
+    // Untouched: the edit closes, and nothing was held for it to draw.
+    group.fire('focusout', { relatedTarget: null });
+    assert.deepEqual(events, [['cancel']], 'an untouched field was left open instead of dismissed');
+    // Typed: the edit stays open, and the list the hold skipped is drawn now — whatever focus does
+    // in the browser between the field losing it and this handler running.
+    field.value = 'ada';
+    field.fire('input');
+    group.fire('focusout', { relatedTarget: null });
+    assert.deepEqual(events, [['cancel'], ['leftOpen']], 'the rows the hold missed wait for a frame that may never come');
+    // Pressing ✓ is not leaving the edit for this purpose: the button's own click answers it, so the
+    // handler must not act on the focus the press takes away.
+    const save = withClass(list.children[0], 'rename-save')[0];
+    const beforePress = events.length;
+    save.fire('mousedown');
+    group.fire('focusout', { relatedTarget: null });
+    assert.equal(events.length, beforePress, 'a mousedown on the ✓ drew or dismissed the edit instead of pressing it');
+  });
+
+  it('holds the list still while the person is anywhere in the edit, and only then', () => {
     // Measured on 0.4.5: the host opened Rename and clicked into the editor, so the field stayed
     // open; the guest then renamed itself to `Zed`, and the host's tree badge said `Zed` while the
     // roster still said the old name until the host dismissed the rename. The list is held for the
-    // cursor's sake and for nothing else, so an edit nobody is in holds nothing.
-    const field = { tag: 'input' };
+    // cursor's sake and for a focused control's, and for nothing else.
+    const save = { tag: 'button' };
+    const field = { tag: 'input', parentElement: { contains: (node) => node === field || node === save } };
     assert.equal(renameHoldsTheList(field, field), true, 'a redraw takes the field out from under the person typing in it');
+    assert.equal(renameHoldsTheList(field, save), true, 'a redraw unmounts the ✓ under the finger about to press it');
     assert.equal(renameHoldsTheList(field, null), false, 'the roster is held still for an edit nobody is in');
     assert.equal(renameHoldsTheList(field, { tag: 'div' }), false, 'focus somewhere else holds the list still');
     assert.equal(renameHoldsTheList(undefined, null), false, 'an edit with no field drawn yet holds the list');
     // And the page keeps the rule where the field is: the hold is asked with the field it holds and
-    // whatever has focus, and the draw the hold guards hands the field and the typed name back.
-    // There is no DOM here for the page, so this is the call site read as it stands.
+    // whatever has focus, the draw the hold guards hands the field and the typed name back, and an
+    // edit the person leaves with a name typed in it is drawn at once rather than waiting for the
+    // room's next presence frame. There is no DOM here for the page, so this is the call site read
+    // as it stands.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(main, /renameHoldsTheList\(renamingField, document\.activeElement\)/,
       'the page holds the list still for an edit nobody is in');
     assert.match(main, /renamingField = renaming\?\.field;/, 'the page does not keep the field it drew');
     assert.match(main, /value: typed \?\? renamingName/, 'a redraw does not put the name the person typed back');
+    assert.match(main, /leftOpen: \(\) => drawRoster\(binding\?\.participants\(\) \?\? \[\]\)/,
+      'leaving an edit open leaves the rows the hold missed undrawn');
   });
 
   it('peer colours stay on the swatch, data-driven', () => {

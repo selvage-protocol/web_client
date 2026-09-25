@@ -1380,6 +1380,11 @@ function drawRoster(participants: Participant[]): void {
           fresh: renamingField === undefined,
           commit: (value) => void commitRename(value),
           cancel: () => endRename(),
+          // The list was held for as long as the person was in the edit, and leaving it open with a
+          // typed name draws it now — nothing else will until the room's next presence frame. Drawn
+          // rather than re-checked: whether focus has already left by the time this runs is the
+          // browser's business, and the fact this callback carries is that the person has left.
+          leftOpen: () => drawRoster(binding?.participants() ?? []),
         };
   renderRoster(rosterList, participants, {
     followedPeerId: binding?.following()?.peerId,

@@ -218,6 +218,27 @@ describe('what a row says about the room', () => {
     binding.dispose();
   });
 
+  it('an open the room has not answered holds no text, whatever the editor is showing', async () => {
+    // B1's other half, at the layer the row's ⤓ reads its decision from. `openDocument` builds the
+    // model out of the engine's `text(path)`, and for a guest that text is `''` until the room
+    // answers — `open` takes a hold and returns. So the file is in front of the editor and empty,
+    // and the window still holds *nothing*: `hasText` is false, which is what tells a fetch from the
+    // person's own copy. The defect was that the row asked whether the document was in front of the
+    // editor instead of this, and saved the empty model as the file.
+    const texts = new Map();
+    const { binding, engine } = setup(texts, { held: ['notes.md'], grant: ['notes.md'] });
+    await binding.openDocument('notes.md');
+    assert.equal(binding.currentPath(), 'notes.md', 'the path is not the one in front of the editor');
+    assert.equal(binding.text('notes.md'), '', 'the model of an unanswered open is not empty');
+    assert.equal(binding.hasText('notes.md'), false, 'an unanswered open reads as the room’s answer');
+    // And when the room does answer it is the same path that holds it: the receipt is the document's
+    // arrival, not the open.
+    texts.set('notes.md', '# room notes\n');
+    assert.equal(binding.hasText('notes.md'), true, 'the arrival of the answer left the path unheld');
+    assert.equal(engine.text('notes.md'), '# room notes\n');
+    binding.dispose();
+  });
+
   it('`empty` is kept for text the room sent and which is empty', () => {
     assert.equal(EMPTY_FILE_TITLE, 'The file is empty.');
     assert.equal(EMPTY_IN_ROOM_TITLE, 'The room sent its text, and it is empty.');
