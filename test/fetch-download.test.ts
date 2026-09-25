@@ -18,7 +18,6 @@ import {
   FETCH_SETTLE_MS,
   FETCH_STAND_MS,
   canSaveAtOnce,
-  documentToAutoOpen,
   fetchAndSave,
   fetchCostsSentence,
   fetchFailedSentence,
@@ -241,24 +240,33 @@ describe('a path whose text has not been fetched', () => {
 });
 
 describe('what the fetch must not do', () => {
-  it('does not put the file it fetched in front of the editor', () => {
-    // A fetch is a background act: it is what puts a path in the room's open set, and the page's own
-    // rule — nothing is open here, so open the first document the room names — would otherwise switch
-    // the editor to the file the person only asked to save. The in-room driver caught exactly this.
-    const background = new Set(['src/main.rs']);
-    assert.equal(documentToAutoOpen(['src/main.rs'], undefined, background), undefined);
-    // A document that is in the room for somebody else's reason is still opened.
-    assert.equal(documentToAutoOpen(['README.md', 'src/main.rs'], undefined, background), 'README.md');
-    // And a window that already has a file open is left alone, whatever arrived.
-    assert.equal(documentToAutoOpen(['README.md'], 'notes.md', background), undefined);
-    // The page names every path it fetches, so this is the whole of the rule.
-    assert.match(
-      readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8'),
-      /backgroundFetches\.add\(candidate\)/,
-      'the page fetches without naming what it fetched',
-    );
+  it('never opens anything, and never moves the editor', () => {
+    // A fetch is a background act: it is what puts a path in the room's open set, and the page used
+    // to answer a changed set by opening the first document the room named. On a phone that is the
+    // defect the in-room driver photographed: a guest downloads a file it has never opened, the
+    // room's set moves, a *different* document opens, the panel collapses, and the row the person
+    // acted on — with its note and its actions — is inside the closed panel. Opening a file is the
+    // person's act; the one open the page makes for them is the room's own seat (`openFirst`).
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const documents = sliceBetween(main, "case 'documents':", "case 'peers':");
+    assert.ok(!/openPath\(/.test(documents), 'the room\u2019s set still opens a document by itself');
+    assert.ok(!/documentToAutoOpen/.test(main), 'the auto-open rule survives in the page');
+    assert.ok(!/backgroundFetches/.test(main), 'the page still names what it fetched behind the editor');
+    // And the fetch itself still asks without opening: `requestText` is the engine's open, which is
+    // what makes the room send the text, and it builds no model and touches no editor.
+    const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
+    assert.match(download, /binding\?\.requestText\(candidate\)/, 'the fetch stopped asking the room');
   });
 });
+
+/** The slice of a source file between two markers, both of which have to be there. */
+function sliceBetween(text: string, from: string, to: string): string {
+  const start = text.indexOf(from);
+  assert.ok(start !== -1, `no ${from} in the source`);
+  const end = text.indexOf(to, start);
+  assert.ok(end !== -1, `no ${to} after ${from} in the source`);
+  return text.slice(start, end);
+}
 
 describe('what the row says', () => {
   it('names the file while it waits, and names what opening it costs the room, once', () => {

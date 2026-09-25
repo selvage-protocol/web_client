@@ -61,7 +61,6 @@ import { GrantTreeView } from './tree-view.ts';
 import type { CreateResult, RowFeedback } from './tree-view.ts';
 import {
   canSaveAtOnce,
-  documentToAutoOpen,
   fetchAndSave,
   fetchCostsSentence,
   fetchingSentence,
@@ -491,15 +490,6 @@ let hostAway = false;
 let readOnly = false;
 /** Whether the cost of fetching has been said this session: it is said once. */
 let saidFetchCosts = false;
-/**
- * The paths this window fetched only to save them.
- *
- * A fetch is a background act — it must not change what the editor shows — but it *is* what puts a
- * path in the room's open set, and the rule that gives a phone a file to look at opens the first
- * document when nothing is open here. So the paths fetched behind the editor are named, and that
- * rule skips them (`documentToAutoOpen`).
- */
-const backgroundFetches = new Set<string>();
 
 /**
  * Creates a file or a directory in the folder this tab picked, and puts it in the room.
@@ -1702,10 +1692,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
   void fetchAndSave(path, {
     has: (candidate) => binding?.hasText(candidate) ?? false,
     text: here,
-    open: (candidate) => {
-      backgroundFetches.add(candidate);
-      return binding?.requestText(candidate) ?? Promise.resolve();
-    },
+    open: (candidate) => binding?.requestText(candidate) ?? Promise.resolve(),
     save: (candidate, text) => downloadDocument(candidate, text, downloadSink),
   }, { standMs: fetchStandMs(awarenessRenewMs()) })
     .then((outcome) => {
@@ -1880,7 +1867,6 @@ function leaveSession(sentence: string): void {
   hostAway = false;
   readOnly = false;
   saidFetchCosts = false;
-  backgroundFetches.clear();
   setHealth('ok');
   editorApi = undefined;
   desktopEditorOptions = undefined;
@@ -2030,14 +2016,12 @@ function onNotice(notice: BindingNotice): void {
       sessionNote.endDropped();
       setHealth(hostAway ? 'away' : 'ok');
       // The tree is the listing, so a changed set re-renders it here as well
-      // as on the grant event itself.
+      // as on the grant event itself. Nothing is opened: opening a file is the person's act, and
+      // the one open the page makes for them is the room's own seat (`openFirst`). A room that
+      // names a document arriving while this window is working must not take the editor — the
+      // download of a file this window has never opened is exactly that shape, and the row it was
+      // asked from, with its note and its actions, is inside the panel an open collapses.
       syncGrant();
-      // A room that names a document should not leave a phone on a blank editor — but a document
-      // this window fetched only to save it is not one the person asked to look at.
-      const first = documentToAutoOpen(notice.documents, binding?.currentPath(), backgroundFetches);
-      if (first !== undefined) {
-        void openPath(first);
-      }
       break;
     case 'peers':
       sessionNote.endDropped();

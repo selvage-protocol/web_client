@@ -194,30 +194,6 @@ export function canSaveAtOnce(text: string): boolean {
   return text !== '';
 }
 
-/**
- * Which document, if any, the page should put in front of the editor after the room's set moved.
- *
- * The rule that gives a phone a file to look at — nothing is open here, so open the first document
- * the room names — has to leave out the documents this window fetched only to save them. A fetch is
- * a background act by design ("without changing what the editor shows"), and it *is* what puts a path
- * in the room's set: a guest who downloads a row it has never opened would otherwise watch the
- * editor switch to the file it just asked to save, which is the opposite of what was asked for. The
- * first bug the in-room driver caught after the strip landed was exactly this.
- */
-export function documentToAutoOpen(
-  documents: readonly string[],
-  open: string | undefined,
-  background: ReadonlySet<string>,
-): string | undefined {
-  if (open !== undefined) {
-    return undefined;
-  }
-  return documents
-    .slice()
-    .sort()
-    .find((path) => !background.has(path));
-}
-
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
