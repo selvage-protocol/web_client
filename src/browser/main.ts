@@ -273,6 +273,11 @@ let binding: MonacoBinding | undefined;
  */
 function showPanel(open: boolean): void {
   sidePane.hidden = !open;
+  // On a phone the editor is out of the flow while the panel is open (the shell's own rule), and
+  // Monaco laid itself out against a box of nothing: closing the panel gives it a size again.
+  if (!open) {
+    editorApi?.layout();
+  }
   // On a phone the strip is the disclosure, so it is the element that carries the state; on a
   // pointer device it is a line of text and has no state to carry.
   if (phoneLayout.matches) {
@@ -1083,20 +1088,32 @@ function showHosting(picker: boolean, read: ServerRead): void {
   lastServerRead = read;
   const availability = hostAvailability({ picker, read });
   const offered = availability.kind !== 'explained';
-  hostWrap.hidden = false;
+  // A guest asked to join, and a page that cannot host has nothing to say to them: the four-line
+  // refusal that stood under Join was about an action this card is not offering, on the card of
+  // somebody who never asked for it. The quiet verb goes with it — a press that could only lead to
+  // a card with no action on it is worse than no verb — and what is left is the way in.
   if (cardIntent === 'join') {
+    hostWrap.hidden = !offered;
     hostQuiet.hidden = !offered;
     hostButton.hidden = true;
-    hostNote.textContent = offered ? '' : availability.note;
+    hostNote.textContent = '';
     hostShare.textContent = '';
     return;
   }
+  hostWrap.hidden = false;
   hostQuiet.hidden = true;
   hostNote.textContent = availability.note;
   hostButton.hidden = !offered;
   // What the folder gives away stands with the button that asks for it, and only there: the person
   // picking the folder is the only one who can act on it, and only before the click.
   hostShare.textContent = offered ? HOST_SHARE_NOTE : '';
+  // A page that cannot start a room leads with the way in it does have. The invite path opens —
+  // joining was behind a 11.9 px summary and a four-line refusal led the card — and Join takes the
+  // card's own action, because the one thing this card can do is the one thing it should offer.
+  joinPane.classList.toggle('no-host', !offered);
+  if (!offered) {
+    invitePath.open = true;
+  }
 }
 
 /**
@@ -1208,10 +1225,15 @@ const leaveControl = wireLeave({
     go: leaveAnyway,
   },
   leave: () => leaveSession(LEFT_SESSION_SENTENCE),
+  shortLabel: () => phoneLayout.matches,
 });
 leaveButton.addEventListener('click', () => {
   leaveControl.press();
 });
+// A phone's bar is one row per control: the host's four-word verb wraps it onto a third row and
+// costs 138 px of an 844 px screen. The consequence is not dropped — it is the accessible name, the
+// tooltip and the question the press asks in full — and the device can change under it.
+phoneLayout.addEventListener('change', () => leaveControl.showRole(hostFolder !== undefined));
 
 /**
  * The panel's edge and its width: remembered per browser, draggable, keyed, collapsible and
@@ -1242,12 +1264,22 @@ function applyStripRole(): void {
     fileStrip.removeAttribute('aria-controls');
     fileStrip.removeAttribute('aria-label');
     fileStrip.removeAttribute('aria-expanded');
+    stripDisclosure?.remove();
+    stripDisclosure = undefined;
     return;
   }
   fileStrip.setAttribute('role', 'button');
   fileStrip.setAttribute('tabindex', '0');
   fileStrip.setAttribute('aria-controls', 'side');
   fileStrip.setAttribute('aria-expanded', sidePane.hidden ? 'false' : 'true');
+  // The mark that says this line opens something. It is drawn here rather than in the shell so a
+  // pointer device never carries a control it has no use for, and it is a span inside the strip's
+  // own `role="button"`, never a button: a control within a control is one a finger cannot reach.
+  if (stripDisclosure === undefined) {
+    stripDisclosure = iconSpan('chevron');
+    stripDisclosure.classList.add('disclosure');
+    fileStrip.appendChild(stripDisclosure);
+  }
   // The name says the state as well as the act: on this width the strip is also the only thing that
   // names the file in the editor, so `Files and people` alone would throw away the fact it is there
   // for.
@@ -1259,6 +1291,8 @@ function applyStripRole(): void {
 }
 applyStripRole();
 phoneLayout.addEventListener('change', applyStripRole);
+/** The strip's own chevron, drawn on a phone and taken down anywhere else. */
+let stripDisclosure: HTMLElement | undefined;
 // The pane with no document in it offers the panel's own verb only on a device that needs it, so the
 // query moving is a redraw of it too.
 phoneLayout.addEventListener('change', () => syncEmptyEditor());
@@ -1596,6 +1630,10 @@ function syncStrip(): void {
       fileStripChips.appendChild(chip);
     }
   }
+  // The disclosure's own name says which file is open, and this is where that changes: the strip is
+  // re-read on every event that can move the open document (`syncGrant`), so its name moves with it
+  // rather than standing as the load left it.
+  applyStripRole();
 }
 
 /** The desktop clients' own sentence for the read-only state, which the strip's chip carries. */
@@ -1770,6 +1808,10 @@ function syncFollow(following: Following | undefined, ended?: string): void {
   fileStripFollow.style.borderColor = following.colour;
   fileStripFollow.style.backgroundColor = `${following.colour}22`;
   const label = document.createElement('span');
+  // Named so the stylesheet can hold it to one line on a phone, where a long name wrapped the
+  // segment to five lines and squeezed the file's own name out of the strip (`main.ts`'s own
+  // `syncStrip` is the other half of that line).
+  label.className = 'follow-name';
   label.textContent = `Following ${following.name}`;
   const stop = document.createElement('button');
   stop.type = 'button';

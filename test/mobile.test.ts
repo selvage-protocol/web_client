@@ -29,6 +29,19 @@ const style = html
   .replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
+ * The shell's own words for the narrow-or-landscape shape: a 390 px-wide window and a phone on its
+ * side are one layout, and only the first of them is a width. `PHONE_QUERY`'s second arm is the
+ * other half of the same list.
+ */
+const NARROW_QUERY = '(max-width: 640px), (any-hover: none) and (max-height: 480px)';
+
+/**
+ * The bar's own block, which is a width and not a shape: a phone on its side has the width for one
+ * row of controls, so the wrapping rules answer for a narrow screen alone.
+ */
+const NARROW_ONLY_QUERY = '(max-width: 640px)';
+
+/**
  * The declarations of the first rule whose selector list *is* `selector` — one
  * entry of a comma-separated list counts, a longer selector that merely ends in
  * it does not. Reading the text keeps this suite DOM-free, which is how the
@@ -74,6 +87,18 @@ describe('the editor a phone gets', () => {
     assert.equal(phone.fontSize, 16, 'the editor input is under the size iOS zooms at');
     assert.ok((phone.scrollbar?.verticalScrollbarSize ?? 0) >= 14, 'the scrollbar is a hairline');
     assert.equal(phone.minimap?.side, undefined, 'a side without a minimap');
+  });
+
+  it('narrows the gutter, and keeps the one column of it this page draws in', () => {
+    // Measured in Chromium at 390x844: the line numbers, the fold arrows and the decoration width
+    // took 96 of the 390 px — a quarter of the screen, and 30 % at 320 — for numbers no phone
+    // document reaches and arrows a fingertip cannot hit. The glyph margin is the column a peer's
+    // badge is drawn in, so it stays.
+    const phone = editorOptionsFor(true);
+    assert.equal(phone.lineNumbersMinChars, 3, 'the line-number column is Monaco\u2019s default width');
+    assert.equal(phone.folding, false, 'the fold arrows still take a column of a phone\u2019s gutter');
+    assert.equal(phone.lineDecorationsWidth, 4, 'the decoration width is still Monaco\u2019s 10 px');
+    assert.equal(phone.glyphMargin, true, 'the peer badges lost the column they are drawn in');
   });
 });
 
@@ -131,6 +156,31 @@ describe('the shell and the page agree on what a phone is', () => {
     assert.equal(PHONE_QUERY.startsWith(`${TOUCH_QUERY} and `), true, 'the phone query is not the touch query, narrowed');
   });
 
+  it('answers for a phone on its side as well as one held upright', () => {
+    // Measured at 844x390 with touch: the desktop column came back — a 196 px panel beside the
+    // editor, the strip's own download control at x=803, a 60 px footer that was not compacted,
+    // and roster names cut to 5 px of themselves. A phone has two shapes and the width query can
+    // see one of them, so the phone query has an arm for each and both shell blocks carry both.
+    const landscape = `${TOUCH_QUERY} and (max-height: 480px)`;
+    assert.ok(PHONE_QUERY.includes(landscape), 'the phone query has no arm for a short screen');
+    // Both blocks are written out in full, and both carry the short-screen arm in their own header:
+    // reading each by that header is what says so.
+    assert.match(declarations(mediaBlock(NARROW_QUERY), '#workspace'), /flex-direction:\s*column/,
+      'the narrow-or-landscape layout is not the stacked one');
+    assert.match(declarations(mediaBlock(PHONE_QUERY), '#side-resizer'), /display:\s*none/,
+      'the phone\u2019s own block does not answer for a phone on its side');
+  });
+
+  it('gives the bar’s own verb room by saying less of it, not by dropping it', () => {
+    // Measured at 390x844: `Leave and end the room` is 213 px of a 390 px bar, so it wrapped onto
+    // a row of its own and the session bar took 138 px of the screen for the whole session. What
+    // the press costs is the control's accessible name, its tooltip, and the question it opens.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /shortLabel: \(\) => phoneLayout\.matches/, 'the bar has no short verb on a phone');
+    assert.match(main, /phoneLayout\.addEventListener\('change', \(\) => leaveControl\.showRole/,
+      'a pointer arriving leaves the phone\u2019s verb behind');
+  });
+
   it('keeps the safe-area inset inside the height it is measured against', () => {
     assert.match(declarations(style, '#app'), /box-sizing:\s*border-box/, 'the inset pushes the app past 100dvh');
   });
@@ -142,7 +192,7 @@ describe('the shell and the page agree on what a phone is', () => {
     // the grey-bars failure again — so the phone gets the veil over the plain
     // background, and the card alone.
     assert.match(
-      declarations(mediaBlock('(max-width: 640px)'), '#preview'),
+      declarations(mediaBlock(NARROW_QUERY), '#preview'),
       /display:\s*none/,
       'the backdrop still paints a code pane too narrow to read on a phone',
     );
@@ -223,6 +273,10 @@ describe('the sizes a finger needs', () => {
     // outside it: the strip rendered 63 px tall for a 44 px floor before this.
     assert.match(share, /box-sizing:\s*border-box/, 'the 44 px floor is not the box the finger hits');
     assert.match(declarations(touch, '#roster .actions button'), /min-width:\s*44px/, 'roster verbs stay 26 px wide');
+    // A row's own action, measured at 390x844: the download control and a folder's `\u22ef` are both
+    // 24x44 — one glyph in a box a thumb is four times too wide for, on a row whose own press opens
+    // the file, which for a guest opens it for every peer.
+    assert.match(declarations(touch, '#tree .icon-button'), /min-width:\s*44px/, 'row actions stay 24 px wide');
   });
 
   it('gives both pairs of ✓ and ✕ the width of a fingertip, and room between them', () => {
@@ -280,20 +334,72 @@ describe('the panel on a phone', () => {
   });
 
   it('makes its cap the box the panel actually takes', () => {
-    const stacked = declarations(mediaBlock('(max-width: 640px)'), '#side');
-    assert.match(stacked, /max-height:\s*60%/, 'the cap changed: a phone cannot reach its files');
+    const stacked = declarations(mediaBlock(NARROW_QUERY), '#side');
+    assert.match(stacked, /max-height:\s*60%/, 'the cap changed: a narrow window cannot reach its files');
     assert.match(stacked, /box-sizing:\s*border-box/, 'the padding and border sit outside the cap again');
   });
 
-  it('starts the panel high enough for the file it was opened to reach', () => {
-    // Measured in Chromium 152 at 412x915 with one other peer: at a 38% cap the
-    // panel was 314 px of the workspace and every file row sat below its fold
-    // (`#side` bottom 447, the first row's top 428, the last 518) — the
-    // disclosure named files and showed none. At 60% the panel is 404 px, no
-    // row is cut, and the panel stops scrolling (scrollHeight 403 = clientHeight).
-    const cap = /max-height:\s*(\d+)%/.exec(declarations(mediaBlock('(max-width: 640px)'), '#side'));
-    assert.ok(cap, 'the stacked panel has no cap at all');
-    assert.ok(Number(cap[1]) >= 60, `the cap is ${cap[1]}%: the roster pushes the tree out of the panel`);
+  it('takes the whole of what the strip leaves, and keeps the editor off the screen while it is up', () => {
+    // Measured at 390x844 with five peers: the 60 % cap made the panel 402 px of a 627 px
+    // workspace, its content 756 px, and the first file row sat 58 px *below* the panel's own
+    // bottom edge (320x640: 272 px of 507, first row 166 px below) — the tree behind an inner
+    // scroller with nothing to say it scrolled. A touch device has one screen and the panel is the
+    // thing on it, so the panel takes what the strip leaves and the editor is out of the flow.
+    const phone = mediaBlock(PHONE_QUERY);
+    const panel = declarations(phone, '#side');
+    assert.match(panel, /max-height:\s*none/, 'the phone still caps the panel at a share of the screen');
+    assert.match(panel, /flex:\s*1 1 auto/, 'the panel does not take the room the strip leaves');
+    assert.match(panel, /min-height:\s*0/, 'the panel cannot shrink to the box it is given');
+    assert.match(html, /body:has\(#side:not\(\[hidden\]\)\) #editor-area \{ display: none; \}/,
+      'the editor stands behind the panel with a screen it cannot have');
+    assert.match(html, /body:has\(#side:not\(\[hidden\]\)\) #pane \{ flex: none; \}/,
+      'the pane and the panel split the screen between them');
+  });
+
+  it('does not move the disclosure that opens it', () => {
+    // Measured at 390x844 with a file open: the strip sat at y=138 with the panel shut and y=481
+    // with it open, because the panel was the first thing in the column. The tap that opened the
+    // panel was 343 px from the tap that closes it. The pane is first in the column now and the
+    // panel opens under it.
+    const narrow = mediaBlock(NARROW_QUERY);
+    assert.match(declarations(narrow, '#workspace'), /flex-direction:\s*column/, 'the two panes are still a row');
+    assert.match(declarations(narrow, '#pane'), /order:\s*1/, 'the strip is not the first thing in the column');
+    assert.match(declarations(narrow, '#side'), /order:\s*2/, 'the panel does not open under the strip');
+  });
+
+  it('keeps the follow segment to one line, so the file it is about keeps its name', () => {
+    // Measured at 390x844 following a peer with a long name: the segment wrapped to three lines,
+    // the strip grew to 72 px and the file's own name was cut to 50 px (`REA…`); at 320 it was
+    // five lines, a 109 px strip and `RE…`. The strip is the phone's one row of state.
+    const phone = mediaBlock(PHONE_QUERY);
+    assert.match(
+      declarations(phone, '#file-strip-follow .follow-name'),
+      /text-overflow:\s*ellipsis/,
+      'the followed peer\u2019s name takes as many lines as it likes',
+    );
+    assert.match(
+      declarations(phone, '#file-strip-follow .follow-name'),
+      /min-width:\s*0/,
+      'the segment cannot shrink below the name it carries',
+    );
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /label\.className = 'follow-name'/, 'the name the stylesheet holds is not on it');
+  });
+
+  it('carries a mark of its own, and a state, on the line that opens the panel', () => {
+    // The strip was the panel's only way in and said nothing about it: a file's name and no
+    // chevron, no icon and no expanded state, so with a file open a guest could not tell that
+    // files or people existed at all.
+    const phone = mediaBlock(PHONE_QUERY);
+    assert.match(declarations(phone, '#file-strip .disclosure'), /margin-left:\s*auto/,
+      'the mark is not at the strip\u2019s own edge');
+    assert.match(html, /#file-strip\[aria-expanded='true'\] \{ background: var\(--muted\)/,
+      'the open panel looks like the shut one');
+    assert.match(html, /#file-strip\[aria-expanded='true'\] \.disclosure \{ transform: rotate\(90deg\); \}/,
+      'the mark does not say which way the panel went');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /stripDisclosure = iconSpan\('chevron'\)/, 'the strip is drawn without a mark');
+    assert.match(main, /stripDisclosure\?\.remove\(\)/, 'a pointer device carries the phone\u2019s mark');
   });
 
   it('opens for a room that shares nothing, so the blank editor is explained', () => {
@@ -320,9 +426,9 @@ describe('what a phone cannot hover', () => {
     // 14x14 icon and no text at all — an empty field with a link glyph in it. Above
     // 640 px the words were the thing the query hid, so a host read an icon and a
     // shortened link with nothing that said what pressing it does.
-    const phone = mediaBlock('(max-width: 640px)');
-    // Every rule that touches the words, and which of them is inside the phone block:
-    // what has to hold is that nothing outside it hides them.
+    // Both narrow blocks: what has to hold is that nothing outside them hides the words.
+    const phone = mediaBlock(NARROW_QUERY) + mediaBlock(NARROW_ONLY_QUERY);
+    // Every rule that touches the words, and which of them is inside those blocks:
     const labelRules = [...style.matchAll(/#share-group[^{}]*\.share-label[^{}]*\{[^{}]*\}/g)].map(
       (match) => match[0],
     );
@@ -409,7 +515,7 @@ describe('the pre-join card on a phone, and the page under it', () => {
     // screen. While the card is up it is the full proof it is meant to be; a session is what makes
     // the room scarce. The declarations have to be `!important`: the notice carries its own inline
     // styles, and the deployment that injects it gives it no class or id this page could reach.
-    const phone = mediaBlock('(max-width: 640px)');
+    const phone = mediaBlock(NARROW_QUERY);
     const rule = /body:has\(#session:not\(\[hidden\]\)\) > aside\s*\{([^}]*)\}/.exec(phone)?.[1] ?? '';
     assert.notEqual(rule, '', 'the demo notice keeps its full height through a phone session');
     assert.equal(

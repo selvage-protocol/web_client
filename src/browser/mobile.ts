@@ -19,8 +19,18 @@ import type * as monaco from 'monaco-editor';
 /** No pointing device anywhere: a phone or a tablet, never a machine with a mouse. */
 export const TOUCH_QUERY = '(any-hover: none)';
 
-/** The same device, phone-shaped: the card is a sheet and the panel a disclosure. */
-export const PHONE_QUERY = '(any-hover: none) and (max-width: 640px)';
+/**
+ * The same device, phone-shaped: the card is a sheet and the panel a disclosure.
+ *
+ * Two arms, because a phone has two shapes and the width alone answers for one of them. Held
+ * upright it is 390 px wide; turned on its side it is 844 px wide and 390 px tall, which no
+ * width query can see — measured at 844x390, the landscape phone was given the desktop column, a
+ * 196 px panel beside the editor, the strip's own download control and a footer that took 60 of
+ * the 390 px. The second arm is the same device in the other shape, and it is narrowed by the
+ * touch query either way, so a 400 px-tall desktop window is not a phone.
+ */
+export const PHONE_QUERY =
+  '(any-hover: none) and (max-width: 640px), (any-hover: none) and (max-height: 480px)';
 
 /**
  * The editor options for this device. A phone gets the settings its screen
@@ -32,6 +42,13 @@ export const PHONE_QUERY = '(any-hover: none) and (max-width: 640px)';
  * unless it wraps, which is a trap on touch; 16 px is the floor under which
  * iOS zooms a focused field, and the editor's own input is a focused field;
  * and a fingertip needs a scrollbar it can see, never the 10 px hairline.
+ *
+ * The gutter is the fourth. Monaco's own line-number column, its fold arrows and
+ * its decoration width added up to 96 of 390 px — a quarter of the screen, and
+ * 30 % at 320 — for numbers no phone document reaches and arrows a fingertip
+ * cannot hit. Three characters of line number, no folding and a 4 px decoration
+ * width leave the glyph margin, which is where a peer's badge is drawn and the
+ * one thing in the gutter this page puts there.
  */
 export function editorOptionsFor(
   touch: boolean,
@@ -44,6 +61,12 @@ export function editorOptionsFor(
     wordWrap: 'on',
     fontSize: 16,
     scrollbar: { verticalScrollbarSize: 14, horizontalScrollbarSize: 14 },
+    // The gutter, measured at 390 px: 96 px of the 390 with Monaco's defaults, against 48 with
+    // these. `glyphMargin` stays on because the peer badges are drawn in it.
+    lineNumbersMinChars: 3,
+    lineDecorationsWidth: 4,
+    folding: false,
+    glyphMargin: true,
   };
 }
 

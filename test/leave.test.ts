@@ -42,7 +42,7 @@ const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'u
  * module touches is here — the panel's hidden flag, the question line, the two answers, focus, and
  * the document the outside-press watch hangs on.
  */
-function control(hosting: boolean) {
+function control(hosting: boolean, options: { shortLabel?: () => boolean } = {}) {
   const seen: string[] = [];
   const outside: Array<(event: unknown) => void> = [];
   const make = (tag: string) => {
@@ -89,6 +89,7 @@ function control(hosting: boolean) {
   panel.children.push(question, cancel, go);
   const leave = wireLeave({
     hosting: () => hosting,
+    ...options,
     surface: {
       panel: panel as unknown as HTMLElement,
       question: question as unknown as HTMLElement,
@@ -122,6 +123,27 @@ describe('the way out of a session', () => {
     // And the role can change under it: a page that hosted and then joined says the guest's word.
     host.leave.showRole(false);
     assert.equal(host.button.textContent, LEAVE_LABEL, 'the control kept a role this window left');
+  });
+
+  it('says the host’s word in one word where the bar has no room for four', () => {
+    // Measured at 390x844: `Leave and end the room` is 213 px of a 390 px bar, so the control took
+    // a row of its own and the session bar was 138 px of the screen for the whole session. A phone
+    // gets the verb and keeps the sentence: it is the accessible name, the tooltip, and the
+    // question the press opens.
+    const phone = control(true, { shortLabel: () => true });
+    phone.leave.showRole(true);
+    assert.equal(phone.button.textContent, LEAVE_LABEL, 'the phone bar carries four words again');
+    assert.equal(
+      phone.button.attributes['aria-label'],
+      LEAVE_HOST_LABEL,
+      'the phone’s control lost the consequence a screen reader reads',
+    );
+    assert.equal(phone.button.title, LEAVE_HOST_LABEL, 'the phone’s control explains nothing on hover');
+    assert.equal(phone.question.textContent, HOST_LEAVE_QUESTION, 'the question lost what the press costs');
+    // A pointer arriving mid-session gets the long verb back.
+    const pointer = control(true, { shortLabel: () => false });
+    pointer.leave.showRole(true);
+    assert.equal(pointer.button.textContent, LEAVE_HOST_LABEL, 'a pointer’s bar lost the host’s word');
   });
 
   it('is a control in the chrome, named the way both desktop clients name it', () => {
