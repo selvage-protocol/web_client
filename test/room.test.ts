@@ -7,6 +7,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   FACE_LIMIT,
@@ -18,6 +19,8 @@ import {
   renderEveryoneMenu,
   renderPersonMenu,
   renderRoom,
+  renameHoldsTheList,
+  syncExpanded,
   visibleFaces,
 } from '../src/browser/room.ts';
 import type { RoomPerson } from '../src/browser/room.ts';
@@ -51,6 +54,8 @@ function makeDocument() {
       autocomplete: undefined as string | undefined,
       focused: false,
       selected: false,
+      /** What a hold reads (`renameHoldsTheList`): who this element was appended to. */
+      parentElement: null as any,
       dataset: {} as Record<string, string>,
       properties: {} as Record<string, string>,
       classList: {
@@ -67,9 +72,22 @@ function makeDocument() {
       get innerHTML() {
         return element.html;
       },
-      replaceChildren: (...nodes: unknown[]) => void (element.children = nodes),
-      append: (...nodes: unknown[]) => void element.children.push(...nodes),
-      appendChild: (node: unknown) => void element.children.push(node),
+      replaceChildren: (...nodes: unknown[]) => {
+        element.children = nodes;
+        for (const node of nodes) adopt(element, node);
+      },
+      append: (...nodes: unknown[]) => {
+        for (const node of nodes) {
+          element.children.push(node);
+          adopt(element, node);
+        }
+      },
+      appendChild: (node: unknown) => {
+        element.children.push(node);
+        adopt(element, node);
+      },
+      /** What a redraw asks before it takes the faces away, and what a hold asks after it. */
+      contains: (node: unknown) => walk(element).includes(node),
       addEventListener: (type: string, listener: (event: unknown) => void) =>
         void ((listeners[type] ??= []).push(listener)),
       /** Fires what a real element fires, so a test drives the control it drew. */
@@ -83,10 +101,21 @@ function makeDocument() {
       setAttribute: (name: string, value: string) => void (attributes[name] = value),
       getAttribute: (name: string) => attributes[name],
       querySelector: (selector: string) => walk(element).find((node) => matches(node, selector)) ?? null,
+      querySelectorAll: (selector: string) => walk(element).filter((node) => matches(node, selector)),
     };
     return element;
   }
-  return { createElement: (tag: string) => make(tag) };
+  return {
+    activeElement: null as any,
+    createElement: (tag: string) => make(tag),
+  };
+}
+
+/** The two things an append changes: the child list, and the parent a hold reads. */
+function adopt(parent: any, node: unknown): void {
+  if (typeof node === 'object' && node !== null && 'tag' in (node as object)) {
+    (node as any).parentElement = parent;
+  }
 }
 
 /** Every element under one, itself first: what the selectors below are answered from. */
@@ -109,6 +138,7 @@ function matches(element: any, selector: string): boolean {
     const at = part.trim();
     if (at === 'input') return element.tag === 'input';
     if (at === 'button:not(:disabled)') return element.tag === 'button' && element.disabled === false;
+    if (at === '[data-anchor]') return element.getAttribute('data-anchor') !== undefined;
     if (at.startsWith('[data-act=')) return element.getAttribute('data-act') === at.slice(11, -2);
     if (at.startsWith('.')) return element.classes.includes(at.slice(1));
     throw new Error(`the fake document does not know the selector ${at}`);
@@ -337,7 +367,9 @@ describe('a person’s menu', () => {
     // The page keeps focus on the control the press came from when the room refuses it, by asking
     // the menu for the go-to's own anchor; a button without it is one the refusal can never land on.
     assert.equal(menu.querySelector('[data-act="go"]'), verbs[0], 'the Go to button is not the anchor the page focuses on a refusal');
-    assert.equal(verbs[1].getAttribute('aria-pressed'), 'false');
+    // No `aria-pressed`: the words already flip between Follow and Stop following, and the toggle's
+    // own press is its label. `Stop following, pressed` is the same state read twice, and backwards.
+    assert.equal(verbs[1].getAttribute('aria-pressed'), undefined, 'the follow toggle carries a pressed state its words already say');
     verbs[0].fire('click');
     verbs[1].fire('click');
     assert.deepEqual(calls, [['go', 'peer-mira'], ['follow', 'peer-mira']]);
@@ -356,11 +388,11 @@ describe('a person’s menu', () => {
     assert.deepEqual(buttonsIn(menu).map((verb) => textOf(verb)), ['Follow']);
   });
 
-  it('is a toggle: the followed peer reads Stop following, pressed, and pressing it stops', () => {
+  it('is a toggle: the followed peer reads Stop following, and pressing it stops', () => {
     const { menu, calls } = renderMenu([SELF, MIRA], MIRA, { followedPeerId: 'peer-mira' });
     const follow = buttonsIn(menu).find((verb) => textOf(verb) === 'Stop following');
     assert.ok(follow !== undefined, 'the followed peer is not offered the way out of it');
-    assert.equal(follow.getAttribute('aria-pressed'), 'true');
+    assert.equal(follow.getAttribute('aria-pressed'), undefined, 'the state is read twice, and the words are enough');
     assert.equal(follow.title, 'Stop following');
     follow.fire('click');
     assert.deepEqual(calls, [['stop', 'peer-mira']]);
@@ -452,6 +484,20 @@ describe('the own name’s edit', () => {
     cancel.fire('click');
     assert.deepEqual(events.at(-1), ['cancel'], 'the ✕ sends something');
   });
+
+  it('holds the dialog still only while the person is in the name field', () => {
+    const { edit } = renaming();
+    const field = edit.field as any;
+    const group = field.parentElement;
+    const save = withClass(group, 'rename-save')[0];
+    assert.equal(renameHoldsTheList(field, field), true, 'a field that has focus does not hold the dialog still');
+    // The ✓ beside the field is the control a press is about to land on: a draw that unmounts it
+    // takes the press with it, so the hold is the field's group rather than the field alone.
+    assert.equal(renameHoldsTheList(field, save), true, 'the ✓ beside a focused field is taken away before the press lands');
+    assert.equal(renameHoldsTheList(field, null), false, 'an edit nobody is in holds the dialog still');
+    assert.equal(renameHoldsTheList(field, group.parentElement), false, 'focus outside the edit holds the dialog still');
+    assert.equal(renameHoldsTheList(undefined, field), false, 'a hold with no field holds the dialog still');
+  });
 });
 
 describe('everyone in the room', () => {
@@ -484,6 +530,158 @@ describe('everyone in the room', () => {
   });
 });
 
+/**
+ * The dialog and the faces are both reads of the room, so they are drawn wherever it changes — the
+ * hold for the one field somebody is typing in is the only draw given up (`renameHoldsTheList`).
+ *
+ * What is asserted here is the consequence of that: a draw replaces the elements, so the face and
+ * the menu have to be told where the person's focus and the new facts are.
+ */
+describe('the dialog follows the room', () => {
+  /** One more draw of the same menu, over the element it already stands in. */
+  function redrawPerson(menu: any, person: RoomPerson, all: readonly RoomPerson[]): void {
+    renderPersonMenu(menu, person, {
+      all,
+      followedPeerId: undefined,
+      fromList: false,
+      onGoTo: () => {},
+      onFollow: () => {},
+      onStopFollow: () => {},
+      onRename: () => {},
+      onBack: () => {},
+    } as never);
+  }
+
+  it('draws the peer again, so the menu that stood over them is where they are now', () => {
+    globalThis.document = makeDocument() as unknown as Document;
+    const menu = (globalThis.document as unknown as ReturnType<typeof makeDocument>).createElement('div') as any;
+    redrawPerson(menu, SAM, [SELF, SAM]);
+    assert.deepEqual(buttonsIn(menu).map((verb) => textOf(verb)), ['Follow']);
+    assert.equal(withClass(menu, 'waiting')[0].textContent, 'not in a file yet');
+    // Sam opened a file between the draw and this one: the same menu, drawn again, offers the
+    // `Go to` it can now honour instead of the line saying there is nowhere to go.
+    redrawPerson(menu, { ...SAM, path: 'src/room.rs' }, [SELF, { ...SAM, path: 'src/room.rs' }]);
+    assert.deepEqual(buttonsIn(menu).map((verb) => textOf(verb)), ['Go to', 'Follow']);
+    assert.deepEqual(withClass(menu, 'waiting'), [], 'the menu still says Sam is nowhere');
+    // And back: the peer who closed the file reads where they are, with no dead verb.
+    redrawPerson(menu, SAM, [SELF, SAM]);
+    assert.deepEqual(buttonsIn(menu).map((verb) => textOf(verb)), ['Follow']);
+    assert.equal(withClass(menu, 'waiting')[0].textContent, 'not in a file yet');
+  });
+
+  it('draws the list again, so a room that grew does not keep the old count', () => {
+    globalThis.document = makeDocument() as unknown as Document;
+    const menu = (globalThis.document as unknown as ReturnType<typeof makeDocument>).createElement('div') as any;
+    const view = { followedPeerId: undefined, onPick: () => {} } as never;
+    renderEveryoneMenu(menu, [SELF, MIRA], view);
+    assert.equal(withClass(menu, 'name')[0].textContent, '2 in the room');
+    renderEveryoneMenu(menu, [SELF, MIRA, SAM], view);
+    assert.equal(withClass(menu, 'name')[0].textContent, '3 in the room');
+    assert.equal(withClass(menu, 'list')[0].children.length, 3);
+  });
+});
+
+describe('focus in the cluster', () => {
+  /** The face carrying one anchor, as it stands after a draw. */
+  function faceFor(host: any, anchor: string): any {
+    return buttonsIn(host).find((face) => face.getAttribute('data-anchor') === anchor);
+  }
+
+  function drawAgain(host: any, people: RoomPerson[], view: Record<string, unknown> = {}): void {
+    renderRoom(host, people, {
+      followedPeerId: undefined,
+      openAnchor: undefined,
+      limit: FACE_LIMIT,
+      onAnchor: () => {},
+      ...view,
+    } as never);
+  }
+
+  it('puts focus back on the face it was on when the faces are drawn again', () => {
+    const { host } = renderCluster([SELF, MIRA, SAM]);
+    (globalThis.document as any).activeElement = faceFor(host, 'peer-mira');
+    // The room drew the same faces again, and `replaceChildren` took the focused element with it:
+    drawAgain(host, [SELF, MIRA, SAM]);
+    assert.equal(faceFor(host, 'peer-mira').focused, true, 'the face the person was on lost focus to the redraw');
+    assert.equal(buttonsIn(host).filter((face) => face.focused).length, 1, 'focus landed on more than the face it was on');
+  });
+
+  it('leaves focus alone when the face it was on is no longer drawn', () => {
+    const { host } = renderCluster([SELF, MIRA, SAM]);
+    (globalThis.document as any).activeElement = faceFor(host, 'peer-mira');
+    // Mira left: her face is not drawn any more, and there is no control to invent in its place.
+    // Focus stays where the removal put it.
+    drawAgain(host, [SELF, SAM]);
+    assert.deepEqual(buttonsIn(host).map((face) => face.focused), [false, false], 'a face took focus that nobody was on');
+  });
+
+  it('keeps the followed face focused when the follow pins it into the strip', () => {
+    const { host } = renderCluster([SELF, MIRA, SAM]);
+    (globalThis.document as any).activeElement = faceFor(host, 'peer-sam');
+    // Following pins the followed face to the last shown slot; the anchor is the same, so the face
+    // is still drawn and focus is still on it.
+    drawAgain(host, [SELF, MIRA, SAM], { followedPeerId: 'peer-sam' });
+    assert.equal(faceFor(host, 'peer-sam').focused, true, 'the followed face dropped focus when it was pinned');
+  });
+});
+
+describe('which face says it is open', () => {
+  it('moves aria-expanded to the face that was pressed, in a room that never redrew', () => {
+    const { host } = renderCluster([SELF, MIRA], { openAnchor: 'peer-self' });
+    assert.deepEqual(buttonsIn(host).map((face) => face.getAttribute('aria-expanded')), ['true', 'false']);
+    // A press on Mira's face replaces the dialog, and the room sends nothing to redraw the faces
+    // for: the state is read back onto every anchor instead of waiting for a presence frame.
+    syncExpanded(host, 'peer-mira');
+    assert.deepEqual(buttonsIn(host).map((face) => face.getAttribute('aria-expanded')), ['false', 'true']);
+    syncExpanded(host, undefined);
+    assert.deepEqual(buttonsIn(host).map((face) => face.getAttribute('aria-expanded')), ['false', 'false']);
+  });
+});
+
+/**
+ * The page's own wiring of the pieces above. `main.ts` is the entry module and runs on import, so
+ * it has no seam a test can call: these read the draw itself, and the consequences it is made of
+ * are `renderRoom`, `renderPersonMenu`, `renameHoldsTheList` and `syncExpanded` above.
+ */
+describe('the page draws the dialog wherever it draws the faces', () => {
+  const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+  const drawRoom = /function drawRoom\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+
+  it('redraws the open dialog on the presence frame that moved the room under it', () => {
+    assert.notEqual(drawRoom, '', 'the page has no draw of the room');
+    assert.match(drawRoom, /renderRoom\(faceStrip/, 'the room is never drawn as faces');
+    // The dialog is a read of the room too, so the same draw stands it up again — unless the person
+    // is in the name field, which is the one thing a redraw must not take.
+    assert.match(
+      drawRoom,
+      /if \(menu !== undefined && !renameHoldsTheList\(renamingField, document\.activeElement\)\) \{[\s\S]*?renderMenu\(menuFocusSelector\(\)\);/,
+      'a presence frame does not redraw the dialog standing over it',
+    );
+  });
+
+  it('reads the faces’ expanded state back from the one dialog that is open', () => {
+    assert.match(
+      main,
+      /syncExpanded\(faceStrip, menu\?\.anchor\)/,
+      'a press on another face leaves the last one saying it is open',
+    );
+    assert.match(
+      main,
+      /syncExpanded\(faceStrip, undefined\)/,
+      'closing the dialog leaves a face saying it is open',
+    );
+  });
+
+  it('moves focus back to the face only when the dialog had the person’s attention', () => {
+    assert.match(
+      main,
+      /const inside = focusInMenu\(\);/,
+      'Escape cannot tell a stray key from one aimed at the dialog',
+    );
+    assert.match(main, /closeMenu\(inside\)/, 'Escape closes the dialog regardless of where the person was');
+  });
+});
+
 describe('where the menu stands', () => {
   const frame = { left: 0, top: 0, width: 390 };
 
@@ -491,7 +689,7 @@ describe('where the menu stands', () => {
     assert.deepEqual(menuPlacement({ right: 300, bottom: 60 }, frame, 240), { left: 60, top: 68 });
   });
 
-  it('keeps its left edge 8 px inside the frame, and its bottom inside too', () => {
+  it('keeps its left edge 8 px inside the frame when the face is at either edge', () => {
     // A face at the far left of a narrow screen would put the menu off the edge: the left edge
     // holds 8 px off the frame's own, which is the rule the leave question already followed.
     assert.deepEqual(menuPlacement({ right: 20, bottom: 50 }, frame, 240), { left: 8, top: 58 });

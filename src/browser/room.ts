@@ -22,7 +22,11 @@ import { iconSpan, iconSvg, labelSpan } from './icons.ts';
 import { rosterLabel } from './names.ts';
 import { initials } from './presence.ts';
 
-/** How many faces the cluster shows before the `+N`, on a device with a pointer. */
+/**
+ * How many controls the cluster shows at once on a device with a pointer: the faces and the `+N`
+ * together. Over the cap the last slot is the `+N` — six people show four faces and `+2` — so the
+ * cap is one more than the faces a bar this size can read.
+ */
 export const FACE_LIMIT = 5;
 /** The same on a phone, where the bar is one row and the cluster shares it with a name. */
 export const PHONE_FACE_LIMIT = 3;
@@ -163,6 +167,35 @@ function faceTitle(person: RoomPerson, all: readonly RoomPerson[]): string {
 }
 
 /**
+ * Whether the open dialog is being typed in, and so must not be redrawn.
+ *
+ * A draw under the own-name field takes the caret with it, and it takes the control under a focused
+ * ✓ out of the DOM before the press can land on it: the hold is the field's own group, the field and
+ * the two controls beside it, and not the field alone. It is the only thing a redraw gives up — an
+ * edit left open with attention elsewhere holds nothing, and the name typed into it is put back by
+ * the draw that follows.
+ */
+export function renameHoldsTheList(
+  field: HTMLInputElement | undefined,
+  active: Element | null,
+): boolean {
+  return field !== undefined && field.parentElement?.contains(active) === true;
+}
+
+/**
+ * Points every face's `aria-expanded` at the dialog that is open.
+ *
+ * A face pressed in a quiet room leaves the last one saying it is open unless something redraws the
+ * faces, and a quiet room sends nothing to redraw for: the count and the marks have not moved. The
+ * design's own `syncExpanded` reads the state back onto every anchor for the same reason.
+ */
+export function syncExpanded(host: HTMLElement, openAnchor: string | undefined): void {
+  for (const button of host.querySelectorAll<HTMLElement>('[data-anchor]')) {
+    button.setAttribute('aria-expanded', String(button.getAttribute('data-anchor') === openAnchor));
+  }
+}
+
+/**
  * The faces the cluster shows, and the ones behind the `+N`.
  *
  * You are always first, and the followed face is never behind the `+N`: its ring is the
@@ -298,12 +331,36 @@ export function renderRoom(
 ): void {
   host.setAttribute('role', 'group');
   host.setAttribute('aria-label', `${people.length} in the room`);
+  // The face that has focus, read before the draw takes it: `replaceChildren` removes the element
+  // the person was on, and a browser puts focus on the body when the focused element goes.
+  const focused = focusedAnchor(host);
   const { shown, hidden } = visibleFaces(people, view.limit, view.followedPeerId);
   const faces: HTMLElement[] = shown.map((person) => faceButton(person, people, view));
   if (hidden.length > 0) {
     faces.push(moreButton(hidden.length, view));
   }
   host.replaceChildren(...faces);
+  // The room drew the same faces again, so the one that carried focus carries it still — the face
+  // the person was on, followed face pinned into the strip or not. An anchor that is no longer
+  // drawn is a person who left: the control went with them, and focus is left where the removal put
+  // it rather than invented on another face.
+  if (focused !== undefined) {
+    for (const child of Array.from(host.children)) {
+      if (child.getAttribute('data-anchor') === focused) {
+        (child as HTMLElement).focus();
+        break;
+      }
+    }
+  }
+}
+
+/** The anchor of the face the person's focus is on, when it is one of the cluster's own. */
+function focusedAnchor(host: HTMLElement): string | undefined {
+  const active = document.activeElement;
+  if (active === null || active === undefined || !host.contains(active)) {
+    return undefined;
+  }
+  return active.getAttribute('data-anchor') ?? undefined;
 }
 
 /**
@@ -333,6 +390,7 @@ function backButton(onBack: () => void): HTMLButtonElement {
   const back = document.createElement('button');
   back.type = 'button';
   back.className = 'back';
+  back.setAttribute('data-act', 'back');
   back.append(iconSpan('back'), labelSpan(EVERYONE_LABEL));
   back.addEventListener('click', () => onBack());
   return back;
@@ -472,9 +530,9 @@ function followButton(person: RoomPerson, view: PersonMenuView): HTMLButtonEleme
   const follows = view.followedPeerId === person.peerId;
   const follow = document.createElement('button');
   follow.type = 'button';
-  follow.setAttribute('aria-pressed', String(follows));
   // The words are the state, and the state is what the press undoes: one control, two sides
-  // of the same toggle, as the file strip's own Stop is.
+  // of the same toggle, as the file strip's own Stop is — its label flips and it carries no
+  // `aria-pressed`, so a screen reader does not read `Stop following, pressed` back.
   follow.append(iconSpan(follows ? 'stop' : 'follow'), labelSpan(follows ? 'Stop following' : 'Follow'));
   if (follows) {
     follow.title = 'Stop following';

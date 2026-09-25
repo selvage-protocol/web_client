@@ -76,9 +76,11 @@ import {
   PHONE_FACE_LIMIT,
   focusInto,
   placeMenu,
+  renameHoldsTheList,
   renderEveryoneMenu,
   renderPersonMenu,
   renderRoom,
+  syncExpanded,
 } from './room.ts';
 import type { RenameEdit, RoomPerson } from './room.ts';
 import {
@@ -1389,12 +1391,16 @@ function roomPeople(participants: readonly Participant[]): RoomPerson[] {
 /**
  * Who is here, as the faces in the bar, and the menu the face that was pressed belongs to.
  *
- * The cluster is a read of the room as it stands — drawn wherever a presence frame lands, and
- * nowhere else — while the dialog is drawn only when its own state changes: opened, closed, a
- * refusal raised or retired, the own name's edit opened, dropped or committed. A dialog is a
- * snapshot of the moment it was opened, which is why a presence frame cannot take the field out
- * from under somebody typing in it: the roster's hold, and the bug that survived it, are gone
- * rather than translated.
+ * The cluster and the dialog are both reads of the room as it stands, so both are drawn wherever a
+ * presence frame lands: a peer who leaves, or who opens a file, changes what their menu says, and a
+ * dialog drawn only when its own state changed would keep live verbs for someone gone, or say
+ * `not in a file yet` beside a `Go to` that had appeared. The design draws the menu on every render
+ * for the same reason.
+ *
+ * The one draw the dialog gives up is under the own-name field (`renameHoldsTheList`): a presence
+ * frame lands every few hundred milliseconds while anybody types, and a field replaced under the
+ * caret is a caret taken. The hold is the field's own group and nothing broader — the name typed
+ * into it is put back by the draw that follows — so the dialog is never stale while nobody types.
  */
 function drawRoom(participants: Participant[]): void {
   renderRoom(faceStrip, roomPeople(participants), {
@@ -1403,6 +1409,12 @@ function drawRoom(participants: Participant[]): void {
     limit: phoneLayout.matches ? PHONE_FACE_LIMIT : FACE_LIMIT,
     onAnchor: (anchor) => void pressAnchor(anchor),
   });
+  // The dialog follows the room under it, held only while somebody is in the name field. The
+  // control that had focus is carried across the rebuild, so a redraw does not drop the person off
+  // the `Go to` they were on.
+  if (menu !== undefined && !renameHoldsTheList(renamingField, document.activeElement)) {
+    renderMenu(menuFocusSelector());
+  }
   // Every draw replaces the button the dialog came from, so the dialog is placed again against
   // the one that stands there now.
   placeOpenMenu();
@@ -1430,6 +1442,39 @@ function anchorButton(anchor: string): HTMLElement | undefined {
 }
 
 /**
+ * The open dialog's own control that has focus, as a selector the redraw can put it back on: the
+ * act that was pressed, or the row of the list, so a room moving under the dialog does not take the
+ * person's place in it. Focus in the name field is the hold's, and never reaches here.
+ */
+function menuFocusSelector(): string | undefined {
+  const active = document.activeElement;
+  if (active === null || menuElement === undefined || !menuElement.contains(active)) {
+    return undefined;
+  }
+  const act = active.getAttribute('data-act');
+  if (act !== null) {
+    return `[data-act="${act}"]`;
+  }
+  const pick = active.getAttribute('data-pick');
+  return pick === null ? undefined : `[data-pick="${pick}"]`;
+}
+
+/**
+ * Whether the person's attention is in the dialog: focus inside it, or on the face it stands under.
+ * Escape reads this before it decides whether closing should move focus.
+ */
+function focusInMenu(): boolean {
+  const active = document.activeElement;
+  if (active === null) {
+    return false;
+  }
+  return (
+    menuElement?.contains(active) === true ||
+    (faceStrip.contains(active) && active.getAttribute('data-anchor') !== null)
+  );
+}
+
+/**
  * A press on a face, or on the `+N`: the same face twice closes what it opened, another one
  * replaces it, and the `+N` opens the list of everyone.
  */
@@ -1448,8 +1493,10 @@ function pressAnchor(anchor: string): void {
 function openMenu(state: MenuState): void {
   menu = state;
   renamingName = undefined;
-  anchorButton(state.anchor)?.setAttribute('aria-expanded', 'true');
   renderMenu();
+  // Every face's state is read back from the one dialog that is open: a press on another face in a
+  // quiet room leaves the last face saying it is expanded unless the faces are told.
+  syncExpanded(faceStrip, menu?.anchor);
   if (menuElement !== undefined) {
     focusInto(menuElement);
   }
@@ -1464,11 +1511,9 @@ function closeMenu(refocus = true): void {
   menu = undefined;
   renamingName = undefined;
   renamingField = undefined;
-  if (anchor !== undefined) {
-    anchorButton(anchor)?.setAttribute('aria-expanded', 'false');
-  }
   menuElement?.remove();
   menuElement = undefined;
+  syncExpanded(faceStrip, undefined);
   if (refocus && anchor !== undefined) {
     anchorButton(anchor)?.focus();
   }
@@ -1593,13 +1638,17 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || menu === undefined) {
     return;
   }
+  // Closing takes focus back to the face only when the dialog is where the person's attention is:
+  // a stray Escape — one Monaco is dismissing — closes the menu without pulling focus out of the
+  // editor and back to the bar.
+  const inside = focusInMenu();
   if (renamingName !== undefined) {
     // The edit is what Escape leaves, and the dialog stays open on the control that opened it.
     // The field's own Escape never reaches here: it stops the key.
-    endRename();
+    endRename(inside);
     return;
   }
-  closeMenu();
+  closeMenu(inside);
 });
 
 // The dialog is placed against the face it came from, so a window that changed size under it has
@@ -1696,14 +1745,20 @@ let renamingName: string | undefined;
  */
 let renamingField: HTMLInputElement | undefined;
 
-/** The edit as the menu draws it, when one is open. */
+/**
+ * The edit as the menu draws it, when one is open.
+ *
+ * It opens on the name in force and draws whatever the field holds now: a redraw of a dialog nobody
+ * is typing in must not throw away a half-typed name, which is what lets the presence-frame hold be
+ * about the caret alone.
+ */
 function renameView(): RenameEdit | undefined {
   if (renamingName === undefined) {
     return undefined;
   }
   return {
     opened: renamingName,
-    value: renamingName,
+    value: renamingField?.value ?? renamingName,
     maxLength: MAX_DISPLAY_NAME_UNITS,
     commit: (value) => void commitRename(value),
     cancel: () => endRename(),
@@ -1719,11 +1774,14 @@ function startRename(): void {
   renderMenu('.rename');
 }
 
-/** Drops the edit and leaves the menu open on the control that opened it. */
-function endRename(): void {
+/**
+ * Drops the edit and leaves the menu open on the control that opened it. A press inside the menu
+ * moves focus there; Escape with attention elsewhere leaves the focus where the person put it.
+ */
+function endRename(refocus = true): void {
   renamingName = undefined;
   renamingField = undefined;
-  renderMenu('[data-act="rename"]');
+  renderMenu(refocus ? '[data-act="rename"]' : undefined);
 }
 
 /**
