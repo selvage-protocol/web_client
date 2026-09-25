@@ -2,10 +2,11 @@
  * Roster rows: who is here, glanceable. Each row carries the peer's colour
  * swatch, their name, the role the room gives them, and the two verbs — never
  * path text (where someone is reads on the grant tree, as a badge on their
- * file). The own row leads, marked only by the one control that changes this
- * connection's own name, and a host wears the crown. Follow is a toggle, so the
- * row a window is following reads `Following` and pressing it stops, exactly as
- * the file strip's own Stop does: one state, reachable from either side.
+ * file). The own row leads, says whose row it is — `(you)`, and `aria-current`
+ * for a reader that does not see the word — and a host wears the crown. Follow
+ * is a toggle, so the row a window is following reads `Following` and pressing
+ * it stops, exactly as the file strip's own Stop does: one state, reachable from
+ * either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
  * own state: the page holds it, stops re-drawing the list while it is open — a
@@ -133,18 +134,26 @@ export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], vi
  * room labels the seats it lists and this connection's own is not one of them
  * (`PROTOCOL.md` §5), so the name here is the page's to keep and the page's to
  * change.
+ *
+ * Whose row this is is said twice and in two ways, because a row of names and
+ * colours is not a place to infer it from. `(you)` is the word the page has for
+ * the fact, and it is worn like the crown is: a quiet mark after the name, so a
+ * reader who sees no colour — and there is a small palette, so two rows can wear
+ * the same one — still knows which row is theirs. `aria-current` carries the same
+ * fact into the accessibility tree, where the word alone would only be read as part
+ * of the row's name.
  */
 function selfRow(view: RosterView): HTMLElement {
   const row = document.createElement('li');
   row.classList.add('self');
+  row.setAttribute('aria-current', 'true');
   const swatch = document.createElement('span');
   swatch.className = 'swatch';
   if (view.selfColour !== undefined) {
     swatch.style.backgroundColor = view.selfColour;
   }
-  // The swatch is the row's colour and nothing more: `(you)` beside it was words for the one row
-  // whose identity nobody has to be told — it is the row with the control that changes this
-  // connection's own name, and the only one that has it.
+  // The swatch is the row's colour and nothing more: who the row belongs to is the `(you)` beside
+  // the name, and the control that changes this connection's own name is the row's own.
   row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
@@ -154,6 +163,7 @@ function selfRow(view: RosterView): HTMLElement {
     name.className = 'name';
     name.textContent = view.selfName;
     who.appendChild(name);
+    who.appendChild(youMarker());
     const host = view.selfRole === undefined ? undefined : hostMarker(view.selfRole);
     if (host !== undefined) {
       who.appendChild(host);
@@ -273,7 +283,8 @@ function nameField(rename: RosterRename): HTMLElement {
  * A crown and no word, because the roster is the page's account of who is here
  * and the role is part of who: a mark that is not text needs no room on a row
  * that is mostly a name, and it cannot be read as the rest of that name — `Ada
- * (you) · host` was three marks in a row that read as one sentence. It is not
+ * (you) · host` was three marks in a row that read as one sentence, and the word
+ * was the one of them the crown replaced. It is not
  * drawn for `guest` — the room's ordinary seat, where a badge would be noise on
  * every row but one — and `viewer` is left out deliberately: it is a statement
  * about what a peer may write, the read-only state is the editor's own to show,
@@ -293,6 +304,21 @@ function hostMarker(role: Role): HTMLElement | undefined {
   marker.setAttribute('aria-label', HOST_LABEL);
   marker.title = HOST_LABEL;
   marker.appendChild(iconSpan('crown'));
+  return marker;
+}
+
+/** What the own row's mark reads: the page's own word for the fact. */
+const SELF_MARK = '(you)';
+
+/**
+ * The mark that says the row is the reader's own: the page's word for it, in the quiet tone the
+ * crown beside it wears. A mark and not the swatch, because the palette is small and two rows can
+ * wear one colour, and not the Rename control, because a control is not a label.
+ */
+function youMarker(): HTMLElement {
+  const marker = document.createElement('span');
+  marker.className = 'you';
+  marker.textContent = SELF_MARK;
   return marker;
 }
 

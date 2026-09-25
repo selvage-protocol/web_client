@@ -231,10 +231,13 @@ describe('roster rows', () => {
     const self = list.children[0];
     assert.ok(self.classes.includes('self'), 'self row is not first');
     assert.ok(textOf(self).includes('me'), `own name missing: ${textOf(self)}`);
-    // `Ada (you) · host` was three marks in a row that read as one sentence, and the first of them
-    // was words for the one row nobody has to be told: the row is the one with the control that
-    // changes this connection's own name. What is left beside the name is the crown.
-    assert.ok(!/\(you\)/.test(textOf(self)), `the you marker is back: ${textOf(self)}`);
+    // `Ada (you) · host` was three marks in a row that read as one sentence; the word `host` is the
+    // crown now, and the `(you)` stayed, in the crown's own quiet tone and in a mark of its own. The
+    // row is the reader's own, and that is not a fact to infer from a colour a second row can wear.
+    assert.equal(self.getAttribute('aria-current'), 'true', 'the own row is not the current one to a reader');
+    const you = withClass(self, 'you');
+    assert.equal(you.length, 1, 'the own row does not say whose row it is');
+    assert.equal(you[0].textContent, '(you)', `the own row's mark reads ${you[0].textContent}`);
     assert.ok(!/·/.test(textOf(self)), `a separator stands between the name and its marks: ${textOf(self)}`);
     const swatch = self.children.find((child) => child.className === 'swatch');
     assert.ok(swatch !== undefined, 'self row carries no swatch');
