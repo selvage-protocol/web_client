@@ -333,13 +333,6 @@
          under it, standing the few seconds the page holds it (design §5.1). */
       #roster .refusal { flex-basis: 100%; font-size: 0.8em; color: var(--muted-foreground);
         line-height: 1.35; }
-      /* The lone host's own line, under the row that says who they are: it names the act and the
-         bar above is where the control is, so the row holds no copy of it. It is a *sentence* and
-         not a row of parts, so it wraps as one: `#roster li`'s flex laid its two spans side by side
-         and at the default 294 px panel the halves read interleaved — "No one else / yet." beside
-         "Copy invite link in the bar / above." — which is a line nobody can read in order. */
-      #roster li.alone { display: block; font-size: 0.85em; color: var(--muted-foreground); }
-      #roster li.alone .pointer { color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
          will appear. The kind is the button's, so the field carries no convention of its own — and
@@ -548,12 +541,9 @@
       /* The start action's own failure, under the button that asked for the name. */
       #host-error { margin: 0.6rem 0 0; color: var(--danger); font-size: 0.9em; }
       #host-error:empty { display: none; }
-      /* What choosing the folder shares: the one thing the card says about the room a guest
-         gets, so the warning below is not the only sentence about it. Written by the bundle
-         (it is copy with one home, `host.ts`), so it is hidden while it is empty. */
-      #host-share { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
-        line-height: 1.5; }
-      #host-share:empty { display: none; }
+      /* The one sentence the card carries about the room the start button makes: the cost of a
+         room that lives in a tab. Written by the bundle (it is copy with one home, `host.ts`),
+         so it is hidden while it is empty. */
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
       /* The panel's contents at a narrow width: the panel is the same panel, and its labels give
@@ -798,7 +788,7 @@
              script arrives, and the join they made is the one that has to be
              replayed. The bundle replays a held join. -->
         <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingSubmit = true; var path = document.getElementById('invite-path'); window.__selvagePendingInvitePath = path ? path.open === true : false; } return false;">
-          <label>The name other participants see
+          <label>Your name
             <input id="name" type="text" maxlength="32" autocomplete="off"
               aria-describedby="name-error" />
           </label>
@@ -813,7 +803,7 @@
                the room is known, so it is open with the paste box gone and Join leading. -->
           <details id="invite-path">
             <summary id="invite-reveal">Have an invite link?</summary>
-            <label id="invite-wrap">Paste your invite link
+            <label id="invite-wrap">Invite link
               <input id="invite" type="text" autocomplete="off" spellcheck="false"
                 placeholder="/?room=…&token=…" />
             </label>
@@ -832,10 +822,9 @@
              is the card's own action, and on a guest's it is one quiet line — pressing it is
              what puts the start card in front of the person (`main.ts`, `swapCardToStart`). -->
         <div id="host-wrap" hidden>
-          <button id="host-button" type="button" hidden>Choose a folder to share…</button>
+          <button id="host-button" type="button" hidden>Share a folder…</button>
           <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
-          <p id="host-share"></p>
           <p id="host-note"></p>
         </div>
       </div>
@@ -948,8 +937,7 @@
         function sayStillLoading() {
           var line = document.getElementById('join-message');
           if (line) {
-            line.textContent =
-              'One moment — the page is still loading, so nothing was started. Press Enter again in a moment.';
+            line.textContent = 'The page is still loading. Press Enter again in a moment.';
             line.hidden = false;
           }
           window.__selvageWaiting = true;

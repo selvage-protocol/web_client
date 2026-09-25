@@ -5,7 +5,7 @@
  * step is: a host whose folder is empty is told what sharing a file means and
  * given the two acts, a guest whose host has shared nothing is told whose room it
  * is and that nothing is loading, and either — with files to pick from — is told
- * what opening one costs the room. On a device with no hover the panel is the
+ * the one act, in the same words. On a device with no hover the panel is the
  * act, because a phone keeps it shut and nothing else on screen opens it.
  */
 import { describe, it } from 'node:test';
@@ -34,14 +34,23 @@ describe('what the pane says with nothing open', () => {
     assert.deepEqual(block.actions, ['new-file', 'copy-invite']);
   });
 
-  it('tells a host with files that opening one is what shares it', () => {
-    const state = emptyEditorFor(facts({ host: true, folder: 'demo-app', files: 3 }));
-    assert.deepEqual(actions(state), []);
-    assert.equal(state.blocks[0].lead, undefined, 'a sentence nobody asked for leads the pane');
-    assert.equal(
-      state.blocks[0].text,
-      'Pick a file from Shared. Its text reaches the room when you open it.',
-    );
+  it('tells either role with files to pick from the one act, in the same words', () => {
+    // The two roles were told different things — a host that opening a file is what shares it, a
+    // guest what opening one costs the room — and neither belongs before the first click: which
+    // files the room carries is the tree beside the pane. What genuinely separates the roles is
+    // the empty folder above, and that is where they part.
+    const host = emptyEditorFor(facts({ host: true, folder: 'demo-app', files: 3 }));
+    const guest = emptyEditorFor(facts({ files: 2 }));
+    assert.deepEqual(actions(host), []);
+    assert.equal(host.blocks[0].lead, undefined, 'a sentence nobody asked for leads the pane');
+    assert.equal(host.blocks[0].text, 'Open a file to start editing.');
+    assert.deepEqual(host, guest, 'the two roles are told the same state in different words');
+    for (const block of host.blocks) {
+      assert.ok(
+        !/asks the host|receives it|reaches the room/i.test(block.text ?? ''),
+        `the pane explains the fetch before the first click: ${block.text ?? ''}`,
+      );
+    }
   });
 
   it('names the host to a guest whose room shares nothing, and loads nothing', () => {
@@ -55,14 +64,6 @@ describe('what the pane says with nothing open', () => {
   it('falls back to the role where the roster has not named a host yet', () => {
     assert.equal(emptyEditorFor(facts({ hostName: '' })).blocks[0].lead, 'The host hasn\u2019t shared any files yet.');
     assert.equal(emptyEditorFor(facts({ hostName: '  ' })).blocks[0].lead, 'The host hasn\u2019t shared any files yet.');
-  });
-
-  it('tells a guest with files what opening one costs the room', () => {
-    const state = emptyEditorFor(facts({ files: 2 }));
-    assert.equal(
-      state.blocks[0].text,
-      'Pick a file from Shared. Opening a file asks the host for its text, and everyone in the room receives it.',
-    );
   });
 
   it('offers the panel on a phone, where it is shut and nothing else opens it', () => {

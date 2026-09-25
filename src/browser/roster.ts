@@ -94,18 +94,25 @@ const RENAME_SAVE_LABEL = 'Set this name';
 const RENAME_CANCEL_LABEL = 'Leave the name as it is';
 
 /**
- * What the field is called, in the words the join card already gives the same
- * question: one page, one way to ask a person what the room should call them.
+ * What the field is called. It never reaches a pointer — the row already says whose name this is
+ * — but a form field needs a name a screen reader can read it by, and this is the desktop clients'
+ * own words for the intent (`docs/studies/client-command-parity.md` §5, "Display name, set").
+ * The card asks the same question in its own two words (`Your name`): it is the first thing a
+ * person meets here, and they have not joined yet when they type it.
  */
 const NAME_FIELD_LABEL = 'The name other participants see';
 
-/** Draws the self row plus one row per peer, replacing the list contents. */
+/**
+ * Draws the self row plus one row per peer, replacing the list contents.
+ *
+ * A room nobody else is in draws the self row and nothing else. The `alone` row that stood under
+ * it said `No one else yet.` — which the row above already says by being one row — and pointed at
+ * `Copy invite link` in the bar, a control the bar itself carries and a person can see. A line
+ * that repeats the list and points at visible furniture is two answers to no question.
+ */
 export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], view: RosterView): void {
   list.replaceChildren();
   list.appendChild(selfRow(view));
-  if (peers.length === 0) {
-    list.appendChild(aloneRow());
-  }
   for (const peer of peers) {
     list.appendChild(peerRow(peer, peers, view));
   }
@@ -171,29 +178,6 @@ function selfRow(view: RosterView): HTMLElement {
     actions.appendChild(edit);
   }
   row.append(actions);
-  return row;
-}
-
-/**
- * The line a lone host reads under its own row: nobody else is here, and where the one act that
- * changes that is.
- *
- * It carried a second `Copy invite link` beside the bar's own, which is the same control twice on
- * one screen: two names for one act, the second one in a place a reader has to be told to look.
- * The sentence points at the control instead, and the act stays where the link is.
- *
- * The two halves are one sentence and the style sheet lays them out as one (`li.alone`), so the
- * space between them is theirs and not the flex container's.
- */
-function aloneRow(): HTMLElement {
-  const row = document.createElement('li');
-  row.className = 'alone';
-  const text = document.createElement('span');
-  text.textContent = 'No one else yet.';
-  const pointer = document.createElement('span');
-  pointer.className = 'pointer';
-  pointer.textContent = 'Copy invite link in the bar above.';
-  row.append(text, ' ', pointer);
   return row;
 }
 

@@ -4,15 +4,18 @@
  * A room with nothing open is the room's first screen, and the pane is the
  * largest thing on it: it carries the one fact the person needs and the act that
  * follows from it, in that pane rather than in a sentence somewhere else
- * (design §7). Four states, and each names the next step where it stands:
+ * (design §7). Three states, and each names the next step where it stands:
  *
  * - a host whose folder is empty, told what sharing a file means, with `New
  *   file` inserting the row that creates one and the invite beside it;
- * - a host with files, told that opening one is what puts its text in the room;
  * - a guest whose host has shared nothing, told whose room it is and that
  *   nothing is loading;
- * - a guest with files, told what opening one costs the room, and offered the
- *   peer that is already in one.
+ * - either of them with files to pick from, told the one act: open one.
+ *
+ * The host and the guest read that third state in the same words. What separates
+ * them is the empty folder — theirs to fill, or the other's — and the tree
+ * itself; the pane's one sentence is the act, and it is not the pane's job to
+ * explain the room's shape to either of them.
  *
  * On a device with no hover the pane's own act is the panel, where the panel is shut: the strip
  * names and opens it, and the pane is the other way in. An act that opens what is already open does
@@ -95,14 +98,12 @@ export function emptyEditorFor(facts: EmptyEditorFacts): EmptyEditorState {
       text: 'Files you create here are shared by name; a file\u2019s text reaches the room when it is opened.',
       actions: ['new-file', 'copy-invite'],
     });
-  } else if (facts.host) {
-    blocks.push({
-      text: 'Pick a file from Shared. Its text reaches the room when you open it.',
-      actions: panelActs(facts),
-    });
   } else {
+    // Either role, with files to pick from: one sentence, and it is the act. What the room does
+    // with the file once it is open is the pane's job only where the folder is empty and sharing
+    // has to be explained.
     blocks.push({
-      text: 'Pick a file from Shared. Opening a file asks the host for its text, and everyone in the room receives it.',
+      text: 'Open a file to start editing.',
       actions: panelActs(facts),
     });
   }

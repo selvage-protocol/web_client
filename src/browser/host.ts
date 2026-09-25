@@ -29,26 +29,25 @@ export type HostStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export const HOST_MARK_KEY = 'selvage.hosting';
 
 /**
- * The warning the card carries beside the host action, before the click.
+ * The one thing the start card says about the room the click makes: the cost of a room that lives
+ * in a tab.
  *
- * The countdown is the room's own grace (`DESIGN.md` §4.4), which the server states and a
- * desktop host has the same, so the sentence names the shape and not a number that would go
+ * A room's contents are the peers' own memory and nothing is written to the folder, so closing or
+ * reloading this tab ends the room and loses it. That is the only fact on the card a person cannot
+ * see for themselves, so it is the only prose the card carries: that the tab is the host is what
+ * the press already said, and what a guest reads of the folder is the grant's business
+ * (`DESIGN.md` §4.2 defines the listing as paths and says nothing about what the card must state).
+ *
+ * The countdown a guest gets is the room's own grace (`DESIGN.md` §4.4), which the server states
+ * and a desktop host has the same, so the sentence names the shape and not a number that would go
  * stale.
  *
  * One wording, and one card it stands on: a guest's card says `Or start your own session` and
  * nothing more, so a person reading about hosting has already asked for the start card by the
- * time this paragraph is in front of them (design §7.1).
+ * time this sentence is in front of them.
  */
 export const HOST_TAB_WARNING =
-  'This tab is the host. Close or reload it and the room ends: whoever is in it keeps editing while a short countdown runs, and then the room closes and nothing in it is saved.';
-
-/**
- * What a person choosing a folder is agreeing to share, so the cost of the room is not the only
- * thing the card says about it: a guest reads the names of what is in the folder and nothing
- * else, and a file's text reaches the room only when somebody opens it (`DESIGN.md` §4.2).
- */
-export const HOST_GUESTS_NOTE =
-  'Guests you invite see the file names in the folder you share; a file\u2019s text is sent only when someone opens it.';
+  'Closing or reloading this tab ends the room, and nothing in it is saved.';
 
 /** Why the host action is not offered: this browser has no directory picker. */
 export const HOST_NEEDS_A_BROWSER =
@@ -128,9 +127,16 @@ export function takeHostingNotice(storage: HostStorage): string | undefined {
   return hostingOverSentence();
 }
 
-/** The sentence for a room this tab was hosting and is not any more. */
+/**
+ * The sentence for a room this tab was hosting and is not any more: what the reload cost, and the
+ * one act that starts another.
+ *
+ * The page-hosted shape is not explained to this reader — they reloaded their own tab, and the
+ * card in front of them is the explanation — and the guests' countdown is said where it runs rather
+ * than to a host who is no longer in the room (`wireSessionNote`).
+ */
 export function hostingOverSentence(): string {
-  return 'This tab was hosting a room, and it is not any more: a room started from a page lives in its tab, so reloading ended it. The people in it had a short countdown to keep editing, and nothing in it was written to the folder. Pick the folder again to start another.';
+  return 'Reloading ended the room this tab was hosting, and nothing in it was saved; pick the folder again to start another.';
 }
 
 /**
