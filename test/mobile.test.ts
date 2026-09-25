@@ -357,6 +357,15 @@ describe('the panel on a phone', () => {
       'a long name is cut where nothing shows the rest of it');
     assert.doesNotMatch(declarations(style, '#roster .name'), /text-overflow:\s*ellipsis/,
       'the ellipsis is back, so the name is cut again');
+    // And it breaks at the points a name has before it breaks inside one. `anywhere` broke
+    // `Bartholomew Fitzwilliam-Ockham` between two letters in the panel — measured at 1280x900, the
+    // own row drew `Bartholome` over `w` in a 101 px box — and a name broken mid-word reads as two
+    // names. `break-word` still breaks a word that cannot fit on a line of its own, so a long name
+    // stays whole on the phone; what it stops is breaking one that has a space to break at.
+    assert.match(declarations(style, '#roster .name'), /overflow-wrap:\s*break-word/,
+      'a long name breaks inside a word while a space is left to break at');
+    assert.doesNotMatch(declarations(style, '#roster .name'), /overflow-wrap:\s*anywhere/,
+      'the name breaks anywhere again');
   });
 
   it('makes its cap the box the panel actually takes', () => {
