@@ -246,10 +246,17 @@ describe('placeholders', () => {
     assert.ok(!main.includes('invitePlaceholder'), 'the card still builds a hint from the origin');
   });
 
-  it('the name field shows a real example', () => {
+  it('the name field carries no example: a greyed value reads as a filled one', () => {
+    // The card carried `placeholder="Ada"`, which is the same defect the create row removed: a
+    // person reads a greyed example as something already typed, and presses Join with no name.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
-    assert.ok(card.includes('placeholder="Ada"'), 'no name example on the card');
+    const name = card.slice(
+      card.indexOf('<label>The name other participants see'),
+      card.indexOf('id="invite-path"'),
+    );
+    assert.ok(!/placeholder=/.test(name), 'the name field still shows an example');
+    assert.match(name, /<input id="name"/, 'the field left the label that asks for it');
   });
 });
 

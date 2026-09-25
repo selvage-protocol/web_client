@@ -272,8 +272,24 @@ describe('brand heading', () => {
   it('shows room health as a dot, with its words only when there is something to say', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-    assert.match(html, /<span id="health" data-health="ok" title="Connected">/, 'no health dot in the bar');
-    assert.match(style, /#health-label:empty \{ display: none; \}/, 'a healthy room still says something');
+    assert.match(
+      html,
+      /<span id="health" data-health="ok" aria-live="polite" title="Connected">/,
+      'no health dot in the bar',
+    );
+    // The dot is `aria-hidden` and a `title` is not an accessible name, so the healthy state's
+    // name is in the document and clipped out of the paint: a screen reader reads it and the eye
+    // does not. The two other states paint theirs beside the dot.
+    assert.match(
+      html,
+      /<span class="dot" aria-hidden="true"><\/span><span id="health-label">Connected<\/span>/,
+      'the healthy state carries no name for a screen reader',
+    );
+    assert.match(
+      style,
+      /#health\[data-health='ok'\] #health-label \{[^}]*clip-path: inset\(50%\)/,
+      'a healthy room paints its own name',
+    );
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     for (const state of ["'reconnecting'", "'away'"]) {
       assert.ok(main.includes(`setHealth(${state})`), `the ${state} state reaches no dot`);

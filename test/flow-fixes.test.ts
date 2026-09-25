@@ -15,6 +15,9 @@ import {
   EMPTY_FILE_TITLE,
   EMPTY_IN_ROOM_TITLE,
   IN_THE_ROOM_TITLE,
+  NOT_HERE_TAG,
+  NOT_READ_TITLE,
+  NOT_SENT_TITLE,
   dirOpen,
   roomMark,
   rowsKey,
@@ -191,20 +194,19 @@ describe('what a row says about the room', () => {
     assert.equal(binding.isOpenInRoom('b.txt'), false);
     assert.equal(binding.hasText('a.txt'), true);
     assert.equal(binding.hasText('b.txt'), false);
-    // A path the room holds whose text has not arrived is the case the guest cannot tell apart
-    // from an empty file, which is what the tag's two-reason tooltip is for.
+    // A path the room holds whose text has not arrived is not an empty file: nothing has been sent
+    // and nothing has been read, so the row says that rather than claiming the file is empty.
     overrides.held = ['a.txt', 'b.txt'];
     // A path with no text here is not an empty file and does not claim to be one: `isTextEmpty` is
-    // about text this window holds, and whether the room's copy is empty is the row's to decide
-    // (`roomMark`), because a guest cannot tell the two apart and a host can.
+    // about text this window holds, and what the row says about a path with none is `roomMark`'s.
     assert.equal(binding.isTextEmpty('b.txt'), false);
     assert.deepEqual(roomMark({ inRoom: true, textHere: false, textEmpty: false, host: false }), {
-      kind: 'empty',
-      title: EMPTY_IN_ROOM_TITLE,
+      kind: 'not-here',
+      title: NOT_SENT_TITLE,
     });
     assert.deepEqual(roomMark({ inRoom: true, textHere: false, textEmpty: false, host: true }), {
-      kind: 'empty',
-      title: EMPTY_FILE_TITLE,
+      kind: 'not-here',
+      title: NOT_READ_TITLE,
     });
     assert.deepEqual(roomMark({ inRoom: true, textHere: true, textEmpty: false, host: false }), {
       kind: 'in-room',
@@ -216,9 +218,19 @@ describe('what a row says about the room', () => {
     binding.dispose();
   });
 
-  it('a host’s own empty file says the one true thing, a guest’s says both it cannot tell apart', () => {
+  it('`empty` is kept for text the room sent and which is empty', () => {
     assert.equal(EMPTY_FILE_TITLE, 'The file is empty.');
-    assert.match(EMPTY_IN_ROOM_TITLE, /Either the file is empty, or the host has not sent its text yet/);
+    assert.equal(EMPTY_IN_ROOM_TITLE, 'The room sent its text, and it is empty.');
+    // The state that used to borrow the tag: the room holds the path open and nothing has arrived.
+    assert.equal(NOT_HERE_TAG, 'not fetched yet');
+    assert.deepEqual(roomMark({ inRoom: true, textHere: true, textEmpty: true, host: false }), {
+      kind: 'empty',
+      title: EMPTY_IN_ROOM_TITLE,
+    });
+    assert.deepEqual(roomMark({ inRoom: true, textHere: true, textEmpty: true, host: true }), {
+      kind: 'empty',
+      title: EMPTY_FILE_TITLE,
+    });
   });
 });
 

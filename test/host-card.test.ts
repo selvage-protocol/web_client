@@ -221,10 +221,11 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
       attempt.includes('joinFailureDetail(error, base)'),
       'the diagnostic no longer names the server in the console',
     );
-    // The refusal the card words itself is unchanged: the name it needs is still its own line.
+    // The refusal the card words itself is unchanged, and it goes to the field it is about: the
+    // name the card needs stands at the name, not under the button that asked.
     assert.ok(
-      attempt.includes('hostError.textContent = describe(error)'),
-      'a refused name no longer reaches its own line',
+      attempt.includes('showNameFailure(nameField, describe(error))'),
+      'a refused name no longer reaches its own field',
     );
     // And what that mapper does with the engine's message is the plain sentence.
     assert.equal(

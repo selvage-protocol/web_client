@@ -22,6 +22,9 @@ import {
   EMPTY_FILE_TITLE,
   EMPTY_IN_ROOM_TITLE,
   IN_THE_ROOM_TITLE,
+  NOT_HERE_TAG,
+  NOT_READ_TITLE,
+  NOT_SENT_TITLE,
 } from '../src/browser/tree-state.ts';
 
 /** A DOM that counts what it is asked to make, and keeps the children it is given. */
@@ -363,13 +366,31 @@ describe('what a row says about the room', () => {
     assert.equal(dot.title, IN_THE_ROOM_TITLE);
   });
 
-  it('wears `empty` with a reason it does not claim to know', () => {
-    // The room holds the file and no text has arrived. A guest cannot tell an empty file from text
-    // the host has not sent, so the tag says both.
+  it('wears a tag of its own while the room holds the file and nothing has arrived', () => {
+    // The row used to say `empty` here, which claims a document nobody has read: the room holds the
+    // path open and not a byte has been sent, so the tag says exactly that. The two titles are what
+    // tell a guest's wait from a host's, and neither is only in a `title` — the tag carries it.
     const guest = rowState({ inRoom: ['main.rs'] });
+    const pending = withClass(guest, 'pending-tag');
+    assert.equal(pending.textContent, NOT_HERE_TAG);
+    assert.equal(pending.title, NOT_SENT_TITLE);
+    assert.equal(allWithClass(guest, 'empty-tag').length, 0, 'an unfetched file still reads empty');
+    // A host fetches nothing: it has not read the file off its own disk yet.
+    const host = rowState({ inRoom: ['main.rs'], canCreate: true });
+    assert.equal(withClass(host, 'pending-tag').title, NOT_READ_TITLE);
+  });
+
+  it('wears `empty` only for text the room sent, and which is empty', () => {
+    // The text is here and it is empty: that is a fact the page was told.
+    const guest = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
     assert.equal(withClass(guest, 'empty-tag').title, EMPTY_IN_ROOM_TITLE);
     // A host read the file off its own disk, so it says the one true thing.
-    const host = rowState({ inRoom: ['main.rs'], canCreate: true, textHere: ['main.rs'], textEmpty: ['main.rs'] });
+    const host = rowState({
+      inRoom: ['main.rs'],
+      canCreate: true,
+      textHere: ['main.rs'],
+      textEmpty: ['main.rs'],
+    });
     assert.equal(withClass(host, 'empty-tag').title, EMPTY_FILE_TITLE);
   });
 
@@ -377,6 +398,7 @@ describe('what a row says about the room', () => {
     const row = rowState({});
     assert.equal(allWithClass(row, 'in-room').length, 0);
     assert.equal(allWithClass(row, 'empty-tag').length, 0);
+    assert.equal(allWithClass(row, 'pending-tag').length, 0);
   });
 });
 

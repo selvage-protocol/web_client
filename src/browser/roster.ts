@@ -62,8 +62,6 @@ export interface RosterView {
   onFollow(peerId: string): void;
   /** Opens the own-name edit. Absent where the page has no name to change. */
   onRename?: () => void;
-  /** The same copy handler the invite pill runs, for the lone host's own line. */
-  onCopyInvite?: () => void;
 }
 
 /**
@@ -88,10 +86,7 @@ export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], vi
   list.replaceChildren();
   list.appendChild(selfRow(view));
   if (peers.length === 0) {
-    const alone = aloneRow(view);
-    if (alone !== undefined) {
-      list.appendChild(alone);
-    }
+    list.appendChild(aloneRow());
   }
   for (const peer of peers) {
     list.appendChild(peerRow(peer, peers, view));
@@ -161,46 +156,23 @@ function selfRow(view: RosterView): HTMLElement {
 }
 
 /**
- * The line a lone host reads under its own row: nobody else is here, and the one act that changes
- * that is the link. The action is the same copy handler as the pill's, with the same brief
- * confirmation, because it is the same act.
+ * The line a lone host reads under its own row: nobody else is here, and where the one act that
+ * changes that is.
+ *
+ * It carried a second `Copy invite link` beside the bar's own, which is the same control twice on
+ * one screen: two names for one act, the second one in a place a reader has to be told to look.
+ * The sentence points at the control instead, and the act stays where the link is.
  */
-function aloneRow(view: RosterView): HTMLElement | undefined {
-  if (view.onCopyInvite === undefined) {
-    return undefined;
-  }
+function aloneRow(): HTMLElement {
   const row = document.createElement('li');
   row.className = 'alone';
   const text = document.createElement('span');
   text.textContent = 'No one else yet.';
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'copy-invite';
-  const label = document.createElement('span');
-  label.textContent = COPY_LABEL;
-  button.appendChild(label);
-  button.addEventListener('click', () => {
-    view.onCopyInvite?.();
-    label.textContent = COPY_CONFIRM;
-    scheduleRevert(label);
-  });
-  row.append(text, button);
+  const pointer = document.createElement('span');
+  pointer.className = 'pointer';
+  pointer.textContent = 'Copy invite link in the bar above.';
+  row.append(text, pointer);
   return row;
-}
-
-/** The control's own words, which are what it does. */
-const COPY_LABEL = 'Copy invite link';
-
-/** The confirmation a copy shows in place, in the pill's own words. */
-const COPY_CONFIRM = 'Link copied';
-
-/** How long the confirmation stands before the control's own words come back. */
-const COPY_CONFIRM_MS = 1500;
-
-function scheduleRevert(label: HTMLElement): void {
-  setTimeout(() => {
-    label.textContent = COPY_LABEL;
-  }, COPY_CONFIRM_MS);
 }
 
 /**

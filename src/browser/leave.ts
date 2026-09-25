@@ -16,9 +16,9 @@
  * itself while somebody was still reading it is worse than one they had to dismiss.
  *
  * The control is separated from the page so the suite drives it without a browser: the page's entry
- * module runs on import and cannot be one. The control's own name — the desktop clients' `Leave the
- * session` — is the shell's, beside the button in `public/index.html`, because it is the same at
- * every moment.
+ * module runs on import and cannot be one. The control's own name is set from the role as the seat
+ * is taken (`showRole`), because a host's press is not a guest's: the shell's markup carries the
+ * guest's shape, which is what a page between sessions shows.
  */
 
 /** What the control asks of the page it sits on. */
@@ -57,11 +57,30 @@ export interface LeaveControl {
   close(): void;
   /** Whether the question is standing. */
   asking(): boolean;
+  /**
+   * Names the control for the role this window has taken.
+   *
+   * The page calls it as the seat is taken, because the role is not known before then (`§13.4`).
+   */
+  showRole(hosting: boolean): void;
   dispose(): void;
 }
 
-/** The verb at rest. */
+/** The verb at rest, for a guest: leaving costs nobody else anything. */
 export const LEAVE_LABEL = 'Leave';
+
+/** The control's name for a guest — the desktop clients' own `Leave the session`. */
+export const LEAVE_TITLE = 'Leave the session';
+
+/**
+ * The verb for a host, whose connection is the room.
+ *
+ * The consequence used to be readable only in the confirmation: the control said `Leave` for both
+ * roles, so a host pressed the same word a guest does and learned what it did afterwards. It says
+ * what it does now, in the visible label, because the confirmation is one press too late and a
+ * `title` is a thing a phone never shows.
+ */
+export const LEAVE_HOST_LABEL = 'Leave and end the room';
 
 /** The answer that leaves: the words on the destructive button in the panel. */
 export const LEAVE_ASKING_LABEL = 'Leave anyway';
@@ -106,6 +125,17 @@ export function wireLeave(options: LeaveOptions): LeaveControl {
       return;
     }
     show(false);
+  };
+
+  /**
+   * The control's own words, which are the role's: a host's press ends the room for everyone in
+   * it, and the verb says so before it is pressed rather than in the question that follows.
+   */
+  const showRole = (hosting: boolean): void => {
+    const name = hosting ? LEAVE_HOST_LABEL : LEAVE_TITLE;
+    button.textContent = hosting ? LEAVE_HOST_LABEL : LEAVE_LABEL;
+    button.setAttribute('aria-label', name);
+    button.title = name;
   };
 
   const openPanel = (): void => {
@@ -170,6 +200,7 @@ export function wireLeave(options: LeaveOptions): LeaveControl {
     },
     close,
     asking: () => open,
+    showRole,
     dispose(): void {
       cancel.removeEventListener('click', onCancel);
       go.removeEventListener('click', onGo);

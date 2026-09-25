@@ -26,7 +26,9 @@ import {
   HOST_LEAVE_QUESTION,
   LEAVE_ASKING_LABEL,
   LEAVE_CANCEL_LABEL,
+  LEAVE_HOST_LABEL,
   LEAVE_LABEL,
+  LEAVE_TITLE,
   wireLeave,
 } from '../src/browser/leave.ts';
 import { LEFT_SESSION_SENTENCE } from '../src/browser/ended.ts';
@@ -100,6 +102,28 @@ function control(hosting: boolean) {
 }
 
 describe('the way out of a session', () => {
+  it('tells a host what leaving costs before the press, not only in the question after it', () => {
+    // The control said `Leave` for both roles, so a host learned that its press ends the room for
+    // everyone in it only from the confirmation — one press too late, and in a `title` a phone
+    // never shows. The role names the control as the seat is taken (`showRole`).
+    const guest = control(false);
+    guest.leave.showRole(false);
+    assert.equal(guest.button.textContent, LEAVE_LABEL, 'a guest\u2019s way out lost its word');
+    assert.equal(guest.button.attributes['aria-label'], LEAVE_TITLE, 'a guest\u2019s way out is unnamed');
+    const host = control(true);
+    host.leave.showRole(true);
+    assert.equal(host.button.textContent, LEAVE_HOST_LABEL, 'a host\u2019s way out reads like a guest\u2019s');
+    assert.equal(
+      host.button.attributes['aria-label'],
+      LEAVE_HOST_LABEL,
+      'the name a screen reader reads is not the one on screen',
+    );
+    assert.equal(host.button.title, LEAVE_HOST_LABEL, 'the host\u2019s control explains nothing on hover');
+    // And the role can change under it: a page that hosted and then joined says the guest's word.
+    host.leave.showRole(false);
+    assert.equal(host.button.textContent, LEAVE_LABEL, 'the control kept a role this window left');
+  });
+
   it('is a control in the chrome, named the way both desktop clients name it', () => {
     // `docs/studies/client-command-parity.md` §5, "Leave": `Leave the session`.
     assert.match(
