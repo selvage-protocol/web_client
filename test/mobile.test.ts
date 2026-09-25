@@ -524,6 +524,34 @@ describe('the pre-join card on a phone, and the page under it', () => {
     assert.match(card, /env\(safe-area-inset-bottom\)/, 'the card lost the home-indicator inset');
   });
 
+  it('is two columns on a phone on its side, where the height is what is short', () => {
+    // Measured at 844x390 in a browser with no folder picker: the card held 517 px of content in
+    // 367 px and the one action it exists for — `Join` — spanned y=355-400 on a 390 px screen, cut
+    // off the bottom. Upright the same card fits an 844 px screen exactly, so the shape that had to
+    // change is the short one: the card reads as two columns, what it is on the left and what it
+    // asks on the right, and the same content fits 348 px of the 367 the screen gives it.
+    const LANDSCAPE = '(any-hover: none) and (max-height: 480px)';
+    const block = mediaBlock(LANDSCAPE);
+    assert.match(declarations(block, '#join'), /display:\s*grid/, 'the landscape card is one tall column again');
+    // The mark and the heading share a line, which is half of what the height needed.
+    assert.match(declarations(block, '#join .mark'), /align-self:\s*center/,
+      'the mark is a block over the heading again, 46 px of a 367 px card');
+    assert.match(declarations(block, '#join > h1'), /grid-row:\s*1/, 'the heading does not share the mark\u2019s line');
+    // And what the card asks reads in two columns: the name field, then the invite path and Join.
+    assert.match(
+      declarations(block, '#join-form'),
+      /grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/,
+      'the two fields do not share the card\u2019s width',
+    );
+    // An empty refusal line reserves 1.4em under Join; this is the one card with no height to
+    // reserve it in, and nothing takes the space unless there is something to say.
+    assert.match(
+      declarations(block, '#join #join-error'),
+      /min-height:\s*0/,
+      'the refusal line reserves room the card does not have',
+    );
+  });
+
   it('opens the page under the app, so a deployment footer is not pushed below the fold', () => {
     // The demo's nginx injects a non-commercial notice and a terms link before `</body>`, after
     // `#app`. A full-height app laid out after it pushed that notice past the fold.
