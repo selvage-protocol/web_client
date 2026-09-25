@@ -23,6 +23,7 @@ import {
   fetchFailedSentence,
   fetchingSentence,
   fetchStandMs,
+  savesOwnBuffer,
   stillAskingSentence,
   stillEmptySentence,
 } from '../src/browser/fetch-download.ts';
@@ -230,11 +231,45 @@ describe('a path whose text has not been fetched', () => {
     assert.equal(canSaveAtOnce(''), false, 'an empty answer was saved without being asked for');
     assert.equal(canSaveAtOnce('\n'), true, 'a file of one newline is text');
     assert.equal(canSaveAtOnce('fn main() {}'), true);
+    assert.equal(
+      savesOwnBuffer({ openHere: false, text: '' }),
+      false,
+      'an empty answer from the room was saved without being asked for',
+    );
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.match(main, /if \(canSaveAtOnce\(text\)\)/, 'the page saves on the document again');
+    assert.match(
+      main,
+      /savesOwnBuffer\(\{ openHere: binding\.currentPath\(\) === path, text \}\)/,
+      'the page saves on the document again instead of asking the room',
+    );
     assert.ok(
       !/if \(binding\.hasText\(path\)\)/.test(main),
       'a path the room merely holds is saved as if its text were here',
+    );
+  });
+
+  it('saves the editor\u2019s own empty buffer, because that empty document is the person\u2019s', () => {
+    // The row's ⤓ took the act over from the file strip's own control, which saved the buffer as it
+    // stood. So the two empty documents are told apart: this one is the document in front of the
+    // editor, which the person emptied themselves, and the other arrived empty from the room.
+    // Measured on a phone before this: a guest who had cleared `notes.md` themselves was told
+    // `notes.md is still empty — the host sent no text for it.` and offered `Save empty file`, and
+    // nothing was saved until they pressed it.
+    assert.equal(savesOwnBuffer({ openHere: true, text: '' }), true, 'the editor\u2019s own empty buffer was not saved');
+    assert.equal(savesOwnBuffer({ openHere: true, text: 'notes' }), true);
+    assert.equal(savesOwnBuffer({ openHere: false, text: 'notes' }), true);
+  });
+
+  it('says what a fetch costs only when a fetch is what comes next', () => {
+    // `Fetching opens …` is about an act: a path this window already holds text for is answered out
+    // of that document, with no open behind it, so the sentence would describe a fetch that never
+    // happens. It stood over the open file — a file this window plainly has — as well.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
+    assert.match(
+      download,
+      /if \(binding\.hasText\(path\) !== true && !saidFetchCosts\) \{/,
+      'the cost of a fetch stands over a path no fetch is made for',
     );
   });
 });

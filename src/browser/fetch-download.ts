@@ -194,6 +194,31 @@ export function canSaveAtOnce(text: string): boolean {
   return text !== '';
 }
 
+/** What a row's download needs to know about this window's own copy of the path. */
+export interface OwnCopy {
+  /** Whether the path is the document in front of this window's editor. */
+  openHere: boolean;
+  /** The text this window can show for it: the buffer first, the replica behind it. */
+  text: string;
+}
+
+/**
+ * Whether a row's download saves the text this window holds, with no fetch behind it.
+ *
+ * Two ways the text here is the person's own. It says something (`canSaveAtOnce`), or the path is the
+ * document in front of the editor — that buffer is what they are looking at, and deleting its text
+ * is an edit like any other, so the document they emptied downloads empty. Reading that empty buffer
+ * as the room's answer instead is what told a guest who had cleared a file themselves that the host
+ * had sent no text for it, and asked them to press `Save empty file` for the save they had already
+ * asked for. It is the act the file strip's own control made before the row took it over.
+ *
+ * The difference matters because the two empty documents are different facts: this one is the person's
+ * own buffer, and the other is a document that arrived with nothing in it.
+ */
+export function savesOwnBuffer(state: OwnCopy): boolean {
+  return state.openHere || canSaveAtOnce(state.text);
+}
+
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

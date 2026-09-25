@@ -60,11 +60,11 @@ import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
 import type { CreateResult, RowFeedback } from './tree-view.ts';
 import {
-  canSaveAtOnce,
   fetchAndSave,
   fetchCostsSentence,
   fetchingSentence,
   fetchStandMs,
+  savesOwnBuffer,
   stillAskingSentence,
   stillEmptySentence,
 } from './fetch-download.ts';
@@ -1673,11 +1673,10 @@ function startDownload(path: string, feedback: RowFeedback): void {
   const here = (candidate: string): string =>
     binding?.text(candidate) ?? engine?.text(candidate) ?? '';
   const text = here(path);
-  // Straight to the browser's save when there is text in this window. An empty answer is not saved
-  // without being asked for: a document with no text in it is the room's answer that the file it read
-  // holds none, and the person asked for a file's contents — so the empty file is offered by name
-  // (`Save empty file`) rather than written under the one they asked for (`canSaveAtOnce`).
-  if (canSaveAtOnce(text)) {
+  // What this window holds is saved as it stands: text that says something, or the buffer of the
+  // document in front of the editor — the person who emptied their own file asked for it empty, and
+  // that is the save the file strip's control used to make (`savesOwnBuffer`).
+  if (savesOwnBuffer({ openHere: binding.currentPath() === path, text })) {
     try {
       downloadDocument(path, text, downloadSink);
     } catch (error: unknown) {
@@ -1687,10 +1686,12 @@ function startDownload(path: string, feedback: RowFeedback): void {
     }
     return;
   }
-  // Said once a session, before the first fetch: opening a file is what puts its text in the room,
-  // so a fetch opens it for everybody. It is not asked as a question — the room already lists the
-  // name — it is said.
-  if (!saidFetchCosts) {
+  // Nothing here to save, so the room is asked. The cost is said once a session, before the first
+  // fetch, and only when a fetch is what comes next: a path this window already holds an empty
+  // document for is answered out of that document without asking the room, so `Fetching opens …`
+  // would be a sentence about an act that is not taken. It is not asked as a question — the room
+  // already lists the name — it is said.
+  if (binding.hasText(path) !== true && !saidFetchCosts) {
     saidFetchCosts = true;
     const costs = fetchCostsSentence(path);
     feedback.note(costs);
