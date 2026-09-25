@@ -749,12 +749,13 @@
            of Ockham` wrapped the strip to 72 px and left the file's own name 50 px wide (`REA…`);
            at 320 it was five lines, a 109 px strip and `RE…`. The name gives way with the same
            ellipsis the rest of the page uses, so the strip stays the 44 px row it is and the file
-           it is about keeps its name. */
+           it is about keeps its name. The segment is the one that gives way first, and the name it
+           carries is the one inside it that is cut. */
+        #file-strip-follow { flex-shrink: 8; }
         /* The file's own name keeps its room and the followed peer's gives way: the segment is the
            strip's second fact, and the name it carries is on the roster too. A zero basis is what
            says so — the label takes the room that is left over, and only the file's own name is
            cut when even that is not enough. */
-        #file-strip-follow { flex-shrink: 8; }
         #file-strip-follow .follow-name { flex: 1 1 0; min-width: 0; overflow: hidden;
           text-overflow: ellipsis; white-space: nowrap; }
         /* The strip is the only way to the panel and it said nothing about it: a line with the
