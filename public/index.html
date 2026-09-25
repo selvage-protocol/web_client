@@ -302,13 +302,21 @@
       #roster li.following { background: var(--muted); outline: 1px solid var(--border-strong); }
       #roster .swatch { flex: none; width: 0.75em; height: 0.75em; border-radius: 50%; align-self: center; }
       #roster .who { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 0.4em; line-height: 1.3; }
-      #roster .name { font-weight: 700; color: var(--foreground); white-space: nowrap;
-        overflow: hidden; text-overflow: ellipsis; }
+      /* A name is the one thing on a roster row that nobody can shorten, so it is the thing that
+         wraps: a name cut to `Francesca B…` is a row a reader cannot tell from another one, and
+         touch has no tooltip to read the rest from. The row's verbs keep the place they hold on
+         every other row, because it is the name's own box that takes the second line and not the
+         row, and a name that fits takes one line as it always did. */
+      #roster .name { font-weight: 700; color: var(--foreground); white-space: normal;
+        overflow-wrap: anywhere; }
       /* The crown a host's row wears: a mark with no words, sized to the row's own text and drawn
          in the same quiet tone as the rest of a row's chrome. It carries its name for a screen
          reader and for a pointer, because a picture cannot say `host` by itself. */
       #roster .role { display: inline-flex; flex: none; color: var(--muted-foreground); }
       #roster .role .icon svg { width: 1em; height: 1em; }
+      /* The own row's word for itself, beside the name it belongs to: the crown's own quiet tone, and
+         never wrapped away from the name it is about. */
+      #roster .you { flex: none; font-size: 0.85em; color: var(--muted-foreground); }
       /* The own-name edit: the row's name becomes the field it is about, sized to the row
          rather than to the card's field, and it takes the room the name had. */
       #roster .rename-edit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.3em; }
@@ -681,9 +689,17 @@
         /* One alignment in one list. A row that wrapped took its verbs onto a line of their own —
            left-aligned at the row's padding, 82 px tall — while a row that did not kept them
            right-aligned on the name's line, 57 px: measured at 390x844 with five peers, the two
-           readings were x=17 and x=207 in the same list. The name gives way instead, with the
-           ellipsis it already has, and every row is one line. */
+           readings were x=17 and x=207 in the same list. So the row does not wrap: the verbs stay
+           on the name's line, and a name that does not fit takes a second line of its own
+           (`#roster .name`), which is the name's business and not the row's. */
         #roster li { flex-wrap: nowrap; }
+        /* The verbs are their icons on a touch device, and their words are kept for the reader who
+           cannot see the icon: measured at 320x640, a 23-character name had 76 px beside the
+           labels and 109 px without them, and `display: none` would take the control's accessible
+           name away with the pixels. */
+        #roster .actions button .label {
+          position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+          overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
         #alert, #peek {
           bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
         }

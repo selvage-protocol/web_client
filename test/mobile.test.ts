@@ -325,14 +325,38 @@ describe('the panel on a phone', () => {
     assert.match(main, /showPanel\(!phoneLayout\.matches\)/, 'the panel does not start shut on a phone');
   });
 
-  it('keeps the roster to one alignment: no row grows a second line', () => {
+  it('keeps the roster to one alignment: the verbs stay on the name\u2019s line', () => {
     // Measured at 390x844 with five peers: a long name wrapped the row's verbs onto a line of
     // their own, left-aligned at x=17 and 82 px tall, while a short name kept them right-aligned on
     // the name's line at x=207 and 57 px. Two alignments and two heights in one list, and the
-    // phrase a reader scans for — `not in a file yet` — in a different place on every row.
+    // phrase a reader scans for — `not in a file yet` — in a different place on every row. What
+    // wraps is the name's own box and not the row, so a tall row is a long name and never a verb
+    // in the wrong place.
     const row = declarations(mediaBlock(TOUCH_QUERY), '#roster li');
     assert.match(row, /flex-wrap:\s*nowrap/, 'the verbs drop to a line of their own again');
     assert.ok(!/flex-wrap:\s*wrap/.test(row), 'a roster row still wraps its actions');
+  });
+
+  it('gives the name the room the verb labels were taking, and a second line when that is not enough', () => {
+    // Measured at 320x640 with a 23-character name: the peer row's name got 76 px beside `Follow`
+    // and `not in a file yet` — about nine bold characters, and nothing on the page showed the rest,
+    // a phone having no tooltip and the `title` carrying a peer id at most. The verbs' words are
+    // still the control's own accessible name: `display: none` would take them out of the
+    // accessibility tree with the pixels, which is what the narrow-panel container query already
+    // does to a `Go to` that carries no tooltip either.
+    const touch = mediaBlock(TOUCH_QUERY);
+    const label = declarations(touch, '#roster .actions button .label');
+    assert.match(label, /clip-path:\s*inset\(50%\)/, 'the verbs are painted by their labels again');
+    assert.doesNotMatch(label, /display:\s*none/,
+      'the verb\u2019s own words leave the accessibility tree with the pixels');
+    // And a name that still does not fit takes a second line rather than an ellipsis: the row's
+    // verbs keep the place they hold on every other row, because the name wraps and not the row.
+    // That rule is not in the touch block: a name cut to `Francesca B…` is unreadable on a 336 px
+    // desktop panel, where nothing carries the full name either.
+    assert.match(declarations(style, '#roster .name'), /white-space:\s*normal/,
+      'a long name is cut where nothing shows the rest of it');
+    assert.doesNotMatch(declarations(style, '#roster .name'), /text-overflow:\s*ellipsis/,
+      'the ellipsis is back, so the name is cut again');
   });
 
   it('makes its cap the box the panel actually takes', () => {
