@@ -11,6 +11,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { DEFAULT_SAVE_SETTLE_MS } from '../src/bridge/index.ts';
+
 import { FolderWorkingCopy } from '../src/browser/folder.ts';
 import type { FolderDirectoryHandle, FolderEntry, FolderWrite } from '../src/browser/folder.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
@@ -23,6 +25,62 @@ globalThis.document = {
 
 type Role = 'host' | 'guest';
 
+/**
+ * The clock, driven by the test.
+ *
+ * Both settles the write-back runs on are this one clock — the adapter's own and the bridge's, which
+ * the binding hands its timers to — so one `fire()` is one settle and nothing here waits for a real
+ * deadline.
+ */
+class ManualTimers {
+  private readonly pending = new Map<number, () => void>();
+  private next = 0;
+  private readonly delays = new Map<number, number>();
+
+  after(delayMs: number, run: () => void): () => void {
+    const id = (this.next += 1);
+    this.delays.set(id, delayMs);
+    this.pending.set(id, run);
+    return () => void this.pending.delete(id);
+  }
+
+  /** How many deadlines are waiting. */
+  armed(): number {
+    return this.pending.size;
+  }
+
+  /** Every delay the clock was asked for, so a settle can be pinned by its length. */
+  intervals(): number[] {
+    return [...this.delays.values()];
+  }
+
+  /** Runs everything waiting, as the clock would, in the order it was armed. */
+  fire(): void {
+    for (const [id, run] of [...this.pending]) {
+      this.pending.delete(id);
+      run();
+    }
+  }
+}
+
+/**
+ * Waits for something a write settles on, with a deadline.
+ *
+ * A write is a chain of promises and the folder is the only place its outcome shows, so the test
+ * waits on the folder rather than counting turns: a fixed number of microtask turns is not the task
+ * the write's last `await` arrives on.
+ */
+async function until(predicate: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  assert.fail(`waited for ${what} and it never happened`);
+}
+
 function makeModel(text: string) {
   const listeners = new Set<() => void>();
   let current = text;
@@ -30,7 +88,9 @@ function makeModel(text: string) {
     isDisposed: () => false,
     dispose: () => {},
     getValue: () => current,
-    getEOL: () => '\n',
+    // What Monaco does with a model built from this text: the document's own first ending decides,
+    // and it is what the bridge renders a remote edit into.
+    getEOL: () => (current.includes('\r\n') ? '\r\n' : '\n'),
     getPositionAt: (offset: number) => ({ lineNumber: 1, column: offset + 1 }),
     getOffsetAt: (position: { column: number }) => position.column - 1,
     pushEditOperations: (
@@ -82,9 +142,10 @@ function makeEngine(role: Role, texts: Map<string, string>) {
     open: async () => {},
     close: async () => {},
     openDocuments: () => [],
-    insert: (path: string, _index: number, text: string) => {
+    insert: (path: string, index: number, text: string) => {
       inserts.push([path, text]);
-      texts.set(path, (texts.get(path) ?? '') + text);
+      const current = texts.get(path) ?? '';
+      texts.set(path, current.slice(0, index) + text + current.slice(index));
     },
     delete: () => {},
     setSelection: () => {},
@@ -367,5 +428,217 @@ describe('the host half of the page', () => {
     assert.equal(binding.text('notes.txt'), 'room, edited\n');
     assert.deepEqual(writes, []);
     binding.dispose();
+  });
+});
+
+/**
+ * The write-back: what a host's own edits do to the folder it shared.
+ *
+ * Everything here runs on the injected clock, so one `fire()` is one settle and no test waits for a
+ * deadline. The folder is the real `FolderWorkingCopy` over a fake handle and the bridge is the real
+ * one, so what these drive is the adapter's own policy and nothing else.
+ */
+describe('the host writes its own edits back', () => {
+  /** A host binding over one folder, with the clock and the models the test drives. */
+  function harness(
+    files: Record<string, string>,
+    options: { refuseWrite?: string; texts?: Map<string, string> } = {},
+  ) {
+    const engine = makeEngine('host', options.texts ?? new Map());
+    const { folder, writes, reads } = makeFolder(files, { refuseWrite: options.refuseWrite });
+    const timers = new ManualTimers();
+    const notices: Array<{ kind: string; text?: string; path?: string }> = [];
+    const models: Array<ReturnType<typeof makeModel>> = [];
+    const binding = new MonacoBinding({
+      engine,
+      editor: makeEditor(),
+      folder,
+      timers,
+      onNotice: (notice) => void notices.push(notice),
+      createModel: (text) => {
+        const model = makeModel(text);
+        models.push(model);
+        return model;
+      },
+    });
+    return { engine, binding, timers, notices, models, writes, reads };
+  }
+
+  it('writes a local edit once, after the settle and not before it', async () => {
+    const { binding, timers, models, writes } = harness({ 'notes.txt': 'from the folder\n' });
+    await binding.openDocument('notes.txt');
+    models[0]?.__setText('from the folder\nand one more line\n');
+    models[0]?.__fire();
+
+    assert.deepEqual(timers.intervals().slice(-1), [DEFAULT_SAVE_SETTLE_MS], 'the write is not on the bridge\u2019s settle');
+    assert.deepEqual(writes, [], 'the write landed before the settle passed');
+    timers.fire();
+    await until(() => writes.length === 1, 'the settled write');
+    assert.deepEqual(writes, [['notes.txt', 'from the folder\nand one more line\n']]);
+    binding.dispose();
+  });
+
+  it('arms nothing for a window with no folder, which is every guest', async () => {
+    const engine = makeEngine('guest', new Map([['notes.txt', 'from the room\n']]));
+    const timers = new ManualTimers();
+    const binding = new MonacoBinding({
+      engine,
+      editor: makeEditor(),
+      timers,
+      onNotice: () => {},
+      createModel: (text) => makeModel(text),
+    });
+    await binding.openDocument('notes.txt');
+    assert.ok(
+      !timers.intervals().includes(DEFAULT_SAVE_SETTLE_MS),
+      'a window with no folder armed a write',
+    );
+    assert.equal(await binding.save('notes.txt'), true, 'a save with no folder is not a no-op');
+    binding.dispose();
+  });
+
+  it('writes both files when one settle covers two of them', async () => {
+    // The defect this pins: one timer for the whole binding, so "type in A, open B, type in B" inside
+    // the settle cancelled A's write and A was never written — nothing re-armed it, and the page has
+    // no save gesture and no mark, so the person believed it had landed.
+    const { binding, timers, models, writes } = harness({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
+    await binding.openDocument('a.txt');
+    models[0]?.__setText('a EDITED\n');
+    models[0]?.__fire();
+    await binding.openDocument('b.txt');
+    assert.equal(models.length, 2, 'the two opens did not build two models');
+    models[1]?.__setText('b EDITED\n');
+    models[1]?.__fire();
+
+    timers.fire();
+    await until(() => writes.length === 2, 'both files written');
+    assert.deepEqual(
+      [...writes].sort(),
+      [
+        ['a.txt', 'a EDITED\n'],
+        ['b.txt', 'b EDITED\n'],
+      ],
+    );
+    binding.dispose();
+  });
+
+  it('writes once when a peer\u2019s edit and a local edit land in the same settle', async () => {
+    // The ordinary shape of two people typing together: the room's edit arms the bridge's write, the
+    // person's keystroke arms the adapter's, and both fire in one tick. Two overlapping writes of one
+    // file is what the folder refuses as `stale`, since it reads the stamp before its first `await`.
+    const { engine, binding, timers, models, writes } = harness({ 'notes.txt': 'room\n' });
+    await binding.openDocument('notes.txt');
+    engine.__peerEdit('notes.txt', 'room, edited\n');
+    await until(() => timers.armed() > 0, 'the peer\u2019s edit to arm a write');
+
+    // The host types on top of what arrived: the model change re-arms the bridge's write (`moveSave`)
+    // and arms the adapter's own, and the two deadlines are the same one.
+    models[0]?.__setText('room, edited by both\n');
+    models[0]?.__fire();
+    timers.fire();
+
+    await until(() => writes.length >= 1, 'the settled write');
+    assert.deepEqual(writes, [['notes.txt', 'room, edited by both\n']], 'the settle wrote the file twice');
+    binding.dispose();
+  });
+
+  it('keeps a CRLF file CRLF when the host edits a file a guest opened first', async () => {
+    // The replica is LF whatever the file is (`toCrdt`), so a model built from it alone would put
+    // every line back as LF on the host's first keystroke — an edit of one character that changes
+    // every line in version control. 0.4.3 did this for a guest's edit through the bridge's render;
+    // this is the host's own typing.
+    const engine = makeEngine('host', new Map([['notes.txt', 'one\ntwo\n']]));
+    const { folder, writes } = makeFolder({ 'notes.txt': 'one\r\ntwo\r\n' });
+    const timers = new ManualTimers();
+    const models: Array<ReturnType<typeof makeModel>> = [];
+    const binding = new MonacoBinding({
+      engine,
+      editor: makeEditor(),
+      folder,
+      timers,
+      onNotice: () => {},
+      createModel: (text) => {
+        const model = makeModel(text);
+        models.push(model);
+        return model;
+      },
+    });
+    // The room's request for the path is what reads the file, and it is what puts the layout on
+    // record: a guest's open, served by this host.
+    const served = await binding.readGrantedFile('notes.txt');
+    assert.deepEqual(served, { kind: 'text', text: 'one\r\ntwo\r\n' });
+    // The host's own open now, over a room that already holds the path.
+    await binding.openDocument('notes.txt');
+    assert.equal(binding.text('notes.txt'), 'one\r\ntwo\r\n', 'the model did not wear the file\u2019s own ending');
+    assert.equal(binding.lineEnding('notes.txt'), '\r\n');
+
+    models[0]?.__setText('one\r\ntwo\r\nthree\r\n');
+    models[0]?.__fire();
+    timers.fire();
+    await until(() => writes.length === 1, 'the settled write');
+    assert.deepEqual(writes, [['notes.txt', 'one\r\ntwo\r\nthree\r\n']], 'the write flattened the file to LF');
+    binding.dispose();
+  });
+
+  it('puts the byte order mark back when the file had one', async () => {
+    // The reader strips it (`TextDecoder` does), so without this the first edit of a BOM file deletes
+    // the mark — and with it the file's own declaration that it is UTF-8.
+    const { binding, timers, models, writes } = harness({ 'notes.txt': '\uFEFFone\ntwo\n' });
+    await binding.openDocument('notes.txt');
+    assert.equal(binding.text('notes.txt'), 'one\ntwo\n', 'the reader left the mark in the buffer');
+    models[0]?.__setText('one\ntwo\nthree\n');
+    models[0]?.__fire();
+    timers.fire();
+    await until(() => writes.length === 1, 'the settled write');
+    assert.deepEqual(writes, [['notes.txt', '\uFEFFone\ntwo\nthree\n']]);
+    binding.dispose();
+  });
+
+  it('reaches the person as a failure with its path when the folder refuses the write', async () => {
+    const { binding, timers, models, notices } = harness(
+      { 'notes.txt': 'from the folder\n' },
+      { refuseWrite: 'notes.txt changed on disk since the room read it, so it was left alone.' },
+    );
+    await binding.openDocument('notes.txt');
+    models[0]?.__setText('from the folder\nand one more line\n');
+    models[0]?.__fire();
+    timers.fire();
+
+    await until(() => notices.some((notice) => notice.kind === 'failure'), 'the refusal to be reported');
+    const failure = notices.find((notice) => notice.kind === 'failure');
+    assert.equal(failure?.path, 'notes.txt', 'the refusal did not name the row it belongs to');
+    assert.match(failure?.text ?? '', /changed on disk since the room read it/);
+    binding.dispose();
+  });
+
+  it('flushes the keystroke still inside the settle when the binding is disposed', async () => {
+    // Room gone, socket dropped, Leave confirmed: the folder handle and the buffer are both still
+    // valid at `dispose`, and a dropped keystroke is the person's own text.
+    const { binding, timers, models, writes } = harness({ 'notes.txt': 'from the folder\n' });
+    await binding.openDocument('notes.txt');
+    models[0]?.__setText('from the folder\nand one more line\n');
+    models[0]?.__fire();
+    assert.deepEqual(writes, [], 'the write landed before the settle passed');
+
+    binding.dispose();
+    await until(() => writes.length === 1, 'the flushed write');
+    assert.deepEqual(writes, [['notes.txt', 'from the folder\nand one more line\n']]);
+    assert.equal(timers.armed(), 0, 'the disposed binding left a timer behind');
+  });
+
+  it('says nothing to the page about a write the flush had to make', async () => {
+    // The page's chrome is being taken down with the binding: a notice from the flush has no row to
+    // mark, and the row's own state is cleared by the page anyway.
+    const { binding, timers, models, notices } = harness(
+      { 'notes.txt': 'from the folder\n' },
+      { refuseWrite: 'notes.txt changed on disk since the room read it, so it was left alone.' },
+    );
+    await binding.openDocument('notes.txt');
+    models[0]?.__setText('from the folder\nand one more line\n');
+    models[0]?.__fire();
+    binding.dispose();
+    await until(() => notices.length > 0 || timers.armed() === 0, 'the flush to have run');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(notices, [], 'a disposed binding reported a write the page cannot show');
   });
 });
