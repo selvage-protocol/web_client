@@ -24,14 +24,16 @@ const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 const strip = /<div id="file-strip">[\s\S]*?<\/div>\n          <div id="editor-area">/.exec(html)?.[0] ?? '';
 
 describe('the strip is in the shell, above the editor', () => {
-  it('carries a path, its chips, the follow segment and the save control', () => {
+  it('carries a path, its chips and the follow segment', () => {
     assert.ok(strip !== '', 'no file strip above the editor');
-    for (const id of ['file-strip-path', 'file-strip-chips', 'file-strip-follow', 'download']) {
+    for (const id of ['file-strip-path', 'file-strip-chips', 'file-strip-follow']) {
       assert.ok(strip.includes(`id="${id}"`), `${id} is not in the strip`);
     }
-    // The bar's download control moved here: it is about a file, not about the session.
+    // The bar's download control moved to the tree, where a room's files are, and the strip's copy
+    // of it is gone: one control per act. It is about a file, not about the session.
     const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="session-note"'));
     assert.ok(!bar.includes('id="download"'), 'the download control is still in the session bar');
+    assert.ok(!strip.includes('id="download"'), 'the strip still carries a second download control');
   });
 
   it('is the phone’s panel disclosure, and only on a phone', () => {
@@ -67,7 +69,16 @@ describe('the strip is in the shell, above the editor', () => {
 
   it('says nothing about which file is open when there is none, and no chips either', () => {
     assert.match(main, /'No file open'/, 'no open file reads as something else');
-    assert.match(main, /downloadButton\.disabled = path === undefined/, 'the save control is live with no file');
+  });
+
+  it('offers no control of its own for saving the open file', () => {
+    // The tree's per-row download is the page's one way to a file on disk, and it reaches every
+    // file the room holds — the open one included. The strip's button was the same act a second
+    // time, on the one line that is about *which file is open*.
+    assert.ok(!html.includes('id="download"'), 'the strip carries a download control again');
+    assert.ok(!main.includes('downloadButton'), 'the page still wires a download button');
+    assert.ok(!main.includes('downloadOpen'), 'the page still saves the open file outside the tree');
+    assert.ok(!style.includes('#download'), 'the stylesheet still paints the strip\u2019s download');
   });
 });
 

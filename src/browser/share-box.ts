@@ -3,13 +3,14 @@
  * focus it and press Enter — and on a copy an overlay inside the bar names
  * the confirmation briefly, then hides. The link readout never leaves the
  * bar, so the morph changes nothing outside the control and shifts no layout.
+ *
+ * The confirmation is the words alone. It carried a tick beside them, which said nothing the words
+ * did not and put a second, smaller mark in a bar whose one mark is the room's own.
  */
 
 export interface ShareBoxOptions {
   /** The confirmation the bar morphs to; defaults to `Link copied`. */
   confirmLabel?: string;
-  /** The check glyph drawn beside the confirmation, when given. */
-  checkSvg?: string;
   /** How long the confirmation stands before the bar reverts. */
   confirmMs?: number;
   schedule?: (run: () => void, ms: number) => unknown;
@@ -62,13 +63,6 @@ export function wireShareBox(
         overlay = doc.createElement('span');
         overlay.className = 'confirm';
         overlay.hidden = true;
-        if (options.checkSvg !== undefined) {
-          const glyph = doc.createElement('span');
-          glyph.className = 'icon';
-          glyph.setAttribute('aria-hidden', 'true');
-          glyph.innerHTML = options.checkSvg;
-          overlay.appendChild(glyph);
-        }
         const label = doc.createElement('span');
         label.textContent = confirmLabel;
         overlay.appendChild(label);

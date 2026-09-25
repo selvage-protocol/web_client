@@ -281,9 +281,6 @@
       #file-strip-follow:empty { display: none; }
       #file-strip-follow button { font-size: 0.85em; font-weight: normal; }
       #file-strip .spacer { flex: 1 1 auto; }
-      #download { display: flex; align-items: center; justify-content: center; flex: none;
-        margin-left: auto; padding: 0.4em 0.6em; color: var(--muted-foreground); }
-      #download:hover:not(:disabled) { color: var(--foreground); }
       #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
         color: var(--muted-foreground); margin: 1.5em 0 0.5em; padding: 0 0.55em; }
       #side h2:first-child { margin-top: 0; }
@@ -635,7 +632,6 @@
         #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
           box-sizing: border-box; }
         #file-strip-path, #file-strip-path.none { font-weight: 600; color: var(--foreground); }
-        #download { display: none; }
         /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
            the top of the screen empty and stood over the non-commercial notice the demo appends
            under the page, so what a phone shows first is the thing to do and the notice below it
@@ -858,15 +854,14 @@
           aria-valuenow="294"><button id="side-rail" type="button" aria-label="Show files and people"
           title="Show files and people"><span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></button></div>
         <div id="pane">
-          <!-- The open file's whole state, in one line above the editor: which file, whether its
-               text is in the room, whether it is read-only, whether the folder refused the write,
-               who is being followed, and the way to save it. On a phone the same row is the panel's
-               own disclosure, which is what says which file is open when the panel is shut. -->
+          <!-- The open file's whole state, in one line above the editor: which file, whether it is
+               read-only, whether the folder refused the write, and who is being followed. On a
+               phone the same row is the panel's own disclosure, which is what says which file is
+               open when the panel is shut. -->
           <div id="file-strip">
             <span id="file-strip-path"></span>
             <span id="file-strip-chips"></span>
             <span id="file-strip-follow"></span>
-            <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
           </div>
           <div id="editor-area">
             <div id="editor"></div>
