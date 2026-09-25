@@ -1,18 +1,17 @@
 /**
- * Prints the shell's inlined mark: a 104 px render of the mark the site owns,
- * levelled the way the site levels its own nav copy (`scripts/mark-level.mjs`),
- * as the `data:image/png;base64,…` URI `public/index.html` carries in its
- * `.mark` rule. 104 px is the card's 3.25rem at 2x, the largest the mark is ever
- * shown, and the renderer is the one the build's icons use — so a refresh is
- * one paste, never a redraw.
+ * Prints the shell's inlined mark: the mark the site owns, resampled to 104 px
+ * and levelled for the dark ground it lands on (`scripts/mark-level.mjs`), as
+ * the `data:image/png;base64,…` URI `public/index.html` carries in its `.mark`
+ * rule. 104 px is the card's 3.25rem at 2x, the largest the mark is ever shown
+ * — so a refresh is one paste, never a redraw.
  *
  * Run it after the site's `public/mark-transparent.png` changes (the identity
  * test fails until the URI matches, and says so):
  *
  *   node scripts/inline-mark.mjs
  *
- * The bytes are a function of the source file alone: the clocks ImageMagick
- * would stamp into `tIME` and `date:*` are dropped, as they are for the icons.
+ * The bytes are a function of the artwork's own pixels: no clock and no tool
+ * outside Node has a say in them.
  */
 
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';

@@ -9,9 +9,9 @@
  * has a new mtime, rendered four different icons from identical bytes. All four
  * are dropped here; the source's own `Software` tag stays.
  *
- * The card's own mark goes through this resample too, and then through the
- * levelling curve `scripts/mark-level.mjs` owns — not through ImageMagick's
- * `-gamma`, which is not one curve in every release this page is built with.
+ * The card's own mark does not come through here: it is an alpha image, and
+ * resampling one is not the same in every ImageMagick release this page is
+ * built with. `scripts/mark-level.mjs` owns that whole derivation.
  */
 
 import { execFileSync } from 'node:child_process';

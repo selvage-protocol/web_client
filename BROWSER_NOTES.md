@@ -3518,14 +3518,18 @@ started.` is gone, and a decision is no longer dressed as a mistake.
 
 **The mark, levelled.** The 2026-09-18 derivation above sized the inlined mark but never
 levelled it, and the owner's export is dark: the median ink pixel measured **1.72:1** on
-this page's card (`--card`, `#181825`). `scripts/mark-level.mjs` resamples through the
-renderer the sized icons already use, applies the same gamma curve the site applies to its
-own nav mark to the decoded colour channels — no redraw, no recolour — and puts that pixel
-at **4.90:1**. The curve is applied in JS rather than through ImageMagick's `-gamma`, which
-is not one curve in every release this page is built with: trixie's 7.1.1 rendered the
-inlined bytes differently from the 7.1.2 they were committed from, which the CI run on this
-branch's first push found. `test/identity.test.ts` measures the inlined file's own pixels
-over the card's own ground, at the non-text floor.
+this page's card (`--card`, `#181825`). `scripts/mark-level.mjs` owns the whole derivation
+now: an area-weighted average in premultiplied space, the site's own gamma curve on the
+decoded colour channels — no redraw, no recolour — and a small PNG encoder, which puts that
+pixel at **5.04:1**. It is all Node on the master's own bytes, because ImageMagick is not
+one tool across the releases this page is built with and both of its steps that touch this
+image are version-dependent: `-gamma` is not the same curve in trixie's 7.1.1 as in the
+7.1.2 the first push committed, and resampling an *alpha* image — premultiply, average,
+unpremultiply — is not either. The six sized icons, which come from the opaque master,
+reproduce byte for byte in that image and always have; CI found both differences on this
+branch, which is what moved the derivation here. `test/identity.test.ts` compares the
+inlined mark's pixels with a fresh render's, and measures them over the card's own ground at
+the non-text floor.
 
 **The demo's notice on a phone.** The instance's front injects its non-commercial notice
 after `#app`; on a phone it is three lines of prose, 80 px and about a tenth of the
