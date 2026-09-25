@@ -27,6 +27,13 @@ import type { RoomPerson } from '../src/browser/room.ts';
 
 /** The smallest document a render needs: elements, their attributes, and the events they fire. */
 function makeDocument() {
+  // The document the fixture's own `focus` writes back to, as a browser's does: `renderRoom` reads
+  // `activeElement` before every redraw, so a fake that only set `focused` would leave the removed
+  // face as the active element and no second redraw could restore anything.
+  const document = {
+    activeElement: null as any,
+    createElement: (tag: string) => make(tag),
+  };
   function make(tag: string) {
     const listeners: Record<string, ((event: unknown) => void)[]> = {};
     const attributes: Record<string, string> = {};
@@ -96,7 +103,10 @@ function makeDocument() {
           run({ preventDefault: () => {}, stopPropagation: () => {}, ...event });
         }
       },
-      focus: () => void (element.focused = true),
+      focus: () => {
+        element.focused = true;
+        document.activeElement = element;
+      },
       select: () => void (element.selected = true),
       setAttribute: (name: string, value: string) => void (attributes[name] = value),
       getAttribute: (name: string) => attributes[name],
@@ -105,10 +115,7 @@ function makeDocument() {
     };
     return element;
   }
-  return {
-    activeElement: null as any,
-    createElement: (tag: string) => make(tag),
-  };
+  return document;
 }
 
 /** The two things an append changes: the child list, and the parent a hold reads. */
@@ -599,25 +606,29 @@ describe('focus in the cluster', () => {
 
   it('puts focus back on the face it was on when the faces are drawn again', () => {
     const { host } = renderCluster([SELF, MIRA, SAM]);
-    (globalThis.document as any).activeElement = faceFor(host, 'peer-mira');
-    // The room drew the same faces again, and `replaceChildren` took the focused element with it:
+    faceFor(host, 'peer-mira').focus();
+    // The room drew the same faces again, and `replaceChildren` took the focused element with it.
+    // Twice: the face the first draw put focus back on is the one the second draw reads.
     drawAgain(host, [SELF, MIRA, SAM]);
     assert.equal(faceFor(host, 'peer-mira').focused, true, 'the face the person was on lost focus to the redraw');
     assert.equal(buttonsIn(host).filter((face) => face.focused).length, 1, 'focus landed on more than the face it was on');
+    drawAgain(host, [SELF, MIRA, SAM]);
+    assert.equal(faceFor(host, 'peer-mira').focused, true, 'a second redraw lost the face the first one put focus back on');
   });
 
   it('leaves focus alone when the face it was on is no longer drawn', () => {
     const { host } = renderCluster([SELF, MIRA, SAM]);
-    (globalThis.document as any).activeElement = faceFor(host, 'peer-mira');
+    faceFor(host, 'peer-mira').focus();
     // Mira left: her face is not drawn any more, and there is no control to invent in its place.
-    // Focus stays where the removal put it.
+    // Focus stays where the removal put it, through a redraw or two.
+    drawAgain(host, [SELF, SAM]);
     drawAgain(host, [SELF, SAM]);
     assert.deepEqual(buttonsIn(host).map((face) => face.focused), [false, false], 'a face took focus that nobody was on');
   });
 
   it('keeps the followed face focused when the follow pins it into the strip', () => {
     const { host } = renderCluster([SELF, MIRA, SAM]);
-    (globalThis.document as any).activeElement = faceFor(host, 'peer-sam');
+    faceFor(host, 'peer-sam').focus();
     // Following pins the followed face to the last shown slot; the anchor is the same, so the face
     // is still drawn and focus is still on it.
     drawAgain(host, [SELF, MIRA, SAM], { followedPeerId: 'peer-sam' });
@@ -677,6 +688,13 @@ describe('the page draws the dialog wherever it draws the faces', () => {
       main,
       /const inside = focusInMenu\(\);/,
       'Escape cannot tell a stray key from one aimed at the dialog',
+    );
+    // The face counts as the dialog's own only when it is the face the dialog stands under: focus on
+    // another face is not attention the dialog has, and moving it would be the same theft.
+    assert.match(
+      main,
+      /active\.getAttribute\('data-anchor'\) === menu\?\.anchor\)/,
+      'Escape treats any face as the dialog’s own, and can move focus off the face the person is on',
     );
     assert.match(main, /closeMenu\(inside\)/, 'Escape closes the dialog regardless of where the person was');
   });

@@ -262,9 +262,10 @@ chevron for it and opens the panel under itself. The same layout answers for a p
 side: a 844x390 touch device is the phone layout and not the desktop column.
 
 The people in the room are faces in the session bar, to the right of the invite pill and before
-the way out: your own seat first, always, then the room's peers, and four faces at a time on a
-pointer device or two on a phone, with the rest counted behind a `+N` that opens the list of
-everyone — the `+N` takes the cap's last slot, so a bar of five shows four faces and `+1`. A face
+the way out: your own seat first, always, then the room's peers, with the cluster capped at five
+controls on a pointer device or three on a phone — faces and the `+N` together. A room at or under
+the cap shows every face; over it the last slot is the `+N`, so six people on a pointer device read
+four faces and `+2`, and the `+N` opens the list of everyone. A face
 wears three marks, each a shape rather than a colour — a solid ring for your own seat, a dashed
 ring and an eye for the one you follow, a crown for the host — and the person you follow is never
 the one counted away, because that ring is the only place a follow shows on this bar. Pressing a

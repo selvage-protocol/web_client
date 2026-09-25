@@ -1480,7 +1480,7 @@ function focusInMenu(): boolean {
   }
   return (
     menuElement?.contains(active) === true ||
-    (faceStrip.contains(active) && active.getAttribute('data-anchor') !== null)
+    (faceStrip.contains(active) && active.getAttribute('data-anchor') === menu?.anchor)
   );
 }
 
