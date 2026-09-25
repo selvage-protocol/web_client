@@ -64,14 +64,14 @@ import {
   fetchCostsSentence,
   fetchingSentence,
   fetchStandMs,
-  savesOwnBuffer,
   stillAskingSentence,
   stillEmptySentence,
 } from './fetch-download.ts';
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
 import { EMPTY_IN_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
-import { renderRoster } from './roster.ts';
+import { renameHoldsTheList, renderRoster } from './roster.ts';
+import type { RosterRename } from './roster.ts';
 import {
   emptyEditorFor,
   renderEmptyEditor,
@@ -259,6 +259,13 @@ const peek = wireTapPeek(document.getElementById('peek') as HTMLElement, { stand
  * with no document in it is redrawn from that state, and the pane is a read of the session.
  */
 let binding: MonacoBinding | undefined;
+/**
+ * The editor widget the binding drew into, dropped with the session. Declared here with `binding`
+ * for the same reason: `showPanel` lays the editor out when the panel closes, which is the state
+ * the page loads in on a phone, and a top-level `let` written below that call is in its temporal
+ * dead zone — unbundled, the load would throw `Cannot access 'editorApi' before initialization`.
+ */
+let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
 
 /**
  * The panel is a disclosure on a phone and a resizable column on anything else.
@@ -439,8 +446,6 @@ function settleFocus(field: HTMLInputElement): void {
 let engine: RoomEngine | undefined;
 /** The editor's opener guard, one registration per join, dropped with the session. */
 let linkGuard: { dispose(): void } | undefined;
-/** The editor widget the binding drew into, dropped with the session. */
-let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
 /** What the editor was created with on this device, to return to under a pointer. */
 let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
@@ -1344,14 +1349,17 @@ async function copyShareLink(): Promise<void> {
  * reads on the grant tree, not here; the strip's follow segment owns the one
  * stop and the row's own toggle is the same state from the other side.
  *
- * An own-name edit holds the list still (`renamingName`): a presence frame lands
- * every few hundred milliseconds while anybody types, and a list redrawn under
- * the field would take the cursor with it. The rows the person cannot see for
- * those seconds are redrawn the moment the edit ends, and nothing is lost — a
- * roster is a read of the room as it stands, not a queue.
+ * An own-name edit holds the list still only while the person is in its field
+ * (`renameHoldsTheList`): a presence frame lands every few hundred milliseconds
+ * while anybody types, and a list redrawn under the field would take the cursor
+ * with it. An edit left open with their attention elsewhere holds nothing, and
+ * the rows keep up — a roster is a read of the room as it stands, and one that
+ * stopped being true while a field nobody was in stood open was a wrong list.
+ * What a redraw puts back is the name the person had typed, so the hold is not
+ * what keeps their words.
  */
 function syncRoster(participants: Participant[]): void {
-  if (renamingName !== undefined) {
+  if (renameHoldsTheList(renamingField, document.activeElement)) {
     return;
   }
   drawRoster(participants);
@@ -1359,27 +1367,39 @@ function syncRoster(participants: Participant[]): void {
 
 /** The list as it stands, with the own-name edit open if one is. */
 function drawRoster(participants: Participant[]): void {
+  // What the field holds now rather than what it opened on: a redraw of a list nobody is typing in
+  // must not throw away a half-typed name.
+  const typed = renamingField?.value;
+  const renaming: RosterRename | undefined =
+    renamingName === undefined
+      ? undefined
+      : {
+          opened: renamingName,
+          value: typed ?? renamingName,
+          maxLength: MAX_DISPLAY_NAME_UNITS,
+          fresh: renamingField === undefined,
+          commit: (value) => void commitRename(value),
+          cancel: () => endRename(),
+          // The list was held for as long as the person was in the edit, and leaving it open with a
+          // typed name draws it now — nothing else will until the room's next presence frame. Drawn
+          // rather than re-checked: whether focus has already left by the time this runs is the
+          // browser's business, and the fact this callback carries is that the person has left.
+          leftOpen: () => drawRoster(binding?.participants() ?? []),
+        };
   renderRoster(rosterList, participants, {
     followedPeerId: binding?.following()?.peerId,
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
     selfRole: engine?.session().role,
     goToRefusal,
-    renaming:
-      renamingName === undefined
-        ? undefined
-        : {
-            value: renamingName,
-            maxLength: MAX_DISPLAY_NAME_UNITS,
-            commit: (value) => void commitRename(value),
-            cancel: () => endRename(),
-          },
+    renaming,
     onRename: () => startRename(),
     onGoTo: (peerId) => goToParticipant(peerId),
     onFollow: (peerId) => followParticipant(peerId),
     // The same state from the other side: the row's toggle pressed is the strip's Stop pressed.
     onStopFollow: () => binding?.stopFollowing(),
   });
+  renamingField = renaming?.field;
 }
 
 /**
@@ -1442,12 +1462,18 @@ function showGoToRefusal(peerId: string | undefined, text: string): void {
  * the row is drawn from this state (`drawRoster`).
  */
 let renamingName: string | undefined;
+/**
+ * The field the open edit is in, for the draw that built it: what tells a presence frame whether the
+ * person is still in the edit, and where the next draw reads the name they have typed.
+ */
+let renamingField: HTMLInputElement | undefined;
 
 function startRename(): void {
   if (renamingName !== undefined || binding === undefined) {
     return;
   }
   renamingName = selfName;
+  renamingField = undefined;
   // Opening the field is the one drawing that happens while an edit is open, so it does
   // not go through the hold `syncRoster` keeps.
   drawRoster(binding.participants());
@@ -1455,6 +1481,7 @@ function startRename(): void {
 
 function endRename(): void {
   renamingName = undefined;
+  renamingField = undefined;
   syncRoster(binding?.participants() ?? []);
 }
 
@@ -1677,26 +1704,18 @@ function startDownload(path: string, feedback: RowFeedback): void {
   }
   const here = (candidate: string): string =>
     binding?.text(candidate) ?? engine?.text(candidate) ?? '';
-  const text = here(path);
-  // What this window holds is saved as it stands: text that says something, or the buffer of the
-  // document in front of the editor — the person who emptied their own file asked for it empty, and
-  // that is the save the file strip's control used to make (`savesOwnBuffer`).
-  if (savesOwnBuffer({ openHere: binding.currentPath() === path, text })) {
-    try {
-      downloadDocument(path, text, downloadSink);
-    } catch (error: unknown) {
-      feedback.note(`Could not download ${path}: ${describe(error)}`, [
-        { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } },
-      ]);
-    }
-    return;
-  }
-  // Nothing here to save, so the room is asked. The cost is said once a session, before the first
-  // fetch, and only when a fetch is what comes next: a path this window already holds an empty
-  // document for is answered out of that document without asking the room, so `Fetching opens …`
-  // would be a sentence about an act that is not taken. It is not asked as a question — the room
-  // already lists the name — it is said.
-  if (binding.hasText(path) !== true && !saidFetchCosts) {
+  // Whether the room's answer for the path is here, which is the whole of what decides this: a
+  // document in front of the editor is not an answered one, and a guest that taps a row's ⤓ on the
+  // file it has just opened holds an empty model until the room replies. Saving that model wrote a
+  // 0-byte file over the one the person asked for. A path this window does hold is the person's own
+  // copy of the file as it stands, the buffer they emptied included, and `fetch-download.ts` saves
+  // it without a fetch; a path it does not hold is a fetch.
+  const holds = binding.hasText(path) === true;
+  // The cost is said once a session, before the first fetch, and only when a fetch is what comes
+  // next: a path this window holds is answered out of its own document, so `Fetching opens …` would
+  // be a sentence about an act that is not taken. It is not asked as a question — the room already
+  // lists the name — it is said.
+  if (!holds && !saidFetchCosts) {
     saidFetchCosts = true;
     const costs = fetchCostsSentence(path);
     feedback.note(costs);
@@ -1706,7 +1725,11 @@ function startDownload(path: string, feedback: RowFeedback): void {
     // thing the person can act on with it.
     window.setTimeout(() => feedback.clear(costs), FETCH_COSTS_STAND_MS);
   }
-  feedback.busy(fetchingSentence(path));
+  // The wait is the fetch's own line, and only a fetch has one: a save of what is here is the
+  // browser's own download UI and nothing else.
+  if (!holds) {
+    feedback.busy(fetchingSentence(path));
+  }
   const again = { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } };
   void fetchAndSave(path, {
     has: (candidate) => binding?.hasText(candidate) ?? false,

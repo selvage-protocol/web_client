@@ -17,13 +17,11 @@ import assert from 'node:assert/strict';
 import {
   FETCH_SETTLE_MS,
   FETCH_STAND_MS,
-  canSaveAtOnce,
   fetchAndSave,
   fetchCostsSentence,
   fetchFailedSentence,
   fetchingSentence,
   fetchStandMs,
-  savesOwnBuffer,
   stillAskingSentence,
   stillEmptySentence,
 } from '../src/browser/fetch-download.ts';
@@ -79,15 +77,19 @@ describe('a path this window already holds', () => {
     assert.deepEqual(held.polls, [], 'a file this window holds was fetched again');
   });
 
-  it('is not saved while what it holds is nothing', async () => {
-    // The room answers a fetch that timed out by holding an empty document for the path, and the
-    // path then reads as held. Saving that is the same empty file by another door: the person is
-    // offered the choice instead.
-    const arrivedEmpty = room('');
-    arrivedEmpty.deliver();
-    const outcome = await fetchAndSave('src/main.ts', arrivedEmpty.ports, { wait: arrivedEmpty.wait });
-    assert.equal(outcome.kind, 'empty');
-    assert.deepEqual(arrivedEmpty.saved, [], 'a held-but-empty path was saved without being asked');
+  it('is saved as it stands when what it holds is nothing, and is never said to be the host’s empty one', async () => {
+    // The person's own emptied file, in front of the editor or behind it: it is saved under its own
+    // name with nothing in it, and the row says nothing about the host. What the page used to do
+    // instead — read the empty copy as the room's answer — told somebody who had cleared a file
+    // themselves, and then switched to another one, that `notes.md is still empty — the host sent no
+    // text for it`, and offered to save the empty file they had already asked for.
+    const emptied = room('');
+    emptied.deliver();
+    const outcome = await fetchAndSave('notes.md', emptied.ports, { wait: emptied.wait });
+    assert.notEqual(outcome.kind, 'empty', 'the person’s own emptied file was said to be the host’s');
+    assert.deepEqual(outcome, { kind: 'saved', text: '' });
+    assert.deepEqual(emptied.saved, [['notes.md', '']], 'the empty file the person asked for was not saved');
+    assert.deepEqual(emptied.polls, [], 'a path this window holds was fetched again');
   });
 });
 
@@ -120,6 +122,19 @@ describe('a path whose text has not been fetched', () => {
     assert.deepEqual(outcome, { kind: 'saved', text: 'fn main() {}\n' });
     assert.deepEqual(late.saved, [['src/main.rs', 'fn main() {}\n']]);
     assert.equal(answering.ports.has('x'), true);
+  });
+
+  it('fetches a document that is open in front of the editor and not yet answered', async () => {
+    // The blocking defect. A guest taps the row's ⤓ on the file it has just opened, before the room
+    // has sent its text: the model behind the editor is empty, and the row saved *that* — a 0-byte
+    // file named after the one the person asked for, with nothing to say it was wrong. An open
+    // document is not an answered one, so this is a fetch: it waits, and it saves what arrived.
+    const opened = room('fn main() {}\n', { after: 2 });
+    const outcome = await fetchAndSave('notes.md', opened.ports, { wait: opened.wait, polls: 5 });
+    assert.deepEqual(outcome, { kind: 'saved', text: 'fn main() {}\n' });
+    assert.deepEqual(opened.saved, [['notes.md', 'fn main() {}\n']]);
+    assert.equal(opened.saved.some(([, text]) => text === ''), false, 'the open model was saved as the file');
+    assert.ok(opened.polls.length >= 2, `the fetch did not wait for the room: ${opened.polls.length} polls`);
   });
 
   it('never says a room that has not answered is empty', async () => {
@@ -197,9 +212,11 @@ describe('a path whose text has not been fetched', () => {
     );
   });
 
-  it('gives the path this window holds an empty document for the choice, not a save', async () => {
-    // The other door to the same empty file: a document for the path is here and its text is
-    // nothing. That is the room's answer, so it is offered — never assumed.
+  it('offers an empty answer that arrives inside the fetch, rather than writing it', async () => {
+    // The other door to the same empty file, and the one `Save empty file` is for: nothing was here
+    // when the person asked, and the room's answer is a document with no text in it. That is news —
+    // the person asked for a file they thought had contents — so it is offered. A copy this window
+    // already *holds* when it asks never reaches here; it is saved as it stands.
     const empty = room('', { after: 0 });
     const outcome = await fetchAndSave('notes.md', empty.ports, { wait: empty.wait, polls: 3 });
     assert.equal(outcome.kind, 'empty');
@@ -224,53 +241,33 @@ describe('a path whose text has not been fetched', () => {
     assert.deepEqual(refusing.saved, []);
   });
 
-  it('never saves an empty answer at once, however the room reports the path', () => {
-    // A document with no text in it is the room's answer that the file it read is empty, and the
-    // answer is offered by name rather than written: an empty file under the name the person asked
-    // for is theirs to choose. The driver caught the page saving one unasked.
-    assert.equal(canSaveAtOnce(''), false, 'an empty answer was saved without being asked for');
-    assert.equal(canSaveAtOnce('\n'), true, 'a file of one newline is text');
-    assert.equal(canSaveAtOnce('fn main() {}'), true);
-    assert.equal(
-      savesOwnBuffer({ openHere: false, text: '' }),
-      false,
-      'an empty answer from the room was saved without being asked for',
-    );
+  it('asks the room whether it has answered, and never whether the file is open here', () => {
+    // What the page reads for its decision. It is the room's answer that decides — the presence of a
+    // document for the path — and the document in front of the editor is not that answer. The two
+    // were once the same test (`openHere || canSaveAtOnce(text)`), which is what made the blocking
+    // defect: `openHere` was true while the text was still coming, and the empty model was saved.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.match(
-      main,
-      /savesOwnBuffer\(\{ openHere: binding\.currentPath\(\) === path, text \}\)/,
-      'the page saves on the document again instead of asking the room',
+    const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
+    assert.match(download, /const holds = binding\.hasText\(path\) === true;/, 'the page no longer reads the room’s receipt');
+    assert.doesNotMatch(
+      download,
+      /currentPath\(\)/,
+      'the document in front of the editor stands for the room\u2019s answer again',
     );
-    assert.ok(
-      !/if \(binding\.hasText\(path\)\)/.test(main),
-      'a path the room merely holds is saved as if its text were here',
-    );
-  });
-
-  it('saves the editor\u2019s own empty buffer, because that empty document is the person\u2019s', () => {
-    // The row's ⤓ took the act over from the file strip's own control, which saved the buffer as it
-    // stood. So the two empty documents are told apart: this one is the document in front of the
-    // editor, which the person emptied themselves, and the other arrived empty from the room.
-    // Measured on a phone before this: a guest who had cleared `notes.md` themselves was told
-    // `notes.md is still empty — the host sent no text for it.` and offered `Save empty file`, and
-    // nothing was saved until they pressed it.
-    assert.equal(savesOwnBuffer({ openHere: true, text: '' }), true, 'the editor\u2019s own empty buffer was not saved');
-    assert.equal(savesOwnBuffer({ openHere: true, text: 'notes' }), true);
-    assert.equal(savesOwnBuffer({ openHere: false, text: 'notes' }), true);
   });
 
   it('says what a fetch costs only when a fetch is what comes next', () => {
-    // `Fetching opens …` is about an act: a path this window already holds text for is answered out
-    // of that document, with no open behind it, so the sentence would describe a fetch that never
-    // happens. It stood over the open file — a file this window plainly has — as well.
+    // `Fetching opens …` is about an act: a path this window holds is answered out of its own
+    // document, with no open behind it, so the sentence would describe a fetch that never happens.
+    // It stood over the open file — a file this window plainly has — as well.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
     assert.match(
       download,
-      /if \(binding\.hasText\(path\) !== true && !saidFetchCosts\) \{/,
+      /if \(!holds && !saidFetchCosts\) \{/,
       'the cost of a fetch stands over a path no fetch is made for',
     );
+    assert.match(download, /if \(!holds\) \{\n    feedback\.busy\(fetchingSentence\(path\)\);/, 'the wait is shown for a save');
   });
 });
 

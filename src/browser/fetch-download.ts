@@ -13,6 +13,16 @@
  * still running. The wait ends at the answer, empty included: waiting for text past a document
  * that has already arrived is waiting for something that is never coming.
  *
+ * **The test for all of that is `has`, and never whether the document is open in front of the
+ * editor.** An open document is not an answered one: a guest that taps a row's ⤓ on the file it has
+ * just opened holds a model whose text is `''` until the room replies, and treating that as the
+ * person's own file is how the 0-byte download came back. What is here and answered — an empty
+ * document included, which is the room saying the file it read is empty, or a buffer this window
+ * has already written into — is the person's own copy of the file as it stands, and a path with no
+ * document here is a fetch. Reading an empty buffer as the room's answer instead told a guest who
+ * had cleared their own file that the host had sent no text for it, and asked them to save the empty
+ * file they had already asked for.
+ *
  * Asking is done with the engine's own `open`, the same call opening a file makes, because that is
  * what makes the room send the text — there is no read-only fetch in the protocol, and a second
  * mechanism would be a second thing to keep true (`§6.3`, `§12`). It is why the page says so once:
@@ -27,7 +37,7 @@ export interface FetchSavePorts {
    * empty answer.
    */
   has(path: string): boolean;
-  /** The text, once `has` says it is here. */
+    /** The text once `has` says it is here, and nothing for a path it does not. */
   text(path: string): string;
   /** Asks the room for the path's text, without putting it in front of the editor. */
   open(path: string): Promise<void>;
@@ -40,11 +50,13 @@ export type FetchSaveOutcome =
   /** The text arrived and was saved. */
   | { kind: 'saved'; text: string }
   /**
-   * Nothing was saved and the room has answered with an empty document for the path: `has` is
-   * true and its text is empty.
+   * Nothing was saved and the answer that arrived inside the fetch carries no text for the path:
+   * `has` turned true while the fetch was waiting, and what it holds is empty.
    *
    * Empty is not a failure — an empty file is a state a person may want — but it is not the file
-   * they asked for either, so it is offered rather than assumed.
+   * they asked for either: it is the room's news rather than the copy the person already had, so it
+   * is offered rather than assumed. The copy a window *holds* when it asks never reaches this case;
+   * it is saved as it stands.
    */
   | { kind: 'empty'; text: string }
   /**
@@ -126,8 +138,9 @@ export const FETCH_COSTS_STAND_MS = 5000;
 /**
  * Saves `path`, fetching its text first when this window has none.
  *
- * A window that already holds the text saves it at once: the browser's own download UI is the
- * confirmation, and a message about a file that was already here would be noise.
+ * A window that holds the room's answer for the path saves it at once: that copy is the person's
+ * own as it stands, the buffer they emptied included, and the browser's own download UI is the
+ * confirmation. A message about a file that was already here would be noise.
  */
 export async function fetchAndSave(
   path: string,
@@ -135,15 +148,7 @@ export async function fetchAndSave(
   options: FetchSaveOptions = {},
 ): Promise<FetchSaveOutcome> {
   if (ports.has(path)) {
-    const text = ports.text(path);
-    // Even a path this window already holds is not saved while what it holds is nothing: a document
-    // with no text in it is the room's answer that the file it read is empty, and an answer is
-    // offered as the choice it is rather than handed over as the file's contents (`canSaveAtOnce`).
-    if (text === '') {
-      return { kind: 'empty', text };
-    }
-    ports.save(path, text);
-    return { kind: 'saved', text };
+    return saveNow(path, ports.text(path), ports);
   }
   try {
     await ports.open(path);
@@ -166,57 +171,23 @@ export async function fetchAndSave(
     return { kind: 'pending' };
   }
   const arrived = ports.text(path);
-  // A document for the path with no text in it is the room's own answer that the file is empty,
-  // and it is offered rather than assumed — nothing is saved without being asked for
-  // (`canSaveAtOnce`).
+  // An answer that arrives *inside* the fetch with no text in it is the room saying the file is
+  // empty — news the person did not have when they asked, and not their own buffer: it is offered
+  // rather than assumed, and nothing is written for it without being asked for.
   if (arrived === '') {
     return { kind: 'empty', text: arrived };
   }
-  ports.save(path, arrived);
-  return { kind: 'saved', text: arrived };
+  return saveNow(path, arrived, ports);
 }
 
-/**
- * Whether a download can go straight to the browser's own save, with no fetch behind it.
- *
- * The test is the *text*, and not the room's receipt of the path. `has(path)` is true once a
- * document for the path is here, and a document with no text in it is the room's answer that the
- * file it read is empty — the answer, and not the file's contents. Saving on that receipt is how a
- * guest is handed an empty file named `src/main.ts` on its disk: the defect this module exists to
- * prevent, and the one the in-room driver caught — the fetch that had timed out left the room
- * holding an empty document, the next press of the row's action took this path, and an empty file
- * was saved without a word.
- *
- * So an empty answer is never saved without being asked for: it goes through `fetchAndSave`, which
- * offers `Save empty file` for the document the room sent (`FetchSaveOutcome`).
- */
-export function canSaveAtOnce(text: string): boolean {
-  return text !== '';
-}
-
-/** What a row's download needs to know about this window's own copy of the path. */
-export interface OwnCopy {
-  /** Whether the path is the document in front of this window's editor. */
-  openHere: boolean;
-  /** The text this window can show for it: the buffer first, the replica behind it. */
-  text: string;
-}
-
-/**
- * Whether a row's download saves the text this window holds, with no fetch behind it.
- *
- * Two ways the text here is the person's own. It says something (`canSaveAtOnce`), or the path is the
- * document in front of the editor — that buffer is what they are looking at, and deleting its text
- * is an edit like any other, so the document they emptied downloads empty. Reading that empty buffer
- * as the room's answer instead is what told a guest who had cleared a file themselves that the host
- * had sent no text for it, and asked them to press `Save empty file` for the save they had already
- * asked for. It is the act the file strip's own control made before the row took it over.
- *
- * The difference matters because the two empty documents are different facts: this one is the person's
- * own buffer, and the other is a document that arrived with nothing in it.
- */
-export function savesOwnBuffer(state: OwnCopy): boolean {
-  return state.openHere || canSaveAtOnce(state.text);
+/** Writes the copy this window holds, and reports a save the browser would not take. */
+function saveNow(path: string, text: string, ports: FetchSavePorts): FetchSaveOutcome {
+  try {
+    ports.save(path, text);
+  } catch (error: unknown) {
+    return { kind: 'failed', sentence: fetchFailedSentence(path, reason(error)) };
+  }
+  return { kind: 'saved', text };
 }
 
 function reason(error: unknown): string {

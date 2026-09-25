@@ -142,10 +142,25 @@ describe('what the strip states', () => {
     // The pointer device's half: the marks are painted after the control, so the control's invisible
     // slot cannot hold them off the edge, and the row's one auto margin goes with whichever of them
     // stands first on the right. A touch device draws the control always and is left as it was.
+    const pointer = style.slice(style.indexOf('@media (any-hover: hover) {'));
     assert.match(
-      style,
-      /@media \(any-hover: hover\) \{[\s\S]*?#tree button\.row \.presence \{ order: 1; \}[\s\S]*?#tree button\.row:has\(\.row-actions\) \.presence \{ margin-left: 0; \}[\s\S]*?#tree button\.row:has\(\.row-actions\) \.row-actions \{ margin-left: auto; \}/,
-      'the row\u2019s control does not take the slack, so the marks stop short of the edge again',
+      pointer,
+      /#tree button\.row \.presence \{ order: 1; \}/,
+      'the badge is not painted after the control, so the control\u2019s invisible slot holds it off the edge',
+    );
+    assert.match(
+      pointer,
+      /#tree button\.row:has\(\.unsaved\) \.unsaved,\s*\n\s*#tree button\.row:not\(:has\(\.unsaved\)\) \.row-actions \{ margin-left: auto; \}/,
+      'the row\u2019s \u26a0 does not take the slack, so it sits out beside the file\u2019s name',
+    );
+    assert.ok(
+      !/:has\(\.row-actions\) \.row-actions \{ margin-left: auto; \}/.test(pointer),
+      'the control takes the slack even when the \u26a0 is the first mark on the right',
+    );
+    assert.match(
+      pointer,
+      /#tree button\.row:has\(\.unsaved\) \.presence,\s*\n\s*#tree button\.row:has\(\.row-actions\) \.presence \{ margin-left: 0; \}/,
+      'two auto margins split the free space between the badge and the marks beside it',
     );
   });
 
