@@ -645,11 +645,16 @@ async function hostAndOpen(page, server) {
     `document.querySelectorAll('#tree button.row').length`,
     (rows) => rows > 0,
   );
+  // The path the click opens, read off the row itself rather than off its text: a row carries an
+  // icon and its `\u25cf` as well as the name, and a name is not a path. A file row holds its leaf in
+  // its own `.label`, and the directory it sits in is the nearest `details[data-dir]`.
   const openedPath = await page.evaluate(`(() => {
     const rows = [...document.querySelectorAll('#tree button.row')];
     const first = rows.find((row) => /README[.]md|notes[.]md/.test(row.textContent ?? '')) ?? rows[0];
+    const leaf = first.querySelector('.label')?.textContent ?? '';
+    const dir = first.closest('details[data-dir]')?.dataset.dir ?? '';
     first.click();
-    return first.textContent.trim();
+    return dir === '' ? leaf : dir + '/' + leaf;
   })()`);
   await waitFor(
     page,
@@ -661,7 +666,7 @@ async function hostAndOpen(page, server) {
 }
 
 /** The desktop shots, in the mouse browser: the layout a real pointer gets, and every new control. */
-async function reviewDesktop(page, server, written) {
+async function reviewDesktop(page, server, written, failures) {
   const openedPath = await hostAndOpen(page, server);
   const chrome = await page.evaluate(CHROME);
   log('desktop chrome:', JSON.stringify(chrome));
@@ -894,12 +899,39 @@ async function reviewDesktop(page, server, written) {
   // has to be written back by the page itself — a peer's edit already is, and this is the other
   // half. Typed through the real input path and read back out of the origin-private directory
   // the picker stands in for, so the proof is the file's own bytes and not the editor's state.
+  // The file the check reads is the path `hostAndOpen` actually opened, and what it is compared with
+  // is what the editor is showing rather than a substring of it: the claim is that the file on disk
+  // *is* the buffer, and `includes` passes on a file that has grown a second copy of the text. A miss
+  // fails the run (see `failures`), because a fact recorded as `false` with exit 0 is a proof nobody
+  // is told about.
   const marker = 'HOST-EDIT-REACHES-THE-FOLDER';
   const readFolder = `(async () => {
     const root = await navigator.storage.getDirectory();
-    const project = await root.getDirectoryHandle('project');
-    const handle = await project.getFileHandle('README.md');
+    let dir = await root.getDirectoryHandle('project');
+    const parts = ${JSON.stringify(openedPath.split('/'))};
+    for (const part of parts.slice(0, -1)) {
+      dir = await dir.getDirectoryHandle(part);
+    }
+    const handle = await dir.getFileHandle(parts[parts.length - 1]);
     return await (await handle.getFile()).text();
+  })()`;
+  // Monaco renders the lines it is showing and keeps the whole buffer; for a document this small
+  // (the seeded README is three lines) every line is rendered, so the joined lines are the buffer's
+  // text. The model's own text is what the claim is about, and this is the only way to it from
+  // outside the page: the bundle keeps `monaco` to itself. What the DOM holds is not quite the
+  // buffer — Monaco paints a space as `&nbsp;` so a run of them keeps its width — so the rendered
+  // form is read back as the text it stands for.
+  const readEditor = `[...document.querySelectorAll('.monaco-editor .view-line')]
+    .map((line) => (line.textContent ?? '').replace(/\\u00a0/g, ' '))
+    .join('\\n')`;
+  // The row's own refusal mark, which is what the page shows when a write did not land.
+  const readWarned = `(() => {
+    const wanted = ${JSON.stringify(openedPath)};
+    const leaf = wanted.slice(wanted.lastIndexOf('/') + 1);
+    const row = [...document.querySelectorAll('#tree button.row')].find((candidate) =>
+      [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
+    );
+    return row !== undefined && row.querySelector('.unsaved') !== null;
   })()`;
   const editorBox = await page.evaluate(`(() => {
     const box = document.querySelector('.monaco-editor')?.getBoundingClientRect();
@@ -907,9 +939,20 @@ async function reviewDesktop(page, server, written) {
       ? null
       : { x: Math.round(box.left + 60), y: Math.round(box.top + 60) };
   })()`);
-  const alreadyThere = (await page.evaluate(readFolder)).includes(marker);
+  const before = await page.evaluate(readFolder);
+  const alreadyThere = before.includes(marker);
+  // The precondition the check rests on: nothing else has written this file yet. The only other
+  // writer is the bridge's own save, which fires on an edit the *room* made, and this window's peer
+  // left before the typing started — so a file that no longer holds what the picker seeded it with
+  // would mean the change the check is about to see was not this window's own.
+  if (before !== SEED[openedPath]) {
+    failures.push(
+      `${openedPath} was already ${JSON.stringify(before)} before the host typed, so this check cannot tell the host\u2019s own write from another`,
+    );
+  }
   if (editorBox === null) {
-    facts.hostWriteBack = { typed: false, why: 'no editor on screen' };
+    facts.hostWriteBack = { typed: false, why: 'no editor on screen', path: openedPath };
+    failures.push(`the host\u2019s own edit: no editor on screen for ${openedPath}, so nothing was typed`);
   } else {
     await page.send('Input.dispatchMouseEvent', {
       type: 'mousePressed',
@@ -934,9 +977,37 @@ async function reviewDesktop(page, server, written) {
         (text) => typeof text === 'string' && text.includes(marker),
         5_000,
       );
-      facts.hostWriteBack = { typed: true, reachedTheFolder: true, alreadyThere };
-    } catch {
-      facts.hostWriteBack = { typed: true, reachedTheFolder: false, alreadyThere };
+      // The write landed. What it landed is the whole of the claim: the file on disk is the text the
+      // editor holds, and the page did not mark the row as refused.
+      const onDisk = await page.evaluate(readFolder);
+      const inEditor = await page.evaluate(readEditor);
+      const warned = await page.evaluate(readWarned);
+      const equalsEditor = onDisk === inEditor;
+      facts.hostWriteBack = {
+        typed: true,
+        path: openedPath,
+        reachedTheFolder: true,
+        equalsEditor,
+        warnedOnRow: warned,
+        alreadyThere,
+      };
+      if (!equalsEditor) {
+        failures.push(
+          `the host\u2019s own edit: ${openedPath} on disk is not what the editor holds (file ${JSON.stringify(onDisk)}, editor ${JSON.stringify(inEditor)})`,
+        );
+      }
+      if (warned) {
+        failures.push(`the host\u2019s own edit: ${openedPath} wears a refusal mark although its write landed`);
+      }
+    } catch (error) {
+      facts.hostWriteBack = {
+        typed: true,
+        path: openedPath,
+        reachedTheFolder: false,
+        alreadyThere,
+        why: String(error),
+      };
+      failures.push(`the host\u2019s own edit never reached ${openedPath}`);
     }
   }
   log('the host\u2019s own edit and the folder:', JSON.stringify(facts.hostWriteBack));
@@ -1114,8 +1185,9 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
       )),
     );
   }
-  // The panel is where the row's own line lives, and opening README.md shut it: a shot of a row has
-  // to be a shot of the panel.
+  // The panel is where the row's own line lives, so a shot of a row has to be a shot of the panel.
+  // Nothing opens a file here any more: the room's document set moving used to open the first
+  // document it named, which on a phone collapsed the panel over the very row the person acted on.
   await page.evaluate(`(() => {
     if (document.getElementById('side').hidden) document.getElementById('file-strip').click();
     for (const details of document.querySelectorAll('#tree details')) {
@@ -1264,6 +1336,10 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   const server = await startServer();
   const written = [];
+  // What the run found that a photograph cannot be trusted to show. A miss here fails the run at the
+  // end, once `facts.json` is written and the browsers are stopped: a check that records `false` and
+  // exits 0 is a proof nobody is told about.
+  const failures = [];
   const facts = { footer: FOOTER, shots: written, console: [] };
   log('serving', server.origin, FOOTER ? 'with the demo footer' : 'without a footer');
   const browsers = [];
@@ -1271,7 +1347,7 @@ async function main() {
     const mouse = await launchChromium({ pointer: 'mouse' });
     browsers.push({ name: 'desktop', page: mouse });
     await mouse.setViewport(DESKTOP);
-    const desktop = await reviewDesktop(mouse, server, written);
+    const desktop = await reviewDesktop(mouse, server, written, failures);
     facts.desktop = desktop.facts;
     const touch = await launchChromium({ pointer: 'touch' });
     browsers.push({ name: 'phone', page: touch });
@@ -1304,6 +1380,14 @@ async function main() {
     );
   }
   log('the guest card’s other intent:', JSON.stringify(facts.phone.prejoin?.quietLineVisible), JSON.stringify(facts.phone.prejoin?.quietLine));
+  if (failures.length > 0) {
+    for (const failure of failures) {
+      log('FAILED:', failure);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  log('every check passed');
 }
 
 await main();
