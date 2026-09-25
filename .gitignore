@@ -4,3 +4,6 @@ chrome-profile*/
 .DS_Store
 .tmp/
 .tmp-*/
+
+# Sibling checkouts for parallel work on this repository.
+.worktrees/
