@@ -259,6 +259,13 @@ const peek = wireTapPeek(document.getElementById('peek') as HTMLElement, { stand
  * with no document in it is redrawn from that state, and the pane is a read of the session.
  */
 let binding: MonacoBinding | undefined;
+/**
+ * The editor widget the binding drew into, dropped with the session. Declared here with `binding`
+ * for the same reason: `showPanel` lays the editor out when the panel closes, which is the state
+ * the page loads in on a phone, and a top-level `let` written below that call is in its temporal
+ * dead zone — unbundled, the load would throw `Cannot access 'editorApi' before initialization`.
+ */
+let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
 
 /**
  * The panel is a disclosure on a phone and a resizable column on anything else.
@@ -439,8 +446,6 @@ function settleFocus(field: HTMLInputElement): void {
 let engine: RoomEngine | undefined;
 /** The editor's opener guard, one registration per join, dropped with the session. */
 let linkGuard: { dispose(): void } | undefined;
-/** The editor widget the binding drew into, dropped with the session. */
-let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
 /** What the editor was created with on this device, to return to under a pointer. */
 let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
 let opening: string | undefined;
