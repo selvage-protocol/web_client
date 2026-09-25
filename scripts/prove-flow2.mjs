@@ -298,6 +298,7 @@ const emptyStandMs = fetchStandMs(guestEngine.session().keepalive.awareness_rene
 const standPolls = Math.trunc(emptyStandMs / 100);
 const fetched = [];
 let emptyPolls = 0;
+let answeredPolls;
 let answeredAt;
 const askedAt = Date.now();
 const fetchOutcome = await fetchAndSave(
@@ -313,7 +314,10 @@ const fetchOutcome = await fetchAndSave(
     wait: async (ms) => {
       emptyPolls += 1;
       await new Promise((resolve) => setTimeout(resolve, ms));
-      if (answeredAt === undefined && guestEngine.has(EMPTY)) answeredAt = Date.now() - askedAt;
+      if (answeredPolls === undefined && guestEngine.has(EMPTY)) {
+        answeredAt = Date.now() - askedAt;
+        answeredPolls = emptyPolls;
+      }
     },
   },
 );
@@ -321,11 +325,14 @@ check('the room answers an empty granted file with a document', guestEngine.has(
 check('and the answer carries no text', guestEngine.text(EMPTY) === '');
 check('the fetch reports that answer as the empty one', fetchOutcome.kind === 'empty');
 check('and saves nothing that was not asked for', fetched.length === 0);
-// The whole stand is what a fetch that read on for text would have spent; the answer is one poll or
-// a few, so a fetch that stops at it spends a small fraction of the bound.
+// The answer's own poll is the whole of what the loop may spend: this is what tells a fetch that
+// stops at the answer from one that read on for text, and it is measured against the poll the
+// answer actually landed on rather than against the stand, so a slow but valid answer — a hold that
+// waits the renewal window out, a round trip with latency on it — cannot fail it. Without the early
+// exit the loop runs to the stand while `answeredPolls` stays where the answer landed.
 check(
-  `and stops at the answer, not at the stand (${String(emptyPolls)} of ${String(standPolls)} polls, ${String(answeredAt ?? -1)} ms in)`,
-  emptyPolls * 4 < standPolls,
+  `and stops at the answer, not at the stand (${String(emptyPolls)} of ${String(standPolls)} polls; the answer landed on poll ${String(answeredPolls ?? -1)}, ${String(answeredAt ?? -1)} ms in)`,
+  answeredPolls !== undefined && emptyPolls <= answeredPolls + 1,
 );
 
 // Duplicate names disambiguate in the roster vocabulary: the twin takes the

@@ -50,9 +50,11 @@ function makeDocument() {
   };
 }
 
+/**
+ * A row's own text, as a person reads it: its own text nodes and its children's, in order. The lone
+ * host's line is one sentence, so the space between its halves is a text node in the row.
+ */
 function textOf(node) {
-  // A row's own text is its text nodes and its children's, which is how the browser reads one: the
-  // lone host's line is one sentence, so the space between its halves is a text node in the row.
   if (typeof node === 'string') return node;
   return node.children.map((child) => child.textContent || textOf(child)).join(' ');
 }
