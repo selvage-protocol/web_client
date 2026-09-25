@@ -288,9 +288,6 @@
       #download { display: flex; align-items: center; justify-content: center; flex: none;
         margin-left: auto; padding: 0.4em 0.6em; color: var(--muted-foreground); }
       #download:hover:not(:disabled) { color: var(--foreground); }
-      #panel-toggle { display: none; }
-      #panel-toggle .chev { transition: transform 0.12s ease; }
-      #panel-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
       #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
         color: var(--muted-foreground); margin: 1.5em 0 0.5em; padding: 0 0.55em; }
       #side h2:first-child { margin-top: 0; }
@@ -337,8 +334,11 @@
       #roster .refusal { flex-basis: 100%; font-size: 0.8em; color: var(--muted-foreground);
         line-height: 1.35; }
       /* The lone host's own line, under the row that says who they are: it names the act and the
-         bar above is where the control is, so the row holds no copy of it. */
-      #roster li.alone { font-size: 0.85em; color: var(--muted-foreground); }
+         bar above is where the control is, so the row holds no copy of it. It is a *sentence* and
+         not a row of parts, so it wraps as one: `#roster li`'s flex laid its two spans side by side
+         and at the default 294 px panel the halves read interleaved — "No one else / yet." beside
+         "Copy invite link in the bar / above." — which is a line nobody can read in order. */
+      #roster li.alone { display: block; font-size: 0.85em; color: var(--muted-foreground); }
       #roster li.alone .pointer { color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
@@ -646,10 +646,6 @@
           box-sizing: border-box; }
         #file-strip-path, #file-strip-path.none { font-weight: 600; color: var(--foreground); }
         #download { display: none; }
-        #panel-toggle { display: flex; flex: none; align-items: center; justify-content: center;
-          gap: 0.4em; padding: 0 0.2em; background: none; border-color: transparent;
-          color: var(--muted-foreground); }
-        #panel-toggle:hover:not(:disabled) { border-color: transparent; background: none; }
         /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
            the top of the screen empty and stood over the non-commercial notice the demo appends
            under the page, so what a phone shows first is the thing to do and the notice below it
@@ -669,7 +665,9 @@
     </style>
   </head>
   <body>
-    <div id="app">
+    <!-- The landmark a screen reader jumps to: the card before a session and the workspace in one are
+         the page's main content, and the demo deployment's own notice is appended after it. -->
+    <main id="app">
       <div id="session" hidden>
         <span id="brand"><span class="mark" aria-hidden="true"></span><span id="session-identity"></span></span>
         <div id="share-group" role="button" tabindex="0" aria-label="Copy invite link" title="Copy invite link">
@@ -871,9 +869,6 @@
                who is being followed, and the way to save it. On a phone the same row is the panel's
                own disclosure, which is what says which file is open when the panel is shut. -->
           <div id="file-strip">
-            <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="side" hidden>
-              <span class="icon chev" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></span>
-            </button>
             <span id="file-strip-path"></span>
             <span id="file-strip-chips"></span>
             <span id="file-strip-follow"></span>
@@ -891,7 +886,7 @@
       <div id="live" aria-live="polite"></div>
       <div id="peek" aria-live="polite"></div>
       <div id="alert" role="alert"></div>
-    </div>
+    </main>
     <script>
       // Pre-bundle guard, first so nothing below can disarm it: the card shell
       // is usable before app.js arrives, so a submit that lands first is held —

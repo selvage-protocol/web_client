@@ -36,14 +36,17 @@ describe('the strip is in the shell, above the editor', () => {
 
   it('is the phone’s panel disclosure, and only on a phone', () => {
     // With the phone's panel shut — its state after every open — nothing else on screen says which
-    // file is open, and the panel is the only way back to the tree.
-    assert.ok(strip.includes('id="panel-toggle"'), 'the strip carries no way into the panel');
+    // file is open, and the panel is the only way back to the tree. One control for one panel: the
+    // icon-only `☰` that stood beside the path was a second disclosure inside the strip's own
+    // `role="button"`, and it never painted — the shell's `[hidden] { display: none !important }`
+    // beat the phone query's `display: flex` — so it was a control nobody could press.
+    assert.ok(!html.includes('panel-toggle'), 'the strip carries a second control for the panel');
+    assert.match(main, /fileStrip\.addEventListener\('click'/, 'nothing on a phone opens the panel');
     assert.match(main, /applyStripRole\(\)/, 'the strip never takes the disclosure’s semantics');
     assert.match(main, /fileStrip\.setAttribute\('role', 'button'\)/, 'the strip is not a control on a phone');
     assert.match(main, /fileStrip\.removeAttribute\('role'\)/, 'a pointer device reads the strip as a button');
     assert.match(main, /phoneLayout\.matches \? 'Files and people' : 'No file open'/,
       'the strip names neither the panel nor the absence of a file');
-    assert.match(style, /#panel-toggle \{ display: none; \}/, 'the disclosure stands on a pointer device');
   });
 
   it('carries the disclosure’s own state and name on a phone', () => {

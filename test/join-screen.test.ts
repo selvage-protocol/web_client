@@ -265,8 +265,21 @@ describe('brand heading', () => {
   it('names the folder a host is exposing, and whose room a guest is in', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(main, /`Sharing “\$\{hostFolder\.name\}”`/, 'a host cannot read which folder it exposes');
-    assert.match(main, /`In \$\{host\.displayName\}'s session`/, 'a guest cannot read whose room it is');
+    // The apostrophe is the page's: the pre-join card and the room's own copy use the typographic
+    // one (`host.ts`), so a straight one here is the same phrase spelled two ways.
+    assert.match(main, /`In \$\{host\.displayName\}\\u2019s session`/, 'a guest cannot read whose room it is');
     assert.match(main, /'In a shared session'/, 'a guest before the roster arrives reads nothing');
+  });
+
+  it('gives the card and the workspace one main landmark', () => {
+    // The page the demo serves had none — the landing page has one — so a screen-reader user had no
+    // landmark to jump to. What the page is for is one thing: the card before a session, and the
+    // workspace in one. The deployment's own notice is appended after it, and the noise the page
+    // keeps outside the content (`live`, `peek`, `alert`) is inside the landmark with it.
+    const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    assert.match(html, /<main id="app">/, 'the page has no main landmark');
+    assert.match(html, /<\/main>\s*<script>/, 'the landmark does not close over the whole page');
+    assert.ok(!/<main[^>]*>[\s\S]*<main/.test(html), 'the page has more than one landmark');
   });
 
   it('shows room health as a dot, with its words only when there is something to say', () => {

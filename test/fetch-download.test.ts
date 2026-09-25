@@ -177,6 +177,26 @@ describe('a path whose text has not been fetched', () => {
     assert.doesNotMatch(branch, /stillEmptySentence/, 'an unanswered fetch is said as emptiness');
   });
 
+  it('stops at the room’s answer, whether or not that answer carries text', async () => {
+    // The answer and the text it carries are one arrival: the room sends one document for the path,
+    // and an empty document is its answer that the file it read is empty. A loop that reads on for
+    // text past that document waits for a second thing this protocol never sends — against a real
+    // `selvaged` the answer landed 101 ms after the ask and the fetch reported it at 3 007 ms, the
+    // whole stand, with `Asking the host for …` standing on the screen for all of it.
+    const answered = room('', { after: 0 });
+    const outcome = await fetchAndSave('empty.txt', answered.ports, {
+      wait: answered.wait,
+      polls: 5,
+    });
+    assert.equal(outcome.kind, 'empty');
+    assert.deepEqual(answered.saved, [], 'an empty answer was saved without being asked for');
+    assert.equal(
+      answered.polls.length,
+      1,
+      `the fetch waited past the answer: ${answered.polls.length} polls of a 5-poll stand`,
+    );
+  });
+
   it('gives the path this window holds an empty document for the choice, not a save', async () => {
     // The other door to the same empty file: a document for the path is here and its text is
     // nothing. That is the room's answer, so it is offered — never assumed.

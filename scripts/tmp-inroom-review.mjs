@@ -494,7 +494,7 @@ const CHROME = `(() => {
     inRoomDots: document.querySelectorAll('#tree .in-room').length,
     sessionNote: text('session-note'),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
-    phonePanelOpen: document.getElementById('panel-toggle')?.getAttribute('aria-expanded') ?? null,
+    phonePanelOpen: document.getElementById('side')?.hidden !== true,
     termsLink: terms === null ? null : rect(terms),
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight && terms.getBoundingClientRect().top >= 0,
     footer: rect(document.getElementById('demo-footer')),
@@ -549,7 +549,7 @@ const EMPTY_PANE = `(() => {
     stripPath: document.getElementById('file-strip-path')?.innerText ?? '',
     strip: document.getElementById('file-strip')?.innerText ?? '',
     treeEmpty: document.querySelector('#tree .empty')?.textContent ?? '',
-    panelOpen: document.getElementById('panel-toggle')?.getAttribute('aria-expanded') ?? null,
+    panelOpen: document.getElementById('side')?.hidden === false,
   };
 })()`;
 /** What a guest's own page shows about the file it is about to save. */
@@ -561,7 +561,11 @@ const GUEST_ROWS = `(() => {
     download: row.querySelector('.download') !== null,
   }));
   const strip = document.getElementById('file-strip')?.innerText ?? '';
-  return { rows, strip };
+  // The panel's own state, which is what tells a fetch that shut it from one that left it standing:
+  // a phone's editor gets the screen between them, and this is the fact a review of the shots cannot
+  // read off a picture.
+  const panelHidden = document.getElementById('side')?.hidden === true;
+  return { rows, strip, panelHidden };
 })()`;
 
 /**
@@ -1061,7 +1065,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   // The panel is where the row's own line lives, and opening README.md shut it: a shot of a row has
   // to be a shot of the panel.
   await page.evaluate(`(() => {
-    if (document.getElementById('side').hidden) document.getElementById('panel-toggle').click();
+    if (document.getElementById('side').hidden) document.getElementById('file-strip').click();
     for (const details of document.querySelectorAll('#tree details')) {
       if (details.open === false) details.querySelector('summary').click();
     }

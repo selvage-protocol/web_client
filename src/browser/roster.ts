@@ -181,6 +181,9 @@ function selfRow(view: RosterView): HTMLElement {
  * It carried a second `Copy invite link` beside the bar's own, which is the same control twice on
  * one screen: two names for one act, the second one in a place a reader has to be told to look.
  * The sentence points at the control instead, and the act stays where the link is.
+ *
+ * The two halves are one sentence and the style sheet lays them out as one (`li.alone`), so the
+ * space between them is theirs and not the flex container's.
  */
 function aloneRow(): HTMLElement {
   const row = document.createElement('li');
@@ -190,7 +193,7 @@ function aloneRow(): HTMLElement {
   const pointer = document.createElement('span');
   pointer.className = 'pointer';
   pointer.textContent = 'Copy invite link in the bar above.';
-  row.append(text, pointer);
+  row.append(text, ' ', pointer);
   return row;
 }
 

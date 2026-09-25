@@ -15,7 +15,7 @@ import { emptyEditorActionLabel, emptyEditorFor, renderEmptyEditor } from '../sr
 
 /** The facts every case starts from, overridden per test. */
 function facts(over = {}) {
-  return { host: false, folder: '', files: 0, hostName: 'vscodium', phone: false, ...over };
+  return { host: false, folder: '', files: 0, hostName: 'vscodium', phone: false, panelOpen: false, ...over };
 }
 
 /** Every action of the state, in the order the blocks carry them. */
@@ -47,14 +47,14 @@ describe('what the pane says with nothing open', () => {
   it('names the host to a guest whose room shares nothing, and loads nothing', () => {
     const state = emptyEditorFor(facts({ hostName: 'vscodium' }));
     const [block] = state.blocks;
-    assert.equal(block.lead, "vscodium hasn't shared any files yet.");
-    assert.equal(block.text, "They'll appear in Shared as soon as the host's folder has some.");
+    assert.equal(block.lead, 'vscodium hasn\u2019t shared any files yet.');
+    assert.equal(block.text, 'They\u2019ll appear in Shared as soon as the host\u2019s folder has some.');
     assert.deepEqual(block.actions, [], 'a desktop is offered an act it already has in the tree');
   });
 
   it('falls back to the role where the roster has not named a host yet', () => {
-    assert.equal(emptyEditorFor(facts({ hostName: '' })).blocks[0].lead, "The host hasn't shared any files yet.");
-    assert.equal(emptyEditorFor(facts({ hostName: '  ' })).blocks[0].lead, "The host hasn't shared any files yet.");
+    assert.equal(emptyEditorFor(facts({ hostName: '' })).blocks[0].lead, 'The host hasn\u2019t shared any files yet.');
+    assert.equal(emptyEditorFor(facts({ hostName: '  ' })).blocks[0].lead, 'The host hasn\u2019t shared any files yet.');
   });
 
   it('tells a guest with files what opening one costs the room', () => {
@@ -73,6 +73,24 @@ describe('what the pane says with nothing open', () => {
     // file` opens the panel itself.
     const host = emptyEditorFor(facts({ host: true, folder: 'demo-app', phone: true }));
     assert.deepEqual(actions(host), ['new-file', 'copy-invite']);
+  });
+
+  it('offers nothing on a phone whose panel is already open', () => {
+    // The other half of the same act: a phone whose room names no document opens the panel itself
+    // (`main.ts`, `openFirst`), and a `Browse files` there opens what is already open — the only
+    // control in the pane, doing nothing visible. The pane is a read of the room, so it says
+    // nothing about the panel where the panel is already saying it.
+    for (const host of [false, true]) {
+      const open = emptyEditorFor(facts({ host, files: host ? 2 : 0, phone: true, panelOpen: true }));
+      assert.deepEqual(
+        actions(open),
+        [],
+        `the pane offers an act that opens the panel it is already open in (host: ${String(host)})`,
+      );
+    }
+    // The sentence still stands: what went is the act, not the state it was about.
+    const room = emptyEditorFor(facts({ files: 0, phone: true, panelOpen: true }));
+    assert.match(room.blocks[0].lead ?? '', /shared any files yet/);
   });
 
   it('offers the peer that is already in a file, and the follow is the state it is in', () => {

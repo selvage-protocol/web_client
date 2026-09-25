@@ -8,8 +8,10 @@
  * **Waiting is not optional.** Saving whatever `text(path)` answers before the room has replied
  * writes an empty file over the text the person asked for: a real file with the right name and no
  * contents, which is worse than no file at all, because nothing about it says it is wrong. So the
- * save happens only once text has arrived here (`has`), and it is read from the document that
- * arrived. A fetch that nothing arrives for saves nothing and says the wait is still running.
+ * save happens only once the room has answered and that answer carries text, and it is read from
+ * the document that arrived. A fetch that nothing arrives for saves nothing and says the wait is
+ * still running. The wait ends at the answer, empty included: waiting for text past a document
+ * that has already arrived is waiting for something that is never coming.
  *
  * Asking is done with the engine's own `open`, the same call opening a file makes, because that is
  * what makes the room send the text — there is no read-only fetch in the protocol, and a second
@@ -149,29 +151,29 @@ export async function fetchAndSave(
     return { kind: 'failed', sentence: fetchFailedSentence(path, reason(error)) };
   }
   const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  // The wait is for the *text*: the room's answer for a file with content and that content are the
-  // same document, so what arrives is either a document carrying text or the room's answer that the
-  // file is empty, and a loop that stopped at the document would have nothing left to read. The
-  // bound below is what the loop keeps reading for, so an answer that lands empty here is reported
-  // when the stand ends, and one that was already here was reported above (`ports.has`).
+  // The wait is for the *answer*, and the answer is the document: a document carrying text is the
+  // text, and a document holding none is the room saying the file it read is empty. Both are
+  // answers, so the loop stops at `has` — reading on for text is reading on for a second thing that
+  // this protocol never sends, and it cost the whole stand: measured against a real `selvaged`, a
+  // room answered in 101 ms and the fetch reported it 3 007 ms later.
   const polls = options.polls ?? Math.max(1, Math.ceil((options.standMs ?? FETCH_STAND_MS) / POLL_MS));
-  const here = (): boolean => ports.has(path) && ports.text(path) !== '';
-  for (let poll = 0; poll < polls && !here(); poll += 1) {
+  for (let poll = 0; poll < polls && !ports.has(path); poll += 1) {
     await wait(POLL_MS);
-  }
-  if (here()) {
-    const text = ports.text(path);
-    ports.save(path, text);
-    return { kind: 'saved', text };
   }
   // Nothing arrived for the path at all: the room has not answered, and emptiness is a fact this
   // page does not have. The text may still be coming, so the fetch reports the wait.
   if (!ports.has(path)) {
     return { kind: 'pending' };
   }
-  // A document for the path is here and its text is empty: that is the room's own answer, and it
-  // is offered rather than assumed — nothing is saved without being asked for (`canSaveAtOnce`).
-  return { kind: 'empty', text: ports.text(path) };
+  const arrived = ports.text(path);
+  // A document for the path with no text in it is the room's own answer that the file is empty,
+  // and it is offered rather than assumed — nothing is saved without being asked for
+  // (`canSaveAtOnce`).
+  if (arrived === '') {
+    return { kind: 'empty', text: arrived };
+  }
+  ports.save(path, arrived);
+  return { kind: 'saved', text: arrived };
 }
 
 /**

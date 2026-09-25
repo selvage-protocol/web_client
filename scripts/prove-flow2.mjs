@@ -30,6 +30,7 @@ import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
+import { fetchAndSave, fetchStandMs } from '../src/browser/fetch-download.ts';
 
 const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 const NOTES = 'notes.md';
@@ -156,10 +157,12 @@ function check(name, condition) {
 // `§7.1` seals the room state from the host's listing, so the tree is walked before the mint:
 // todo.txt is listed but never opened or seeded, which is the unpublished case below, and
 // shared/held.txt is listed and on the host's disk but never opened in its window, which is the
-// case the room's own hold reaches.
+// case the room's own hold reaches. empty.txt is listed and on the host's disk holding nothing at
+// all, which is the case an empty answer is the whole of.
 const HELD = 'shared/held.txt';
 const HELD_TEXT = 'the host’s own copy of it\n';
-const listing = listingSource([NOTES, MAIN, TODO, HELD]);
+const EMPTY = 'empty.txt';
+const listing = listingSource([NOTES, MAIN, TODO, HELD, EMPTY]);
 const hostEngine = pageEngine(
   await PeerEngine.host({
     baseUrl: BASE,
@@ -178,6 +181,7 @@ hostFiles.texts.set(MAIN, SEED_MAIN);
 hostFiles.disk.set(NOTES, SEED_NOTES);
 hostFiles.disk.set(MAIN, SEED_MAIN);
 hostFiles.disk.set(HELD, HELD_TEXT);
+hostFiles.disk.set(EMPTY, '');
 const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 hostBridge.documentOpened(NOTES);
 hostBridge.documentOpened(MAIN);
@@ -282,6 +286,60 @@ await waitFor(
 );
 check('the guest’s buffer holds the host’s copy', true);
 check('and the path reads published once the text has arrived', binding.isUnpublished(HELD) === false);
+
+// (2c) A file the host has and that is empty is answered, not waited out. The room sends the empty
+// document — `has` is what an answer is, empty included, and the engine under `src/engine` is what
+// publishes one — and the fetch reports that answer the moment it lands rather than standing for
+// the whole window. Measured against a real `selvaged`, an answered ask took the whole stand
+// (3 007 ms) while the answer itself had landed 101 ms in, with the row saying `Asking the host …`
+// for all of it. The host never opens empty.txt, so what the guest receives is the host's own read
+// of its working copy, which is the only path that can produce an empty answer at all.
+const emptyStandMs = fetchStandMs(guestEngine.session().keepalive.awareness_renew_ms);
+const standPolls = Math.trunc(emptyStandMs / 100);
+const fetched = [];
+let emptyPolls = 0;
+let answeredPolls;
+let answeredAt;
+const askedAt = Date.now();
+const fetchOutcome = await fetchAndSave(
+  EMPTY,
+  {
+    // The answer is recorded where the fetch itself reads it, so the count is the fetch's own and not
+    // a second reading beside it: an answer that arrives before the first wait lands on poll 0 and
+    // the assertion below still holds.
+    has: (path) => {
+      const present = guestEngine.has(path);
+      if (path === EMPTY && present && answeredPolls === undefined) {
+        answeredPolls = emptyPolls;
+        answeredAt = Date.now() - askedAt;
+      }
+      return present;
+    },
+    text: (path) => guestEngine.text(path),
+    open: (path) => binding.requestText(path),
+    save: (path, text) => void fetched.push([path, text]),
+  },
+  {
+    standMs: emptyStandMs,
+    wait: async (ms) => {
+      emptyPolls += 1;
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    },
+  },
+);
+check('the room answers an empty granted file with a document', guestEngine.has(EMPTY));
+check('and the answer carries no text', guestEngine.text(EMPTY) === '');
+check('the fetch reports that answer as the empty one', fetchOutcome.kind === 'empty');
+check('and saves nothing that was not asked for', fetched.length === 0);
+// The poll the answer landed on is the whole of what the loop may spend: this is what tells a fetch
+// that stops at the answer from one that read on for text, and it is measured against the answer
+// rather than against the stand, so a slow but valid answer — a hold that waits a renewal window
+// out, a round trip with latency on it — cannot fail it. Waiting for text past the document costs
+// the rest of the stand, which is where `emptyPolls` goes without the early exit.
+check(
+  `and stops at the answer, not at the stand (${String(emptyPolls)} of ${String(standPolls)} polls; the answer landed on poll ${String(answeredPolls ?? -1)}, ${String(answeredAt ?? -1)} ms in)`,
+  answeredPolls !== undefined && emptyPolls === answeredPolls,
+);
 
 // Duplicate names disambiguate in the roster vocabulary: the twin takes the
 // host's name, so the guest's peer list itself holds the clash.

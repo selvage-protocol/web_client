@@ -234,7 +234,6 @@ const appPane = document.getElementById('app') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
 const sideResizer = document.getElementById('side-resizer') as HTMLElement;
 const sideRail = document.getElementById('side-rail') as HTMLButtonElement;
-const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 const fileStrip = document.getElementById('file-strip') as HTMLElement;
 const fileStripPath = document.getElementById('file-strip-path') as HTMLElement;
 const fileStripChips = document.getElementById('file-strip-chips') as HTMLElement;
@@ -258,24 +257,34 @@ const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLEl
 const peek = wireTapPeek(document.getElementById('peek') as HTMLElement, { standMs: 4000 });
 
 /**
+ * The page's own session, declared here because the panel's own state is set at load — the pane
+ * with no document in it is redrawn from that state, and the pane is a read of the session.
+ */
+let binding: MonacoBinding | undefined;
+
+/**
  * The panel is a disclosure on a phone and a resizable column on anything else.
  * Rotating out of the phone shape opens it rather than leaving the tree with no
  * way to be reached: the disclosure it was behind is gone at that width.
+ *
+ * On a phone the file strip is the whole of the disclosure — its own name, its own state and its
+ * own press (`applyStripRole`) — so nothing here draws a second control for the same panel: the
+ * `☰` that stood beside the strip was never on screen (the shell's base rule hid it and the
+ * `[hidden]` attribute kept the phone query's `display: flex` from landing), and a button inside
+ * the strip's `role="button"` would be a control within a control.
  */
 function showPanel(open: boolean): void {
   sidePane.hidden = !open;
-  panelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   // On a phone the strip is the disclosure, so it is the element that carries the state; on a
   // pointer device it is a line of text and has no state to carry.
   if (phoneLayout.matches) {
     fileStrip.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
+  // The empty pane's own way into the panel is that state read back: the pane offers the panel only
+  // where the panel is shut, and an act that opens what is already open does nothing visible.
+  syncEmptyEditor();
 }
 
-panelToggle.addEventListener('click', (event) => {
-  event.stopPropagation();
-  showPanel(sidePane.hidden);
-});
 phoneLayout.addEventListener('change', () => showPanel(!phoneLayout.matches));
 // The panel competes with the editor on a phone (a 42 % cut of a 844 px screen)
 // and starts shut there; every other device has the room for both.
@@ -298,8 +307,8 @@ fileStrip.addEventListener('click', (event) => {
 });
 fileStrip.addEventListener('keydown', (event) => {
   // The strip is the disclosure only where it *is* the target: a key that bubbled up from a control
-  // inside it — the `☰` button, or the follow segment's Stop — belongs to that control, and
-  // swallowing it here would make the stop unpressable by keyboard.
+  // inside it — the follow segment's Stop — belongs to that control, and swallowing it here would
+  // make the stop unpressable by keyboard.
   if (
     !phoneLayout.matches ||
     event.target !== fileStrip ||
@@ -424,7 +433,6 @@ function settleFocus(field: HTMLInputElement): void {
   field.focus();
 }
 
-let binding: MonacoBinding | undefined;
 let engine: RoomEngine | undefined;
 /** The editor's opener guard, one registration per join, dropped with the session. */
 let linkGuard: { dispose(): void } | undefined;
@@ -1487,6 +1495,7 @@ function syncEmptyEditor(): void {
           files: binding.grantListing().length,
           hostName: binding.participants().find((participant) => participant.role === 'host')?.displayName ?? '',
           phone: phoneLayout.matches,
+          panelOpen: !sidePane.hidden,
           peer: peerInAFile(binding.participants()),
           following: binding.following()?.peerId,
         }),
@@ -1988,7 +1997,7 @@ function setSessionIdentity(): void {
   }
   const host = binding?.participants().find((participant) => participant.role === 'host');
   sessionIdentity.textContent =
-    host === undefined ? 'In a shared session' : `In ${host.displayName}'s session`;
+    host === undefined ? 'In a shared session' : `In ${host.displayName}\u2019s session`;
 }
 
 function onNotice(notice: BindingNotice): void {
