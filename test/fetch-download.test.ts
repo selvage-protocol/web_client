@@ -108,19 +108,18 @@ describe('a path whose text has not been fetched', () => {
     assert.ok(arriving.polls.length >= 3, `the fetch did not wait: ${arriving.polls.length} polls`);
   });
 
-  it('waits past the receipt for the text the room is still fetching', async () => {
-    // A room answers an open by holding an *empty* document for the path; the host's copy lands in it
-    // a frame or a second later. A loop that stopped at the document would call the fetch empty while
-    // the text was on its way — the page then offers an empty file the person did not ask for, or
-    // waits ten seconds for something that was already coming.
-    const arriving = room('fn main() {}\n', { after: 0 });
-    // The document is here at once (the receipt), the text is not.
-    arriving.deliver();
+  it('saves the text of an answer that takes turns to land, never the empty string', async () => {
+    // The answer and its text are the same document, so what the loop reads for is text: this room's
+    // answer arrives a few turns after the ask, and the fetch saves what it carries rather than the
+    // empty string it read before the answer was here.
+    const answering = room('fn main() {}\n', { after: 0 });
+    // A path this window holds a document for, with its text already here.
+    answering.deliver();
     const late = room('fn main() {}\n', { after: 3, present: false });
     const outcome = await fetchAndSave('src/main.rs', late.ports, { wait: late.wait, polls: 10 });
     assert.deepEqual(outcome, { kind: 'saved', text: 'fn main() {}\n' });
     assert.deepEqual(late.saved, [['src/main.rs', 'fn main() {}\n']]);
-    assert.equal(arriving.ports.has('x'), true);
+    assert.equal(answering.ports.has('x'), true);
   });
 
   it('never says a room that has not answered is empty', async () => {
@@ -206,9 +205,9 @@ describe('a path whose text has not been fetched', () => {
   });
 
   it('never saves an empty answer at once, however the room reports the path', () => {
-    // The document arriving and its text arriving are different facts: a room holds an empty
-    // document both for a file that is empty and for one whose text the host has not sent, and only
-    // text can be saved without lying. The driver caught the page saving on the document.
+    // A document with no text in it is the room's answer that the file it read is empty, and the
+    // answer is offered by name rather than written: an empty file under the name the person asked
+    // for is theirs to choose. The driver caught the page saving one unasked.
     assert.equal(canSaveAtOnce(''), false, 'an empty answer was saved without being asked for');
     assert.equal(canSaveAtOnce('\n'), true, 'a file of one newline is text');
     assert.equal(canSaveAtOnce('fn main() {}'), true);

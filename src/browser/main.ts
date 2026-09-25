@@ -1652,9 +1652,10 @@ function startDownload(path: string, feedback: RowFeedback): void {
   const here = (candidate: string): string =>
     binding?.text(candidate) ?? engine?.text(candidate) ?? '';
   const text = here(path);
-  // Straight to the browser's save when there is text in this window; an empty answer is never saved
-  // without being asked for, because a room holds an empty document both for an empty file and for
-  // one the host has not sent yet (`canSaveAtOnce`).
+  // Straight to the browser's save when there is text in this window. An empty answer is not saved
+  // without being asked for: a document with no text in it is the room's answer that the file it read
+  // holds none, and the person asked for a file's contents — so the empty file is offered by name
+  // (`Save empty file`) rather than written under the one they asked for (`canSaveAtOnce`).
   if (canSaveAtOnce(text)) {
     try {
       downloadDocument(path, text, downloadSink);
