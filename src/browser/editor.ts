@@ -2,7 +2,7 @@ import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
-import { grantUnion, peerColour, realTimers } from '../bridge/index.ts';
+import { DEFAULT_SAVE_SETTLE_MS, grantUnion, peerColour, realTimers } from '../bridge/index.ts';
 import type { GrantRefusal, Timers } from '../bridge/index.ts';
 import type { FolderWork } from './folder.ts';
 import { grantLevels } from './tree.ts';
@@ -157,6 +157,16 @@ export class MonacoBinding implements EditorHost {
   private readonly stopEngine: () => void;
   private readonly timers: Timers;
   private applying = 0;
+  /**
+   * The armed write of a document this window hosts, or `undefined` when none is.
+   *
+   * A page-hosted room's document is not the file: the editor holds the buffer and the folder
+   * holds the file. So a change this window makes itself is published to the room and has
+   * nowhere else to reach the person's own working copy from — the page has no save gesture.
+   * The bridge writes a document the *room* changed; this is the same write for the changes
+   * this window makes, on the bridge's own settle so a burst of typing costs one write.
+   */
+  private writeTimer: (() => void) | undefined;
   /** A caret move whose position is waiting for the interval to pass. */
   private selectionDirty = false;
   private selectionTimer: (() => void) | undefined;
@@ -310,6 +320,7 @@ export class MonacoBinding implements EditorHost {
           // remote apply runs with `applying` raised and never lands here.
           this.localEditEndsFollow();
           this.bridge.documentChanged(path);
+          this.scheduleWrite(path);
         }
       });
       this.stops.push(() => changed.dispose());
@@ -342,6 +353,7 @@ export class MonacoBinding implements EditorHost {
     this.disposed = true;
     this.stopEngine();
     this.cancelSelection();
+    this.cancelWrite();
     this.drawn = [];
     this.followingPeerId = undefined;
     this.pendingGoTo = undefined;
@@ -972,6 +984,62 @@ export class MonacoBinding implements EditorHost {
       this.selectionTimer = undefined;
     }
     this.selectionDirty = false;
+  }
+
+  /**
+   * Arms the write of a document this window hosts, on the bridge's own settle.
+   *
+   * A window with no folder shares nothing: a guest's document is virtual and its `save` is a
+   * no-op, so there is nothing to write and no timer to arm. The same settle the bridge uses for
+   * a document the room changed, so a burst of typing costs one write and the two kinds of
+   * write cannot land on each other.
+   */
+  private scheduleWrite(path: string): void {
+    if (this.folder === undefined) {
+      return;
+    }
+    this.cancelWrite();
+    this.writeTimer = this.timers.after(DEFAULT_SAVE_SETTLE_MS, () => {
+      this.writeTimer = undefined;
+      void this.writeSettled(path);
+    });
+  }
+
+  /** Drops the armed write, so a disposed binding leaves no timer behind. */
+  private cancelWrite(): void {
+    if (this.writeTimer !== undefined) {
+      this.writeTimer();
+      this.writeTimer = undefined;
+    }
+  }
+
+  /**
+   * Writes the settled document, and reports a refusal the way a failed save is reported.
+   *
+   * `save` throws the folder's own sentence rather than answering `false`, so a refused write —
+   * the stale-file guard's, chiefly — reaches the person through the same notice the bridge
+   * emits for a write it made itself.
+   */
+  private async writeSettled(path: string): Promise<void> {
+    // A write armed before the binding was disposed still runs: the timer is cancelled on the way
+    // out, but one that has already fired is in flight, and half a page is no place to write from.
+    // `save` already refuses a closed document; this refuses a binding that is gone, whose notices
+    // would have nowhere to land.
+    if (this.disposed) {
+      return;
+    }
+    try {
+      await this.save(path);
+    } catch (error: unknown) {
+      if (this.disposed) {
+        return;
+      }
+      this.report({
+        kind: 'saveFailed',
+        path,
+        message: error instanceof Error ? error.message : undefined,
+      });
+    }
   }
 
   private flushSelection(): void {
