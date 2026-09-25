@@ -64,7 +64,6 @@ import {
   fetchCostsSentence,
   fetchingSentence,
   fetchStandMs,
-  savesOwnBuffer,
   stillAskingSentence,
   stillEmptySentence,
 } from './fetch-download.ts';
@@ -1677,26 +1676,18 @@ function startDownload(path: string, feedback: RowFeedback): void {
   }
   const here = (candidate: string): string =>
     binding?.text(candidate) ?? engine?.text(candidate) ?? '';
-  const text = here(path);
-  // What this window holds is saved as it stands: text that says something, or the buffer of the
-  // document in front of the editor — the person who emptied their own file asked for it empty, and
-  // that is the save the file strip's control used to make (`savesOwnBuffer`).
-  if (savesOwnBuffer({ openHere: binding.currentPath() === path, text })) {
-    try {
-      downloadDocument(path, text, downloadSink);
-    } catch (error: unknown) {
-      feedback.note(`Could not download ${path}: ${describe(error)}`, [
-        { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } },
-      ]);
-    }
-    return;
-  }
-  // Nothing here to save, so the room is asked. The cost is said once a session, before the first
-  // fetch, and only when a fetch is what comes next: a path this window already holds an empty
-  // document for is answered out of that document without asking the room, so `Fetching opens …`
-  // would be a sentence about an act that is not taken. It is not asked as a question — the room
-  // already lists the name — it is said.
-  if (binding.hasText(path) !== true && !saidFetchCosts) {
+  // Whether the room's answer for the path is here, which is the whole of what decides this: a
+  // document in front of the editor is not an answered one, and a guest that taps a row's ⤓ on the
+  // file it has just opened holds an empty model until the room replies. Saving that model wrote a
+  // 0-byte file over the one the person asked for. A path this window does hold is the person's own
+  // copy of the file as it stands, the buffer they emptied included, and `fetch-download.ts` saves
+  // it without a fetch; a path it does not hold is a fetch.
+  const holds = binding.hasText(path) === true;
+  // The cost is said once a session, before the first fetch, and only when a fetch is what comes
+  // next: a path this window holds is answered out of its own document, so `Fetching opens …` would
+  // be a sentence about an act that is not taken. It is not asked as a question — the room already
+  // lists the name — it is said.
+  if (!holds && !saidFetchCosts) {
     saidFetchCosts = true;
     const costs = fetchCostsSentence(path);
     feedback.note(costs);
@@ -1706,7 +1697,11 @@ function startDownload(path: string, feedback: RowFeedback): void {
     // thing the person can act on with it.
     window.setTimeout(() => feedback.clear(costs), FETCH_COSTS_STAND_MS);
   }
-  feedback.busy(fetchingSentence(path));
+  // The wait is the fetch's own line, and only a fetch has one: a save of what is here is the
+  // browser's own download UI and nothing else.
+  if (!holds) {
+    feedback.busy(fetchingSentence(path));
+  }
   const again = { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } };
   void fetchAndSave(path, {
     has: (candidate) => binding?.hasText(candidate) ?? false,
