@@ -4,22 +4,27 @@
  * The owner's export is a shaded wordmark whose glyph tones sit between `#2d111e` and `#7cc9c0`,
  * so on this page's dark grounds the median ink pixel measured 1.7:1 and the monogram read as a
  * smudge beside the name it belongs to. The site levelled its own nav copy with ImageMagick's
- * `-gamma 2.4` for the same reason (`site/README.md`, "The site mark"); here the curve is applied
- * to the decode of every pixel, in one arithmetic, because `-gamma` is *not* the same curve in every
- * ImageMagick release this page is built with — trixie's 7.1.1 renders it differ from the 7.1.2 the
- * committed bytes came from, which is a red CI (`test/identity.test.ts`) rather than a difference
- * anyone chose. The resample stays ImageMagick's: it is the renderer the sized icons go through, and
- * its output is what CI holds byte for byte.
+ * `-gamma 2.4` for the same reason (`site/README.md`, "The site mark").
  *
  * Nothing here is a redraw or a recolour: the curve is `pow(value, 1/gamma)` on the colour channels,
- * alpha untouched, which is what the site's derivative does and nothing more.
+ * alpha untouched, which is what the site's derivative does and nothing more. It is applied here,
+ * in one arithmetic over the decoded samples, because ImageMagick's own `-gamma` and even its raw
+ * RGBA output are not the same in every release this page is built with: trixie's 7.1.1 produced
+ * different bytes from the 7.1.2 the committed mark came from, which was a red CI
+ * (`test/identity.test.ts`) rather than a difference anyone chose. What stays ImageMagick's is the
+ * one step CI holds byte for byte across those releases — the resize and the PNG that carries it,
+ * which is how the six sized icons are already rendered.
  */
 
-import { execFileSync } from 'node:child_process';
-import { inflateSync } from 'node:zlib';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { deflateSync, inflateSync } from 'node:zlib';
+
+import { renderIcon } from './dist-icons.mjs';
 
 /** The curve the mark is levelled by. `1.7:1` on this page's ground becomes `4.9:1`. */
 export const MARK_GAMMA = 2.4;
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /** The pixels of an 8-bit RGBA raster, as `channels`-interleaved bytes. */
 export function levelRaster(raster, gamma = MARK_GAMMA) {
@@ -41,36 +46,79 @@ export function levelRaster(raster, gamma = MARK_GAMMA) {
 /**
  * Renders `source` at `size`×`size`, levelled, as a PNG at `out`.
  *
- * The resample and the encoder are ImageMagick's, with the clocks dropped (a fresh clone's mark has
- * a new mtime, and the build's icons taught that lesson); the curve between them is this module's.
+ * The resample is `renderIcon`'s — the renderer the sized icons go through, PNG out, clocks dropped
+ * — and the curve and the written file are this module's, so the mark is a function of the resample
+ * and one arithmetic rather than of whatever ImageMagick release ran it.
  */
 export function renderLevelledMark(source, size, out, gamma = MARK_GAMMA) {
-  const raster = execFileSync('magick', [source, '-resize', `${size}x${size}!`, '-depth', '8', 'rgba:-'], {
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  execFileSync(
-    'magick',
-    [
-      '-size',
-      `${size}x${size}`,
-      '-depth',
-      '8',
-      'rgba:-',
-      '-define',
-      'png:exclude-chunk=time',
-      '+set',
-      'date:timestamp',
-      '+set',
-      'date:create',
-      '+set',
-      'date:modify',
-      out,
-    ],
-    { input: levelRaster(raster, gamma), stdio: ['pipe', 'inherit', 'inherit'] },
-  );
+  const stepped = `${out}.resampled.png`;
+  renderIcon(source, size, stepped);
+  try {
+    const { width, height, raster } = decodePng(readFileSync(stepped));
+    writeFileSync(out, encodePng(levelRaster(raster, gamma), width, height));
+  } finally {
+    rmSync(stepped, { force: true });
+  }
 }
 
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/**
+ * An 8-bit RGBA PNG of those pixels: the one encoder the inlined mark is written with.
+ *
+ * Every row is stored unfiltered (filter 0) and the whole raster deflates in one `IDAT`, which is
+ * the simplest thing zlib and a PNG reader both accept. The bytes are a function of the pixels and
+ * of the zlib in this runtime; what the identity test compares is the *pixels* on both sides, so an
+ * encoder that compresses differently is not a difference in the mark.
+ */
+export function encodePng(raster, width, height) {
+  const stride = width * 4;
+  const filtered = Buffer.alloc(height * (stride + 1));
+  for (let row = 0; row < height; row += 1) {
+    filtered[row * (stride + 1)] = 0;
+    raster.copy(filtered, row * (stride + 1) + 1, row * stride, (row + 1) * stride);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr.writeUInt8(8, 8);
+  ihdr.writeUInt8(6, 9);
+  return Buffer.concat([
+    PNG_MAGIC,
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(filtered, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/** One PNG chunk: its length, its type, its body and their CRC. */
+function chunk(type, body) {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(body.length, 0);
+  head.write(type, 4, 'latin1');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
+  return Buffer.concat([head, body, crc]);
+}
+
+/** The CRC-32 a PNG chunk carries, from its own table. */
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let at = 0; at < 256; at += 1) {
+    let value = at;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[at] = value >>> 0;
+  }
+  return table;
+})();
 
 /**
  * An 8-bit RGB or RGBA PNG as `{ width, height, raster }`, or a throw.
