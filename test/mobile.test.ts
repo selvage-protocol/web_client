@@ -236,8 +236,15 @@ describe('the sizes a finger needs', () => {
 
 describe('the panel on a phone', () => {
   it('is shut unless the guest opens it, and the editor keeps the screen', () => {
-    assert.match(declarations(style, '#panel-toggle'), /display:\s*none/, 'the disclosure control shows on a pointer device');
-    assert.match(declarations(mediaBlock(PHONE_QUERY), '#panel-toggle'), /display:\s*flex/);
+    // One disclosure for one panel. The shell carried a second — an icon-only `☰` button in the
+    // strip — and it could never paint: its `hidden` attribute is `display: none !important` in the
+    // same stylesheet, so the phone query's `display: flex` never landed, and a button inside the
+    // strip's own `role="button"` is a control within a control. What opens the panel on a phone is
+    // the strip, which is the whole row a fingertip has.
+    assert.ok(!html.includes('panel-toggle'), 'the shell carries a second control for the panel');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /fileStrip\.addEventListener\('click'/, 'nothing on a phone opens the panel');
+    assert.match(main, /showPanel\(!phoneLayout\.matches\)/, 'the panel does not start shut on a phone');
   });
 
   it('makes its cap the box the panel actually takes', () => {

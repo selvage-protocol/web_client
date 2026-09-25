@@ -14,9 +14,12 @@
  * - a guest with files, told what opening one costs the room, and offered the
  *   peer that is already in one.
  *
- * On a device with no hover the pane's own act is the panel: shut, it is the
- * only place the tree can be reached from and nothing else on screen opens it
- * (§7.6). The host with an empty folder keeps `New file`, which opens the panel
+ * On a device with no hover the pane's own act is the panel, where the panel is shut: the strip
+ * names and opens it, and the pane is the other way in. An act that opens what is already open does
+ * nothing visible, and a phone whose room shares nothing has the panel open already — so the pane
+ * offers it only where it is the only way in, which is what `panelOpen` says.
+ *
+ * The host with an empty folder keeps `New file`, which opens the panel
  * itself, because creating is the act that state is about.
  *
  * The sentences live here and nowhere else in the page: one home for copy that
@@ -58,8 +61,10 @@ export interface EmptyEditorFacts {
   files: number;
   /** The host's display name, for the guest's sentence; empty before the roster arrives. */
   hostName: string;
-  /** This device has no hover, so the panel is a disclosure with no other way in. */
+  /** This device has no hover, so the panel is a disclosure to be offered where it is shut. */
   phone: boolean;
+  /** Whether that disclosure is already open, where the pane would otherwise offer to open it. */
+  panelOpen: boolean;
   /** A peer that is in a file, when one is. */
   peer?: { peerId: string; name: string; path: string } | undefined;
   /** The peer this window is following, so the peer block's toggle is the state it is in. */
@@ -79,26 +84,26 @@ export function emptyEditorFor(facts: EmptyEditorFacts): EmptyEditorState {
   const blocks: EmptyEditorBlock[] = [];
   if (!facts.host && facts.files === 0) {
     blocks.push({
-      lead: `${hostNameOf(facts)} hasn't shared any files yet.`,
-      text: "They'll appear in Shared as soon as the host's folder has some.",
+      lead: `${hostNameOf(facts)} hasn\u2019t shared any files yet.`,
+      text: 'They\u2019ll appear in Shared as soon as the host\u2019s folder has some.',
       // Nothing is loading, so nothing spins: the room is empty and that is all the pane says.
-      actions: facts.phone ? [BROWSE_ACTION] : [],
+      actions: panelActs(facts),
     });
   } else if (facts.host && facts.files === 0) {
     blocks.push({
       lead: `Your folder “${facts.folder}” is empty.`,
-      text: "Files you create here are shared by name; a file's text reaches the room when it is opened.",
+      text: 'Files you create here are shared by name; a file\u2019s text reaches the room when it is opened.',
       actions: ['new-file', 'copy-invite'],
     });
   } else if (facts.host) {
     blocks.push({
       text: 'Pick a file from Shared. Its text reaches the room when you open it.',
-      actions: facts.phone ? [BROWSE_ACTION] : [],
+      actions: panelActs(facts),
     });
   } else {
     blocks.push({
       text: 'Pick a file from Shared. Opening a file asks the host for its text, and everyone in the room receives it.',
-      actions: facts.phone ? [BROWSE_ACTION] : [],
+      actions: panelActs(facts),
     });
   }
   const peer = facts.peer;
@@ -115,6 +120,14 @@ export function emptyEditorFor(facts: EmptyEditorFacts): EmptyEditorState {
 
 /** The panel's verb, as the act the page dispatches. */
 const BROWSE_ACTION: EmptyEditorAction = 'browse-files';
+
+/**
+ * The blocks' acts on a phone: the panel's own verb where the panel is shut, and none of it where
+ * it is already open — the button would otherwise be the one control in the pane and do nothing.
+ */
+function panelActs(facts: EmptyEditorFacts): readonly EmptyEditorAction[] {
+  return facts.phone && !facts.panelOpen ? [BROWSE_ACTION] : [];
+}
 
 /** The host's name, or the role, which is all a page knows before the roster arrives. */
 function hostNameOf(facts: EmptyEditorFacts): string {
