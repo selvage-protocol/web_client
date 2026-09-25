@@ -270,7 +270,8 @@ the one counted away, because that ring is the only place a follow shows on this
 face opens that person's menu under it, with `Go to` where they are in a file and `not in a file
 yet` where they are not, a `Follow` toggle that reads `Stop following` once it is on, and your own
 `Rename`, which edits the name in the menu itself. A go-to the room cannot answer — the peer
-closed the file, or its caret does not resolve here — says so in that menu for four seconds. The
+closed the file, or its caret does not resolve here — says so in that menu for four seconds, or in
+the alert when no menu stands for it, which is where the empty pane's own `Go to` is pressed. The
 sidebar is the tree, under its `Shared` heading: what the room shares, with a peer badge on whose
 file is whose, and a tag beside a file whose text the room sent empty or holds open with nothing
 arrived for it. An action that refuses says so beside its own control, or in the alert where it

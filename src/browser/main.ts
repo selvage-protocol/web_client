@@ -5,7 +5,7 @@ import { hostRoom, joinRoom, listingSource } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
-import type { BindingNotice, Following, Participant, StatusTopic } from './editor.ts';
+import type { BindingNotice, Following, GoToOutcome, Participant, StatusTopic } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import {
   SHARE_MASK,
@@ -1509,10 +1509,10 @@ function renderMenu(focusSelector?: string): void {
       fromList: menu.fromList,
       renaming,
       goToRefusal,
-      // Each act takes the dialog down: it was opened for a press, and the person is about to be
-      // somewhere else — a file, a follow, or the bar with the follow's own ring on it.
+      // The press leaves the menu standing: the room has not answered yet, and the answer — where
+      // the caret landed, or the sentence saying it could not — belongs in the menu it was pressed
+      // in. `goToParticipant` takes it down once the outcome is `landed`.
       onGoTo: (peerId) => {
-        closeMenu();
         void goToParticipant(peerId);
       },
       onFollow: (peerId) => {
@@ -1614,9 +1614,21 @@ window.addEventListener('resize', placeOpenMenu);
  */
 function goToParticipant(peerId: string): void {
   const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
-  void binding?.goTo(peerId).catch((error: unknown) => {
-    failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
-  });
+  void binding
+    ?.goTo(peerId)
+    .then((outcome: GoToOutcome) => {
+      // Only a press that landed somewhere is the menu's own end. The other outcomes leave it
+      // standing: `waiting` because the room has not answered yet (the next presence frame retries,
+      // and the refusal it may raise belongs in the menu), `refused` because its sentence stands
+      // there for its four seconds, and `gone` because the next draw takes down the menu of a person
+      // who is no longer in the room.
+      if (outcome === 'landed') {
+        closeMenu();
+      }
+    })
+    .catch((error: unknown) => {
+      failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+    });
 }
 
 /** Following a peer, from wherever the press came: a face's `Follow`, or the empty pane's own. */
@@ -1628,13 +1640,14 @@ function followParticipant(peerId: string): void {
 }
 
 /**
- * A go-to the room could not answer, in the menu of the person it was asked for (design §5.1).
+ * A go-to the room could not answer: in the menu of the person it was asked for, or on the page's
+ * transient line when no such menu is standing (design §5.1).
  *
  * The refusal is a race — the peer closed the file, or its caret does not resolve here — and the
- * answer belongs where the press was. It is not a state: it stands
+ * answer belongs where the press was. It is not a state: where a menu carries it, it stands
  * `GO_TO_REFUSAL_STAND_MS` and then goes, and the room's next presence frame does not re-raise it,
- * because nothing is wrong with the room. The sentence is announced once, since the face is where
- * the eye already is and its menu is the only place the line is painted.
+ * because nothing is wrong with the room. The sentence is announced once, from whichever home
+ * takes it.
  */
 let goToRefusal: { peerId: string; text: string } | undefined;
 /** The standing refusal's own clock. One at a time: a press replaces the sentence *and* the timer. */
@@ -1644,7 +1657,13 @@ let goToRefusalTimer: number | undefined;
 const GO_TO_REFUSAL_STAND_MS = 4000;
 
 function showGoToRefusal(peerId: string | undefined, text: string): void {
-  if (peerId === undefined) {
+  // The menu of the person it is about is the only place the sentence is painted, so a refusal
+  // with no such menu — the empty pane's own press, or one that names no peer — goes to the
+  // page's transient line, the home it already has for a press that could not do what it said.
+  // Nothing is stood or timed there: the sentence is the whole of it.
+  if (peerId === undefined || menu?.view !== 'person' || menu.peerId !== peerId) {
+    failureAlert.show(text);
+    announce(text);
     return;
   }
   if (goToRefusalTimer !== undefined) {
@@ -1654,7 +1673,12 @@ function showGoToRefusal(peerId: string | undefined, text: string): void {
   goToRefusalTimer = window.setTimeout(() => {
     goToRefusalTimer = undefined;
     goToRefusal = undefined;
-    renderMenu();
+    // The control the sentence stood under is where focus stays, and the menu is redrawn under it
+    // — but only while the person is still in the menu: taking focus back out of the editor to
+    // put it on a control they have left would be worse than the sentence going.
+    renderMenu(
+      menuElement?.contains(document.activeElement) === true ? '[data-act="go"]' : undefined,
+    );
   }, GO_TO_REFUSAL_STAND_MS);
   // The press that earned it is where focus stays, so the sentence is drawn under it either way.
   renderMenu('[data-act="go"]');
@@ -2182,8 +2206,8 @@ function leaveSession(sentence: string): void {
  * - `role` is a state rather than a sentence: the strip's `Read-only` chip, which stays while it is
  *   true instead of a toast the person had to have caught. It is announced once, because a chip
  *   that appears with no words is a change a screen reader would otherwise miss.
- * - `refusal` is a go-to the room could not answer, and it stands in the menu of the face that asked
- *   (`showGoToRefusal`).
+ * - `refusal` is a go-to the room could not answer: the menu of the face that asked when one stands
+ *   for it, and the alert otherwise (`showGoToRefusal`).
  * - `error` is the room's own word about the session, and nothing on screen is about it: it is the
  *   alert's, the one home for a failure with no control to sit beside (design §6.1).
  */

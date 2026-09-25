@@ -296,6 +296,41 @@ describe('follow', () => {
     binding.dispose();
   });
 
+  it('answers a go-to with what the attempt came to, not just whether it threw', async () => {
+    // The page reads this to know whether the press is over: a landing ends the menu it was
+    // pressed in, and anything else leaves it standing for the room's answer.
+
+    // A peer whose caret resolves here: the press landed.
+    const landed = setup(new Map([['notes.txt', 'ab\ncdef\ng']]), {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt', selection: selectionAt(5) } }],
+      resolved: { anchor: 3, head: 5 },
+    });
+    assert.equal(await landed.binding.goTo('peer-sam'), 'landed');
+    landed.binding.dispose();
+
+    // A peer in a document the room holds, whose caret does not resolve here: the room answered,
+    // and there is nowhere to land.
+    const unresolved = setup(new Map([['notes.txt', 'ab\ncdef\ng']]), {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt', selection: selectionAt(5) } }],
+      resolved: undefined,
+    });
+    assert.equal(await unresolved.binding.goTo('peer-sam'), 'refused');
+    unresolved.binding.dispose();
+
+    // A peer the room no longer lists anywhere: the same refusal, in the room's own words.
+    const nowhere = setup(new Map(), { peers: [], presence: [] });
+    assert.equal(await nowhere.binding.goTo('peer-sam'), 'refused');
+    nowhere.binding.dispose();
+
+    // A peer still listed as here with no document open yet: the room has not answered, and the
+    // next presence frame is what resolves it.
+    const waiting = setup(new Map(), { peers: [SAM], presence: [] });
+    assert.equal(await waiting.binding.goTo('peer-sam'), 'waiting');
+    waiting.binding.dispose();
+  });
+
   it('a peer leaving ends the follow with a sentence', async () => {
     const overrides = {
       peers: [SAM],

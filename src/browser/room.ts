@@ -381,6 +381,9 @@ function personActs(person: RoomPerson, view: PersonMenuView): HTMLDivElement {
   } else {
     const go = document.createElement('button');
     go.type = 'button';
+    // The anchor the page keeps focus on when the room refuses this press, rather than moving it
+    // off the control the person actually used.
+    go.setAttribute('data-act', 'go');
     go.append(iconSpan('go'), labelSpan('Go to'));
     go.addEventListener('click', () => view.onGoTo(person.peerId));
     acts.appendChild(go);

@@ -334,6 +334,9 @@ describe('a person’s menu', () => {
     const { menu, calls } = renderMenu([SELF, MIRA], MIRA);
     const verbs = buttonsIn(menu);
     assert.deepEqual(verbs.map((verb) => textOf(verb)), ['Go to', 'Follow']);
+    // The page keeps focus on the control the press came from when the room refuses it, by asking
+    // the menu for the go-to's own anchor; a button without it is one the refusal can never land on.
+    assert.equal(menu.querySelector('[data-act="go"]'), verbs[0], 'the Go to button is not the anchor the page focuses on a refusal');
     assert.equal(verbs[1].getAttribute('aria-pressed'), 'false');
     verbs[0].fire('click');
     verbs[1].fire('click');

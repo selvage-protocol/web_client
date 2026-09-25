@@ -73,7 +73,8 @@ export type BindingNotice =
  * - `role`: this connection is a `viewer` (`§13.9`), so its documents take no edit. The editor is
  *   read-only and nothing else on the page says why.
  * - `refusal`: a go-to the room could not answer. The click had no other answer, and the sentence
- *   is carried with the peer it is about (`peerId`) so the page can put it under that row.
+ *   is carried with the peer it is about (`peerId`) so the page can stand it where that press was
+ *   made.
  * - `follow`: a follow landing and the end of a follow. The follow banner names who and offers
  *   Stop, the tree and the buffer show where, and the roster shows who left.
  * - `error`: what the room said about the session itself. Nothing else carries it.
@@ -98,6 +99,19 @@ export interface Following {
   name: string;
   colour: string;
 }
+
+/**
+ * What a go-to attempt came to, which is what `landOn` decides.
+ *
+ * - `landed`: the caret is on the peer's position.
+ * - `waiting`: the room has not answered yet — the peer is here but their document, or their
+ *   caret, has not arrived — so the next presence frame resolves it again.
+ * - `refused`: the room answered and there is nowhere to land. The sentence went out as a
+ *   `refusal` notice; the caller decides where it stands.
+ * - `gone`: the peer is not in the room. A follow ends on it; a go-to never returns it, because
+ *   a go-to for a peer who is not here refuses instead.
+ */
+export type GoToOutcome = 'landed' | 'waiting' | 'refused' | 'gone';
 
 /**
  * How long a caret event waits before its position reaches the room. Monaco reports a
@@ -503,8 +517,12 @@ export class MonacoBinding implements EditorHost {
    * one-shot follow: the hold taken by the open is what makes the room send the
    * text, so a document that has not arrived yet resolves again on every event.
    * A deliberate navigation stops following first, the same class as typing.
+   *
+   * The outcome is what the attempt came to, which is the caller's to answer for:
+   * the room's refusal is a notice, and whether the press landed is what tells the
+   * page whether the act is over.
    */
-  async goTo(peerId: string): Promise<void> {
+  async goTo(peerId: string): Promise<GoToOutcome> {
     if (this.terminalReason !== undefined) {
       throw new Error(roomGoneMessage(this.terminalReason));
     }
@@ -512,13 +530,14 @@ export class MonacoBinding implements EditorHost {
       this.clearFollow();
     }
     this.pendingGoTo = peerId;
-    await this.retryGoTo();
+    // The pending peer was just set, so the attempt is made rather than skipped.
+    return (await this.retryGoTo()) ?? 'waiting';
   }
 
-  private async retryGoTo(): Promise<void> {
+  private async retryGoTo(): Promise<GoToOutcome | undefined> {
     const peerId = this.pendingGoTo;
     if (peerId === undefined) {
-      return;
+      return undefined;
     }
     const cycle = (this.landingCycle += 1);
     const valid = (): boolean => cycle === this.landingCycle && this.pendingGoTo === peerId;
@@ -526,6 +545,7 @@ export class MonacoBinding implements EditorHost {
     if (outcome !== 'waiting' && this.pendingGoTo === peerId) {
       this.pendingGoTo = undefined;
     }
+    return outcome;
   }
 
   /**
@@ -562,7 +582,7 @@ export class MonacoBinding implements EditorHost {
     peerId: string,
     mode: 'go' | 'follow',
     valid: () => boolean,
-  ): Promise<'landed' | 'waiting' | 'refused' | 'gone'> {
+  ): Promise<GoToOutcome> {
     const record = this.engine.presence().find((candidate) => candidate.peer?.peer_id === peerId);
     if (record === undefined) {
       if (this.engine.peers().some((peer) => peer.peer_id === peerId)) {

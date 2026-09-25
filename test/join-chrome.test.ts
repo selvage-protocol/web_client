@@ -623,20 +623,26 @@ describe('the message homes', () => {
     assert.match(editor, /topic: 'terminal'/g, 'the binding stopped raising the terminal sentence');
   });
 
-  it('a refused go-to lands on the row that asked, not in the chrome', () => {
+  it('a refused go-to lands in the menu that asked, and on the alert when none stands', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
-    // The sentence the binding raises carries the peer it is about, or the page has nothing to
-    // hang it on.
+    // The sentence the binding raises carries the peer it is about, so the page can hang it on that
+    // peer's menu whenever one is standing.
     assert.match(editor, /topic: 'refusal',\n\s+peerId,/, 'a refusal reaches the page without its peer');
+    const refusal = /function showGoToRefusal\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.notEqual(refusal, '', 'the page has no home for a refusal');
+    assert.match(refusal, /goToRefusal = \{ peerId, text \}/, 'a refusal has no state to stand in');
+    // With no menu to carry it — the empty pane's own press, or a refusal with no peer — it is the
+    // alert's, the page's transient line for a press that could not do what it said.
     assert.match(
-      main,
-      /function showGoToRefusal\([\s\S]{0,400}?goToRefusal = \{ peerId, text \}/,
-      'a refusal has no state to stand in',
+      refusal,
+      /if \(peerId === undefined \|\| menu\?\.view !== 'person' \|\| menu\.peerId !== peerId\) \{\n\s+failureAlert\.show\(text\);/,
+      'a refusal with no menu to paint it in goes nowhere',
     );
+    assert.match(refusal, /renderMenu\('\[data-act="go"\]'\)/, 'a refusal is painted in no menu');
     assert.match(main, /goToRefusal,/, 'the menu is never told about a refusal');
     assert.match(main, /GO_TO_REFUSAL_STAND_MS = 4000/, 'a refusal stands for ever, or for a guessed number');
-    assert.match(main, /announce\(text\)/, 'a refusal is never announced');
+    assert.match(refusal, /announce\(text\)/, 'a refusal is never announced');
     // Its own clock, and only one: two presses on one row produce the same sentence, so a timer
     // matching on the words would let the first press clear the second refusal early.
     assert.match(
@@ -651,6 +657,22 @@ describe('the message homes', () => {
       /drawRoom\(binding\.participants\(\)\);\n\s+syncEmptyEditor\(\);/,
       'the empty pane’s follow toggle waits for an unrelated room event',
     );
+  });
+
+  it('a go-to press leaves the menu standing until the room answers', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    // The refusal is raised later, through the binding's own notice, so a press that took the menu
+    // down first would have nothing left to stand the sentence in: exactly the case the sentence
+    // exists for. The press goes somewhere; the outcome decides what happens to the menu, and only
+    // a landing ends it.
+    const press = /onGoTo: \(peerId\) => \{([\s\S]*?)\n      \},/.exec(main)?.[1] ?? '';
+    assert.notEqual(press, '', 'the person menu has no go-to press to read');
+    assert.ok(!press.includes('closeMenu'), 'the press takes the menu down before the room has answered');
+    assert.match(press, /void goToParticipant\(peerId\)/, 'the press never goes anywhere');
+    const goTo = /function goToParticipant[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.notEqual(goTo, '', 'the page has no go-to landing to read');
+    assert.match(goTo, /\.then\(/, 'the outcome of the press is never read');
+    assert.match(goTo, /if \(outcome === 'landed'\) \{\n\s+closeMenu\(\);/, 'a landed go-to does not end the menu it was pressed in');
   });
 
   it('the end of the room comes back as the card, not as a strip', () => {
