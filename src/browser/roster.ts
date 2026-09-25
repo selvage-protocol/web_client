@@ -9,9 +9,11 @@
  * either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
- * own state: the page holds it, stops re-drawing the list while it is open — a
- * presence frame every few hundred milliseconds would take the field out from
- * under the person typing in it — and re-draws when it ends.
+ * own state: the page holds it, and the list waits only while the person is in
+ * the field — a presence frame every few hundred milliseconds would take the
+ * field out from under them. An edit left open with their attention elsewhere
+ * holds nothing: a roster is a read of the room as it stands, and a list that
+ * stops being true while a field nobody is in stands open is a wrong list.
  */
 
 import type { Role } from '../engine/index.ts';
@@ -37,10 +39,26 @@ export interface RosterPeer {
 
 /** The own-name edit, open: the page drives it, the roster draws it. */
 export interface RosterRename {
-  /** What the field opens with: the name this window is seated under. */
+  /** The name the edit opened on, which is the one left in force when the field is dismissed. */
+  opened: string;
+  /**
+   * What the field shows: that name, and what the person has typed into it. A redraw of a list
+   * nobody is typing in puts this back rather than opening the field again, so a presence frame
+   * cannot throw a half-typed name away.
+   */
   value: string;
   /** The protocol's bound, so the field cannot offer more than the room takes. */
   maxLength: number;
+  /**
+   * Whether this draw is the one that opens the edit. Only that one takes focus: a redraw may land
+   * while the person is in the editor, and a field that took focus back would yank them out of it.
+   */
+  fresh: boolean;
+  /**
+   * The field this draw built, which the page keeps. It is what tells a redraw whether somebody is
+   * in the edit, and where the text to put back is read from.
+   */
+  field?: HTMLInputElement;
   /** Enter: the name to send. The page validates and sends it. */
   commit(value: string): void;
   /** Escape, or leaving the field: nothing is sent. */
@@ -205,9 +223,11 @@ function selfRow(view: RosterView): HTMLElement {
  * field names nothing, which is the one refusal a name can meet here: the protocol's bound is the
  * field's own `maxLength`, so a name too long cannot be typed. And leaving the field keeps what was
  * typed and leaves the edit open — a stray click must not commit a half-typed name, and must not
- * throw one away either, which is the rule the create row already followed. Only an empty field
- * closes, where there is nothing to keep: the create row's field holds a typed path, so a dismissal
- * that discarded one would be the worse of the two rules to share.
+ * throw one away either, which is the rule the create row already followed. A field the person has
+ * put nothing of their own in closes instead, and that is the same rule in the other row: the
+ * create row's field opens empty, so a stray click there closes it, and this one opens on the name
+ * already in force, so a stray click here used to leave an edit standing for ever — with the page
+ * holding the roster still behind it, which is a presence list that stops being true.
  *
  * The dismissal is what a blur is, with one exception: focus moving to the edit's own two controls
  * is not leaving it, so their press is not cancelled out from under them.
@@ -224,6 +244,9 @@ function nameField(rename: RosterRename): HTMLElement {
   field.className = 'rename';
   field.value = rename.value;
   field.maxLength = rename.maxLength;
+  // Handed back to the page, which keeps it: the text a redraw puts back is read off this field, and
+  // the field is what says whether somebody is still in the edit.
+  rename.field = field;
   field.setAttribute('aria-label', NAME_FIELD_LABEL);
   field.title = NAME_FIELD_LABEL;
   field.spellcheck = false;
@@ -255,7 +278,7 @@ function nameField(rename: RosterRename): HTMLElement {
   // not leaving it; a press on Save or Cancel is recorded on the way down as well, because a
   // browser that does not focus a button on mousedown (Safari) reports no `relatedTarget` and
   // the button's own click must still land rather than be cancelled out from under it. Anything
-  // else leaves the edit as the person left it, and only an empty field closes.
+  // else leaves the edit as the person left it, and only a field with nothing of theirs in it closes.
   let pressed = false;
   for (const control of [save, cancel]) {
     control.addEventListener('mousedown', () => {
@@ -283,16 +306,35 @@ function nameField(rename: RosterRename): HTMLElement {
       pressed = false;
       return;
     }
-    if (field.value.trim() === '') {
+    // A name the person typed is kept; a field they put nothing of their own in — the name it opened
+    // on, or nothing at all — is dismissed, where there is nothing of theirs to keep.
+    if (field.value.trim() === '' || field.value === rename.opened) {
       rename.cancel();
     }
   });
   group.append(field, save, cancel);
   // The edit was asked for by a press, so the field is where the person is. Asked for on a
   // microtask because the row this field belongs to is not in the document yet, and a field that is
-  // not in the document ignores `focus()`: the call made here in the same task did nothing.
-  queueMicrotask(() => field.focus?.());
+  // not in the document ignores `focus()`: the call made here in the same task did nothing. Only the
+  // draw that opens the edit takes focus (`RosterRename.fresh`): a redraw lands while the person is
+  // somewhere else, and a field that called focus from there would yank them back into the roster.
+  if (rename.fresh) {
+    queueMicrotask(() => field.focus?.());
+  }
   return group;
+}
+
+/**
+ * Whether an open own-name edit holds the list still, which it does only while the person is in its
+ * field.
+ *
+ * A redraw of the roster replaces the row the field is in, so a list drawn under somebody typing
+ * would take the caret with it — but an edit left open with their attention elsewhere is not being
+ * typed into, and holding the rows still for it is how a peer's rename stopped appearing on the
+ * roster while a field nobody was in stood open.
+ */
+export function renameHoldsTheList(field: HTMLInputElement | undefined, active: Element | null): boolean {
+  return field !== undefined && field === active;
 }
 
 /**

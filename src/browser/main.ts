@@ -70,7 +70,8 @@ import {
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
 import { EMPTY_IN_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
-import { renderRoster } from './roster.ts';
+import { renameHoldsTheList, renderRoster } from './roster.ts';
+import type { RosterRename } from './roster.ts';
 import {
   emptyEditorFor,
   renderEmptyEditor,
@@ -1343,14 +1344,17 @@ async function copyShareLink(): Promise<void> {
  * reads on the grant tree, not here; the strip's follow segment owns the one
  * stop and the row's own toggle is the same state from the other side.
  *
- * An own-name edit holds the list still (`renamingName`): a presence frame lands
- * every few hundred milliseconds while anybody types, and a list redrawn under
- * the field would take the cursor with it. The rows the person cannot see for
- * those seconds are redrawn the moment the edit ends, and nothing is lost — a
- * roster is a read of the room as it stands, not a queue.
+ * An own-name edit holds the list still only while the person is in its field
+ * (`renameHoldsTheList`): a presence frame lands every few hundred milliseconds
+ * while anybody types, and a list redrawn under the field would take the cursor
+ * with it. An edit left open with their attention elsewhere holds nothing, and
+ * the rows keep up — a roster is a read of the room as it stands, and one that
+ * stopped being true while a field nobody was in stood open was a wrong list.
+ * What a redraw puts back is the name the person had typed, so the hold is not
+ * what keeps their words.
  */
 function syncRoster(participants: Participant[]): void {
-  if (renamingName !== undefined) {
+  if (renameHoldsTheList(renamingField, document.activeElement)) {
     return;
   }
   drawRoster(participants);
@@ -1358,27 +1362,34 @@ function syncRoster(participants: Participant[]): void {
 
 /** The list as it stands, with the own-name edit open if one is. */
 function drawRoster(participants: Participant[]): void {
+  // What the field holds now rather than what it opened on: a redraw of a list nobody is typing in
+  // must not throw away a half-typed name.
+  const typed = renamingField?.value;
+  const renaming: RosterRename | undefined =
+    renamingName === undefined
+      ? undefined
+      : {
+          opened: renamingName,
+          value: typed ?? renamingName,
+          maxLength: MAX_DISPLAY_NAME_UNITS,
+          fresh: renamingField === undefined,
+          commit: (value) => void commitRename(value),
+          cancel: () => endRename(),
+        };
   renderRoster(rosterList, participants, {
     followedPeerId: binding?.following()?.peerId,
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
     selfRole: engine?.session().role,
     goToRefusal,
-    renaming:
-      renamingName === undefined
-        ? undefined
-        : {
-            value: renamingName,
-            maxLength: MAX_DISPLAY_NAME_UNITS,
-            commit: (value) => void commitRename(value),
-            cancel: () => endRename(),
-          },
+    renaming,
     onRename: () => startRename(),
     onGoTo: (peerId) => goToParticipant(peerId),
     onFollow: (peerId) => followParticipant(peerId),
     // The same state from the other side: the row's toggle pressed is the strip's Stop pressed.
     onStopFollow: () => binding?.stopFollowing(),
   });
+  renamingField = renaming?.field;
 }
 
 /**
@@ -1441,12 +1452,18 @@ function showGoToRefusal(peerId: string | undefined, text: string): void {
  * the row is drawn from this state (`drawRoster`).
  */
 let renamingName: string | undefined;
+/**
+ * The field the open edit is in, for the draw that built it: what tells a presence frame whether the
+ * person is still in the edit, and where the next draw reads the name they have typed.
+ */
+let renamingField: HTMLInputElement | undefined;
 
 function startRename(): void {
   if (renamingName !== undefined || binding === undefined) {
     return;
   }
   renamingName = selfName;
+  renamingField = undefined;
   // Opening the field is the one drawing that happens while an edit is open, so it does
   // not go through the hold `syncRoster` keeps.
   drawRoster(binding.participants());
@@ -1454,6 +1471,7 @@ function startRename(): void {
 
 function endRename(): void {
   renamingName = undefined;
+  renamingField = undefined;
   syncRoster(binding?.participants() ?? []);
 }
 
