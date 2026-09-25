@@ -11,8 +11,7 @@
 
 export type IconName =
   | 'file'
-  | 'file-txt'
-  | 'file-ts'
+  | 'file-txt'  | 'file-ts'
   | 'file-js'
   | 'file-md'
   | 'file-json'
@@ -46,6 +45,7 @@ export type IconName =
   | 'edit'
   | 'link'
   | 'check'
+  | 'crown'
   | 'download'
   | 'ellipsis';
 
@@ -154,6 +154,10 @@ const ICONS: Record<IconName, string> = {
   link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg>',
   check:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8.5l3.5 3.5 7-8"/></svg>',
+  // The one seat in a room that holds the room's key, drawn as the crown the landing page and the
+  // desktop clients give it: three points over a band, in the set's own stroke.
+  crown:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 12.6 2.4 5.2l3.6 2.6L8 4.4l2 3.4 3.6-2.6-.8 7.4z"/></svg>',
   download:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5"/><path d="M2 12.5v1.5h12v-1.5"/></svg>',
   // The touch row's one disclosure: three dots, the platform's own word for "the rest of it".

@@ -18,20 +18,30 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const treeView = readFileSync(new URL('../src/browser/tree-view.ts', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 const strip = /<div id="file-strip">[\s\S]*?<\/div>\n          <div id="editor-area">/.exec(html)?.[0] ?? '';
 
+/** The declarations of the rule whose selector list starts as `selector` asks. */
+function rule(selector: string): string {
+  const at = style.indexOf(`${selector} {`);
+  assert.notEqual(at, -1, `no ${selector} rule in the stylesheet`);
+  return style.slice(at, style.indexOf('}', at));
+}
+
 describe('the strip is in the shell, above the editor', () => {
-  it('carries a path, its chips, the follow segment and the save control', () => {
+  it('carries a path, its chips and the follow segment', () => {
     assert.ok(strip !== '', 'no file strip above the editor');
-    for (const id of ['file-strip-path', 'file-strip-chips', 'file-strip-follow', 'download']) {
+    for (const id of ['file-strip-path', 'file-strip-chips', 'file-strip-follow']) {
       assert.ok(strip.includes(`id="${id}"`), `${id} is not in the strip`);
     }
-    // The bar's download control moved here: it is about a file, not about the session.
+    // The bar's download control moved to the tree, where a room's files are, and the strip's copy
+    // of it is gone: one control per act. It is about a file, not about the session.
     const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="session-note"'));
     assert.ok(!bar.includes('id="download"'), 'the download control is still in the session bar');
+    assert.ok(!strip.includes('id="download"'), 'the strip still carries a second download control');
   });
 
   it('is the phone’s panel disclosure, and only on a phone', () => {
@@ -67,7 +77,16 @@ describe('the strip is in the shell, above the editor', () => {
 
   it('says nothing about which file is open when there is none, and no chips either', () => {
     assert.match(main, /'No file open'/, 'no open file reads as something else');
-    assert.match(main, /downloadButton\.disabled = path === undefined/, 'the save control is live with no file');
+  });
+
+  it('offers no control of its own for saving the open file', () => {
+    // The tree's per-row download is the page's one way to a file on disk, and it reaches every
+    // file the room holds — the open one included. The strip's button was the same act a second
+    // time, on the one line that is about *which file is open*.
+    assert.ok(!html.includes('id="download"'), 'the strip carries a download control again');
+    assert.ok(!main.includes('downloadButton'), 'the page still wires a download button');
+    assert.ok(!main.includes('downloadOpen'), 'the page still saves the open file outside the tree');
+    assert.ok(!style.includes('#download'), 'the stylesheet still paints the strip\u2019s download');
   });
 });
 
@@ -92,8 +111,28 @@ describe('what the strip states', () => {
       !/#file-strip-chips \.chip\.room/.test(style),
       'the stylesheet still paints a room chip in the strip',
     );
-    assert.match(style, /#tree button\.row \.in-room \{ color: var\(--open-mark\)/,
-      'the tree lost the mark that says a file\u2019s text is in the room');
+    // And the tree's own dot went with it: it stood on every file whose text had reached the room,
+    // which is every file this window opened, so it told a reader a fact about their own act. What
+    // a row still says is the two states of the text that nobody can see — `empty`, `not fetched
+    // yet` — and the `⚠` a refused write puts there.
+    assert.ok(!/\.in-room/.test(style), 'the tree paints a dot for a file the room holds again');
+    assert.ok(!/'●'/.test(treeView), 'a row draws the dot for a file the room holds again');
+    assert.match(style, /#tree button\.row \.empty-tag/, 'the empty tag lost its chip');
+    assert.match(style, /#tree button\.row \.pending-tag/, 'the unfetched tag lost its chip');
+  });
+
+  it('puts a row\u2019s own marks in one place: the badges, then the buttons', () => {
+    // The presence badges carry the row's one auto margin. The actions carried `auto` as well, so
+    // the free space was split between the two and a file somebody is in showed their badge short
+    // of the button it belongs beside — measured on the phone, the badge ended 88 px left of the
+    // download control. On a pointer device the actions are invisible until hover and still take
+    // their room, so the gap was there in every state.
+    assert.match(rule('#tree button.row .presence'), /margin-left:\s*auto/,
+      'the badges no longer take the row\u2019s right edge');
+    assert.ok(
+      !/margin-left:\s*auto/.test(rule('#tree button.row .row-actions')),
+      'two auto margins split the free space, so the badges stop in the middle of the row',
+    );
   });
 
   it('carries the host’s refused write, in the words the folder refused with', () => {

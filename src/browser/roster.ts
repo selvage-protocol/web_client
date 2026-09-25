@@ -2,10 +2,10 @@
  * Roster rows: who is here, glanceable. Each row carries the peer's colour
  * swatch, their name, the role the room gives them, and the two verbs — never
  * path text (where someone is reads on the grant tree, as a badge on their
- * file). The own name leads, with a you marker, the name it is seated under
- * and one control of its own to change it. Follow is a toggle, so the row a
- * window is following reads `Following` and pressing it stops, exactly as the
- * file strip's own Stop does: one state, reachable from either side.
+ * file). The own row leads, marked only by the one control that changes this
+ * connection's own name, and a host wears the crown. Follow is a toggle, so the
+ * row a window is following reads `Following` and pressing it stops, exactly as
+ * the file strip's own Stop does: one state, reachable from either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
  * own state: the page holds it, stops re-drawing the list while it is open — a
@@ -89,7 +89,13 @@ const RENAME_LABEL = 'Set the name other participants see';
  */
 const STOP_FOLLOW_LABEL = 'Stop following';
 
-/** What the edit's two visible ways out are called, in the row's own words. */
+/**
+ * What the edit's two visible ways out are called, in the row's own words.
+ *
+ * The controls are the tree's ✓ and ✕ and carry no text of their own, so this is what a screen
+ * reader reads and what a pointer finds in the tooltip: a glyph the reader has to guess at is a
+ * control only the people who wrote the page can use.
+ */
 const RENAME_SAVE_LABEL = 'Set this name';
 const RENAME_CANCEL_LABEL = 'Leave the name as it is';
 
@@ -136,8 +142,9 @@ function selfRow(view: RosterView): HTMLElement {
   if (view.selfColour !== undefined) {
     swatch.style.backgroundColor = view.selfColour;
   }
-  // No `title` on it: the row already says `(you)` in words, beside the swatch, and a tooltip that
-  // repeats it is a second reading of one fact that a finger can never reach (`design` §0.1, §0.5).
+  // The swatch is the row's colour and nothing more: `(you)` beside it was words for the one row
+  // whose identity nobody has to be told — it is the row with the control that changes this
+  // connection's own name, and the only one that has it.
   row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
@@ -147,17 +154,9 @@ function selfRow(view: RosterView): HTMLElement {
     name.className = 'name';
     name.textContent = view.selfName;
     who.appendChild(name);
-    const you = document.createElement('span');
-    you.className = 'you';
-    you.textContent = '(you)';
-    who.appendChild(you);
     const host = view.selfRole === undefined ? undefined : hostMarker(view.selfRole);
     if (host !== undefined) {
-      const dot = document.createElement('span');
-      dot.className = 'sep';
-      dot.setAttribute('aria-hidden', 'true');
-      dot.textContent = '·';
-      who.append(dot, host);
+      who.appendChild(host);
     }
   } else {
     who.appendChild(nameField(rename));
@@ -184,9 +183,13 @@ function selfRow(view: RosterView): HTMLElement {
 /**
  * The name the field is about, and the five ways out of it.
  *
- * Enter sends and Escape cancels, as they always did; the confirm and cancel controls beside the
- * field are the visible pair for a person who does not already know the keys — a field that only
- * answers Enter is an action with no button. Clicking outside the edit dismisses it exactly as
+ * Enter sends and Escape cancels, as they always did; the ✓ and ✕ beside the field are the visible
+ * pair for a person who does not already know the keys — a field that only answers Enter is an
+ * action with no button. They are the tree's create row's own pair, down to the glyphs, because
+ * they are the same two answers to the same question: keep this, or drop it. What is new here is
+ * the size a finger gets: the glyph is 27 px wide, and on touch both are lifted to the 44 px floor
+ * with room between them, where a miss on a file row's pair would otherwise open the file under
+ * the fingertip. Clicking outside the edit dismisses it exactly as
  * Cancel does, sending nothing: a stray click must not commit a half-typed name, and the choice
  * is no longer silent because Cancel stands in the field's own row. The dismissal is what a blur
  * is, with one exception: focus moving to the edit's own two controls is not leaving it, so their
@@ -210,14 +213,16 @@ function nameField(rename: RosterRename): HTMLElement {
   const save = document.createElement('button');
   save.type = 'button';
   save.className = 'rename-save';
-  save.textContent = 'Save';
+  save.append(iconSpan('check'));
   save.title = RENAME_SAVE_LABEL;
+  save.setAttribute('aria-label', RENAME_SAVE_LABEL);
   save.addEventListener('click', () => rename.commit(field.value));
   const cancel = document.createElement('button');
   cancel.type = 'button';
   cancel.className = 'rename-cancel';
-  cancel.textContent = 'Cancel';
+  cancel.append(iconSpan('close'));
   cancel.title = RENAME_CANCEL_LABEL;
+  cancel.setAttribute('aria-label', RENAME_CANCEL_LABEL);
   cancel.addEventListener('click', () => rename.cancel());
   // Leaving the edit is a `focusout` on the whole group, not a `blur` on the field: focus can
   // move from the field to Save or Cancel and only then outside, and a listener on the field
@@ -262,17 +267,21 @@ function nameField(rename: RosterRename): HTMLElement {
 
 /**
  * The marker a row wears when the room's state gives its seat a role worth
- * naming: `host`, the one peer whose connection holds the host key and whose
- * leaving puts the room into its grace (`§13.8`).
+ * naming: the crown for `host`, the one peer whose connection holds the host key
+ * and whose leaving puts the room into its grace (`§13.8`).
  *
- * A quiet line beside the name, in the own row's `you` shape, because the
- * roster is the page's account of who is here and the role is part of who: the
- * page's own design note has the roster draw peers with their roles, and the
- * grant tree has no room for one. It is not drawn for `guest` — the room's
- * ordinary seat, where a badge would be noise on every row but one — and
- * `viewer` is left out deliberately: it is a statement about what a peer may
- * write, the read-only state is the editor's own to show, and no row here is
- * about permission.
+ * A crown and no word, because the roster is the page's account of who is here
+ * and the role is part of who: a mark that is not text needs no room on a row
+ * that is mostly a name, and it cannot be read as the rest of that name — `Ada
+ * (you) · host` was three marks in a row that read as one sentence. It is not
+ * drawn for `guest` — the room's ordinary seat, where a badge would be noise on
+ * every row but one — and `viewer` is left out deliberately: it is a statement
+ * about what a peer may write, the read-only state is the editor's own to show,
+ * and no row here is about permission.
+ *
+ * The crown is a picture, so what it means is its accessible name and its
+ * tooltip: a mark no reader can name is a mark only the people who already know
+ * it can use.
  */
 function hostMarker(role: Role): HTMLElement | undefined {
   if (role !== 'host') {
@@ -280,9 +289,15 @@ function hostMarker(role: Role): HTMLElement | undefined {
   }
   const marker = document.createElement('span');
   marker.className = 'role';
-  marker.textContent = 'host';
+  marker.setAttribute('role', 'img');
+  marker.setAttribute('aria-label', HOST_LABEL);
+  marker.title = HOST_LABEL;
+  marker.appendChild(iconSpan('crown'));
   return marker;
 }
+
+/** What the crown is called where it is not drawn as a word. */
+const HOST_LABEL = 'Host';
 
 function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView): HTMLElement {
   const row = document.createElement('li');

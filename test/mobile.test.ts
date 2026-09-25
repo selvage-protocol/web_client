@@ -225,6 +225,28 @@ describe('the sizes a finger needs', () => {
     assert.match(declarations(touch, '#roster .actions button'), /min-width:\s*44px/, 'roster verbs stay 26 px wide');
   });
 
+  it('gives both pairs of ✓ and ✕ the width of a fingertip, and room between them', () => {
+    // The tree's create row and the roster's own name are the same two answers — keep it, drop it
+    // — drawn as the same two glyphs, so they are sized together. Measured in Chromium at 390x844:
+    // each glyph is 27 px wide and the two are 4 px apart, which is a miss on the field or the name
+    // beside them. A miss on a file row's pair opens the file instead.
+    const touch = mediaBlock(TOUCH_QUERY);
+    for (const control of [
+      '#tree .new-commit',
+      '#tree .new-cancel',
+      '#roster .rename-save',
+      '#roster .rename-cancel',
+    ]) {
+      assert.match(
+        declarations(touch, control),
+        /min-width:\s*44px/,
+        `${control} is as wide as its glyph again`,
+      );
+    }
+    assert.match(declarations(touch, '#tree .new-line'), /gap:\s*0\.6em/, 'the two answers abut');
+    assert.match(declarations(touch, '#roster .rename-edit'), /gap:\s*0\.6em/, 'the two answers abut');
+  });
+
   it('keeps the desktop density: the sizes above are behind the touch query', () => {
     assert.ok(
       !/min-height:\s*44px/.test(style.slice(0, style.indexOf(`@media ${TOUCH_QUERY}`))),
@@ -245,6 +267,16 @@ describe('the panel on a phone', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(main, /fileStrip\.addEventListener\('click'/, 'nothing on a phone opens the panel');
     assert.match(main, /showPanel\(!phoneLayout\.matches\)/, 'the panel does not start shut on a phone');
+  });
+
+  it('keeps the roster to one alignment: no row grows a second line', () => {
+    // Measured at 390x844 with five peers: a long name wrapped the row's verbs onto a line of
+    // their own, left-aligned at x=17 and 82 px tall, while a short name kept them right-aligned on
+    // the name's line at x=207 and 57 px. Two alignments and two heights in one list, and the
+    // phrase a reader scans for — `not in a file yet` — in a different place on every row.
+    const row = declarations(mediaBlock(TOUCH_QUERY), '#roster li');
+    assert.match(row, /flex-wrap:\s*nowrap/, 'the verbs drop to a line of their own again');
+    assert.ok(!/flex-wrap:\s*wrap/.test(row), 'a roster row still wraps its actions');
   });
 
   it('makes its cap the box the panel actually takes', () => {

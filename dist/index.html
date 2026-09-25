@@ -42,10 +42,11 @@
         --primary-hover: #d5b4fa;
         --primary-foreground: #1e1e2e;
         --ring: #cba6f7;
-        /* The one colour a mark for *the room holds this text open* is drawn in, wherever it is
-           drawn: the tree's dot and the file strip's chip wear the same green, so a person reads
-           one fact and not two. */
-        --open-mark: #a6e3a1;
+        /* The one green this page draws a good answer in, wherever it is: the dot that says the
+           room is connected, and the ✓ the row that keeps a name shows under a pointer. It was
+           named for a mark that no longer exists — a dot beside every file whose text had reached
+           the room, which is what opening a file does. */
+        --ok: #a6e3a1;
         --radius: 0.5rem;
         --shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.8);
       }
@@ -101,7 +102,7 @@
       #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
         font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
       #health .dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex: none;
-        background: var(--open-mark); }
+        background: var(--ok); }
       #health[data-health='reconnecting'] { color: var(--warning); }
       #health[data-health='reconnecting'] .dot { background: var(--warning);
         animation: health-pulse 1.4s ease-in-out infinite; }
@@ -142,12 +143,12 @@
         border-color: #f7a8bf; }
       /* The owner's mark, whose pixels are in this document: a 104 px render of
          the master the site owns (`public/mark-transparent.png`, resampled by
-         the same renderer the build's icons use), carried once and worn by the
-         card and the brand. Nothing has to arrive for it to paint, so no frame
+         the same renderer the build's icons use and worn as it was exported),
+         carried once and worn by the card and the brand. Nothing has to arrive for it to paint, so no frame
          can show a box waiting on a request, and a background paints no alt
          text either way. `test/join-paint.test.ts` checks these bytes against
          the file. */
-      .mark { flex: none; background-image: url("data:image/png;base64,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");
+      .mark { flex: none; background-image: url("data:image/png;base64,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");
         background-repeat: no-repeat; background-position: center; background-size: contain; }
       /* The strip is a flex row for the dot's sake, and the countdown substitutes its time into
          the middle of one sentence: every child of a flex container wears the `gap` on both sides,
@@ -281,9 +282,6 @@
       #file-strip-follow:empty { display: none; }
       #file-strip-follow button { font-size: 0.85em; font-weight: normal; }
       #file-strip .spacer { flex: 1 1 auto; }
-      #download { display: flex; align-items: center; justify-content: center; flex: none;
-        margin-left: auto; padding: 0.4em 0.6em; color: var(--muted-foreground); }
-      #download:hover:not(:disabled) { color: var(--foreground); }
       #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
         color: var(--muted-foreground); margin: 1.5em 0 0.5em; padding: 0 0.55em; }
       #side h2:first-child { margin-top: 0; }
@@ -306,15 +304,24 @@
       #roster .who { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 0.4em; line-height: 1.3; }
       #roster .name { font-weight: 700; color: var(--foreground); white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis; }
-      #roster .you, #roster .role { color: var(--muted-foreground); font-size: 0.75em;
-        font-weight: 500; flex: none; }
+      /* The crown a host's row wears: a mark with no words, sized to the row's own text and drawn
+         in the same quiet tone as the rest of a row's chrome. It carries its name for a screen
+         reader and for a pointer, because a picture cannot say `host` by itself. */
+      #roster .role { display: inline-flex; flex: none; color: var(--muted-foreground); }
+      #roster .role .icon svg { width: 1em; height: 1em; }
       /* The own-name edit: the row's name becomes the field it is about, sized to the row
          rather than to the card's field, and it takes the room the name had. */
       #roster .rename-edit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.3em; }
       #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
-      /* The edit's visible ways out, sized to the row rather than to the card: two small verbs
-         beside the name, and the finger-sized floor the touch query gives every button. */
-      #roster .rename-save, #roster .rename-cancel { font-size: 0.8em; padding: 0.25em 0.5em; }
+      /* The two ways out of an edit, and the same two in both places an edit is made: the tree's
+         create row and the roster's own name. One pair of glyphs — `✓` keeps it, `✕` drops it — with
+         the page's quiet chrome at rest and one colour each under a pointer. */
+      #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
+        flex: none; padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
+      #tree .new-commit:hover:not(:disabled), #roster .rename-save:hover:not(:disabled) {
+        color: var(--ok); border-color: var(--border-strong); }
+      #tree .new-cancel:hover:not(:disabled), #roster .rename-cancel:hover:not(:disabled) {
+        color: var(--danger); border-color: var(--border-strong); }
       #roster li.self .swatch { background: var(--primary); }
       #roster .actions { display: flex; align-items: center; gap: 0.25em; flex: none; }
       /* Quiet verbs: present at rest, no chrome to add up around two names. */
@@ -336,17 +343,19 @@
       #tree .new-row { list-style: none; margin: 2px 0; }
       #tree .new-row-body { padding: 0 0.55em 0.4em; }
       #tree .new-line { display: flex; align-items: center; gap: 0.3em; }
-      #tree .new-line .icon { color: var(--muted-foreground); flex: none; }
+      /* The kind's own icon, and only it: the two controls beside the field keep their own colour,
+         which is what a pointer reads at the ✓ and the ✕. */
+      #tree .new-line > .icon { color: var(--muted-foreground); flex: none; }
       #tree .new-name { flex: 1 1 5em; min-width: 0; font-size: 0.85em; padding: 0.3em 0.45em; }
       #tree .new-name.invalid { border-color: var(--danger); }
       #tree .new-slash { flex: none; color: var(--muted-foreground); }
       #tree .new-slash[hidden] { display: none; }
-      #tree .new-commit, #tree .new-cancel { flex: none; padding: 0.25em 0.4em;
-        background: none; color: var(--muted-foreground); }
-      #tree .new-commit:hover:not(:disabled) { color: #a6e3a1; border-color: var(--border-strong); }
-      #tree .new-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--border-strong); }
+      /* The line under the field, which stands only when it has something to say: a refusal, or the
+         folder the commit will also make. A name this room can take needs no line, and a hidden one
+         keeps the tree from shifting as a person types. */
       #tree .new-hint { margin: 0.3em 0 0; font-size: 0.78em; line-height: 1.4;
         color: var(--muted-foreground); }
+      #tree .new-hint:empty { display: none; }
       #tree .new-line .icon.busy { animation: health-pulse 1.1s ease-in-out infinite; }
       #tree { margin: 0; padding: 0; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
@@ -364,14 +373,19 @@
       #tree button.row:hover { background: var(--muted); }
       #tree button.row.open { background: var(--muted); border-color: var(--border-strong); font-weight: 600; }
       #tree button.row .icon { color: var(--muted-foreground); }
+      /* Who is in a file, flush with the row's right edge — and the one auto margin in the row. It
+         sat half-way across because the actions after it carried `auto` as well, so the free space
+         was split between the two and the badges of a file stopped short of the buttons they belong
+         beside. */
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
-      /* What the room knows about a row: its text is in the room (`●`), the room sent text and it
-         is empty (`empty`), the room holds it open and nothing has arrived (`not fetched yet`), or
-         the folder refused a write to it (`⚠`). The two tags wear one chip: they are one mark in
-         two states, and the words are what tell them apart. */
-      #tree button.row .in-room { color: var(--open-mark); font-size: 0.7em; flex: none; }
+      /* What a row says about the room when it has something a person cannot see: the room sent
+         text and it is empty (`empty`), the room holds it open and nothing has arrived (`not fetched
+         yet`), or the folder refused a write to it (`⚠`). The two tags wear one chip: they are one
+         mark in two states, and the words are what tell them apart. The green dot that said the
+         text had reached the room is gone: it was drawn on every file the room held, and the one
+         thing it told a reader was a fact about a file they had opened themselves. */
       #tree button.row .empty-tag, #tree button.row .pending-tag,
       #tree button.row .unsaved { font-size: 0.68em; font-weight: 500;
         white-space: nowrap; color: var(--muted-foreground); border: 1px solid var(--border-strong);
@@ -384,8 +398,7 @@
       /* A row's own actions: out of the way of a pointer's reading, and always there for a finger. */
       #tree .row-chrome { display: inline-flex; align-items: center; gap: 0.2em; margin-left: auto;
         flex: none; }
-      #tree button.row .row-actions { display: inline-flex; align-items: center; flex: none;
-        margin-left: auto; }
+      #tree button.row .row-actions { display: inline-flex; align-items: center; flex: none; }
       #tree .icon-button { padding: 0.2em 0.3em; background: none; border-color: transparent;
         color: var(--muted-foreground); }
       #tree .icon-button:hover:not(:disabled) { background: var(--muted-hover);
@@ -619,9 +632,19 @@
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
         #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
-        /* A row that has to wrap does: the actions are always visible at this size, and a long
-           name takes the line it needs rather than pushing them off it. */
-        #roster li { flex-wrap: wrap; }
+        /* The two ways out of an edit are one glyph each: 27 px wide, 4 px apart, measured on a
+           390 px screen. That is a miss on the field or the name beside them, so on a touch device
+           both pairs take the width of a fingertip and the row opens up between them. The create
+           row and the roster's own name are the same pair, so they are sized together. */
+        #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
+          min-width: 44px; }
+        #tree .new-line, #roster .rename-edit { gap: 0.6em; }
+        /* One alignment in one list. A row that wrapped took its verbs onto a line of their own —
+           left-aligned at the row's padding, 82 px tall — while a row that did not kept them
+           right-aligned on the name's line, 57 px: measured at 390x844 with five peers, the two
+           readings were x=17 and x=207 in the same list. The name gives way instead, with the
+           ellipsis it already has, and every row is one line. */
+        #roster li { flex-wrap: nowrap; }
         #alert, #peek {
           bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
         }
@@ -635,7 +658,6 @@
         #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
           box-sizing: border-box; }
         #file-strip-path, #file-strip-path.none { font-weight: 600; color: var(--foreground); }
-        #download { display: none; }
         /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
            the top of the screen empty and stood over the non-commercial notice the demo appends
            under the page, so what a phone shows first is the thing to do and the notice below it
@@ -858,15 +880,14 @@
           aria-valuenow="294"><button id="side-rail" type="button" aria-label="Show files and people"
           title="Show files and people"><span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></button></div>
         <div id="pane">
-          <!-- The open file's whole state, in one line above the editor: which file, whether its
-               text is in the room, whether it is read-only, whether the folder refused the write,
-               who is being followed, and the way to save it. On a phone the same row is the panel's
-               own disclosure, which is what says which file is open when the panel is shut. -->
+          <!-- The open file's whole state, in one line above the editor: which file, whether it is
+               read-only, whether the folder refused the write, and who is being followed. On a
+               phone the same row is the panel's own disclosure, which is what says which file is
+               open when the panel is shut. -->
           <div id="file-strip">
             <span id="file-strip-path"></span>
             <span id="file-strip-chips"></span>
             <span id="file-strip-follow"></span>
-            <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
           </div>
           <div id="editor-area">
             <div id="editor"></div>

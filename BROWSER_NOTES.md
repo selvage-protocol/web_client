@@ -3610,3 +3610,62 @@ click actually opened, asserts the file on disk *equals* what the editor is show
 row's own refusal mark, checks the precondition (the file still holds what the picker seeded it
 with, so no other writer could have put the marker there), and exits non-zero when any of it
 fails.
+
+## The owner's structural pass: the page stops repeating itself (2026-09-25)
+
+Seven controls and marks went, and each of them was the page saying a thing twice.
+
+**One control per act.** The file strip carried a `⤓` that saved the open file, and every row of
+the tree carries one for the file it lists — including the file that is open. The strip's copy is
+gone (`#download`, `downloadButton`, `downloadOpen`), and the tree's per-row control is the page's
+one way to a file on disk. The tick beside `Link copied` went with it: the words are the
+confirmation, and a second, smaller mark in a bar whose one mark is the room's own says nothing
+they do not. `wireShareBox` lost its `checkSvg` option with it.
+
+**The create row stops explaining itself.** The line under the field read `Enter creates the file
+in project · Esc cancels`, which is the field, the `✓` beside it and the row's own place in the
+tree, said again; a phone has neither of those keys (its Enter is labelled `done`). `newEntryHint`
+and `NewEntryContext.room` are gone. The line stays, because a refusal and `Also creates the
+folder …` have no other home, and it is `:empty { display: none }` for every name the room can
+take, so it takes no room the tree has to draw around it.
+
+**The host wears a crown.** `Ada (you) · host` was three marks in a row that read as one sentence.
+The `(you)` went because it was words for the one row nobody has to be told — this connection's own
+row is the one with the control that changes its name — and the word `host` became the crown the
+landing page and the desktop clients give that seat (`iconSpan('crown')`). The crown is a picture,
+so it carries its meaning: `role="img"` with the accessible name `Host`, and the same word as the
+tooltip a pointer gets. A mark nobody can name is a mark only the people who already know it can
+use.
+
+**One pair of ✓ and ✕, in both places an edit is made.** Renaming yourself asked `Save` and
+`Cancel` where the create row beside it answers with ✓ and ✕. They are the same two answers to the
+same question, so they are the same two glyphs, worn the same way (`#tree .new-commit` and
+`#roster .rename-save` are one rule), and each carries the sentence it stands for as its accessible
+name. The collision the phone review measured is fixed with it: on touch the glyphs were 27 px wide
+and 4 px apart, and a miss on the roster's pair lands in the field beside it where a miss on a file
+row's opens the file. Both pairs take the 44 px floor and the row opens to a 0.6em gap. The rule
+that quieted the create row's kind icon reached the two controls beside the field as well, which is
+why the ✓ never took its colour under a pointer; it is `#tree .new-line > .icon` now.
+
+**A row's marks sit in one place.** The tree's presence badges carried `margin-left: auto` and so
+did the actions after them, so the free space was split in two and the badge of a file somebody is
+in stopped half-way across the row (measured on the phone: 88 px short of the download control).
+The badges own the row's one auto margin now. The roster wrapped its verbs onto a line of their own
+for a long name and left them on the name's line for a short one — at 390×844 with five peers,
+`not in a file yet` read at x=17 on one row and x=207 on the next, at 82 px and 57 px — and the
+name takes the ellipsis it already has instead, which is also what it does on a desktop.
+
+**The green dot beside a file is gone.** The tree drew a `●` on every file whose text had reached
+the room; opening a file is what puts its text in the room, so every one of those marks was a fact
+about the reader's own act. What a row still says is the two states of the text nobody can see:
+`empty`, and `not fetched yet`. Who is in a file is the row's badges, where the fact is *who*.
+`--open-mark` was named for the mark that is gone and is `--ok` now.
+
+**The owner's mark is worn as exported.** The shell's inlined mark was put through a gamma of 2.4,
+lifting the artwork's ink on this page's card from 1.76:1 to 5.04:1 to clear the 3:1 floor WCAG
+sets for a non-text mark beside text. **That floor does not apply:** `1.4.11` excepts logotypes —
+text that is part of a logo or brand name has no contrast requirement — so levelling it was a
+change to the owner's drawing made to satisfy a rule that exempts it. `MARK_GAMMA` is `1.0` (the
+identity), the data URI is re-pasted from the same renderer, and the identity test bounds the ink
+from both sides: below `MARK_INK_MIN` the mark is a smudge, at or above 3:1 it has been lifted
+again, and both messages say so.

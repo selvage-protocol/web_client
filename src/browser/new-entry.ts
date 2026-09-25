@@ -6,16 +6,18 @@
  * host has shared nothing. The way out is a create, which is a host-side act the folder walk then
  * publishes.
  *
- * Two halves live here, and they are separate on purpose. This module holds the *rules* — the line
- * under the field, what a typed name means, and the order the act runs in — as functions over
- * strings, so the suite can pin every sentence without a browser. The editable row that shows them
- * is `tree-view.ts`'s, drawn where the entry will appear.
+ * Two halves live here, and they are separate on purpose. This module holds the *rules* — what a
+ * typed name means, and the order the act runs in — as functions over strings, so the suite can pin
+ * every sentence without a browser. The editable row that shows them is `tree-view.ts`'s, drawn
+ * where the entry will appear.
  *
  * The rules are the same rules the folder applies, called rather than copied: the grant rule
  * (`isGrantedPath`), the binary-name rule and the listing all come from the layers that own them,
  * so a name the row accepts is a name the folder takes. What the row adds is *when* a person is
- * told: while they type, in the line that already carries the instruction, rather than after a
- * commit in a second sentence.
+ * told: while they type, in the line under the field, rather than after a commit in a second
+ * sentence. That line says one thing and only when there is something to say — what the name will
+ * also make, or why it will not be made. A name this room can take needs no line at all: the
+ * field, the `✓` beside it and the tree around them are the whole of it.
  */
 
 import { isBinaryNamedPath, isGrantedPath } from '../bridge/index.ts';
@@ -134,8 +136,6 @@ export interface NewEntryContext {
   raw: string;
   /** The directory the entry will appear in: `''` at the root, `src` under `src/`. */
   parent: string;
-  /** The folder's own name, which is what the root's line calls the destination. */
-  room: string;
   /** The room's listing: the files the folder published. */
   listing: readonly string[];
   /**
@@ -151,27 +151,15 @@ export interface NewEntryContext {
 
 /** What the row shows under its field, and what a commit would make. */
 export interface NewEntryCheck {
-  /** The line under the field: what Enter does, or why it will not. */
+  /**
+   * The line under the field: why the name will not commit, or what a commit would also make.
+   * Empty — no line at all — while the name is one this room can take.
+   */
   line: string;
   /** Whether the line is a refusal. The field turns destructive and `✓` disables. */
   error: boolean;
   /** The path a commit would make, or `undefined` while the field names nothing usable. */
   path: string | undefined;
-}
-
-/** Where a create is going, in the words the line uses for it. */
-function destination(parent: string, room: string): string {
-  return parent === '' ? room : `${parent}/`;
-}
-
-/**
- * The line under the field while the name is one this room can take: what Enter does, and the way
- * out. It names the kind *and* where the entry will land, because those are the two things the owner
- * could not tell from the old row — a placeholder that read as a filled value, and no statement of
- * where the file would go.
- */
-export function newEntryHint(kind: NewEntryKind, parent: string, room: string): string {
-  return `Enter creates the ${kind === 'file' ? 'file' : 'folder'} in ${destination(parent, room)} · Esc cancels`;
 }
 
 /**
@@ -187,10 +175,9 @@ export function newEntryHint(kind: NewEntryKind, parent: string, room: string): 
  * file, and last the neutral note that the path will make its own directories.
  */
 export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
-  const hint = newEntryHint(context.kind, context.parent, context.room);
   const typed = newEntryPath(context.raw);
   if (typed === undefined) {
-    return { line: hint, error: false, path: undefined };
+    return { line: '', error: false, path: undefined };
   }
   const path = context.parent === '' ? typed : `${context.parent}/${typed}`;
   const refuse = (line: string): NewEntryCheck => ({ line, error: true, path: undefined });
@@ -217,7 +204,7 @@ export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
       path,
     };
   }
-  return { line: hint, error: false, path };
+  return { line: '', error: false, path };
 }
 
 /**

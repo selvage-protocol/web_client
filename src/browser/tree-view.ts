@@ -21,7 +21,7 @@
  * by tests that need no DOM at all.
  */
 
-import { checkNewEntry, newEntryHint } from './new-entry.ts';
+import { checkNewEntry } from './new-entry.ts';
 import type { NewEntryCheck, NewEntryContext } from './new-entry.ts';
 import { fileIcon, iconSpan, labelSpan } from './icons.ts';
 import { badgeSignature, changedBadgePaths, initials } from './presence.ts';
@@ -101,8 +101,6 @@ export interface TreeViewOptions {
   canCreate?: () => boolean;
   /** The directories this session made that no listing carries yet, drawn as `only you` rows. */
   localFolders?: () => ReadonlySet<string>;
-  /** The folder's own name, which is what the create row's line calls the destination at the root. */
-  room?: () => string;
   /** The paths whose write was refused, with the sentence the folder refused with. */
   unsaved?: () => ReadonlyMap<string, string>;
   /** Whether the host is away and the grace is running: a guest's rows dim while it does. */
@@ -535,10 +533,9 @@ export class GrantTreeView {
     row.className = 'row';
     const listedPath = child.path;
     row.append(iconSpan(fileIcon(listedPath)), nameSpan(child.name));
-    // The file this window has open wears no `●`: opening it is what put its text in the room, so for
-    // the row the editor is showing the mark is always true, and the row already reads as the open
-    // one. Every other row's mark is news — a file whose text has reached the room and one whose has
-    // not look the same otherwise — and the peers in a file are this row's badges, which say *who*.
+    // The row of the file this window has open is dashed and bold, so it needs no mark; what is left
+    // for `appendRoomMark` is the two states of the text itself, and who is in a file is this row's
+    // badges, which say *who*.
     if (listedPath !== current) {
       appendRoomMark(row, this.markFor(listedPath));
     }
@@ -755,9 +752,10 @@ export class GrantTreeView {
   // ---- the create row --------------------------------------------------------
 
   /**
-   * Opens the row: an empty field with the kind's icon already drawn, the visible `✓` and `✕`, and
-   * the line under it that says what Enter does. No placeholder — a greyed example is the thing the
-   * owner read as a filled value.
+   * Opens the row: an empty field with the kind's icon already drawn and the visible `✓` and `✕`.
+   * No placeholder — a greyed example is the thing the owner read as a filled value — and no line
+   * under it: the field, its two controls and the tree around them say what the row is for, and the
+   * line is for what a person cannot see, which is a refusal or the folder the commit will make.
    */
   private openDraft(kind: NewEntryKind, parent: string): void {
     const same = this.draft !== undefined && this.draft.kind === kind && this.draft.parent === parent;
@@ -795,7 +793,6 @@ export class GrantTreeView {
       kind: draft.kind,
       raw: this.draftInput?.value ?? '',
       parent: draft.parent,
-      room: this.options.room?.() ?? '',
       listing: this.source.grantListing(),
       localFolders: this.options.localFolders?.() ?? new Set<string>(),
     };
@@ -960,9 +957,10 @@ export class GrantTreeView {
     cancelButton.addEventListener('mousedown', (event) => event.preventDefault());
     cancelButton.addEventListener('click', () => this.cancelCreate());
     row.appendChild(cancelButton);
+    // Written by `applyCheck` and hidden while it has nothing to say, which is every name this
+    // room can take.
     const hint = document.createElement('p');
     hint.className = 'new-hint';
-    hint.textContent = newEntryHint(draft.kind, draft.parent, this.options.room?.() ?? '');
     this.draftHint = hint;
     const wrap = document.createElement('div');
     wrap.className = 'new-row-body';
@@ -1063,14 +1061,22 @@ function orderOf(child: GrantChild): string {
   return `${child.directory ? '0' : '1'}${child.name}`;
 }
 
-/** The `●`, `empty` or `not fetched yet` a row wears, or nothing. */
+/**
+ * The `empty` or `not fetched yet` tag a row wears, or nothing.
+ *
+ * `in-room` draws nothing. The green `●` said the room holds the file's text, which for every row
+ * but one is also what the reader can see for themselves — a file this window opened is one the
+ * room holds open — and the owner read it, on every such row, as a mark the page did not need. What
+ * is left is the two states nobody can see: a document the room sent that reads empty, and one it
+ * holds open with nothing arrived for it.
+ */
 function appendRoomMark(row: HTMLElement, mark: ReturnType<typeof roomMark>): void {
-  if (mark.kind === 'none') {
+  if (mark.kind !== 'empty' && mark.kind !== 'not-here') {
     return;
   }
   const span = document.createElement('span');
-  span.className = mark.kind === 'in-room' ? 'in-room' : mark.kind === 'empty' ? 'empty-tag' : 'pending-tag';
-  span.textContent = mark.kind === 'in-room' ? '●' : mark.kind === 'empty' ? 'empty' : NOT_HERE_TAG;
+  span.className = mark.kind === 'empty' ? 'empty-tag' : 'pending-tag';
+  span.textContent = mark.kind === 'empty' ? 'empty' : NOT_HERE_TAG;
   span.title = mark.title;
   row.appendChild(span);
 }

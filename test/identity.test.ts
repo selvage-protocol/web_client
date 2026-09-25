@@ -4,9 +4,9 @@
  * chrome's mark and the OpenGraph image. Nothing here is redrawn: the sources
  * are byte-identical copies of the site's files, the sized icons are rendered
  * by the build from the opaque master, and the mark in the shell is 104 px of
- * the transparent master, levelled the way the site levels its own nav copy
- * (`MARK_GAMMA`, `scripts/mark-level.mjs`), decoded here and checked against
- * that same renderer. The site keeps its opaque mark as the OpenGraph image
+ * the transparent master as the owner exported it (`MARK_GAMMA`,
+ * `scripts/mark-level.mjs`), decoded here and checked against that same
+ * renderer. The site keeps its opaque mark as the OpenGraph image
  * (`app/`), which is the same file this page serves as `mark-opaque.png`.
  *
  * The site's `app/icon.svg` — the vector monogram this page used to copy as
@@ -168,12 +168,15 @@ describe('identity', () => {
     }
   });
 
-  it('levels the mark for the dark ground it lands on', () => {
-    // The owner's export is a shaded wordmark, dark enough that on this page's card it reads as a
-    // smudge: the site measured the same defect on its own bar and fixed it the same way, and this
-    // is the page's half of that — the mark's own pixels, composited over the ground the card
-    // paints, at the non-text floor WCAG sets for a mark beside text. A derivative that goes dark
-    // again fails here; the unlevelled render measures 1.72:1 and fails it.
+  it('wears the owner\'s mark unlevelled, and measures it without a floor', () => {
+    // The mark is the owner's own artwork, and a logo is exempt from the contrast rule the old
+    // assertion applied: `1.4.11` excepts logotypes — "text that is part of a logo or brand name
+    // has no contrast requirement". The 3:1 measured here was therefore stricter than the standard
+    // it cited, and meeting it meant lifting somebody else's drawing to suit this page's ground.
+    //
+    // What is still measured is the mark itself, so a derivative that goes dark again is caught:
+    // the ink the shell paints on the card is composited from the pixels in the document, and with
+    // the curve at the identity those pixels are the export's.
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
     const ground = /--card:\s*(#[0-9a-f]{6})/i.exec(html)?.[1] ?? '';
     assert.notEqual(ground, '', 'the card\'s own ground is not in the stylesheet');
@@ -182,20 +185,32 @@ describe('identity', () => {
       'base64',
     );
     const ink = markInk(decodePng(inlined), ground);
-    assert.ok(
-      ink.ratio >= NON_TEXT_MIN,
-      `the mark's typical ink pixel is ${ink.colour} on ${ground} = ${ink.ratio.toFixed(2)}:1, under the ${NON_TEXT_MIN}:1 floor (${ink.pixels} ink pixels)`,
-    );
-    // And the measurement reaches the mark: a transparent field would be no ink at all.
+    // The measurement reaches the mark: a transparent field would be no ink at all.
     assert.ok(ink.pixels > 100, `the mark has ${ink.pixels} ink pixels, so nothing was measured`);
-    // The curve is the one this module names, so a derivative that lifted it by another number
-    // would have to be pasted in by hand over this test.
-    assert.ok(MARK_GAMMA > 1, 'the levelling curve is no curve at all');
+    assert.ok(
+      ink.ratio >= MARK_INK_MIN,
+      `the mark\u2019s typical ink pixel is ${ink.colour} on ${ground} = ${ink.ratio.toFixed(2)}:1, darker than the artwork it is cut from (${MARK_INK_MIN}:1)`,
+    );
+    assert.ok(
+      ink.ratio < NON_TEXT_MIN,
+      `the mark\u2019s typical ink pixel is ${ink.colour} on ${ground} = ${ink.ratio.toFixed(2)}:1: the owner\u2019s export is being lifted again, and it is worn as it is`,
+    );
+    // The curve is the one this module names, and it is the identity: a derivative that curved the
+    // mark by another number would have to be pasted in by hand over this test.
+    assert.equal(MARK_GAMMA, 1, 'the mark is put through a curve again');
   });
 });
 
-/** The floor a non-text mark beside text has to clear (`WCAG` 1.4.11). */
+/**
+ * The floor a non-text mark beside text has to clear (`WCAG` 1.4.11), which a logo is exempt from.
+ *
+ * It is kept as the *upper* bound the mark is asserted under: the exemption is a reason not to lift
+ * the owner's artwork, not a reason to stop measuring the ink the page paints.
+ */
 const NON_TEXT_MIN = 3;
+
+/** The floor under which the mark is not dark, it is a smudge: the artwork's own ink is above it. */
+const MARK_INK_MIN = 1.5;
 
 /** Half coverage: less opaque than this is a glyph's antialiased fringe, not ink. */
 const MARK_INK_ALPHA = 50;

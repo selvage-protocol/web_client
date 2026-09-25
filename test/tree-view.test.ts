@@ -21,7 +21,6 @@ import { grantLevels } from '../src/browser/tree.ts';
 import {
   EMPTY_FILE_TITLE,
   EMPTY_IN_ROOM_TITLE,
-  IN_THE_ROOM_TITLE,
   NOT_HERE_TAG,
   NOT_READ_TITLE,
   NOT_SENT_TITLE,
@@ -339,8 +338,8 @@ describe('what a row says about the room', () => {
     return rowFor(pane, 'main.rs');
   }
 
-  it('gains its `●` when the room picks the file up, with the listing unchanged', () => {
-    // The `●` is about the room's open set, and a path is in the listing from the grant alone: a
+  it('gains its tag when the room sends an empty document, with the listing unchanged', () => {
+    // What a row says is about the text, and a path is in the listing from the grant alone: a
     // document arriving can change the mark while the listing reads exactly the same.
     const state = {
       listing: ['main.rs'],
@@ -354,16 +353,20 @@ describe('what a row says about the room', () => {
     const built = pane.children[0];
     state.inRoom = ['main.rs'];
     state.textHere = ['main.rs'];
+    state.textEmpty = ['main.rs'];
     view.render();
-    assert.notEqual(pane.children[0], built, 'the room picking a file up redrew nothing');
-    assert.equal(withClass(rowFor(pane, 'main.rs'), 'in-room').textContent, '●');
+    assert.notEqual(pane.children[0], built, 'the room sending text redrew nothing');
+    assert.equal(withClass(rowFor(pane, 'main.rs'), 'empty-tag').textContent, 'empty');
   });
 
-  it('wears `●` when the room holds the file and this window has text for it', () => {
+  it('draws no dot for a file the room holds with text in it', () => {
+    // The `●` stood on every such row: the room holds the text, which for a file this window
+    // opened is what opening it did. The row that says the text is here is the row the editor is
+    // showing, and it is dashed and bold; every other row has nothing to say.
     const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'] });
-    const dot = withClass(row, 'in-room');
-    assert.equal(dot.textContent, '●');
-    assert.equal(dot.title, IN_THE_ROOM_TITLE);
+    assert.equal(allWithClass(row, 'in-room').length, 0, 'the in-room dot is back');
+    assert.equal(allWithClass(row, 'empty-tag').length, 0, 'a file with text reads as empty');
+    assert.equal(allWithClass(row, 'pending-tag').length, 0, 'a file with text waits on a fetch');
   });
 
   it('wears a tag of its own while the room holds the file and nothing has arrived', () => {
@@ -473,21 +476,23 @@ describe('the create row', () => {
     assert.equal(commit.tag, 'button');
     assert.equal(commit.attributes['aria-label'], 'Create file');
     assert.equal(cancel.attributes['aria-label'], 'Cancel');
-    assert.match(withClass(pane, 'new-hint').textContent, /^Enter creates the file in demo-app/);
+    // The row explains nothing: the field, the `✓` and the tree around them are the whole of what
+    // it is for, so the line stands empty until there is something a person cannot see.
+    assert.equal(withClass(pane, 'new-hint').textContent, '', 'the row explains itself');
     assert.ok(allWithClass(row, 'icon').length > 0, 'the kind’s icon is not drawn');
   });
 
-  it('names the directory variant’s own destination and kind', () => {
+  it('names the directory variant’s own kind', () => {
     const { pane, view } = creating({ listing: ['src/main.ts'] });
     view.beginCreate('directory', 'src');
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create folder');
-    assert.equal(withClass(pane, 'new-hint').textContent, 'Enter creates the folder in src/ · Esc cancels');
+    assert.equal(withClass(pane, 'new-hint').textContent, '');
     // The trailing slash is drawn outside the field rather than typed into it.
     assert.equal(withClass(pane, 'new-slash').textContent, '/');
     assert.equal(withClass(pane, 'new-slash').hidden, false);
   });
 
-  it('validates as the person types, in the line that carried the instruction', async () => {
+  it('validates as the person types, in the line under the field', async () => {
     const { pane, view, created } = creating();
     view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
@@ -571,7 +576,7 @@ describe('the create row', () => {
     assert.equal(view.isCreating(), true, 'the row closed instead of offering the next step');
     assert.equal(view.creatingIn(), 'docs', 'the row opened somewhere other than the folder just made');
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create file');
-    assert.equal(withClass(pane, 'new-hint').textContent, 'Enter creates the file in docs/ · Esc cancels');
+    assert.equal(withClass(pane, 'new-hint').textContent, '');
     assert.equal(state.listing.length, 1);
   });
 

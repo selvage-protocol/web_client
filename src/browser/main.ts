@@ -36,7 +36,7 @@ import {
 import type { CardIntent, JoinCardElements, JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
-import { iconSpan, iconSvg, labelSpan } from './icons.ts';
+import { iconSpan, labelSpan } from './icons.ts';
 import {
   FolderWorkingCopy,
   folderPickerOf,
@@ -210,7 +210,6 @@ const shareInput = document.getElementById('share') as HTMLInputElement;
 const shareGroup = document.getElementById('share-group') as HTMLElement;
 const health = document.getElementById('health') as HTMLElement;
 const healthLabel = document.getElementById('health-label') as HTMLElement;
-const downloadButton = document.getElementById('download') as HTMLButtonElement;
 const leaveButton = document.getElementById('leave') as HTMLButtonElement;
 const leaveConfirm = document.getElementById('leave-confirm') as HTMLElement;
 const leaveQuestion = document.getElementById('leave-question') as HTMLElement;
@@ -860,7 +859,6 @@ async function seatSession(seat: Seat): Promise<void> {
     touch: () => touchOnly,
     canCreate: () => hostFolder !== undefined,
     localFolders: () => madeFolders,
-    room: () => hostFolder?.name ?? '',
     unsaved: () => unsavedPaths,
     hostAway: () => hostAway,
     create: (path, entry) => createEntry(path, entry),
@@ -1192,20 +1190,7 @@ async function openPath(path: string): Promise<void> {
  * press Enter — and on a copy the bar itself morphs to the confirmation
  * briefly, then reverts.
  */
-const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink(), {
-  checkSvg: iconSvg('check'),
-});
-// The download button is icon-only, so its icon is drawn here rather than in the shell: the
-// bar is hidden until a session is seated, so nothing flashes before the bundle puts it in.
-downloadButton.append(iconSpan('download'));
-downloadButton.addEventListener('click', () => {
-  // The press cannot repeat while the browser's own save is being set up, and the state it had comes
-  // back from the strip rather than from here: `syncStrip` is the one place that decides whether
-  // there is anything to save.
-  downloadButton.disabled = true;
-  downloadOpen();
-  syncStrip();
-});
+const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink());
 
 /**
  * The leave control: a guest's press drops the session and brings the card back with a fresh link
@@ -1549,15 +1534,19 @@ function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefi
 /**
  * The file strip: the open file's whole state, in one line above the editor.
  *
- * It is where three things that used to be said elsewhere now live — which file is open (nothing
+ * It is where the things that used to be said elsewhere now live — which file is open (nothing
  * said it at all on a phone), whether it is read-only, and whether the folder refused the last write
- * to it — and the `⤓` that saves it. The follow segment is the fourth: the banner that used to stand
+ * to it. The follow segment is the third: the banner that used to stand
  * over the editor is this segment now, in the followed peer's own colour, with the stop control in it.
  *
  * What it no longer says is that the open file's text is in the room. Opening a file is what puts it
  * there, so for the file on screen the mark was always true: a fact the reader already has, said
  * again. The tree's `●` still carries it, where it is news — a file this window has not opened — and
  * the peers in a file are on that row's badges, where the fact is *who*.
+ *
+ * It carried a `⤓` that saved the open file to the person's own disk, which the tree's per-row
+ * download already does for every file the room holds — including the one on screen. Two controls
+ * for one act, and the strip is not the place a room's files are.
  */
 function syncStrip(): void {
   const path = binding?.currentPath();
@@ -1607,12 +1596,6 @@ function syncStrip(): void {
       fileStripChips.appendChild(chip);
     }
   }
-  // The save control is icon-only, so its label names the file: a pointer reads it in the `title`
-  // and a finger on the button's own `aria-label`.
-  const label = path === undefined ? 'Download the open file' : `Download ${path}`;
-  downloadButton.disabled = path === undefined;
-  downloadButton.title = label;
-  downloadButton.setAttribute('aria-label', label);
 }
 
 /** The desktop clients' own sentence for the read-only state, which the strip's chip carries. */
@@ -1742,21 +1725,6 @@ const downloadSink: DownloadSink = {
     }, 1000);
   },
 };
-
-function downloadOpen(): void {
-  const path = binding?.currentPath();
-  if (path === undefined) {
-    return;
-  }
-  // The buffer first: it is what the person is looking at, and it can be a keystroke ahead of
-  // the replica. The replica is the fallback for a path this window has no model for.
-  const text = binding?.text(path) ?? engine?.text(path) ?? '';
-  try {
-    downloadDocument(path, text, downloadSink);
-  } catch (error) {
-    failureAlert.show(`Could not download ${path}: ${describe(error)}`);
-  }
-}
 
 /**
  * The follow indicator, and the stop that goes with it: a segment of the file strip above the

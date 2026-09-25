@@ -601,7 +601,10 @@ describe('joined chrome', () => {
     assert.ok(/id="share-group"[^>]*tabindex="0"/.test(bar), 'the bar takes no focus');
     assert.ok(/id="share-group"[^>]*aria-label="Copy invite link"/.test(bar), 'the bar names no action');
     assert.ok(main.includes('wireShareBox'), 'the bar copies from its icon only');
-    assert.ok(main.includes("iconSvg('check')"), 'no copied confirmation on the bar');
+    // The confirmation is the words: `Link copied` is the whole of it, and the tick that stood
+    // beside them said nothing they did not.
+    assert.ok(!main.includes("iconSvg('check')"), 'the copied confirmation wears a tick again');
+    assert.match(main, /wireShareBox\(shareGroup, \(\) => copyShareLink\(\)\)/, 'the bar morphs with something else in it');
   });
 
   it('an unpublished open announces nothing', () => {
