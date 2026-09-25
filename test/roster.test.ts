@@ -226,20 +226,21 @@ describe('roster rows', () => {
     );
   });
 
-  it('the self row is a roster row: swatch, name, a quiet (you), and the one verb it can act on', () => {
+  it('the self row is a roster row: swatch, name, and the one verb it can act on', () => {
     const { list } = render([SAM], { selfColour: '#cba6f7', selfRole: 'host', onRename: () => {} });
     const self = list.children[0];
     assert.ok(self.classes.includes('self'), 'self row is not first');
     assert.ok(textOf(self).includes('me'), `own name missing: ${textOf(self)}`);
-    // `Ada (you) · host`: the reviewer read `Ada you host` as a sentence. The parentheses and the
-    // separator say they are markers rather than words.
-    assert.match(textOf(self), /me\s*\(you\)/, `the you marker is not parenthesised: ${textOf(self)}`);
-    assert.match(textOf(self), /\(you\)\s*·\s*host/, `the markers run together: ${textOf(self)}`);
+    // `Ada (you) · host` was three marks in a row that read as one sentence, and the first of them
+    // was words for the one row nobody has to be told: the row is the one with the control that
+    // changes this connection's own name. What is left beside the name is the crown.
+    assert.ok(!/\(you\)/.test(textOf(self)), `the you marker is back: ${textOf(self)}`);
+    assert.ok(!/·/.test(textOf(self)), `a separator stands between the name and its marks: ${textOf(self)}`);
     const swatch = self.children.find((child) => child.className === 'swatch');
     assert.ok(swatch !== undefined, 'self row carries no swatch');
     assert.equal(swatch.style.backgroundColor, '#cba6f7');
-    // The swatch says nothing on its own: a `title` repeating the `(you)` beside it was a second
-    // reading of one fact, and one a finger can never reach.
+    // The swatch says nothing on its own: a `title` on it would be a second reading of one fact,
+    // and one a finger can never reach.
     assert.equal(swatch.title, '', 'the swatch repeats what the row already says');
     // One control, and it works. Go to and Follow on this row were two dead verbs plus two lines
     // explaining why: four elements saying what the row's own name already says.
@@ -270,7 +271,12 @@ describe('roster rows', () => {
     assert.ok(jo !== undefined && sam !== undefined, 'a peer row went missing');
     const marks = withClass(jo, 'role');
     assert.equal(marks.length, 1, 'the host row carries no marker');
-    assert.equal(marks[0].textContent, 'host');
+    // A crown and not the word: the row is mostly a name, and `host` after it read as the rest of
+    // that name. The picture carries its own name for the readers who cannot see it.
+    assert.equal(marks[0].textContent, '', `the host is still spelled out: ${marks[0].textContent}`);
+    assert.equal(marks[0].getAttribute('aria-label'), 'Host');
+    assert.equal(marks[0].title, 'Host');
+    assert.equal(withClass(marks[0], 'icon').length, 1, 'the host marker is not drawn as a mark');
     assert.equal(withClass(sam, 'role').length, 0, 'a guest is marked as something');
   });
 
@@ -281,7 +287,7 @@ describe('roster rows', () => {
     const self = list.children[0];
     const marks = withClass(self, 'role');
     assert.equal(marks.length, 1, 'the own row of a host says nothing about it');
-    assert.equal(marks[0].textContent, 'host');
+    assert.equal(marks[0].getAttribute('aria-label'), 'Host');
     // A guest's own row is unmarked, and a row with no role at all is too.
     assert.equal(withClass(render([]).list.children[0], 'role').length, 0);
     assert.equal(withClass(render([], { selfRole: 'guest' }).list.children[0], 'role').length, 0);

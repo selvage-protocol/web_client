@@ -2,10 +2,10 @@
  * Roster rows: who is here, glanceable. Each row carries the peer's colour
  * swatch, their name, the role the room gives them, and the two verbs — never
  * path text (where someone is reads on the grant tree, as a badge on their
- * file). The own name leads, with a you marker, the name it is seated under
- * and one control of its own to change it. Follow is a toggle, so the row a
- * window is following reads `Following` and pressing it stops, exactly as the
- * file strip's own Stop does: one state, reachable from either side.
+ * file). The own row leads, marked only by the one control that changes this
+ * connection's own name, and a host wears the crown. Follow is a toggle, so the
+ * row a window is following reads `Following` and pressing it stops, exactly as
+ * the file strip's own Stop does: one state, reachable from either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
  * own state: the page holds it, stops re-drawing the list while it is open — a
@@ -136,8 +136,9 @@ function selfRow(view: RosterView): HTMLElement {
   if (view.selfColour !== undefined) {
     swatch.style.backgroundColor = view.selfColour;
   }
-  // No `title` on it: the row already says `(you)` in words, beside the swatch, and a tooltip that
-  // repeats it is a second reading of one fact that a finger can never reach (`design` §0.1, §0.5).
+  // The swatch is the row's colour and nothing more: `(you)` beside it was words for the one row
+  // whose identity nobody has to be told — it is the row with the control that changes this
+  // connection's own name, and the only one that has it.
   row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
@@ -147,17 +148,9 @@ function selfRow(view: RosterView): HTMLElement {
     name.className = 'name';
     name.textContent = view.selfName;
     who.appendChild(name);
-    const you = document.createElement('span');
-    you.className = 'you';
-    you.textContent = '(you)';
-    who.appendChild(you);
     const host = view.selfRole === undefined ? undefined : hostMarker(view.selfRole);
     if (host !== undefined) {
-      const dot = document.createElement('span');
-      dot.className = 'sep';
-      dot.setAttribute('aria-hidden', 'true');
-      dot.textContent = '·';
-      who.append(dot, host);
+      who.appendChild(host);
     }
   } else {
     who.appendChild(nameField(rename));
@@ -262,17 +255,21 @@ function nameField(rename: RosterRename): HTMLElement {
 
 /**
  * The marker a row wears when the room's state gives its seat a role worth
- * naming: `host`, the one peer whose connection holds the host key and whose
- * leaving puts the room into its grace (`§13.8`).
+ * naming: the crown for `host`, the one peer whose connection holds the host key
+ * and whose leaving puts the room into its grace (`§13.8`).
  *
- * A quiet line beside the name, in the own row's `you` shape, because the
- * roster is the page's account of who is here and the role is part of who: the
- * page's own design note has the roster draw peers with their roles, and the
- * grant tree has no room for one. It is not drawn for `guest` — the room's
- * ordinary seat, where a badge would be noise on every row but one — and
- * `viewer` is left out deliberately: it is a statement about what a peer may
- * write, the read-only state is the editor's own to show, and no row here is
- * about permission.
+ * A crown and no word, because the roster is the page's account of who is here
+ * and the role is part of who: a mark that is not text needs no room on a row
+ * that is mostly a name, and it cannot be read as the rest of that name — `Ada
+ * (you) · host` was three marks in a row that read as one sentence. It is not
+ * drawn for `guest` — the room's ordinary seat, where a badge would be noise on
+ * every row but one — and `viewer` is left out deliberately: it is a statement
+ * about what a peer may write, the read-only state is the editor's own to show,
+ * and no row here is about permission.
+ *
+ * The crown is a picture, so what it means is its accessible name and its
+ * tooltip: a mark no reader can name is a mark only the people who already know
+ * it can use.
  */
 function hostMarker(role: Role): HTMLElement | undefined {
   if (role !== 'host') {
@@ -280,9 +277,15 @@ function hostMarker(role: Role): HTMLElement | undefined {
   }
   const marker = document.createElement('span');
   marker.className = 'role';
-  marker.textContent = 'host';
+  marker.setAttribute('role', 'img');
+  marker.setAttribute('aria-label', HOST_LABEL);
+  marker.title = HOST_LABEL;
+  marker.appendChild(iconSpan('crown'));
   return marker;
 }
+
+/** What the crown is called where it is not drawn as a word. */
+const HOST_LABEL = 'Host';
 
 function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView): HTMLElement {
   const row = document.createElement('li');
