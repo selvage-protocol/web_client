@@ -269,6 +269,16 @@ describe('the panel on a phone', () => {
     assert.match(main, /showPanel\(!phoneLayout\.matches\)/, 'the panel does not start shut on a phone');
   });
 
+  it('keeps the roster to one alignment: no row grows a second line', () => {
+    // Measured at 390x844 with five peers: a long name wrapped the row's verbs onto a line of
+    // their own, left-aligned at x=17 and 82 px tall, while a short name kept them right-aligned on
+    // the name's line at x=207 and 57 px. Two alignments and two heights in one list, and the
+    // phrase a reader scans for — `not in a file yet` — in a different place on every row.
+    const row = declarations(mediaBlock(TOUCH_QUERY), '#roster li');
+    assert.match(row, /flex-wrap:\s*nowrap/, 'the verbs drop to a line of their own again');
+    assert.ok(!/flex-wrap:\s*wrap/.test(row), 'a roster row still wraps its actions');
+  });
+
   it('makes its cap the box the panel actually takes', () => {
     const stacked = declarations(mediaBlock('(max-width: 640px)'), '#side');
     assert.match(stacked, /max-height:\s*60%/, 'the cap changed: a phone cannot reach its files');

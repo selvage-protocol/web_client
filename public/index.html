@@ -372,6 +372,10 @@
       #tree button.row:hover { background: var(--muted); }
       #tree button.row.open { background: var(--muted); border-color: var(--border-strong); font-weight: 600; }
       #tree button.row .icon { color: var(--muted-foreground); }
+      /* Who is in a file, flush with the row's right edge — and the one auto margin in the row. It
+         sat half-way across because the actions after it carried `auto` as well, so the free space
+         was split between the two and the badges of a file stopped short of the buttons they belong
+         beside. */
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
@@ -392,8 +396,7 @@
       /* A row's own actions: out of the way of a pointer's reading, and always there for a finger. */
       #tree .row-chrome { display: inline-flex; align-items: center; gap: 0.2em; margin-left: auto;
         flex: none; }
-      #tree button.row .row-actions { display: inline-flex; align-items: center; flex: none;
-        margin-left: auto; }
+      #tree button.row .row-actions { display: inline-flex; align-items: center; flex: none; }
       #tree .icon-button { padding: 0.2em 0.3em; background: none; border-color: transparent;
         color: var(--muted-foreground); }
       #tree .icon-button:hover:not(:disabled) { background: var(--muted-hover);
@@ -634,9 +637,12 @@
         #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
           min-width: 44px; }
         #tree .new-line, #roster .rename-edit { gap: 0.6em; }
-        /* A row that has to wrap does: the actions are always visible at this size, and a long
-           name takes the line it needs rather than pushing them off it. */
-        #roster li { flex-wrap: wrap; }
+        /* One alignment in one list. A row that wrapped took its verbs onto a line of their own —
+           left-aligned at the row's padding, 82 px tall — while a row that did not kept them
+           right-aligned on the name's line, 57 px: measured at 390x844 with five peers, the two
+           readings were x=17 and x=207 in the same list. The name gives way instead, with the
+           ellipsis it already has, and every row is one line. */
+        #roster li { flex-wrap: nowrap; }
         #alert, #peek {
           bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
         }

@@ -23,6 +23,13 @@ const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url)
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 const strip = /<div id="file-strip">[\s\S]*?<\/div>\n          <div id="editor-area">/.exec(html)?.[0] ?? '';
 
+/** The declarations of the rule whose selector list starts as `selector` asks. */
+function rule(selector: string): string {
+  const at = style.indexOf(`${selector} {`);
+  assert.notEqual(at, -1, `no ${selector} rule in the stylesheet`);
+  return style.slice(at, style.indexOf('}', at));
+}
+
 describe('the strip is in the shell, above the editor', () => {
   it('carries a path, its chips and the follow segment', () => {
     assert.ok(strip !== '', 'no file strip above the editor');
@@ -105,6 +112,20 @@ describe('what the strip states', () => {
     );
     assert.match(style, /#tree button\.row \.in-room \{ color: var\(--open-mark\)/,
       'the tree lost the mark that says a file\u2019s text is in the room');
+  });
+
+  it('puts a row\u2019s own marks in one place: the badges, then the buttons', () => {
+    // The presence badges carry the row's one auto margin. The actions carried `auto` as well, so
+    // the free space was split between the two and a file somebody is in showed their badge short
+    // of the button it belongs beside — measured on the phone, the badge ended 88 px left of the
+    // download control. On a pointer device the actions are invisible until hover and still take
+    // their room, so the gap was there in every state.
+    assert.match(rule('#tree button.row .presence'), /margin-left:\s*auto/,
+      'the badges no longer take the row\u2019s right edge');
+    assert.ok(
+      !/margin-left:\s*auto/.test(rule('#tree button.row .row-actions')),
+      'two auto margins split the free space, so the badges stop in the middle of the row',
+    );
   });
 
   it('carries the host’s refused write, in the words the folder refused with', () => {
