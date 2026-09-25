@@ -1,18 +1,19 @@
 /**
- * The suite CI runs, which is the suite in `test/` minus the tests that need a
- * checkout this repository does not carry.
+ * The suite CI runs: every test in `test/`, in a checkout that carries one
+ * repository.
  *
- * `test/identity.test.ts` compares the page's mark, byte for byte, with the `site`
- * checkout beside this one (through that checkout's own git history), and a CI job
- * that checks out one repository has no sibling: it is the one test in the suite
- * that reads another repository. `test/serve-types.test.ts` was expected to need one
- * too, and does not: it reads `dist/` alone and takes its extension table from
- * `scripts/check-content-types.mjs`, so it runs here, as does the rest of the 300-odd
- * tests.
+ * `test/identity.test.ts` reads the `site` checkout beside this one — the page's
+ * mark is that checkout's file, compared byte for byte — and a single-repository
+ * job has no sibling. It resolves the sibling from this repository's own git
+ * directory, so a worktree finds it too, and the one test that needs it *skips
+ * with that reason* rather than the file being excluded by name. What is left of
+ * that file needs this checkout alone, and it runs here: the icon determinism and
+ * clock-chunk tests never ran in CI while the whole file was excluded.
  *
- * The exclusions are named, and a name that no longer exists is an error rather than
- * a suite that quietly covers less than this file claims. `npm test` runs everything,
- * with the sibling checkout in place.
+ * `test/serve-types.test.ts` was expected to need a sibling too, and does not: it
+ * reads `dist/` alone and takes its extension table from
+ * `scripts/check-content-types.mjs`. `npm test` runs the same files with the
+ * sibling checkout in place, so every test runs somewhere.
  */
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
@@ -20,7 +21,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const excluded = ['identity.test.ts'];
+const excluded = [];
 
 const files = readdirSync(resolve(root, 'test'))
   .filter((file) => file.endsWith('.test.ts'))
@@ -40,9 +41,9 @@ if (run.length === 0) {
 }
 
 console.log(
-  `node --test over test/: ${run.length} files, excluding ${excluded
-    .map((name) => `test/${name}`)
-    .join(', ')}`,
+  `node --test over test/: ${run.length} files${
+    excluded.length === 0 ? '' : `, excluding ${excluded.map((name) => `test/${name}`).join(', ')}`
+  }`,
 );
 
 const result = spawnSync(
