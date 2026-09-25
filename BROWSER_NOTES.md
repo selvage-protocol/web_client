@@ -3476,3 +3476,66 @@ repainting path are where they were. `scripts/sync-engine.sh`'s header now names
 
 The same drift is in `nvim_client/vendor/` and is being fixed in that repository separately, so the
 two are not the same change.
+
+## The design's remaining sections: the roster, the empty pane, the notices, the mark (2026-09-25)
+
+The owner-approved page design (`ai_notes/.tmp/browser-ux-design.md`) landed in four
+waves; this is the last of them, and it is the one that reaches back into earlier
+sections here.
+
+**The roster's verbs.** `Follow` is a toggle (`aria-pressed`, `Following ✓` pressed) whose
+second press stops the follow — the file strip's `Stop following` is the same state from
+the other side, and the row a window follows is no longer a disabled label. A `Go to` the
+room cannot answer is printed on the row that asked for it, for four seconds
+(`showGoToRefusal`, `GO_TO_REFUSAL_STAND_MS`), which is why the binding's `refusal` notice
+carries the `peerId` it is about. The own row's swatch lost its `this is you` title — the
+`(you)` beside it says the same thing, and a tooltip is a reading a finger never gets —
+and `#roster li.alone .copy-invite` went with the control the lone-host line stopped
+carrying on 2026-09-25.
+
+**The notice homes, finished.** `SessionNote.status` is deleted: the health strip keeps
+the countdown, the dropped socket and the host's return, and nothing else. A `refusal`
+goes to the row above; an `error` the room reports about the session has no control to sit
+beside and is the failure alert's, which is what design §6.1 says a failure with no
+on-screen control gets. `main.ts` routes the three topics by name (`statusRoute`), so a
+topic with a surface of its own has no case at all.
+
+**The empty pane.** `src/browser/empty-editor.ts` draws what the editor shows when no
+document is in it: a host whose folder is empty (`New file`, `Copy invite link`), a host
+with files, a guest whose host has shared nothing, and a guest with files — each naming
+the next act and putting the control where the step is, with the peer already in a file
+offered beside them. It covers the editor while it stands (`§6.3`), and on a phone its own
+act is `Browse files`, since the panel starts shut. The tree's own empty line for a host
+is the short `Nothing here yet.` now: the pane beside it carries the explanation.
+
+**The card's two intents.** A guest's card offers hosting as one quiet line,
+`Or start your own session`, and pressing it paints the start card — the button that asks
+for a folder and the paragraph about whose tab this is — because that paragraph is about
+hosting and read as a warning about joining where it stood. `Choose a folder to share…`
+carries the platform's ellipsis for "this opens a picker". A dismissed picker is
+`{ kind: 'cancelled' }` and no sentence at all: `No folder was chosen, so no room was
+started.` is gone, and a decision is no longer dressed as a mistake.
+
+**The mark, levelled.** The 2026-09-18 derivation above sized the inlined mark but never
+levelled it, and the owner's export is dark: the median ink pixel measured **1.72:1** on
+this page's card (`--card`, `#181825`). `renderIcon(..., { gamma: MARK_GAMMA })` applies
+the same gamma curve the site applies to its own nav mark, after the resize and to the
+colour channels only — no redraw, no recolour — which puts that pixel at **4.90:1**.
+`test/identity.test.ts` measures it from the inlined file's own pixels, over the card's
+own ground, at the non-text floor.
+
+**The demo's notice on a phone.** The instance's front injects its non-commercial notice
+after `#app`; on a phone it is three lines of prose, 80 px and about a tenth of the
+screen, held for a whole session. Once a session is on screen the page shrinks it —
+`body:has(#session:not([hidden])) > aside` in the phone query, `!important` because the
+injected notice carries its own inline styles and no class this page could reach — to
+**35 px** at 390×844 with every word and the terms link intact. It is not hidden, and it
+is not a control.
+
+**The test that read a sibling.** `test/identity.test.ts` resolved the `site` checkout as
+`../site`, which a worktree does not have, and its brand assertion expected the `Selvage`
+wordmark the session bar no longer carries: it was red on `main` and excluded from CI by
+name. It resolves the sibling from this repository's own git common directory now, so a
+worktree finds it, and the one test that needs it *skips with that reason* where there is
+no sibling. The exclusion is gone: the icon determinism and clock-chunk assertions run in
+CI now, which they never did while the whole file was excluded.

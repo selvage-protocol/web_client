@@ -1,6 +1,6 @@
 /**
- * Roster rows: names with no path text under them, the self row, and one
- * stop control owned by the follow banner — never the roster.
+ * Roster rows: names with no path text under them, the self row, the follow
+ * toggle, and a refused go-to on the row that asked for it.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -66,6 +66,7 @@ function render(peers, overrides = {}) {
     selfName: 'me',
     onGoTo: (peerId) => void calls.push(['go', peerId]),
     onFollow: (peerId) => void calls.push(['follow', peerId]),
+    onStopFollow: (peerId) => void calls.push(['stop', peerId]),
     ...overrides,
   });
   return { list, calls, document };
@@ -111,37 +112,35 @@ describe('roster rows', () => {
     assert.ok(!textOf(row).includes('no shared document'), `placeholder text under the name: ${textOf(row)}`);
   });
 
-  it('marks the followed row Following with no stop of its own', () => {
-    const { list } = render([SAM], { followedPeerId: 'peer-sam' });
-    const row = list.children.find((child) => child.classes.includes('peer'));
-    const buttons = [];
-    const walk = (element) => {
-      if (element.tag === 'button') buttons.push(element);
-      for (const child of element.children) walk(child);
-    };
-    walk(row);
+  it('is a toggle: the followed row reads Following, pressed, and pressing it stops', () => {
+    // Design §5.1: the roster toggle is the same state as the strip's Stop, from the other side —
+    // so it is a control a person can press, not a disabled label explaining itself.
+    const { list, calls } = render([SAM], { followedPeerId: 'peer-sam' });
+    const row = rowNamed(list, 'sam');
+    const buttons = buttonsIn(row);
     assert.equal(buttons.length, 2);
     const follow = buttons[1];
     assert.ok(textOf(follow).includes('Following'), `follow toggle lost: ${textOf(follow)}`);
-    assert.equal(follow.disabled, true);
-    for (const button of buttons) {
-      assert.ok(!/^stop\b/i.test(textOf(button).trim()), `a second stop control: ${textOf(button)}`);
-    }
+    assert.equal(follow.getAttribute('aria-pressed'), 'true', 'the toggle does not say it is pressed');
+    assert.equal(follow.disabled, false, 'the pressed toggle is a dead control again');
+    // The words are the state; the act is what a pointer reads on it.
+    assert.ok(!/^stop\b/i.test(textOf(follow).trim()), `a second stop control: ${textOf(follow)}`);
+    assert.equal(follow.title, 'Stop following');
+    follow.fire('click');
+    assert.deepEqual(calls, [['stop', 'peer-sam']], 'the pressed toggle does not stop the follow');
   });
 
   it('an unfollowed peer offers Go to and Follow', () => {
     const { list, calls } = render([SAM]);
     const row = list.children.find((child) => child.classes.includes('peer'));
-    const buttons = [];
-    const walk = (element) => {
-      if (element.tag === 'button') buttons.push(element);
-      for (const child of element.children) walk(child);
-    };
-    walk(row);
+    const buttons = buttonsIn(row);
     assert.ok(textOf(buttons[0]).includes('Go to'));
     assert.ok(textOf(buttons[1]).includes('Follow'));
     assert.ok(!textOf(buttons[1]).includes('Following'));
+    assert.equal(buttons[1].getAttribute('aria-pressed'), 'false');
     assert.equal(calls.length, 0);
+    buttons[1].fire('click');
+    assert.deepEqual(calls, [['follow', 'peer-sam']]);
   });
 
   it('offers no Go to while the peer is in no document, and says where they are', () => {
@@ -161,8 +160,8 @@ describe('roster rows', () => {
 
   it('has no dead control left in it at all', () => {
     // Every disabled verb that used to sit here — the self row's Go to and Follow, a peer's Go to
-    // with no file open — is gone, with its reason: a control that can never work is clutter rather
-    // than honesty, and the row says the true thing in its place.
+    // with no file open, a followed peer's Follow — is gone, with its reason: a control that can
+    // never work is clutter rather than honesty, and the row says the true thing in its place.
     const { list } = render([JO, SAM, { ...SAM, peerId: 'peer-bo', displayName: 'bo', path: undefined }]);
     const dead = [];
     const walk = (element) => {
@@ -171,13 +170,24 @@ describe('roster rows', () => {
     };
     walk(list);
     assert.deepEqual(dead.map((button) => textOf(button)), []);
-    // A followed peer's own control is the one disabled thing left, and it is a state rather than a
-    // verb: `Following` with nothing to press until the strip's own Stop.
+    // Not even on the followed row: the toggle is a state a person can press out of.
     const followed = render([SAM], { followedPeerId: 'peer-sam' });
-    assert.equal(
-      buttonsIn(rowNamed(followed.list, 'sam')).filter((button) => button.disabled).length,
-      1,
+    assert.deepEqual(
+      buttonsIn(rowNamed(followed.list, 'sam')).filter((button) => button.disabled),
+      [],
+      'the followed row offers a control that cannot be pressed',
     );
+  });
+
+  it('puts a refused go-to on the row that asked for it, and on no other row', () => {
+    // Design §5.1: a race — the peer closed the file, or its caret does not resolve here — and the
+    // answer belongs where the press was, not in the health strip at the top of the page.
+    const text = 'nothing to go to: sam is not in a document';
+    const { list } = render([SAM, JO], { goToRefusal: { peerId: 'peer-sam', text } });
+    assert.equal(withClass(rowNamed(list, 'sam'), 'refusal')[0].textContent, text);
+    assert.deepEqual(withClass(rowNamed(list, 'jo'), 'refusal'), [], 'the refusal landed on another row');
+    // No refusal, no line: the row is what it always was.
+    assert.deepEqual(withClass(rowNamed(render([SAM, JO]).list, 'sam'), 'refusal'), []);
   });
 
   it('says where a peer is when the answer is nowhere, instead of a verb that explains', () => {
@@ -221,6 +231,9 @@ describe('roster rows', () => {
     const swatch = self.children.find((child) => child.className === 'swatch');
     assert.ok(swatch !== undefined, 'self row carries no swatch');
     assert.equal(swatch.style.backgroundColor, '#cba6f7');
+    // The swatch says nothing on its own: a `title` repeating the `(you)` beside it was a second
+    // reading of one fact, and one a finger can never reach.
+    assert.equal(swatch.title, '', 'the swatch repeats what the row already says');
     // One control, and it works. Go to and Follow on this row were two dead verbs plus two lines
     // explaining why: four elements saying what the row's own name already says.
     const buttons = buttonsIn(self);

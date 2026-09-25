@@ -53,7 +53,7 @@ export type BindingNotice =
    * nothing through it would look healthy while nothing typed could reach the room.
    */
   | { kind: 'reconnecting' }
-  | { kind: 'status'; text: string; topic: StatusTopic }
+  | { kind: 'status'; text: string; topic: StatusTopic; peerId?: string }
   /**
    * Something the person asked for did not happen, and the sentence says why: a write the
    * stale-file guard refused, or a path this host could not read out of its own folder. When the
@@ -72,7 +72,8 @@ export type BindingNotice =
  *
  * - `role`: this connection is a `viewer` (`§13.9`), so its documents take no edit. The editor is
  *   read-only and nothing else on the page says why.
- * - `refusal`: a go-to the room could not answer. The click had no other answer.
+ * - `refusal`: a go-to the room could not answer. The click had no other answer, and the sentence
+ *   is carried with the peer it is about (`peerId`) so the page can put it under that row.
  * - `follow`: a follow landing and the end of a follow. The follow banner names who and offers
  *   Stop, the tree and the buffer show where, and the roster shows who left.
  * - `error`: what the room said about the session itself. Nothing else carries it.
@@ -542,6 +543,7 @@ export class MonacoBinding implements EditorHost {
         this.onNotice({
           kind: 'status',
           topic: 'refusal',
+          peerId,
           text: `nothing to go to: ${this.displayLabel(peerId)} is not in a document`,
         });
         return 'refused';
@@ -575,6 +577,7 @@ export class MonacoBinding implements EditorHost {
         this.onNotice({
           kind: 'status',
           topic: 'refusal',
+          peerId,
           text: `nothing to go to: ${this.displayLabel(peerId)}'s caret does not resolve here`,
         });
       }

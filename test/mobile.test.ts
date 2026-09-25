@@ -363,4 +363,26 @@ describe('the pre-join card on a phone, and the page under it', () => {
     assert.match(app, /min-height:\s*0/, 'the app cannot shrink for a footer');
     assert.ok(app.includes('height: 100dvh'), 'the app lost the dynamic viewport that follows the keyboard');
   });
+
+  it('shrinks that notice once a session is on screen, and leaves it whole on arrival', () => {
+    // Measured in Chromium at 390x844 with `--footer`: the notice is three lines of prose, 80 px
+    // — about a tenth of the screen — held for the whole session, and 35 px once a session is on
+    // screen. While the card is up it is the full proof it is meant to be; a session is what makes
+    // the room scarce. The declarations have to be `!important`: the notice carries its own inline
+    // styles, and the deployment that injects it gives it no class or id this page could reach.
+    const phone = mediaBlock('(max-width: 640px)');
+    const rule = /body:has\(#session:not\(\[hidden\]\)\) > aside\s*\{([^}]*)\}/.exec(phone)?.[1] ?? '';
+    assert.notEqual(rule, '', 'the demo notice keeps its full height through a phone session');
+    assert.equal(
+      (rule.match(/!important/g) ?? []).length,
+      3,
+      `a declaration without \`!important\` loses to the notice's own inline style: ${rule}`,
+    );
+    assert.match(rule, /padding:\s*0\.25rem/, 'the notice kept its own padding');
+    assert.match(rule, /font-size:\s*10\.5px/, 'the notice kept its own type size');
+    assert.match(rule, /line-height:\s*1\.3/, 'the notice kept its own leading');
+    // Nothing is hidden: the whole notice and its terms link stay, and `check-terms.sh` in the
+    // reference server still reads every word of it out of the bytes the front serves.
+    assert.ok(!/display:\s*none/.test(rule), 'the notice is dismissed rather than shrunk');
+  });
 });

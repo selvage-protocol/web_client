@@ -556,11 +556,10 @@ describe('the message homes', () => {
     assert.equal(element.dataset.tone, '', 'the countdown left its tone on the line');
   });
 
-  it('a status sentence has a home, and does not take the room\u2019s warning down', () => {
-    // The editor raises `status` for the sentence a `viewer` is owed, a go-to the room could not
-    // answer, a follow landing, an error the room reported — and the page had no case for the
-    // kind at all, so every one of them was written and thrown away. The page shows the topics
-    // with no other surface (`SHOWN_STATUS_TOPICS`, above) and the strip's own rules are these.
+  it('has no general-purpose news line: the strip is room health and nothing else', () => {
+    // Design §6.2: `SessionNote.status` went with the four sentences that found other homes. What
+    // is left of the line is what changes what typing means — the countdown, the dropped socket —
+    // and the host's return, which is the reason the countdown vanishing has one.
     const element = makeElement();
     const timer = ticking();
     const note = wireSessionNote(element as unknown as HTMLElement, {
@@ -569,105 +568,75 @@ describe('the message homes', () => {
       schedule: timer.schedule,
       cancel: timer.cancel,
     });
-    note.status('you are a viewer in this room, so its documents are read-only.');
-    assert.equal(
-      element.textContent,
-      'you are a viewer in this room, so its documents are read-only.',
-      'the sentence a viewer is owed reaches no line',
-    );
-    assert.equal(element.dataset.tone, 'plain', 'news wears the warning\u2019s tone');
-    // One line, so a later sentence replaces it rather than stacking under it.
-    note.status('Following sam in notes.md');
-    assert.equal(element.textContent, 'Following sam in notes.md', 'two sentences stacked');
-    assert.equal(timer.runs.length, 2, 'a replaced sentence kept its own clock');
-    // The replaced sentence's clock is cancelled, so it cannot wipe the newer sentence early.
-    timer.runs[0]?.();
-    timer.runs[1]?.();
-    assert.equal(element.textContent, '', 'the sentence stood for ever');
-  });
-
-  it('a sentence said again while it stands is not restarted', () => {
-    // A follow re-lands and re-says itself on every frame the peer moves. Re-writing it would
-    // restart the stand and re-announce an unchanged line in the note's polite live region.
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.status('Following sam in notes.md');
-    assert.equal(timer.runs.length, 1);
-    note.status('Following sam in notes.md');
-    assert.equal(timer.runs.length, 1, 'the same sentence was written back and re-armed');
-    assert.equal(element.textContent, 'Following sam in notes.md');
-    timer.runs[0]?.();
-    assert.equal(element.textContent, '', 'the sentence stood for ever');
-    // Once it has left, the same words are news again.
-    note.status('Following sam in notes.md');
-    assert.equal(element.textContent, 'Following sam in notes.md', 'a cleared sentence never returns');
-    note.hide();
-  });
-
-  it('echoes the room\u2019s own warning rather than replacing it', () => {
-    // The countdown and the dropped line are armed by one event each and nothing re-arms them,
-    // so a sentence taking the strip from either deletes the only reading of a room that is
-    // closing or out of reach.
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
+    assert.equal(note.status, undefined, 'the strip took back a line for anything the page wants to say');
+    const source = readFileSync(new URL('../src/browser/notice.ts', import.meta.url), 'utf8');
+    assert.ok(!/status\(text: string\)/.test(source), 'the note carries a status method again');
+    // What is left is reachable: the countdown, the dropped line and the host's own sentence.
     note.countdown(30_000);
-    note.status('nothing to go to: sam is not in a document');
-    assert.match(element.textContent, /^The host left\./, 'news took the countdown down');
-    assert.equal(element.dataset.tone, 'grace', 'the countdown lost its tone');
-    // A countdown that started after the news: the warning wins whenever it arrives.
+    assert.match(element.textContent, /^The host left\./, 'the countdown has no home');
     note.hide();
-    note.status('Following sam in notes.md');
-    note.countdown(30_000);
-    assert.match(element.textContent, /^The host left\./, 'the warning never took the strip');
-    // And the dropped line, which stands until the room answers.
     note.dropped(RECONNECTING_NOTE);
-    note.status('Following sam in notes.md');
-    assert.equal(element.textContent, RECONNECTING_NOTE, 'news took the dropped line down');
-    note.hide();
+    assert.equal(element.textContent, RECONNECTING_NOTE, 'the dropped line has no home');
+    note.endDropped();
+    note.say('demo-host is back — the session continues.', 5000);
+    assert.equal(element.textContent, 'demo-host is back — the session continues.');
   });
 
-  it('the page shows the status topics that have no other surface, and only those', () => {
+  it('the page routes the status topics with no other surface, and only those', () => {
     // The owner's own pass: the follow banner already reads "Following vscodium" with a Stop
     // control, and the notice bar was saying "Following vscodium in test" right above it — the
     // same fact twice, one of them chrome that appears and disappears. The binding still raises
-    // every topic; the page's switch is where the ones with another surface stop.
+    // every topic; the page's own routing is where the ones with another surface stop.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const route = /function statusRoute\(topic: StatusTopic\)[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.ok(route !== '', 'the page has no routing for the status topics');
+    const topics = (route.match(/case '([a-z]+)'/g) ?? []).map((entry) => entry.slice(6, -1));
+    assert.deepEqual(
+      topics.slice().sort(),
+      ['error', 'refusal', 'role'],
+      'the routed topics are not the three with no other surface',
+    );
+    assert.ok(!main.includes('SHOWN_STATUS_TOPICS'), 'the shown-topics set survived the routing');
+    // Each one goes where its fact belongs: the role is the strip's chip, the refusal is the row
+    // that asked for the go-to, and a session error is the alert's.
+    assert.match(main, /readOnly = true;\n\s+syncStrip\(\);/, 'the read-only state reaches no chip');
     assert.match(
       main,
-      /case 'status':[\s\S]{0,900}?SHOWN_STATUS_TOPICS\.has\(notice\.topic\)[\s\S]{0,120}?sessionNote\.status\(notice\.text\)/,
-      'a status notice reaches no line on the page',
+      /case 'refusal':\n\s+showGoToRefusal\(notice\.peerId, notice\.text\);/,
+      'a refusal reaches no row',
     );
-    const shown = /SHOWN_STATUS_TOPICS[^=]*=\s*new Set\(\[([^\]]*)\]\)/.exec(main);
-    assert.ok(shown !== null, 'the shown-topics set left the page');
-    const topics = (shown[1] ?? '').match(/'[a-z]+'/g) ?? [];
-    // A go-to the room could not answer is the click's only answer, and a session error is the
-    // room's own word; both have no other surface yet.
-    assert.deepEqual(topics.slice().sort(), ["'error'", "'refusal'", "'role'"].sort());
-    // The role is a state rather than a sentence now: the strip's `Read-only` chip, which stays
-    // while it is true instead of a toast the person had to have caught.
-    assert.match(main, /if \(notice\.topic === 'role'\)/, 'the read-only state reaches no chip');
-    assert.match(main, /readOnly = true/, 'nothing puts the strip into its read-only state');
+    assert.match(
+      main,
+      /case 'error':\n\s+failureAlert\.show\(notice\.text\);/,
+      'a session error reaches no alert',
+    );
+    // And nothing says any of them in the health strip: it is room health and the host's return.
+    assert.ok(
+      !/sessionNote\.(status|say)\(notice\.text\)/.test(main),
+      'a status sentence is back in the health strip',
+    );
     for (const dropped of ['follow', 'terminal']) {
-      assert.ok(
-        !topics.includes(`'${dropped}'`),
-        `the ${dropped} topic is shown again, and something else on the page already states it`,
-      );
+      assert.ok(!topics.includes(dropped), `the ${dropped} topic is routed, and the page states it elsewhere`);
     }
     // The dropped topics still leave the binding: it is the page that stops repeating them.
     const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
     assert.match(editor, /topic: 'terminal'/g, 'the binding stopped raising the terminal sentence');
+  });
+
+  it('a refused go-to lands on the row that asked, not in the chrome', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
+    // The sentence the binding raises carries the peer it is about, or the page has nothing to
+    // hang it on.
+    assert.match(editor, /topic: 'refusal',\n\s+peerId,/, 'a refusal reaches the page without its peer');
+    assert.match(
+      main,
+      /function showGoToRefusal\([\s\S]{0,400}?goToRefusal = \{ peerId, text \}/,
+      'a refusal has no state to stand in',
+    );
+    assert.match(main, /goToRefusal,/, 'the roster is never told about a refusal');
+    assert.match(main, /GO_TO_REFUSAL_STAND_MS = 4000/, 'a refusal stands for ever, or for a guessed number');
+    assert.match(main, /announce\(text\)/, 'a refusal is never announced');
   });
 
   it('the end of the room comes back as the card, not as a strip', () => {

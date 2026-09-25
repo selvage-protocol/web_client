@@ -332,9 +332,14 @@
       /* Where a peer is, when the answer is nowhere: a quiet line where Go to would stand, rather
          than a disabled verb and a sentence explaining it. */
       #roster .waiting { flex: none; font-size: 0.8em; color: var(--muted-foreground); }
-      /* The lone host's own line, under the row that says who they are. */
+      /* A go-to the room could not answer: the sentence the row was pressed for, on its own line
+         under it, standing the few seconds the page holds it (design §5.1). */
+      #roster .refusal { flex-basis: 100%; font-size: 0.8em; color: var(--muted-foreground);
+        line-height: 1.35; }
+      /* The lone host's own line, under the row that says who they are: it names the act and the
+         bar above is where the control is, so the row holds no copy of it. */
       #roster li.alone { font-size: 0.85em; color: var(--muted-foreground); }
-      #roster li.alone .copy-invite { font-size: 0.8em; padding: 0.25em 0.5em; }
+      #roster li.alone .pointer { color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
          will appear. The kind is the button's, so the field carries no convention of its own — and
@@ -421,7 +426,20 @@
       #tree .stale { color: var(--muted-foreground); font-size: 0.85em; padding: 0.5em 0.55em;
         margin: 0 0 0.5em; border-bottom: 1px solid var(--border); }
       #tree button.row:disabled { cursor: not-allowed; }
+      #editor-area { position: relative; display: flex; flex-direction: column; flex: 1;
+        min-height: 0; min-width: 0; }
       #editor { flex: 1; min-height: 0; min-width: 0; }
+      /* The empty pane, over the editor it takes the place of. The blocks are `empty-editor.ts`'s:
+         a lead, what the block is about, and the acts beside it. */
+      #editor-empty { position: absolute; inset: 0; background: var(--background);
+        overflow-y: auto; padding: 1.4em 1.5em; box-sizing: border-box; }
+      #editor-empty .empty-block + .empty-block { margin-top: 1.6em;
+        padding-top: 1.2em; border-top: 1px solid var(--border); }
+      #editor-empty .empty-lead { margin: 0 0 0.4em; font-size: 1.1em; font-weight: 650;
+        color: var(--foreground); }
+      #editor-empty .empty-text { margin: 0; color: var(--muted-foreground); line-height: 1.55;
+        max-width: 36em; }
+      #editor-empty .empty-actions { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0.95em 0 0; }
       #live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
         overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
       /* The editor the card stands over: a file tree beside the code the tree
@@ -511,6 +529,14 @@
         transition: background-color 0.15s ease,
         border-color 0.15s ease, transform 0.08s ease; }
       #host-button:active:not(:disabled) { transform: translateY(1px); }
+      /* The guest card's other intent, as the one line it is worth there: hosting is not what
+         the person came for, so it is a quiet verb with no button's chrome, and pressing it is
+         what puts the start card — this paragraph's home — in front of them. */
+      #host-quiet { display: flex; width: 100%; justify-content: center; margin: 0; padding: 0.3em 0;
+        background: none; border-color: transparent; color: var(--muted-foreground);
+        font-size: 0.9em; }
+      #host-quiet:hover:not(:disabled) { background: none; border-color: transparent;
+        color: var(--foreground); }
       #join.card-start #join-button { background: var(--muted); border-color: var(--border);
         color: var(--foreground); font-weight: 500; }
       #join.card-start #join-button:hover:not(:disabled) { background: var(--muted-hover);
@@ -540,6 +566,20 @@
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
       @media (max-width: 640px) {
+        /* The demo instance appends its own notice after `#app` — the non-commercial terms and the
+           link to them, injected by its own front (`reference_server/packaging/prod`) — and this
+           page lays it out inside the viewport rather than under a full-height app. On a phone that
+           notice is three lines of prose, 80 px and about a tenth of the screen, held for the whole
+           session: once a session is on screen it is one fine-print strip instead — measured at
+           390x844, 35 px — with every word it says and its link intact, at the size the whole
+           sentence fits at rather than the size it was written in. It is the notice's *own* inline
+           styles the `!important`s have to beat (the deployment injects it, and it carries no class
+           or id this page could reach), and past the session it is the full proof, as on arrival. */
+        body:has(#session:not([hidden])) > aside {
+          padding: 0.25rem 0.7rem !important;
+          font-size: 10.5px !important;
+          line-height: 1.3 !important;
+        }
         #session { flex-wrap: wrap; row-gap: 0.4em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
         /* The readout goes and the words take the row: at this width the icon beside a
@@ -788,9 +828,14 @@
              found to have a directory picker: a control that could only refuse is worse than a
              sentence, and the sentence is what stands here when either is missing. `type`
              `button` keeps it out of the join form's submission, so the pre-bundle hold on that
-             form has nothing to do with it. -->
+             form has nothing to do with it.
+
+             The card has two intents and each says hosting its own way: on the bare page this
+             is the card's own action, and on a guest's it is one quiet line — pressing it is
+             what puts the start card in front of the person (`main.ts`, `swapCardToStart`). -->
         <div id="host-wrap" hidden>
-          <button id="host-button" type="button" hidden>Choose a folder to share</button>
+          <button id="host-button" type="button" hidden>Choose a folder to share…</button>
+          <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
           <p id="host-share"></p>
           <p id="host-note"></p>
@@ -834,7 +879,13 @@
             <span id="file-strip-follow"></span>
             <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
           </div>
-          <div id="editor"></div>
+          <div id="editor-area">
+            <div id="editor"></div>
+            <!-- The pane with nothing in front of it: what a room holds, or holds back, and the one
+                 act that follows from it (design §7, `empty-editor.ts`). It covers the editor while
+                 it stands, because a buffer with no document in it goes nowhere (`§6.3`). -->
+            <div id="editor-empty" hidden></div>
+          </div>
         </div>
       </div>
       <div id="live" aria-live="polite"></div>

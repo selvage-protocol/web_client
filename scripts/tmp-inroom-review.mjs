@@ -14,7 +14,12 @@
  *
  * With `--footer` (or `SELVAGE_FOOTER=1`) the demo deployment's footer — the non-commercial
  * notice and its terms link, injected before `</body>` by the demo's nginx — is appended to the
- * page, so the phone shot shows whether it is reachable without hunting.
+ * page, so the phone shot shows whether it is reachable without hunting, and the last run of the
+ * empty room measures the same notice once a session is on screen.
+ *
+ * The last pass photographs the room's two empty states, which need a folder with nothing in it:
+ * the driver leaves the room it built, starts another from an empty folder and joins it as a
+ * guest (`13-editor-empty-host.png`, `14-editor-empty-guest.png`).
  *
  * Screenshots and the measured facts land in `.tmp/inroom-review/`, inside the checkout; `/tmp` is
  * RAM on this host and is never used.
@@ -137,13 +142,20 @@ async function startServer() {
  * The picker's stand-in, added before any page script: the *real* `FileSystemDirectoryHandle` for
  * an origin-private directory, seeded the way a small project folder is. `showDirectoryPicker` is
  * the one thing automation cannot answer, so it is the only thing replaced.
+ *
+ * `window.__selvageEmptyFolder` is the driver's own flag for the second room it starts: a folder
+ * with nothing in it is the one state where the editor pane has no file to show, and a seeded
+ * folder could never produce it.
  */
+const SEED = {
+  'README.md':
+    '# Hosted from the browser\n\nEvery file here is the room, and its text arrives when somebody opens it.\n',
+  'notes.md': '# Room notes\n\n- one host, any number of guests\n',
+  'src/main.ts': 'export function add(a: number, b: number): number {\n  return a + b;\n}\n',
+};
+
 const PICKER_STAND_IN = `(() => {
-  const SEED = {
-    'README.md': '# Hosted from the browser\\n\\nEvery file here is the room, and its text arrives when somebody opens it.\\n',
-    'notes.md': '# Room notes\\n\\n- one host, any number of guests\\n',
-    'src/main.ts': 'export function add(a: number, b: number): number {\\n  return a + b;\\n}\\n',
-  };
+  const SEED = ${JSON.stringify(SEED)};
   const write = async (dir, name, text) => {
     const file = await (await dir.getFileHandle(name, { create: true })).createWritable();
     await file.write(text);
@@ -157,7 +169,8 @@ const PICKER_STAND_IN = `(() => {
       // Nothing from a previous run.
     }
     const project = await root.getDirectoryHandle('project', { create: true });
-    for (const [path, text] of Object.entries(SEED)) {
+    const seed = window.__selvageEmptyFolder === true ? {} : SEED;
+    for (const [path, text] of Object.entries(seed)) {
       const parts = path.split('/');
       let parent = project;
       for (const part of parts.slice(0, -1)) {
@@ -510,9 +523,35 @@ const PREJOIN = `(() => {
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight,
     overTheTermsLink: atTerms === null ? null : atTerms.tagName + (atTerms.id === '' ? '' : '#' + atTerms.id),
     heading: document.getElementById('join-heading')?.textContent ?? '',
+    // The guest card's other intent, as the one quiet line it is worth there: hosting is not what
+    // this person came for, and the paragraph about whose tab this is waits on the start card the
+    // line opens. A hidden start button beside it is what makes the line the only act.
+    quietLine: document.getElementById('host-quiet')?.textContent ?? '',
+    quietLineVisible: document.getElementById('host-quiet')?.hidden === false,
+    startButtonVisible: document.getElementById('host-button')?.hidden === false,
+    hostNote: document.getElementById('host-note')?.textContent ?? '',
   };
 })()`;
 
+/** The editor pane with no document in it: what it says, and what it offers to do about it. */
+const EMPTY_PANE = `(() => {
+  const pane = document.getElementById('editor-empty');
+  if (pane === null || pane.hidden) return null;
+  const blocks = [...pane.querySelectorAll('.empty-block')].map((block) => ({
+    lead: block.querySelector('.empty-lead')?.textContent ?? '',
+    text: block.querySelector('.empty-text')?.textContent ?? '',
+    actions: [...block.querySelectorAll('.empty-actions button')].map((button) => (button.textContent ?? '').trim()),
+  }));
+  const box = pane.getBoundingClientRect();
+  return {
+    blocks,
+    size: Math.round(box.width) + 'x' + Math.round(box.height),
+    stripPath: document.getElementById('file-strip-path')?.innerText ?? '',
+    strip: document.getElementById('file-strip')?.innerText ?? '',
+    treeEmpty: document.querySelector('#tree .empty')?.textContent ?? '',
+    panelOpen: document.getElementById('panel-toggle')?.getAttribute('aria-expanded') ?? null,
+  };
+})()`;
 /** What a guest's own page shows about the file it is about to save. */
 const GUEST_ROWS = `(() => {
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => ({
@@ -727,9 +766,46 @@ async function reviewDesktop(page, server, written) {
       (text) => /Bob/.test(text),
     );
     facts.followSegment = followed;
-    log('following:', JSON.stringify(followed));
+    // The same state from the other side: the roster row's toggle, pressed, and what pressing it
+    // again does. Read from the row rather than assumed, because the strip's segment is the two of
+    // them agreeing and only one of them is a control.
+    facts.rosterToggle = await page.evaluate(`(() => {
+      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
+      const button = [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
+      if (button === undefined) return null;
+      return {
+        text: (button.textContent ?? '').trim(),
+        pressed: button.getAttribute('aria-pressed'),
+        title: button.getAttribute('title'),
+        disabled: button.disabled,
+      };
+    })()`);
+    log('following:', JSON.stringify(followed), 'the roster toggle:', JSON.stringify(facts.rosterToggle));
     await delay(400);
     log('wrote', await record(written, page, '05-following-a-peer.png'));
+    // Pressing the pressed toggle stops the follow, which is the whole of the toggle: the state is
+    // what the row reads, and the press is what it does.
+    facts.rosterToggleAfterPress = await page.evaluate(`(() => {
+      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
+      const button = [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
+      button.click();
+      return true;
+    })()`);
+    facts.afterTogglePress = await waitFor(
+      page,
+      'the follow to end when the pressed toggle is pressed',
+      `(() => {
+        const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
+        const button = row === undefined ? undefined : [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
+        return {
+          pressed: button === undefined ? null : button.getAttribute('aria-pressed'),
+          text: button === undefined ? '' : (button.textContent ?? '').trim(),
+          strip: document.getElementById('file-strip-follow')?.innerText ?? '',
+        };
+      })()`,
+      (state) => state.pressed === 'false',
+    );
+    log('the toggle pressed again:', JSON.stringify(facts.afterTogglePress));
   } finally {
     await guest.disconnect();
   }
@@ -867,7 +943,6 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   facts.settled = await page.evaluate(GUEST_ROWS);
   log('the guest, at rest:', JSON.stringify(facts.settled));
   log('wrote', await record(written, page, '02-in-room-phone.png'));
-
   // Every directory open, so the row the fetch is about is on screen: a note inside a collapsed
   // folder is a note nobody can see.
   await page.evaluate(`(() => {
@@ -994,6 +1069,132 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   })()`);
   await delay(500);
   log('wrote', await record(written, page, '12-download-not-answered-phone.png'));
+  if (FOOTER) {
+    // The demo's notice once a session is on screen: the same page, viewport and notice as the
+    // pre-join shot, with the rule the phone query applies to it while a session is up. The two
+    // measurements are what say whether it shrank, and by how much (design §5 of the session pass).
+    facts.footerInRoom = await page.evaluate(`(() => {
+      const aside = document.getElementById('demo-footer');
+      if (aside === null) return null;
+      const box = aside.getBoundingClientRect();
+      const style = getComputedStyle(aside);
+      return {
+        top: Math.round(box.top),
+        bottom: Math.round(box.bottom),
+        height: Math.round(box.height * 100) / 100,
+        fontSize: style.fontSize,
+        padding: style.paddingTop,
+        termsVisible: document.getElementById('terms-link')?.getClientRects().length > 0,
+        text: aside.innerText,
+      };
+    })()`);
+    log('the demo footer in a room:', JSON.stringify(facts.footerInRoom));
+    log('wrote', await record(written, page, '15-phone-footer-in-room.png'));
+  }
+
+  return facts;
+}
+
+/**
+ * The empty room: a host whose folder holds nothing, and the guest that joins it.
+ *
+ * This is the one shape where the editor pane has no document to show — the seeded folder always
+ * gives the room a file to open, and a page with a document in front of it never shows the pane's
+ * empty state — so it is the only place those states can be photographed (design §7.2, §7.4). It
+ * runs last, in the two browsers already up: the host leaves the room it was in and starts another
+ * from an empty folder, and the guest leaves its room and joins that one. Both leave by the control
+ * a person uses, and the guest comes back in by pasting the link, which is the card's own way.
+ */
+async function reviewEmptyRoom(hostPage, guestPage, server, written) {
+  const facts = {};
+  await hostPage.setViewport(DESKTOP);
+  // A host's press asks first: its leaving ends the room for everyone in it.
+  await hostPage.evaluate(`document.getElementById('leave').click()`);
+  await waitFor(
+    hostPage,
+    'the host’s leave question',
+    `document.getElementById('leave-confirm')?.hidden === false`,
+    (up) => up === true,
+  );
+  await hostPage.evaluate(`document.getElementById('leave-anyway').click()`);
+  await waitFor(
+    hostPage,
+    'the card back after leaving',
+    `document.getElementById('join')?.hidden === false`,
+    (up) => up === true,
+  );
+  // The card came back as the guest's intent, so hosting is the quiet line again: press it, and
+  // the start card — the button and the paragraph — is what the press answers with.
+  facts.hostCard = await hostPage.evaluate(PREJOIN);
+  await hostPage.evaluate(`document.getElementById('host-quiet').click()`);
+  await waitFor(
+    hostPage,
+    'the start card’s own action',
+    `document.getElementById('host-button')?.hidden === false`,
+    (up) => up === true,
+  );
+  facts.startCard = await hostPage.evaluate(PREJOIN);
+  await hostPage.evaluate(`(() => {
+    window.__selvageEmptyFolder = true;
+    const name = document.getElementById('name');
+    name.value = 'Ada';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('host-button').click();
+    return true;
+  })()`);
+  await waitFor(
+    hostPage,
+    'the empty room to be seated',
+    `(() => { const bar = document.getElementById('session'); return bar === null ? null : !bar.hidden; })()`,
+    (seated) => seated === true,
+  );
+  await waitFor(
+    hostPage,
+    'the pane to say the folder is empty',
+    EMPTY_PANE,
+    (state) => state !== null && /is empty/.test(state.blocks[0]?.lead ?? ''),
+  );
+  await delay(400);
+  facts.host = await hostPage.evaluate(EMPTY_PANE);
+  log('the host’s empty folder:', JSON.stringify(facts.host));
+  log('wrote', await record(written, hostPage, '13-editor-empty-host.png'));
+
+  // The guest: out of the room it was in, and into this one by pasting the link, which is the
+  // card's own way back in. A guest's press leaves at once — the room is the host's tab.
+  const invite = await copyInvite(hostPage, server.origin);
+  await guestPage.evaluate(`document.getElementById('leave').click()`);
+  await waitFor(
+    guestPage,
+    'the guest’s card back',
+    `document.getElementById('join')?.hidden === false`,
+    (up) => up === true,
+  );
+  await guestPage.evaluate(`(() => {
+    const field = document.getElementById('invite');
+    field.value = ${JSON.stringify(invite)};
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    const name = document.getElementById('name');
+    name.value = 'Guest';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('join-button').click();
+    return true;
+  })()`);
+  await waitFor(
+    guestPage,
+    'the guest seated in the empty room',
+    `(() => { const bar = document.getElementById('session'); return bar === null ? null : !bar.hidden; })()`,
+    (seated) => seated === true,
+  );
+  await waitFor(
+    guestPage,
+    'the pane to name the host',
+    EMPTY_PANE,
+    (state) => state !== null && /shared any files yet/.test(state.blocks[0]?.lead ?? ''),
+  );
+  await delay(400);
+  facts.guest = await guestPage.evaluate(EMPTY_PANE);
+  log('the guest in a room that shares nothing:', JSON.stringify(facts.guest));
+  log('wrote', await record(written, guestPage, '14-editor-empty-guest.png'));
   return facts;
 }
 
@@ -1019,6 +1220,9 @@ async function main() {
     const touch = await launchChromium({ pointer: 'touch' });
     browsers.push({ name: 'phone', page: touch });
     facts.phone = await reviewTouch(touch, server, desktop.invite, written, mouse);
+    // Last, and in the two browsers already up: the empty room's two empty states need a folder with
+    // nothing in it, which the seeded run never has (`reviewEmptyRoom`).
+    facts.empty = await reviewEmptyRoom(mouse, touch, server, written);
   } finally {
     // Whatever happened — a `waitFor` that timed out, a browser that would not launch, the guest's
     // clipboard refusing — both browsers and the server are stopped and their logs collected. A
@@ -1035,12 +1239,15 @@ async function main() {
   log('console and page errors:', facts.console.length === 0 ? 'none' : JSON.stringify(facts.console));
   if (FOOTER) {
     log(
-      'the demo footer:',
+      'the demo footer on the card:',
       JSON.stringify(facts.phone.prejoin?.footer),
       'terms link in the viewport:',
       facts.phone.prejoin?.termsLinkInViewport,
+      '| in a room:',
+      JSON.stringify(facts.phone.footerInRoom ?? null),
     );
   }
+  log('the guest card’s other intent:', JSON.stringify(facts.phone.prejoin?.quietLineVisible), JSON.stringify(facts.phone.prejoin?.quietLine));
 }
 
 await main();
