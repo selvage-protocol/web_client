@@ -1253,6 +1253,13 @@ const sidebar = wireSidebar({
 sidebar.apply();
 
 /**
+ * The strip's own chevron, drawn on a phone and taken down anywhere else. Declared before the
+ * function that reads it: `applyStripRole()` runs at load, and a top-level `let` written below that
+ * call is in its temporal dead zone — unbundled, the page throws on the way in.
+ */
+let stripDisclosure: HTMLElement | undefined;
+
+/**
  * On a phone the whole strip is the panel's disclosure, so it wears the control's own semantics —
  * `role`, focus and `aria-expanded` — only while that is true. On a pointer device the strip is what
  * it looks like: a line of text and a few controls, none of them a disclosure.
@@ -1291,8 +1298,6 @@ function applyStripRole(): void {
 }
 applyStripRole();
 phoneLayout.addEventListener('change', applyStripRole);
-/** The strip's own chevron, drawn on a phone and taken down anywhere else. */
-let stripDisclosure: HTMLElement | undefined;
 // The pane with no document in it offers the panel's own verb only on a device that needs it, so the
 // query moving is a redraw of it too.
 phoneLayout.addEventListener('change', () => syncEmptyEditor());

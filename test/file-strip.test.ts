@@ -149,6 +149,18 @@ describe('what the strip states', () => {
     );
   });
 
+  it('declares the strip\u2019s chevron before the call that draws it', () => {
+    // `applyStripRole()` runs at module level, and a top-level `let` written below that call is in
+    // its temporal dead zone: unbundled, the page would throw `Cannot access 'stripDisclosure'
+    // before initialization`. esbuild lowers a top-level `let` to `var` when it bundles, so the
+    // fault is invisible in `dist/` and a source-order check is what catches it.
+    const declared = main.indexOf('let stripDisclosure');
+    const firstCall = main.indexOf('applyStripRole();');
+    assert.notEqual(declared, -1, 'the strip\u2019s chevron has no declaration');
+    assert.notEqual(firstCall, -1, 'nothing applies the strip\u2019s role at load');
+    assert.ok(declared < firstCall, 'the chevron is declared below the call that reads it');
+  });
+
   it('carries the host’s refused write, in the words the folder refused with', () => {
     assert.match(main, /'⚠ Not saved to your folder'/, 'a refused write reaches no chip');
     assert.match(main, /chip\.title = refused/, 'the chip does not say why');
