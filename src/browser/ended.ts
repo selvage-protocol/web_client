@@ -15,11 +15,15 @@ export function roomGoneMessage(reason: string): string {
 }
 
 /**
- * What became of the room's content when it closed. The desktop clients keep the guest's copy
- * and say where it is; a page has no disk to leave a mirror on, so the room, the text in it
- * and the guest's own unsent keystrokes go with it.
+ * What became of the room's content when it closed. The desktop clients keep the guest's copy and
+ * say where it is; a page has no disk to leave a mirror on, so nothing of the room stays here. What
+ * is *not* true is that nothing was saved: every settled edit was written into the folder the room
+ * was hosted from, within the settle, and a host reading the old sentence was told the opposite of
+ * what the page had just done. The one thing that can still be missing is a keystroke inside the
+ * settle, which the sentence's "had settled" allows for.
  */
-export const NOTHING_KEPT = 'Nothing in the room was saved.';
+export const NOTHING_KEPT =
+  'Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.';
 
 /** The room-gone card's sentence: what happened, and what became of everything in it. */
 export function roomGoneSentence(reason: string): string {

@@ -137,8 +137,9 @@ reload rejoins from it.
 A page with no invite can start one: type the name, press **Share a folder…**,
 and the browser asks for a folder. The folder is the room's working copy — the page walks it
 for the listing a guest's tree draws, reads a file out when a guest asks for it, and
-writes the text the room settles on back through it. Nothing is uploaded, and no file
-outside the folder the person picked can be named through the handle. The invite link is
+writes the text the room settles on back through it, within half a second of the room
+settling and whoever typed it. Nothing is uploaded, and no file outside the folder the
+person picked can be named through the handle. The invite link is
 then the one the session bar carries, and it is the same link an editor host would have
 produced: whoever opens it joins as a guest and edits the folder with them.
 
@@ -159,8 +160,16 @@ Four things that shape it:
   watcher to do any other way. A path the page never read is refused the same way.
 - **The tab is the host, and a reload ends the room.** A host's invite link is not written
   into the address bar: reloading would rejoin its own room as a guest with no folder
-  while the room's grace ran out underneath it. The card warns before the click, and the
-  load after a reload says the room is over. Reclaiming inside the grace is not built.
+  while the room's grace ran out underneath it. The card warns before the click — what a
+  reload costs is the room, its invite link and the keystrokes still inside the settle, and
+  everything else is already in the folder — and the load after a reload says the same.
+  Reclaiming inside the grace is not built.
+- **What picking a folder gives away.** The card says it under the button, before the
+  click, because the person granting is the only one who can act on it: anyone with the
+  invite link can open and edit the files the page shares, and their edits — and yours —
+  are written back to those files on disk. Not every file in the folder: `.env`, `.git/**`
+  and the key names are excluded, a binary-named path is left out, and a file past the
+  size bound is refused.
 
 **Download** takes the open document out of the room and onto the person's disk — for a
 guest who has just edited a file and cannot keep it, and for a host whose folder refused
@@ -250,7 +259,7 @@ over a room nobody has seen, and starts with the tree and roster behind a
 `Files and people` control. The People roster leads with your own name — one swatch, one
 quiet `(you)`, one Rename — and lists who else is here, never path text: a `Go to` where
 the peer is in a file and `not in a file yet` where it is not, and a `Follow` toggle that
-reads `Following ✓` pressed and stops the follow when it is pressed. A go-to the room
+reads `Following` pressed and stops the follow when it is pressed. A go-to the room
 cannot answer — the peer closed the file, or its caret does not resolve here — says so
 under that row for four seconds. The tree lists what the room shares with a peer badge on
 whose file is whose. An action that refuses says so beside its own control, or in the
@@ -263,8 +272,9 @@ names the grace window and counts it down to the room's own deadline; when the h
 returns it says so for a few seconds and then clears. When the room ends, because the host does not return before the
 grace expires, the page leaves the session: the socket closes, the binding and the editor
 are dropped, the chrome comes down, and the card returns over the blurred preview carrying
-`The room is gone (host did not return). Nothing in the room was saved. Paste a fresh
-invite link to join another session.` A page has no disk to leave a copy on. Nothing of
+`The room is gone (host did not return). Nothing is kept on this page; the folder the room
+was hosted from has the text it had settled on. Paste a fresh invite link to join another
+session.` A page has no disk to leave a copy on. Nothing of
 the dead room stays on screen, the name stays typed, and pasting a fresh link joins the
 next room from there. A guest never claims host and never rebuilds a room on its own: the
 only mint is the one behind the folder picker, and a test pins that the guest path never

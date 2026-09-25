@@ -239,7 +239,7 @@ export function folderWriteSentence(cause: FolderWriteRefusal, path: string): st
     case 'not-granted':
       return `${path} is not a path this room shares, so it was not written.`;
     case 'missing':
-      return `${path} is not in the folder any more, so nothing was written. If it was renamed or deleted, the room's text is the only copy left.`;
+      return `${path} is not in the folder any more, so nothing was written. If it was renamed or deleted, the room\u2019s text is the only copy left.`;
     case 'not-a-file':
       return `${path} is not a plain file in the folder any more, so nothing was written.`;
     case 'unread':
@@ -247,7 +247,7 @@ export function folderWriteSentence(cause: FolderWriteRefusal, path: string): st
     case 'stale':
       return `${path} changed on disk since the room read it, so it was left alone rather than overwritten. Something else wrote it (a formatter, a build, another editor, a checkout); the room still holds its text, and opening the file again brings it in.`;
     case 'not-permitted':
-      return `${path} could not be written: this page no longer has write access to the folder. Grant it again from the address bar, or keep the room's text with Download.`;
+      return `${path} could not be written: this page no longer has write access to the folder. Grant it again from the address bar, or keep the room\u2019s text with Download.`;
   }
 }
 

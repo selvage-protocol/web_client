@@ -75,7 +75,7 @@ export function describeJoinError(error: unknown, _base?: string): string {
       case close.protocolError:
         return 'The join was refused. Check the link and retry.';
       default:
-        return "Couldn't reach the session. Check your connection and retry.";
+        return "Couldn\u2019t reach the session. Check your connection and retry.";
     }
   }
   if (
@@ -83,13 +83,13 @@ export function describeJoinError(error: unknown, _base?: string): string {
       message,
     )
   ) {
-    return "Couldn't reach the session. Check your connection and retry.";
+    return "Couldn\u2019t reach the session. Check your connection and retry.";
   }
   if (/failed to construct .WebSocket|not a valid .*URL|invalid URL/i.test(message)) {
-    return 'That invite link can\'t be used. Paste the whole link and retry.';
+    return 'That invite link can\u2019t be used. Paste the whole link and retry.';
   }
   if (/WebSocket|session\.hello|UTF-16|the connection closed/i.test(message)) {
-    return "Couldn't reach the session. Check your connection and retry.";
+    return "Couldn\u2019t reach the session. Check your connection and retry.";
   }
   return message;
 }

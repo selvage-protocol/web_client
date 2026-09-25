@@ -94,7 +94,7 @@ export const LEAVE_CANCEL_LABEL = 'Cancel';
  * (`HOST_TAB_WARNING`), and the grace is the room's number, not this panel's.
  */
 export const HOST_LEAVE_QUESTION =
-  'Leaving ends the room for everyone in it, and nothing in it is saved.';
+  'Leaving ends the room for everyone in it; the invite link stops working, and the last keystrokes may not reach your folder.';
 
 export function wireLeave(options: LeaveOptions): LeaveControl {
   const { panel, question, button, cancel, go } = options.surface;

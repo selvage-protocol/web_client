@@ -943,7 +943,7 @@ export class MonacoBinding implements EditorHost {
       case 'saveFailed':
         this.onNotice({
           kind: 'failure',
-          text: report.message ?? `The room's text could not be written to ${report.path}.`,
+          text: report.message ?? `The room\u2019s text could not be written to ${report.path}.`,
           path: report.path,
         });
         break;
