@@ -3546,3 +3546,67 @@ name. It resolves the sibling from this repository's own git common directory no
 worktree finds it, and the one test that needs it *skips with that reason* where there is
 no sibling. The exclusion is gone: the icon determinism and clock-chunk assertions run in
 CI now, which they never did while the whole file was excluded.
+
+## The write-back the card was not describing (2026-09-25)
+
+Two reviews of the `0.4.4` page — a code review of `2ea6d45..a6a301d` and a re-review of the
+served `dist/` — found the write-back correct in shape and wrong in four places. This is what
+changed.
+
+**What the page says it does.** Every settled edit is written into the real files of the folder a
+host picked, within `DEFAULT_SAVE_SETTLE_MS` — the host's own keystrokes since #61, every guest's
+through the bridge. Four sentences said the opposite: `HOST_TAB_WARNING` on the start card, the
+reload notice (`hostingOverSentence`), the host's Leave question (`HOST_LEAVE_QUESTION`) and the
+room-gone card (`NOTHING_KEPT`). Each says what is actually lost now — the room, its invite link
+and the keystrokes still inside the settle — and the room-gone card says where the rest is (the
+folder the room was hosted from). The card also lost the note about what picking a folder gives
+away when the copy trim deleted it, and it is back as `HOST_SHARE_NOTE`, under the button that
+asks: anyone with the invite link can open and edit the files *this page shares* (not every file —
+`.env` is refused), and edits are written back to those files on disk.
+
+**One write timer per path.** `MonacoBinding` held a single `writeTimer`, so typing in A, opening
+B and typing in B inside one settle cancelled A's write, and nothing re-armed it. It is a
+`Map<string, () => void>` keyed by path now, the way the bridge's own `saves` map is: re-arming
+touches only that path's deadline. `dispose` flushes what is armed rather than dropping it — the
+folder handle and the buffers are both still valid there — and says nothing about a write it had
+to make, because the chrome is going down with the binding. The `disposed` guard in `writeSettled`
+is gone: it could not run (the only caller was the timer `dispose` cancels), and what replaces it
+is the flush plus one guard that silences a *refused* flush, which is the whole of what the old
+one did.
+
+**One write of a path at a time.** A peer's edit and a local edit inside one settle arm a write
+each, and the folder's stale-file guard reads the file's stamp before the write's first `await` —
+so the second write could be refused as `stale` and the person shown "something else wrote it"
+about a write that landed. `save` serialises per path in the adapter, not in the bridge: the
+bridge writes what the *room* changed, and when to persist the person's own edits is editor
+policy (the desktop clients have a save gesture). A caller that arrives mid-write waits for it and
+asks for one more pass, which runs only if the buffer moved — two requests inside one settle are
+one write.
+
+**What the file's own bytes decide.** A file a guest opened first is built from the LF replica, so
+the host's first keystroke rewrote every line as LF; a UTF-8 BOM was stripped by the reader and
+never put back. `FolderWorkingCopy.read` records the line ending and the BOM beside the stamp
+(`FileLayout`), `initialText` renders the replica's text into the recorded ending, and `write`
+puts the BOM back. 0.4.3 did the LF half for a guest's edit; this is the host's own typing.
+
+**The set moving no longer opens a file.** A `documents` notice auto-opened the first document
+that was not background-fetched, so on a phone a download of an unfetched file opened a *different*
+document and collapsed the panel over the row the person had just acted on. Nothing opens on that
+notice now: opening a file is the person's act, and the one open the page makes for them is the
+room's own seat (`openFirst`). `documentToAutoOpen` and `backgroundFetches` are gone with it.
+
+**What the page said that the reader could see.** The file strip's `● in the room` chip is gone:
+opening a file is what puts its text in the room, so for the file on screen it was always true. The
+tree's `●` stays, where it is news (a file this window has not opened), and a peer in a file is
+that row's badges. `Following ✓` lost the tick, which said nothing `aria-pressed` and the word did
+not, and the five straight apostrophes left in user-facing strings (plus a sixth the reviews
+missed, in the bridge's fallback sentence) are curly. `test/copy-ux.test.ts` scans
+`src/browser/*.ts` for the straight form now.
+
+**The live proof is a gate.** `scripts/tmp-inroom-review.mjs` read a hard-coded `README.md` while
+`hostAndOpen` opened whichever file the tree listed first, asserted `includes` rather than
+equality, and turned a miss into a `false` in `facts.json` with exit 0. It reads the path the
+click actually opened, asserts the file on disk *equals* what the editor is showing, records the
+row's own refusal mark, checks the precondition (the file still holds what the picker seeded it
+with, so no other writer could have put the marker there), and exits non-zero when any of it
+fails.
