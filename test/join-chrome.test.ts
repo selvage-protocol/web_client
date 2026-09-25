@@ -637,6 +637,20 @@ describe('the message homes', () => {
     assert.match(main, /goToRefusal,/, 'the roster is never told about a refusal');
     assert.match(main, /GO_TO_REFUSAL_STAND_MS = 4000/, 'a refusal stands for ever, or for a guessed number');
     assert.match(main, /announce\(text\)/, 'a refusal is never announced');
+    // Its own clock, and only one: two presses on one row produce the same sentence, so a timer
+    // matching on the words would let the first press clear the second refusal early.
+    assert.match(
+      main,
+      /window\.clearTimeout\(goToRefusalTimer\)/,
+      'a second refusal leaves the first refusal’s clock running',
+    );
+    // And the pane's own follow toggle is redrawn where the follow is, not on the next presence
+    // frame: a follow that opened no document leaves the pane showing.
+    assert.match(
+      main,
+      /syncRoster\(binding\.participants\(\)\);\n\s+syncEmptyEditor\(\);/,
+      'the empty pane’s follow toggle waits for an unrelated room event',
+    );
   });
 
   it('the end of the room comes back as the card, not as a strip', () => {

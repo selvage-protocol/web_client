@@ -1114,6 +1114,10 @@ function swapCardToStart(): void {
   if (lastServerRead !== undefined) {
     showHosting(folderPicker !== undefined, lastServerRead);
   }
+  // The press hid the control it was made with, so the keyboard goes where the press led: the
+  // start action when this page can offer one, and the name — the one thing the card still asks
+  // for — when the sentence about this page's own origin stands in its place.
+  (hostButton.hidden ? nameInput : hostButton).focus();
 }
 
 hostQuiet.addEventListener('click', () => {
@@ -1380,6 +1384,8 @@ function followParticipant(peerId: string): void {
  * eye already is and a screen reader has no hover to find a line under it.
  */
 let goToRefusal: { peerId: string; text: string } | undefined;
+/** The standing refusal's own clock. One at a time: a press replaces the sentence *and* the timer. */
+let goToRefusalTimer: number | undefined;
 
 /** How long a refused go-to stands on its row. */
 const GO_TO_REFUSAL_STAND_MS = 4000;
@@ -1388,16 +1394,17 @@ function showGoToRefusal(peerId: string | undefined, text: string): void {
   if (peerId === undefined) {
     return;
   }
+  if (goToRefusalTimer !== undefined) {
+    window.clearTimeout(goToRefusalTimer);
+  }
   goToRefusal = { peerId, text };
+  goToRefusalTimer = window.setTimeout(() => {
+    goToRefusalTimer = undefined;
+    goToRefusal = undefined;
+    syncRoster(binding?.participants() ?? []);
+  }, GO_TO_REFUSAL_STAND_MS);
   syncRoster(binding?.participants() ?? []);
   announce(text);
-  window.setTimeout(() => {
-    // Only this refusal, and only if it is still the one standing: a second press has its own.
-    if (goToRefusal?.peerId === peerId && goToRefusal.text === text) {
-      goToRefusal = undefined;
-      syncRoster(binding?.participants() ?? []);
-    }
-  }, GO_TO_REFUSAL_STAND_MS);
 }
 
 /**
@@ -1773,8 +1780,10 @@ function syncFollow(following: Following | undefined, ended?: string): void {
   fileStripFollow.style.backgroundColor = '';
   if (binding !== undefined) {
     // The toggle mirrors the indicator: a follow ended by typing or by the peer leaving re-renders
-    // here, not on the next room event.
+    // here, not on the next room event. The pane's own toggle is the same state, so it is redrawn
+    // with it — a follow that opened no document leaves the pane showing.
     syncRoster(binding.participants());
+    syncEmptyEditor();
   }
   if (following === undefined) {
     if (ended === undefined) {

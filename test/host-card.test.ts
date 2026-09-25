@@ -128,6 +128,13 @@ describe('the host action in the shell', () => {
     assert.match(swap, /invitePath\.open = false/, 'the swap leaves the guest’s join box open');
     // The name is one field either way, so nothing typed is lost.
     assert.ok(!/nameInput\.value =/.test(swap), 'the swap clears the name the person typed');
+    // The press hid the control it was made with, so focus goes with it: a keyboard left on a
+    // hidden element has nowhere to be.
+    assert.match(
+      swap,
+      /\(hostButton\.hidden \? nameInput : hostButton\)\.focus\(\)/,
+      'the swap hides the control that was pressed and leaves focus on it',
+    );
   });
 });
 

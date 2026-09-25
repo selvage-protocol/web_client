@@ -181,8 +181,10 @@ export function renderEmptyEditor(
         button.type = 'button';
         button.className = action === 'new-file' ? 'primary' : '';
         button.dataset.action = action;
-        if (action === 'stop-follow') {
-          button.setAttribute('aria-pressed', 'true');
+        if (action === 'follow' || action === 'stop-follow') {
+          // The same toggle the roster draws, in both states: a control that becomes a toggle on
+          // its press is announced as one before the press too.
+          button.setAttribute('aria-pressed', action === 'stop-follow' ? 'true' : 'false');
         }
         button.textContent = emptyEditorActionLabel(action);
         button.addEventListener('click', () => run(action, block.peerId));

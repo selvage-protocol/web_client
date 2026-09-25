@@ -153,11 +153,30 @@ describe('the controls the pane draws', () => {
     // The one act the state is about is the one that leads.
     assert.equal(buttons[0].className, 'primary');
     assert.equal(buttons[1].className, '');
+    // The follow control is the roster's toggle, in both states: a button that becomes a toggle on
+    // its press is announced as one before the press too.
+    assert.equal(buttons.at(-1).getAttribute('aria-pressed'), 'false');
+    assert.equal(buttons.at(-2).getAttribute('aria-pressed'), undefined, 'Go to is not a toggle');
     buttons[0].fire('click');
     buttons.at(-1).fire('click');
     assert.deepEqual(ran, [
       ['new-file', undefined],
       ['follow', 'peer-1'],
+    ]);
+    // And pressed, it says so.
+    const pressed = makeDocument();
+    globalThis.document = pressed;
+    const pane2 = pressed.createElement('div');
+    renderEmptyEditor(
+      pane2,
+      emptyEditorFor(facts({ files: 2, peer, following: 'peer-1' })),
+      () => {},
+    );
+    const toggles = [...withClass(pane2, 'empty-actions')[0].children].filter(
+      (button) => button.getAttribute('aria-pressed') !== undefined,
+    );
+    assert.deepEqual(toggles.map((button) => [button.textContent, button.getAttribute('aria-pressed')]), [
+      ['Following ✓', 'true'],
     ]);
   });
 
