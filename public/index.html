@@ -276,10 +276,6 @@
       #file-strip-chips .chip { border: 1px solid var(--border-strong); border-radius: 3px;
         padding: 0 0.35em; white-space: nowrap; }
       #file-strip-chips .chip.warn { color: var(--warning); border-color: var(--warning); }
-      #file-strip-chips .chip.room { border: none; padding: 0; }
-      /* The dot is the tree's own mark, in the tree's colour: the words beside it are the chip's,
-         and the mark that means the room holds this text open is one colour on both surfaces. */
-      #file-strip-chips .chip.room .dot { color: var(--open-mark); }
       #file-strip-follow { display: inline-flex; align-items: center; gap: 0.5em; min-width: 0;
         font-weight: 600; border-radius: var(--radius); }
       #file-strip-follow:empty { display: none; }
@@ -545,6 +541,10 @@
          room that lives in a tab. Written by the bundle (it is copy with one home, `host.ts`),
          so it is hidden while it is empty. */
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
+        line-height: 1.5; }
+      /* What picking a folder gives away, under the button that asks for it: two short sentences
+         with one job each, and the person granting is the only one who can act on them. */
+      #host-share { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
       /* The panel's contents at a narrow width: the panel is the same panel, and its labels give
          way to their tooltips rather than wrapping the tree out of its own column. */
@@ -820,9 +820,14 @@
 
              The card has two intents and each says hosting its own way: on the bare page this
              is the card's own action, and on a guest's it is one quiet line — pressing it is
-             what puts the start card in front of the person (`main.ts`, `swapCardToStart`). -->
+             what puts the start card in front of the person (`main.ts`, `swapCardToStart`).
+
+             `#host-share` is what the folder gives away, and it stands with the button that
+             asks for it: the invite link reaches every file the room shares, and an edit that
+             settles is written into the file on disk. -->
         <div id="host-wrap" hidden>
           <button id="host-button" type="button" hidden>Share a folder…</button>
+          <p id="host-share"></p>
           <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
           <p id="host-note"></p>

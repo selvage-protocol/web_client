@@ -360,7 +360,7 @@ await twin.disconnect();
 check(
   'raw socket error maps to plain copy',
   describeJoinError(new Error('the WebSocket reported an error'), `${BASE}/session`) ===
-    "Couldn't reach the session. Check your connection and retry.",
+    'Couldn\u2019t reach the session. Check your connection and retry.',
 );
 
 // (3) Cut the socket: the reconnect sentence fires, the room reseats and

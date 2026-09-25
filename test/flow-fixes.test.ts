@@ -283,7 +283,7 @@ describe('unreachable server copy', () => {
     ]) {
       assert.equal(
         describeJoinError(error, 'ws://127.0.0.1:9'),
-        "Couldn't reach the session. Check your connection and retry.",
+        "Couldn\u2019t reach the session. Check your connection and retry.",
       );
     }
   });

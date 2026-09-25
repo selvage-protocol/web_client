@@ -47,6 +47,7 @@ import { createInFolder } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
   HOST_NEEDS_THE_SERVERS_PAGE,
+  HOST_SHARE_NOTE,
   clearHostingMark,
   hostAvailability,
   markHosting,
@@ -60,7 +61,6 @@ import { GrantTreeView } from './tree-view.ts';
 import type { CreateResult, RowFeedback } from './tree-view.ts';
 import {
   canSaveAtOnce,
-  documentToAutoOpen,
   fetchAndSave,
   fetchCostsSentence,
   fetchingSentence,
@@ -69,7 +69,7 @@ import {
   stillEmptySentence,
 } from './fetch-download.ts';
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
-import { EMPTY_IN_ROOM_TITLE, IN_THE_ROOM_TITLE } from './tree-state.ts';
+import { EMPTY_IN_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
 import { renderRoster } from './roster.ts';
 import {
@@ -219,6 +219,7 @@ const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostQuiet = document.getElementById('host-quiet') as HTMLButtonElement;
+const hostShare = document.getElementById('host-share') as HTMLElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
@@ -489,15 +490,6 @@ let hostAway = false;
 let readOnly = false;
 /** Whether the cost of fetching has been said this session: it is said once. */
 let saidFetchCosts = false;
-/**
- * The paths this window fetched only to save them.
- *
- * A fetch is a background act — it must not change what the editor shows — but it *is* what puts a
- * path in the room's open set, and the rule that gives a phone a file to look at opens the first
- * document when nothing is open here. So the paths fetched behind the editor are named, and that
- * rule skips them (`documentToAutoOpen`).
- */
-const backgroundFetches = new Set<string>();
 
 /**
  * Creates a file or a directory in the folder this tab picked, and puts it in the room.
@@ -1083,8 +1075,8 @@ async function offerHosting(): Promise<void> {
  * there is an action at all.
  *
  * The two intents say it differently, and that is the whole of the collapse (design §7.1). On the
- * start card the action is the card's own — the button that says what happens next, and the one
- * sentence about the room that click makes this tab the host of. On a guest's card hosting is the
+ * start card the action is the card's own — the button that says what happens next, the two lines
+ * that say what the folder gives away and what the room costs — and on a guest's card hosting is the
  * alternative to the thing the person came for, so it is one quiet line and nothing else: pressing
  * it is what puts the start card in front of them (`swapCardToStart`). A page where hosting is not
  * on offer at all says why, in one line, wherever the action would have stood.
@@ -1098,11 +1090,15 @@ function showHosting(picker: boolean, read: ServerRead): void {
     hostQuiet.hidden = !offered;
     hostButton.hidden = true;
     hostNote.textContent = offered ? '' : availability.note;
+    hostShare.textContent = '';
     return;
   }
   hostQuiet.hidden = true;
   hostNote.textContent = availability.note;
   hostButton.hidden = !offered;
+  // What the folder gives away stands with the button that asks for it, and only there: the person
+  // picking the folder is the only one who can act on it, and only before the click.
+  hostShare.textContent = offered ? HOST_SHARE_NOTE : '';
 }
 
 /**
@@ -1553,11 +1549,15 @@ function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefi
 /**
  * The file strip: the open file's whole state, in one line above the editor.
  *
- * It is where four things that used to be said elsewhere now live — which file is open (nothing
- * said it at all on a phone), whether its text is in the room, whether it is read-only, and
- * whether the folder refused the last write to it — and the `⤓` that saves it. The follow segment
- * is the fifth: the banner that used to stand over the editor is this segment now, in the followed
- * peer's own colour, with the stop control in it.
+ * It is where three things that used to be said elsewhere now live — which file is open (nothing
+ * said it at all on a phone), whether it is read-only, and whether the folder refused the last write
+ * to it — and the `⤓` that saves it. The follow segment is the fourth: the banner that used to stand
+ * over the editor is this segment now, in the followed peer's own colour, with the stop control in it.
+ *
+ * What it no longer says is that the open file's text is in the room. Opening a file is what puts it
+ * there, so for the file on screen the mark was always true: a fact the reader already has, said
+ * again. The tree's `●` still carries it, where it is news — a file this window has not opened — and
+ * the peers in a file are on that row's badges, where the fact is *who*.
  */
 function syncStrip(): void {
   const path = binding?.currentPath();
@@ -1584,18 +1584,6 @@ function syncStrip(): void {
   }
   fileStripChips.replaceChildren();
   if (path !== undefined) {
-    if (binding?.isOpenInRoom(path) === true) {
-      const chip = document.createElement('span');
-      chip.className = 'chip room';
-      // The dot is the tree's own mark in the tree's own colour, and the words beside it are the
-      // chip's: the same fact wears the same mark on both surfaces.
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.textContent = '●';
-      chip.append(dot, ' in the room');
-      chip.title = IN_THE_ROOM_TITLE;
-      fileStripChips.appendChild(chip);
-    }
     if (binding?.hasText(path) === true && binding.isTextEmpty(path)) {
       const chip = document.createElement('span');
       chip.className = 'chip';
@@ -1696,10 +1684,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
   void fetchAndSave(path, {
     has: (candidate) => binding?.hasText(candidate) ?? false,
     text: here,
-    open: (candidate) => {
-      backgroundFetches.add(candidate);
-      return binding?.requestText(candidate) ?? Promise.resolve();
-    },
+    open: (candidate) => binding?.requestText(candidate) ?? Promise.resolve(),
     save: (candidate, text) => downloadDocument(candidate, text, downloadSink),
   }, { standMs: fetchStandMs(awarenessRenewMs()) })
     .then((outcome) => {
@@ -1874,7 +1859,6 @@ function leaveSession(sentence: string): void {
   hostAway = false;
   readOnly = false;
   saidFetchCosts = false;
-  backgroundFetches.clear();
   setHealth('ok');
   editorApi = undefined;
   desktopEditorOptions = undefined;
@@ -2024,14 +2008,12 @@ function onNotice(notice: BindingNotice): void {
       sessionNote.endDropped();
       setHealth(hostAway ? 'away' : 'ok');
       // The tree is the listing, so a changed set re-renders it here as well
-      // as on the grant event itself.
+      // as on the grant event itself. Nothing is opened: opening a file is the person's act, and
+      // the one open the page makes for them is the room's own seat (`openFirst`). A room that
+      // names a document arriving while this window is working must not take the editor — the
+      // download of a file this window has never opened is exactly that shape, and the row it was
+      // asked from, with its note and its actions, is inside the panel an open collapses.
       syncGrant();
-      // A room that names a document should not leave a phone on a blank editor — but a document
-      // this window fetched only to save it is not one the person asked to look at.
-      const first = documentToAutoOpen(notice.documents, binding?.currentPath(), backgroundFetches);
-      if (first !== undefined) {
-        void openPath(first);
-      }
       break;
     case 'peers':
       sessionNote.endDropped();

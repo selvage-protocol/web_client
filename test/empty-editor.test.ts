@@ -195,7 +195,7 @@ describe('the controls the pane draws', () => {
       (button) => button.getAttribute('aria-pressed') !== undefined,
     );
     assert.deepEqual(toggles.map((button) => [button.textContent, button.getAttribute('aria-pressed')]), [
-      ['Following ✓', 'true'],
+      ['Following', 'true'],
     ]);
   });
 
@@ -214,7 +214,7 @@ describe('the controls the pane draws', () => {
       ['browse-files', 'Browse files'],
       ['go-to', 'Go to'],
       ['follow', 'Follow'],
-      ['stop-follow', 'Following ✓'],
+      ['stop-follow', 'Following'],
     ]) {
       assert.equal(emptyEditorActionLabel(action), label, `the ${action} control reads something else`);
     }

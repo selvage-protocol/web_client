@@ -34,7 +34,7 @@ import {
   isGrantedPath,
   sortGrant,
 } from '../bridge/index.ts';
-import type { GrantRefusal, GrantedRead } from '../bridge/index.ts';
+import type { GrantRefusal, GrantedRead, LineEnding } from '../bridge/index.ts';
 
 /**
  * The platform handed to the shared exclusion rule: none. A browser knows neither the host
@@ -192,12 +192,30 @@ export type FolderCreate =
 
 /**
  * What the editor's host half needs of a working copy: a read for a path the room asked for,
- * and a write of the text the room settled on. Structural, so the binding's own tests drive it
- * with a double while `FolderWorkingCopy` is what the page hands over.
+ * a write of the text the room settled on, and how the file itself was laid out when this window
+ * read it. Structural, so the binding's own tests drive it with a double while
+ * `FolderWorkingCopy` is what the page hands over.
  */
 export interface FolderWork {
   read(path: string): Promise<GrantedRead>;
   write(path: string, text: string): Promise<FolderWrite>;
+  layout(path: string): FileLayout | undefined;
+}
+
+/**
+ * How a file's own bytes are laid out, as the last read of it saw them.
+ *
+ * A room's replica is LF whatever the file is (`toCrdt`), so a buffer built from it has to be told
+ * the ending the file wears or the next write puts every line back as LF. The byte order mark is
+ * here for the same reason from the other side: the reader strips it, and the writer has to put it
+ * back or the file loses it on the first edit. Both are recorded with the stamp, because a read is
+ * the only time this module sees the file's bytes.
+ */
+export interface FileLayout {
+  /** The ending the file's bytes use. */
+  readonly eol: LineEnding;
+  /** Whether the bytes open with a UTF-8 byte order mark, which the reader strips from the text. */
+  readonly bom: boolean;
 }
 
 /**
@@ -239,7 +257,7 @@ export function folderWriteSentence(cause: FolderWriteRefusal, path: string): st
     case 'not-granted':
       return `${path} is not a path this room shares, so it was not written.`;
     case 'missing':
-      return `${path} is not in the folder any more, so nothing was written. If it was renamed or deleted, the room's text is the only copy left.`;
+      return `${path} is not in the folder any more, so nothing was written. If it was renamed or deleted, the room\u2019s text is the only copy left.`;
     case 'not-a-file':
       return `${path} is not a plain file in the folder any more, so nothing was written.`;
     case 'unread':
@@ -247,7 +265,7 @@ export function folderWriteSentence(cause: FolderWriteRefusal, path: string): st
     case 'stale':
       return `${path} changed on disk since the room read it, so it was left alone rather than overwritten. Something else wrote it (a formatter, a build, another editor, a checkout); the room still holds its text, and opening the file again brings it in.`;
     case 'not-permitted':
-      return `${path} could not be written: this page no longer has write access to the folder. Grant it again from the address bar, or keep the room's text with Download.`;
+      return `${path} could not be written: this page no longer has write access to the folder. Grant it again from the address bar, or keep the room\u2019s text with Download.`;
   }
 }
 
@@ -298,6 +316,8 @@ export async function pickFolder(picker: PickFolder | undefined): Promise<Folder
 export class FolderWorkingCopy implements FolderWork {
   private readonly handle: FolderDirectoryHandle;
   private readonly stamps = new Map<string, number>();
+  /** The line ending and BOM each read path's bytes had, read beside the stamp for the same reason. */
+  private readonly layouts = new Map<string, FileLayout>();
   /**
    * The paths the last {@link list} offered the room, or `undefined` before the first walk.
    *
@@ -322,6 +342,15 @@ export class FolderWorkingCopy implements FolderWork {
   /** The stamp the last read or write of `path` saw, or `undefined` when there is none. */
   stampOf(path: string): number | undefined {
     return this.stamps.get(path);
+  }
+
+  /**
+   * How `path`'s bytes are laid out, from the last read of it, or `undefined` for a path this
+   * window has not read: a buffer built from the replica is rendered with this ending, and a write
+   * puts this byte order mark back.
+   */
+  layout(path: string): FileLayout | undefined {
+    return this.layouts.get(path);
   }
 
   /**
@@ -439,6 +468,7 @@ export class FolderWorkingCopy implements FolderWork {
       return { kind: 'refused', cause: 'binary' };
     }
     this.stamps.set(path, file.lastModified);
+    this.layouts.set(path, { eol: eolOf(text), bom: hasByteOrderMark(bytes) });
     return { kind: 'text', text };
   }
 
@@ -451,6 +481,10 @@ export class FolderWorkingCopy implements FolderWork {
    * no read behind it would overwrite a file nothing here has looked at. A misbehaving caller
    * therefore loses nothing, and this host never creates a file: `getFileHandle` is only ever
    * called for a name the listing already named.
+   *
+   * What the file's own bytes decide is put back on the way in: the byte order mark the read
+   * stripped, and nothing else. The line ending is the buffer's (`editor.ts` builds a model worn by
+   * the ending this module recorded), so the text arrives already carrying it.
    *
    * What this cannot promise, and does not: `getFile()` and `createWritable()` are two steps,
    * and a change landing between them is not caught. The guard turns the overwrite a person
@@ -514,7 +548,9 @@ export class FolderWorkingCopy implements FolderWork {
       return refuse(cause === 'not-a-file' ? 'not-a-file' : 'missing');
     }
     try {
-      await writable.write(text);
+      // The bytes the file had, not the bytes a decoder produced: a BOM the reader stripped goes back
+      // with the text, so an edit of one character does not delete it.
+      await writable.write(withByteOrderMark(text, this.layouts.get(path)?.bom === true));
       await writable.close();
     } catch (error: unknown) {
       await abortQuietly(writable);
@@ -740,6 +776,24 @@ function namedRefusal(error: unknown): GrantRefusal {
 function permissionRefusal(error: unknown): boolean {
   const name = errorName(error);
   return name === 'NotAllowedError' || name === 'SecurityError' || name === 'InvalidStateError';
+}
+
+/**
+ * The line ending a file's text uses. A file with mixed endings, or none, renders as LF: the
+ * document's own ending is the first thing an editor normalises, and Monaco does the same.
+ */
+function eolOf(text: string): LineEnding {
+  return text.includes('\r\n') ? '\r\n' : '\n';
+}
+
+/** Whether the bytes open with a UTF-8 byte order mark, which `decodableText` strips from the text. */
+function hasByteOrderMark(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+}
+
+/** The text as the file will carry it, with the byte order mark back where the read found one. */
+function withByteOrderMark(text: string, bom: boolean): string {
+  return bom && !text.startsWith('\uFEFF') ? `\uFEFF${text}` : text;
 }
 
 function errorName(error: unknown): string {

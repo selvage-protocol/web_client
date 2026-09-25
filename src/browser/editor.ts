@@ -2,7 +2,7 @@ import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
-import { DEFAULT_SAVE_SETTLE_MS, grantUnion, peerColour, realTimers } from '../bridge/index.ts';
+import { DEFAULT_SAVE_SETTLE_MS, grantUnion, peerColour, realTimers, render } from '../bridge/index.ts';
 import type { GrantRefusal, Timers } from '../bridge/index.ts';
 import type { FolderWork } from './folder.ts';
 import { grantLevels } from './tree.ts';
@@ -127,7 +127,7 @@ export interface BindingOptions {
    * its `save` stays a no-op and its reads stay refusals.
    */
   folder?: FolderWork;
-  /** The clock the caret interval runs on; real timers unless a test drives its own. */
+  /** The clock the binding's own timers run on, and the bridge's; real timers unless a test drives its own. */
   timers?: Timers;
 }
 
@@ -158,15 +158,29 @@ export class MonacoBinding implements EditorHost {
   private readonly timers: Timers;
   private applying = 0;
   /**
-   * The armed write of a document this window hosts, or `undefined` when none is.
+   * The armed writes of the documents this window hosts, one entry per path.
    *
    * A page-hosted room's document is not the file: the editor holds the buffer and the folder
    * holds the file. So a change this window makes itself is published to the room and has
    * nowhere else to reach the person's own working copy from — the page has no save gesture.
    * The bridge writes a document the *room* changed; this is the same write for the changes
    * this window makes, on the bridge's own settle so a burst of typing costs one write.
+   *
+   * One timer per path, as the bridge's own `saves` map is: a single slot for the whole binding let
+   * a keystroke in one file cancel the write another was owed, and nothing re-armed it until that
+   * file was edited again.
    */
-  private writeTimer: (() => void) | undefined;
+  private readonly writeTimers = new Map<string, () => void>();
+  /**
+   * The write of a path that is in the folder now, with the pass a caller arriving mid-write is owed.
+   *
+   * Two writes of one path must not overlap: `write` in the folder captures the file's stamp before
+   * its first `await`, so the second of two writes that started in the same settle is refused as
+   * `stale` and the person is shown "something else wrote it" about a write that landed. A peer's
+   * edit and this window's own keystroke arm a write each, which is the ordinary case when two people
+   * type together, so both writers come through `save` and this is where they are ordered.
+   */
+  private readonly writes = new Map<string, PendingWrite>();
   /** A caret move whose position is waiting for the interval to pass. */
   private selectionDirty = false;
   private selectionTimer: (() => void) | undefined;
@@ -204,7 +218,7 @@ export class MonacoBinding implements EditorHost {
     document.head.appendChild(this.style);
     this.badgeStyle = document.createElement('style');
     document.head.appendChild(this.badgeStyle);
-    this.bridge = new SessionBridge({ engine: this.engine, host: this });
+    this.bridge = new SessionBridge({ engine: this.engine, host: this, timers: this.timers });
     // The selection events this binding's own remote apply raises are that apply's echo, and
     // nothing else can fire while it runs — no input is processed inside a synchronous
     // `pushEditOperations` — so they are not what the room is told. An interval a local move
@@ -353,7 +367,10 @@ export class MonacoBinding implements EditorHost {
     this.disposed = true;
     this.stopEngine();
     this.cancelSelection();
-    this.cancelWrite();
+    // Flushed rather than dropped: the folder handle and the buffers are both still valid here (the
+    // models are disposed below), and a keystroke inside the settle is the person's own text. A
+    // notice from the write is not said — the page's chrome is being taken down with the binding.
+    this.flushWrites();
     this.drawn = [];
     this.followingPeerId = undefined;
     this.pendingGoTo = undefined;
@@ -717,7 +734,9 @@ export class MonacoBinding implements EditorHost {
    *
    * The room's own text when the room has any for the path — a path the room already holds is
    * the room's, and this window does not put its disk copy over an edit a peer made
-   * (`seed`'s rule in the bridge, read here rather than after the fact). When the room holds
+   * (`seed`'s rule in the bridge, read here rather than after the fact), rendered into the ending the
+   * file itself wears: the replica is LF whatever the file is, so a model built from the replica
+   * alone would put every line back as LF on the host's first keystroke. When the room holds
    * nothing and this window is the host, the file is read out of the folder *now*, because the
    * open is the host's own click and the disk is the source of truth: `engine.text` is empty
    * for a path nobody has published, and a model built from it would leave the host looking at
@@ -726,8 +745,16 @@ export class MonacoBinding implements EditorHost {
    * starts empty, which is what a listing the host cannot serve looks like.
    */
   private async initialText(path: string): Promise<string> {
-    if (this.folder === undefined || this.bridge.role() !== 'host' || this.engine.has(path)) {
+    if (this.folder === undefined || this.bridge.role() !== 'host') {
       return this.engine.text(path);
+    }
+    if (this.engine.has(path)) {
+      // The room already holds the path, and the replica is LF whatever the file is (`toCrdt`). A
+      // file a guest opened first is the one this reaches: building the model from the replica will
+      // not do, because the host's first keystroke would then put every line back as LF — 0.4.3 did
+      // that for a guest's edit through the bridge's render, and this is the host's own typing. The
+      // ending is the one the read of this path recorded, which is the file's own.
+      return render(this.engine.text(path), this.folder.layout(path)?.eol ?? '\n');
     }
     const read = await this.folder.read(path);
     if (read.kind === 'text') {
@@ -799,15 +826,82 @@ export class MonacoBinding implements EditorHost {
       // a host's for a path it does not hold — nothing here knows the text to write.
       return true;
     }
-    const outcome = await this.folder.write(path, model.getValue());
-    if (outcome.kind === 'refused') {
-      // Thrown rather than `false`, so the sentence reaches the person: the bridge reports a
-      // rejected save with the reason it was given, and a bare `false` would arrive as a
-      // verb-less notice (`write` in the bridge).
-      throw new Error(outcome.sentence);
+    const running = this.writes.get(path);
+    if (running !== undefined) {
+      // A write of this path is in the folder. Waiting for it and asking for one more pass if the
+      // buffer moved is what keeps two writers of one file from overlapping; `writes` says why.
+      running.again = true;
+      const refused = await running.done;
+      if (refused !== undefined) {
+        throw refused;
+      }
+      return true;
     }
-    this.onNotice({ kind: 'saved', path });
+    let settle: (error: Error | undefined) => void = () => undefined;
+    const done = new Promise<Error | undefined>((resolve) => {
+      settle = resolve;
+    });
+    const slot: PendingWrite = { done, settle, again: false };
+    this.writes.set(path, slot);
+    let pass = await this.writeOnce(this.folder, path);
+    while (slot.again && pass.error === undefined) {
+      slot.again = false;
+      const current = this.models.get(path);
+      if (
+        current === undefined ||
+        current.isDisposed() ||
+        pass.text === undefined ||
+        current.getValue() === pass.text
+      ) {
+        // The buffer holds what the folder was just given: the second caller was the same settle
+        // asking twice, which is the ordinary shape of a peer's edit and a local keystroke together.
+        break;
+      }
+      pass = await this.writeOnce(this.folder, path);
+    }
+    this.writes.delete(path);
+    settle(pass.error);
+    if (pass.error !== undefined) {
+      throw pass.error;
+    }
     return true;
+  }
+
+  /**
+   * One write of a path's settled text, with the outcome rather than an exception.
+   *
+   * The text is read here, when the pass runs, and not when a caller asked: a peer's edit that lands
+   * inside the settle is already in the buffer by then, and the folder gets the room's text rather
+   * than a stale one. A refusal is returned rather than thrown so `save` can pass it to every caller
+   * that was waiting on this path; a path whose model has gone writes nothing.
+   */
+  private async writeOnce(
+    folder: FolderWork,
+    path: string,
+  ): Promise<{ error?: Error; text?: string }> {
+    const model = this.models.get(path);
+    if (model === undefined || model.isDisposed()) {
+      return {};
+    }
+    const text = model.getValue();
+    const outcome = await folder.write(path, text);
+    if (outcome.kind === 'refused') {
+      return { error: new Error(outcome.sentence), text };
+    }
+    this.say({ kind: 'saved', path });
+    return { text };
+  }
+
+  /**
+   * Says something to the page, unless the binding is gone.
+   *
+   * The only notices a disposed binding can still raise are the ones from the flush `dispose` runs,
+   * and they would land on chrome that is being taken down with it.
+   */
+  private say(notice: BindingNotice): void {
+    if (!this.disposed) {
+      this.onNotice(notice);
+    }
   }
 
   /**
@@ -943,7 +1037,7 @@ export class MonacoBinding implements EditorHost {
       case 'saveFailed':
         this.onNotice({
           kind: 'failure',
-          text: report.message ?? `The room's text could not be written to ${report.path}.`,
+          text: report.message ?? `The room\u2019s text could not be written to ${report.path}.`,
           path: report.path,
         });
         break;
@@ -990,27 +1084,40 @@ export class MonacoBinding implements EditorHost {
    * Arms the write of a document this window hosts, on the bridge's own settle.
    *
    * A window with no folder shares nothing: a guest's document is virtual and its `save` is a
-   * no-op, so there is nothing to write and no timer to arm. The same settle the bridge uses for
-   * a document the room changed, so a burst of typing costs one write and the two kinds of
-   * write cannot land on each other.
+   * no-op, so there is nothing to write and no timer to arm. The same settle the bridge uses for a
+   * document the room changed, so a burst of typing costs one write. Re-arming touches only this
+   * path's own timer: another file's write is not this edit's to cancel.
    */
   private scheduleWrite(path: string): void {
     if (this.folder === undefined) {
       return;
     }
-    this.cancelWrite();
-    this.writeTimer = this.timers.after(DEFAULT_SAVE_SETTLE_MS, () => {
-      this.writeTimer = undefined;
-      void this.writeSettled(path);
-    });
+    this.cancelWrite(path);
+    this.writeTimers.set(
+      path,
+      this.timers.after(DEFAULT_SAVE_SETTLE_MS, () => {
+        this.writeTimers.delete(path);
+        void this.writeSettled(path);
+      }),
+    );
   }
 
-  /** Drops the armed write, so a disposed binding leaves no timer behind. */
-  private cancelWrite(): void {
-    if (this.writeTimer !== undefined) {
-      this.writeTimer();
-      this.writeTimer = undefined;
+  /** Drops one path's armed write, so the next edit of it re-arms the settle from now. */
+  private cancelWrite(path: string): void {
+    const cancel = this.writeTimers.get(path);
+    if (cancel !== undefined) {
+      cancel();
+      this.writeTimers.delete(path);
     }
+  }
+
+  /** Writes every armed document now, in place of the settle nobody is left to wait for. */
+  private flushWrites(): void {
+    for (const [path, cancel] of this.writeTimers) {
+      cancel();
+      void this.writeSettled(path);
+    }
+    this.writeTimers.clear();
   }
 
   /**
@@ -1021,24 +1128,19 @@ export class MonacoBinding implements EditorHost {
    * emits for a write it made itself.
    */
   private async writeSettled(path: string): Promise<void> {
-    // A write armed before the binding was disposed still runs: the timer is cancelled on the way
-    // out, but one that has already fired is in flight, and half a page is no place to write from.
-    // `save` already refuses a closed document; this refuses a binding that is gone, whose notices
-    // would have nowhere to land.
-    if (this.disposed) {
-      return;
-    }
     try {
       await this.save(path);
     } catch (error: unknown) {
-      if (this.disposed) {
-        return;
+      // A refusal from the flush `dispose` runs is not said: the page's chrome is being taken down
+      // with the binding and there is no row left to mark. A refusal from the settle is said here,
+      // which is the whole of what this guard does.
+      if (!this.disposed) {
+        this.report({
+          kind: 'saveFailed',
+          path,
+          message: error instanceof Error ? error.message : undefined,
+        });
       }
-      this.report({
-        kind: 'saveFailed',
-        path,
-        message: error instanceof Error ? error.message : undefined,
-      });
     }
   }
 
@@ -1109,6 +1211,20 @@ export class MonacoBinding implements EditorHost {
 
 function peerName(displayName: string, peerId: string): string {
   return displayName === '' ? peerId : displayName;
+}
+
+/**
+ * The write of one path that is in the folder now, and the pass a caller arriving mid-write is owed.
+ *
+ * `done` resolves with the refusal the passes hit, or `undefined`, once every pass this slot owes has
+ * run: a caller that arrived while one was in flight waits on it rather than starting a second write
+ * beside it. `again` is that caller's ask for one more pass, which runs only if the buffer has moved
+ * by then — two requests inside one settle are one write.
+ */
+interface PendingWrite {
+  readonly done: Promise<Error | undefined>;
+  readonly settle: (error: Error | undefined) => void;
+  again: boolean;
 }
 
 /**

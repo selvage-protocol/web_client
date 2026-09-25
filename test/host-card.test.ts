@@ -17,6 +17,7 @@ import {
   HOST_MARK_KEY,
   HOST_NEEDS_A_BROWSER,
   HOST_NEEDS_THE_SERVERS_PAGE,
+  HOST_SHARE_NOTE,
   HOST_TAB_WARNING,
   HOST_UNREAD_NOTE,
   clearHostingMark,
@@ -84,18 +85,35 @@ describe('the host action in the shell', () => {
     assert.ok(!form.includes('host-wrap'), 'the host action sits inside the join form');
   });
 
-  it('asks for a folder in three words, and says nothing the press has already said', () => {
+  it('asks for a folder in three words, and says what the folder gives away before the click', () => {
     // The ellipsis is the platform's own convention for "this opens a picker".
     assert.match(html, /Share a folder\u2026/, 'the button does not say what it does');
     assert.match(main, /HOST_BUTTON_LABEL = 'Share a folder\u2026'/, 'the label the bundle puts back differs from the shell');
     assert.ok(!html.includes('Choose a folder'), 'the long label survives in the shell');
-    // The card carried a second paragraph under the button saying what a guest gets — the names
-    // in the folder, and a file's text only when it is opened. That is what the grant already
-    // defines (`DESIGN.md` §4.2 states the listing is paths, never content, and says nothing
-    // about the card), so the card does not say it and the paragraph is gone from both halves.
-    assert.ok(!main.includes('HOST_GUESTS_NOTE'), 'the card says what a guest gets, again');
-    assert.ok(!main.includes('host-share') && !main.includes('hostShare'), 'the paragraph survives in the wiring');
-    assert.ok(!html.includes('host-share'), 'the paragraph survives in the shell');
+    // The card carried a paragraph under the button saying what a guest gets — the names in the
+    // folder, and a file's text only when it is opened. The grant already defines the listing
+    // (`DESIGN.md` §4.2), so the paragraph was cut — and the cut left the card saying nothing about
+    // the one thing the person granting is the only one who can act on, and only before the click:
+    // anyone with the invite link can open and edit the files this page shares, and an edit that
+    // settles is written into the file on disk. Two sentences, one job each.
+    assert.equal(
+      HOST_SHARE_NOTE,
+      'Anyone with the invite link can open and edit the files this page shares. Edits are written back to those files on disk.',
+    );
+    assert.match(HOST_SHARE_NOTE, /^Anyone with the invite link can open and edit the files/);
+    assert.match(HOST_SHARE_NOTE, /Edits are written back to those files on disk\.$/);
+    // It does not claim every path in the folder: the grant excludes `.env`, `.git/**` and the key
+    // names, and a binary-named or oversize file never reaches the listing (`folder.ts`).
+    assert.ok(!/every file/i.test(HOST_SHARE_NOTE), 'the card claims the whole folder is shared');
+    assert.ok(!/nothing is saved|not saved/i.test(HOST_SHARE_NOTE), 'the card denies the write-back again');
+    // It is on the card, under the button it is about, and the bundle is what writes it.
+    const wrap = sliceBetween(html, '<div id="host-wrap"', '</div>');
+    const button = wrap.indexOf('id="host-button"');
+    const share = wrap.indexOf('id="host-share"');
+    assert.ok(share !== -1, 'the card has no line for what the folder gives away');
+    assert.ok(button !== -1 && button < share, 'the note about the folder is not under the button that asks for it');
+    assert.match(main, /hostShare\.textContent = offered \? HOST_SHARE_NOTE : ''/, 'the line is never written with the offer');
+    assert.ok(!main.includes('HOST_GUESTS_NOTE'), 'the old guests note survives in the bundle');
   });
 
   it("says hosting in one quiet line on a guest's card, and the one sentence it costs on the start card", () => {
@@ -112,12 +130,15 @@ describe('the host action in the shell', () => {
       'a guest is read the sentence about a room the card has not offered to make a host');
     // And the sentence is the start card's own, once.
     assert.match(showing, /hostNote\.textContent = availability\.note;/, 'the start card says nothing about what the room costs');
-    // One sentence, and it is the fact the person cannot see for themselves: closing or reloading
-    // this tab ends the room and nothing is written down. That the tab is the host is what the
-    // press already said, the countdown is the room's own grace and to be read where it runs, and
-    // a number in it would go stale.
+    // One sentence, and it is the facts the person cannot see for themselves: the room and its
+    // invite link go with the tab, and only what has not settled yet is at risk — every settled edit
+    // is already in the folder, which is what the sentence before this one made the page do. That
+    // the tab is the host is what the press already said, the countdown is the room's own grace and
+    // to be read where it runs, and a number in it would go stale.
     assert.match(HOST_TAB_WARNING, /^Closing or reloading this tab ends the room/, 'the sentence names some other cost');
-    assert.match(HOST_TAB_WARNING, /nothing in it is saved/i, 'the sentence does not say the room is lost');
+    assert.match(HOST_TAB_WARNING, /the invite link stops working/, 'the sentence does not say the link dies with the room');
+    assert.match(HOST_TAB_WARNING, /last keystrokes may not reach your folder/, 'the sentence does not say what is at risk');
+    assert.ok(!/nothing in it is saved|not saved/i.test(HOST_TAB_WARNING), `the sentence still denies the write-back: ${HOST_TAB_WARNING}`);
     assert.ok(!/\.\s/.test(HOST_TAB_WARNING), `the card is a paragraph again: ${HOST_TAB_WARNING}`);
     assert.ok(!/\bhost\b/i.test(HOST_TAB_WARNING), `the sentence tells a host that it is hosting: ${HOST_TAB_WARNING}`);
     assert.ok(!/\bcountdown\b|\bseconds?\b|\bminutes?\b/i.test(HOST_TAB_WARNING), `the sentence carries a number that goes stale: ${HOST_TAB_WARNING}`);
@@ -263,7 +284,7 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
     // And what that mapper does with the engine's message is the plain sentence.
     assert.equal(
       describeJoinError(new Error('the WebSocket reported an error'), 'ws://127.0.0.1:9'),
-      "Couldn't reach the session. Check your connection and retry.",
+      "Couldn\u2019t reach the session. Check your connection and retry.",
     );
   });
 });
@@ -280,7 +301,9 @@ describe('what a reload leaves behind', () => {
     // that starts another. The page-hosted shape is what they just reloaded, and the guests'
     // countdown belongs to the room they are no longer in.
     assert.match(notice, /^Reloading ended the room this tab was hosting/);
-    assert.match(notice, /nothing in it was saved/i);
+    assert.match(notice, /the invite link is dead/);
+    assert.match(notice, /everything settled is already in your folder/);
+    assert.ok(!/nothing in it was saved|not saved/i.test(notice), `the card still denies the write-back: ${notice}`);
     assert.match(notice, /pick the folder again to start another/i);
     assert.ok(!/\.\s/.test(notice), `the card is a paragraph again: ${notice}`);
     assert.ok(!/\bcountdown\b|\bgrace\b/i.test(notice), `the reloaded host is told about a room they left: ${notice}`);

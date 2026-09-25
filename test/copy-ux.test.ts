@@ -10,7 +10,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { wireShareBox } from '../src/browser/share-box.ts';
 import { abbreviateHost, displayShareLink } from '../src/browser/share.ts';
@@ -298,5 +298,31 @@ describe('plain-words copy', () => {
     for (const output of outputs) {
       assert.ok(!output.includes('—'), `em dash does structural work: ${output}`);
     }
+  });
+});
+
+describe('the page\u2019s own words', () => {
+  it('uses the curly apostrophe in every string, so no sentence looks pasted together', () => {
+    // The page's copy is set in one hand, and a straight `'` beside a curly `\u2019` is the one mark
+    // that reads as machine-written. The scan is over the sources because the bundle is minified and
+    // carries Monaco's own English, which is not this page's copy. Comments are dropped first: prose
+    // in a comment may spell an apostrophe however it likes, and it is not read by anyone but us.
+    const found = [];
+    for (const name of readdirSync(new URL('../src/browser', import.meta.url)).sort()) {
+      if (!name.endsWith('.ts')) {
+        continue;
+      }
+      const source = readFileSync(new URL(`../src/browser/${name}`, import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, (block) => '\n'.repeat(block.split('\n').length - 1));
+      source.split('\n').forEach((line, index) => {
+        const code = line.replace(/(?<!:) \/\/.*$/, '').replace(/^\s*\/\/.*$/, '');
+        for (const match of code.matchAll(/[A-Za-z]\\?'[A-Za-z]/g)) {
+          found.push(`${name}:${index + 1}: ${match[0]}`);
+        }
+      });
+    }
+    assert.deepEqual(found, [], `a straight apostrophe survives in a string: ${found.join(', ')}`);
+    // The scan has to reach the files it names: a glob that matches nothing reports a clean tree.
+    assert.ok(found.length === 0 && readdirSync(new URL('../src/browser', import.meta.url)).length > 10);
   });
 });

@@ -32,11 +32,12 @@ export const HOST_MARK_KEY = 'selvage.hosting';
  * The one thing the start card says about the room the click makes: the cost of a room that lives
  * in a tab.
  *
- * A room's contents are the peers' own memory and nothing is written to the folder, so closing or
- * reloading this tab ends the room and loses it. That is the only fact on the card a person cannot
- * see for themselves, so it is the only prose the card carries: that the tab is the host is what
- * the press already said, and what a guest reads of the folder is the grant's business
- * (`DESIGN.md` §4.2 defines the listing as paths and says nothing about what the card must state).
+ * The room's text is written into the folder this window was handed — every edit the room settles on,
+ * the host's own keystrokes and every guest's alike, within `DEFAULT_SAVE_SETTLE_MS` — so closing or
+ * reloading this tab costs the room, its invite link and whatever has not settled yet, and nothing
+ * else. That is what the sentence says, and the folder note beside it (`HOST_SHARE_NOTE`) says what
+ * the write-back is, because the person picking the folder is the only one who can act on it and
+ * only before the click.
  *
  * The countdown a guest gets is the room's own grace (`DESIGN.md` §4.4), which the server states
  * and a desktop host has the same, so the sentence names the shape and not a number that would go
@@ -47,7 +48,23 @@ export const HOST_MARK_KEY = 'selvage.hosting';
  * time this sentence is in front of them.
  */
 export const HOST_TAB_WARNING =
-  'Closing or reloading this tab ends the room, and nothing in it is saved.';
+  'Closing or reloading this tab ends the room for everyone in it; the invite link stops working, and the last keystrokes may not reach your folder.';
+
+/**
+ * What picking a folder gives away, under the button that asks for it.
+ *
+ * Two sentences, one job each: who can reach the files, and where an edit lands. The grant of a
+ * page-hosted room is the folder handle a person hands over, and anyone holding the invite link can
+ * open any path the listing carries and edit it; every settled edit is then written into the file on
+ * disk, which is the same fact `HOST_TAB_WARNING` reasons from.
+ *
+ * It says the files *this page shares* rather than every file in the folder, because it shares a
+ * subset: the grant excludes `.env`, `.git/**` and the key names, leaves out a binary-named path and
+ * refuses one past the size bound, and a file past the walk's budget never reaches the listing at
+ * all (`folder.ts` applies the shared rule before it resolves anything).
+ */
+export const HOST_SHARE_NOTE =
+  'Anyone with the invite link can open and edit the files this page shares. Edits are written back to those files on disk.';
 
 /** Why the host action is not offered: this browser has no directory picker. */
 export const HOST_NEEDS_A_BROWSER =
@@ -133,10 +150,12 @@ export function takeHostingNotice(storage: HostStorage): string | undefined {
  *
  * The page-hosted shape is not explained to this reader — they reloaded their own tab, and the
  * card in front of them is the explanation — and the guests' countdown is said where it runs rather
- * than to a host who is no longer in the room (`wireSessionNote`).
+ * than to a host who is no longer in the room (`wireSessionNote`). What the reload cost is the room
+ * and its invite link, and no more than the keystrokes still inside the settle: everything else was
+ * written to the folder, which is what the sentence says rather than the old claim that nothing was.
  */
 export function hostingOverSentence(): string {
-  return 'Reloading ended the room this tab was hosting, and nothing in it was saved; pick the folder again to start another.';
+  return 'Reloading ended the room this tab was hosting; the invite link is dead, everything settled is already in your folder, and pick the folder again to start another.';
 }
 
 /**
