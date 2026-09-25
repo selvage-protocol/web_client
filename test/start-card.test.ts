@@ -253,6 +253,11 @@ describe('the name error stands where the name was asked for', () => {
     assert.ok(label !== -1 && input !== -1 && error !== -1 && path !== -1, 'the card lost a part');
     assert.ok(label < input && input < error && error < path, 'the refusal is not beside the field');
     assert.match(card, /id="name-error" role="alert"/, 'the refusal line announces nothing');
+    assert.match(
+      card,
+      /<input id="name"[^>]*aria-describedby="name-error"/,
+      'the line a screen reader is told about is not associated with the field',
+    );
     assert.match(rule('#name-error:empty'), /display:\s*none/, 'an empty refusal line holds a gap');
     assert.match(
       style,
@@ -297,6 +302,7 @@ describe('the name error stands where the name was asked for', () => {
       'a stale failure under the start button survives an attempt to join',
     );
     assert.match(attempt, /clearNameFailure\(nameField\)/, 'a stale refusal of the name survives a join');
+    assert.match(attempt, /joinError\.textContent = ''/, 'a stale invite refusal survives the next join');
     assert.match(
       attempt,
       /showNameFailure\(nameField, describe\(error\)\)/,

@@ -221,7 +221,7 @@ describe('the card is the flow, not a page of prose', () => {
   });
 
   it('keeps what the flow is pinned on: the paste schematic, the name field, Enter', () => {
-    assert.match(card, /<input id="name" type="text" maxlength="32" autocomplete="off" \/>/,
+    assert.match(card, /<input id="name" type="text" maxlength="32" autocomplete="off"/,
       'the name field left the card, or grew an example that reads as a value');
     assert.match(card, /room=…&token=…/, 'the paste schematic left the card');
     assert.ok(card.includes('id="join-form"'), 'no form: Enter would not join');

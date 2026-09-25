@@ -761,7 +761,8 @@
              replayed. The bundle replays a held join. -->
         <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingSubmit = true; var path = document.getElementById('invite-path'); window.__selvagePendingInvitePath = path ? path.open === true : false; } return false;">
           <label>The name other participants see
-            <input id="name" type="text" maxlength="32" autocomplete="off" />
+            <input id="name" type="text" maxlength="32" autocomplete="off"
+              aria-describedby="name-error" />
           </label>
           <!-- The name's own refusal, at the field it is about: the start action's line stands
                under its button, and the button is a screen away from where the name is asked.

@@ -616,8 +616,10 @@ if (window.__selvagePendingJoin === true) {
 
 function attemptJoin(): void {
   // One failure stands on the card at a time: the line the other action left goes with this
-  // attempt.
+  // attempt, and so does this path's own — a refusal about an invite the person has since
+  // replaced is a line about nothing.
   hostError.textContent = '';
+  joinError.textContent = '';
   clearNameFailure(nameField);
   // Read at submit time: a queued join holds these until load, so anything
   // typed meanwhile must not rewrite the attempt.
