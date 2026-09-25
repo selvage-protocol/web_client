@@ -394,13 +394,16 @@
          always and keeps it on the edge, with the marks beside it.
 
          The row's one auto margin belongs to the first thing in its right-hand group, and never to
-         two of them: two `auto` margins split the free space and stop the marks half-way across. */
+         two of them: two `auto` margins split the free space and stop the marks half-way across.
+         That group is the ⚠, the control and the badges, in that order, and the ⚠ owns the margin
+         when it is there — it is what the row says about a file the room refused a write to, and a
+         mark that belongs beside the badges sat out by the file's name instead. */
       @media (any-hover: hover) {
         #tree button.row .presence { order: 1; }
         #tree button.row:has(.unsaved) .presence,
         #tree button.row:has(.row-actions) .presence { margin-left: 0; }
-        #tree button.row:has(.unsaved):not(:has(.row-actions)) .unsaved,
-        #tree button.row:has(.row-actions) .row-actions { margin-left: auto; }
+        #tree button.row:has(.unsaved) .unsaved,
+        #tree button.row:not(:has(.unsaved)) .row-actions { margin-left: auto; }
       }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
