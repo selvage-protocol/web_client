@@ -93,11 +93,13 @@ describe('the editor a phone gets', () => {
     // Measured in Chromium at 390x844: the line numbers, the fold arrows and the decoration width
     // took 96 of the 390 px — a quarter of the screen, and 30 % at 320 — for numbers no phone
     // document reaches and arrows a fingertip cannot hit. The glyph margin is the column a peer's
-    // badge is drawn in, so it stays.
+    // badge is drawn in, so it stays. What is left of the 55 px this adds up to is the separation
+    // the number and the code need: measured before, the number's ink ended at x=51 and the code
+    // started at x=55 — 4 px, against the 26 a pointer device has.
     const phone = editorOptionsFor(true);
-    assert.equal(phone.lineNumbersMinChars, 3, 'the line-number column is Monaco\u2019s default width');
+    assert.equal(phone.lineNumbersMinChars, 2, 'the line-number column is wider than a phone document needs');
     assert.equal(phone.folding, false, 'the fold arrows still take a column of a phone\u2019s gutter');
-    assert.equal(phone.lineDecorationsWidth, 4, 'the decoration width is still Monaco\u2019s 10 px');
+    assert.equal(phone.lineDecorationsWidth, 14, 'the code is left against the line numbers again');
     assert.equal(phone.glyphMargin, true, 'the peer badges lost the column they are drawn in');
   });
 });
@@ -323,14 +325,38 @@ describe('the panel on a phone', () => {
     assert.match(main, /showPanel\(!phoneLayout\.matches\)/, 'the panel does not start shut on a phone');
   });
 
-  it('keeps the roster to one alignment: no row grows a second line', () => {
+  it('keeps the roster to one alignment: the verbs stay on the name\u2019s line', () => {
     // Measured at 390x844 with five peers: a long name wrapped the row's verbs onto a line of
     // their own, left-aligned at x=17 and 82 px tall, while a short name kept them right-aligned on
     // the name's line at x=207 and 57 px. Two alignments and two heights in one list, and the
-    // phrase a reader scans for — `not in a file yet` — in a different place on every row.
+    // phrase a reader scans for — `not in a file yet` — in a different place on every row. What
+    // wraps is the name's own box and not the row, so a tall row is a long name and never a verb
+    // in the wrong place.
     const row = declarations(mediaBlock(TOUCH_QUERY), '#roster li');
     assert.match(row, /flex-wrap:\s*nowrap/, 'the verbs drop to a line of their own again');
     assert.ok(!/flex-wrap:\s*wrap/.test(row), 'a roster row still wraps its actions');
+  });
+
+  it('gives the name the room the verb labels were taking, and a second line when that is not enough', () => {
+    // Measured at 320x640 with a 23-character name: the peer row's name got 76 px beside `Follow`
+    // and `not in a file yet` — about nine bold characters, and nothing on the page showed the rest,
+    // a phone having no tooltip and the `title` carrying a peer id at most. The verbs' words are
+    // still the control's own accessible name: `display: none` would take them out of the
+    // accessibility tree with the pixels, which is what the narrow-panel container query already
+    // does to a `Go to` that carries no tooltip either.
+    const touch = mediaBlock(TOUCH_QUERY);
+    const label = declarations(touch, '#roster .actions button .label');
+    assert.match(label, /clip-path:\s*inset\(50%\)/, 'the verbs are painted by their labels again');
+    assert.doesNotMatch(label, /display:\s*none/,
+      'the verb\u2019s own words leave the accessibility tree with the pixels');
+    // And a name that still does not fit takes a second line rather than an ellipsis: the row's
+    // verbs keep the place they hold on every other row, because the name wraps and not the row.
+    // That rule is not in the touch block: a name cut to `Francesca B…` is unreadable on a 336 px
+    // desktop panel, where nothing carries the full name either.
+    assert.match(declarations(style, '#roster .name'), /white-space:\s*normal/,
+      'a long name is cut where nothing shows the rest of it');
+    assert.doesNotMatch(declarations(style, '#roster .name'), /text-overflow:\s*ellipsis/,
+      'the ellipsis is back, so the name is cut again');
   });
 
   it('makes its cap the box the panel actually takes', () => {
@@ -496,6 +522,34 @@ describe('the pre-join card on a phone, and the page under it', () => {
     assert.ok(!/top:\s*auto/.test(card), `the card is still taken out of the top: ${card}`);
     assert.match(card, /top:\s*max\(/, `the card is not anchored near the top: ${card}`);
     assert.match(card, /env\(safe-area-inset-bottom\)/, 'the card lost the home-indicator inset');
+  });
+
+  it('is two columns on a phone on its side, where the height is what is short', () => {
+    // Measured at 844x390 in a browser with no folder picker: the card held 517 px of content in
+    // 367 px and the one action it exists for — `Join` — spanned y=355-400 on a 390 px screen, cut
+    // off the bottom. Upright the same card fits an 844 px screen exactly, so the shape that had to
+    // change is the short one: the card reads as two columns, what it is on the left and what it
+    // asks on the right, and the same content fits 348 px of the 367 the screen gives it.
+    const LANDSCAPE = '(any-hover: none) and (max-height: 480px)';
+    const block = mediaBlock(LANDSCAPE);
+    assert.match(declarations(block, '#join'), /display:\s*grid/, 'the landscape card is one tall column again');
+    // The mark and the heading share a line, which is half of what the height needed.
+    assert.match(declarations(block, '#join .mark'), /align-self:\s*center/,
+      'the mark is a block over the heading again, 46 px of a 367 px card');
+    assert.match(declarations(block, '#join > h1'), /grid-row:\s*1/, 'the heading does not share the mark\u2019s line');
+    // And what the card asks reads in two columns: the name field, then the invite path and Join.
+    assert.match(
+      declarations(block, '#join-form'),
+      /grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/,
+      'the two fields do not share the card\u2019s width',
+    );
+    // An empty refusal line reserves 1.4em under Join; this is the one card with no height to
+    // reserve it in, and nothing takes the space unless there is something to say.
+    assert.match(
+      declarations(block, '#join #join-error'),
+      /min-height:\s*0/,
+      'the refusal line reserves room the card does not have',
+    );
   });
 
   it('opens the page under the app, so a deployment footer is not pushed below the fold', () => {

@@ -2,10 +2,11 @@
  * Roster rows: who is here, glanceable. Each row carries the peer's colour
  * swatch, their name, the role the room gives them, and the two verbs — never
  * path text (where someone is reads on the grant tree, as a badge on their
- * file). The own row leads, marked only by the one control that changes this
- * connection's own name, and a host wears the crown. Follow is a toggle, so the
- * row a window is following reads `Following` and pressing it stops, exactly as
- * the file strip's own Stop does: one state, reachable from either side.
+ * file). The own row leads, says whose row it is — `(you)`, and `aria-current`
+ * for a reader that does not see the word — and a host wears the crown. Follow
+ * is a toggle, so the row a window is following reads `Following` and pressing
+ * it stops, exactly as the file strip's own Stop does: one state, reachable from
+ * either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
  * own state: the page holds it, stops re-drawing the list while it is open — a
@@ -133,18 +134,26 @@ export function renderRoster(list: HTMLElement, peers: readonly RosterPeer[], vi
  * room labels the seats it lists and this connection's own is not one of them
  * (`PROTOCOL.md` §5), so the name here is the page's to keep and the page's to
  * change.
+ *
+ * Whose row this is is said twice and in two ways, because a row of names and
+ * colours is not a place to infer it from. `(you)` is the word the page has for
+ * the fact, and it is worn like the crown is: a quiet mark after the name, so a
+ * reader who sees no colour — and there is a small palette, so two rows can wear
+ * the same one — still knows which row is theirs. `aria-current` carries the same
+ * fact into the accessibility tree, where the word alone would only be read as part
+ * of the row's name.
  */
 function selfRow(view: RosterView): HTMLElement {
   const row = document.createElement('li');
   row.classList.add('self');
+  row.setAttribute('aria-current', 'true');
   const swatch = document.createElement('span');
   swatch.className = 'swatch';
   if (view.selfColour !== undefined) {
     swatch.style.backgroundColor = view.selfColour;
   }
-  // The swatch is the row's colour and nothing more: `(you)` beside it was words for the one row
-  // whose identity nobody has to be told — it is the row with the control that changes this
-  // connection's own name, and the only one that has it.
+  // The swatch is the row's colour and nothing more: who the row belongs to is the `(you)` beside
+  // the name, and the control that changes this connection's own name is the row's own.
   row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
@@ -154,6 +163,7 @@ function selfRow(view: RosterView): HTMLElement {
     name.className = 'name';
     name.textContent = view.selfName;
     who.appendChild(name);
+    who.appendChild(youMarker());
     const host = view.selfRole === undefined ? undefined : hostMarker(view.selfRole);
     if (host !== undefined) {
       who.appendChild(host);
@@ -189,14 +199,22 @@ function selfRow(view: RosterView): HTMLElement {
  * they are the same two answers to the same question: keep this, or drop it. What is new here is
  * the size a finger gets: the glyph is 27 px wide, and on touch both are lifted to the 44 px floor
  * with room between them, where a miss on a file row's pair would otherwise open the file under
- * the fingertip. Clicking outside the edit dismisses it exactly as
- * Cancel does, sending nothing: a stray click must not commit a half-typed name, and the choice
- * is no longer silent because Cancel stands in the field's own row. The dismissal is what a blur
- * is, with one exception: focus moving to the edit's own two controls is not leaving it, so their
- * press is not cancelled out from under them.
+ * the fingertip.
+ *
+ * The pair behaves as the create row's does, in both halves of that. The ✓ is disabled while the
+ * field names nothing, which is the one refusal a name can meet here: the protocol's bound is the
+ * field's own `maxLength`, so a name too long cannot be typed. And leaving the field keeps what was
+ * typed and leaves the edit open — a stray click must not commit a half-typed name, and must not
+ * throw one away either, which is the rule the create row already followed. Only an empty field
+ * closes, where there is nothing to keep: the create row's field holds a typed path, so a dismissal
+ * that discarded one would be the worse of the two rules to share.
+ *
+ * The dismissal is what a blur is, with one exception: focus moving to the edit's own two controls
+ * is not leaving it, so their press is not cancelled out from under them.
  *
  * Both controls are reachable by keyboard and the field takes focus when it is drawn: the edit was
- * asked for by a press, so the person is in it already.
+ * asked for by a press, so the person is in it already, which is also what puts the two controls a
+ * Tab from the name they are about.
  */
 function nameField(rename: RosterRename): HTMLElement {
   const group = document.createElement('span');
@@ -224,13 +242,20 @@ function nameField(rename: RosterRename): HTMLElement {
   cancel.title = RENAME_CANCEL_LABEL;
   cancel.setAttribute('aria-label', RENAME_CANCEL_LABEL);
   cancel.addEventListener('click', () => rename.cancel());
+  // The ✓ says the same thing the create row's does: a press that could only be refused is not
+  // offered. `maxLength` above is the protocol's bound, so an empty field is the whole of it.
+  const updateSave = (): void => {
+    save.disabled = field.value.trim() === '';
+  };
+  field.addEventListener('input', updateSave);
+  updateSave();
   // Leaving the edit is a `focusout` on the whole group, not a `blur` on the field: focus can
   // move from the field to Save or Cancel and only then outside, and a listener on the field
   // alone would miss that and leave the edit open. Focus moving between the edit's own parts is
   // not leaving it; a press on Save or Cancel is recorded on the way down as well, because a
   // browser that does not focus a button on mousedown (Safari) reports no `relatedTarget` and
   // the button's own click must still land rather than be cancelled out from under it. Anything
-  // else dismisses exactly as Cancel does.
+  // else leaves the edit as the person left it, and only an empty field closes.
   let pressed = false;
   for (const control of [save, cancel]) {
     control.addEventListener('mousedown', () => {
@@ -258,10 +283,15 @@ function nameField(rename: RosterRename): HTMLElement {
       pressed = false;
       return;
     }
-    rename.cancel();
+    if (field.value.trim() === '') {
+      rename.cancel();
+    }
   });
   group.append(field, save, cancel);
-  field.focus?.();
+  // The edit was asked for by a press, so the field is where the person is. Asked for on a
+  // microtask because the row this field belongs to is not in the document yet, and a field that is
+  // not in the document ignores `focus()`: the call made here in the same task did nothing.
+  queueMicrotask(() => field.focus?.());
   return group;
 }
 
@@ -273,7 +303,8 @@ function nameField(rename: RosterRename): HTMLElement {
  * A crown and no word, because the roster is the page's account of who is here
  * and the role is part of who: a mark that is not text needs no room on a row
  * that is mostly a name, and it cannot be read as the rest of that name — `Ada
- * (you) · host` was three marks in a row that read as one sentence. It is not
+ * (you) · host` was three marks in a row that read as one sentence, and the word
+ * was the one of them the crown replaced. It is not
  * drawn for `guest` — the room's ordinary seat, where a badge would be noise on
  * every row but one — and `viewer` is left out deliberately: it is a statement
  * about what a peer may write, the read-only state is the editor's own to show,
@@ -293,6 +324,21 @@ function hostMarker(role: Role): HTMLElement | undefined {
   marker.setAttribute('aria-label', HOST_LABEL);
   marker.title = HOST_LABEL;
   marker.appendChild(iconSpan('crown'));
+  return marker;
+}
+
+/** What the own row's mark reads: the page's own word for the fact. */
+const SELF_MARK = '(you)';
+
+/**
+ * The mark that says the row is the reader's own: the page's word for it, in the quiet tone the
+ * crown beside it wears. A mark and not the swatch, because the palette is small and two rows can
+ * wear one colour, and not the Rename control, because a control is not a label.
+ */
+function youMarker(): HTMLElement {
+  const marker = document.createElement('span');
+  marker.className = 'you';
+  marker.textContent = SELF_MARK;
   return marker;
 }
 

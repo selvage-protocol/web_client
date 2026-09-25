@@ -46,7 +46,7 @@ export const PHONE_QUERY =
  * The gutter is the fourth. Monaco's own line-number column, its fold arrows and
  * its decoration width added up to 96 of 390 px — a quarter of the screen, and
  * 30 % at 320 — for numbers no phone document reaches and arrows a fingertip
- * cannot hit. Three characters of line number, no folding and a 4 px decoration
+ * cannot hit. Two characters of line number, no folding and 14 px of decoration
  * width leave the glyph margin, which is where a peer's badge is drawn and the
  * one thing in the gutter this page puts there.
  */
@@ -61,10 +61,16 @@ export function editorOptionsFor(
     wordWrap: 'on',
     fontSize: 16,
     scrollbar: { verticalScrollbarSize: 14, horizontalScrollbarSize: 14 },
-    // The gutter, measured at 390 px: 96 px of the 390 with Monaco's defaults, against 48 with
-    // these. `glyphMargin` stays on because the peer badges are drawn in it.
-    lineNumbersMinChars: 3,
-    lineDecorationsWidth: 4,
+    // The gutter, measured at 390 px: 96 px of the 390 with Monaco's defaults, against 55 with
+    // these. `glyphMargin` stays on because the peer badges are drawn in it, and its width is the
+    // line height — nothing here can narrow it — so the separation the code and the number need
+    // comes out of the column the numbers do not use: two digits of line number, and a decoration
+    // width of 14 px, where Monaco's own 4 left the code against the number (`1# Hosted from …`).
+    // A pointer device's gap is 26 px, which is Monaco's 10 plus the 16 px its fold arrows take —
+    // arrows this device has none of, and a width this screen cannot pay for: 26 here would put
+    // the gutter back at 77 of 390.
+    lineNumbersMinChars: 2,
+    lineDecorationsWidth: 14,
     folding: false,
     glyphMargin: true,
   };
