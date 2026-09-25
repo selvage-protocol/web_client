@@ -304,7 +304,17 @@ const askedAt = Date.now();
 const fetchOutcome = await fetchAndSave(
   EMPTY,
   {
-    has: (path) => guestEngine.has(path),
+    // The answer is recorded where the fetch itself reads it, so the count is the fetch's own and not
+    // a second reading beside it: an answer that arrives before the first wait lands on poll 0 and
+    // the assertion below still holds.
+    has: (path) => {
+      const present = guestEngine.has(path);
+      if (path === EMPTY && present && answeredPolls === undefined) {
+        answeredPolls = emptyPolls;
+        answeredAt = Date.now() - askedAt;
+      }
+      return present;
+    },
     text: (path) => guestEngine.text(path),
     open: (path) => binding.requestText(path),
     save: (path, text) => void fetched.push([path, text]),
@@ -314,10 +324,6 @@ const fetchOutcome = await fetchAndSave(
     wait: async (ms) => {
       emptyPolls += 1;
       await new Promise((resolve) => setTimeout(resolve, ms));
-      if (answeredPolls === undefined && guestEngine.has(EMPTY)) {
-        answeredAt = Date.now() - askedAt;
-        answeredPolls = emptyPolls;
-      }
     },
   },
 );
@@ -325,14 +331,14 @@ check('the room answers an empty granted file with a document', guestEngine.has(
 check('and the answer carries no text', guestEngine.text(EMPTY) === '');
 check('the fetch reports that answer as the empty one', fetchOutcome.kind === 'empty');
 check('and saves nothing that was not asked for', fetched.length === 0);
-// The answer's own poll is the whole of what the loop may spend: this is what tells a fetch that
-// stops at the answer from one that read on for text, and it is measured against the poll the
-// answer actually landed on rather than against the stand, so a slow but valid answer — a hold that
-// waits the renewal window out, a round trip with latency on it — cannot fail it. Without the early
-// exit the loop runs to the stand while `answeredPolls` stays where the answer landed.
+// The poll the answer landed on is the whole of what the loop may spend: this is what tells a fetch
+// that stops at the answer from one that read on for text, and it is measured against the answer
+// rather than against the stand, so a slow but valid answer — a hold that waits a renewal window
+// out, a round trip with latency on it — cannot fail it. Waiting for text past the document costs
+// the rest of the stand, which is where `emptyPolls` goes without the early exit.
 check(
   `and stops at the answer, not at the stand (${String(emptyPolls)} of ${String(standPolls)} polls; the answer landed on poll ${String(answeredPolls ?? -1)}, ${String(answeredAt ?? -1)} ms in)`,
-  answeredPolls !== undefined && emptyPolls <= answeredPolls + 1,
+  answeredPolls !== undefined && emptyPolls === answeredPolls,
 );
 
 // Duplicate names disambiguate in the roster vocabulary: the twin takes the
