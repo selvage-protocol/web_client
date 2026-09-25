@@ -3736,3 +3736,84 @@ Join for an action it never offered. A start card whose action cannot be offered
 path and gives Join the card's own action (`#join.no-host`), the refusal stands under it, and a
 guest's card says nothing at all — the quiet verb goes too, because a press that could only lead
 to a card with no action on it is worse than no verb. The guest's card is 418 → 302 px.
+
+## Two reviews of the UI wave (2026-09-25)
+
+A page review (through the driver and its own probes, at 390, 320 and landscape) and a code review
+of the two merges. Nine findings, none blocking; what follows is what was done about each and the
+numbers it was measured by.
+
+**A row's download of an open document saves that document's buffer.** The row's `⤓` took the act
+over from the deleted strip control, and it decided by the text alone: a guest who cleared a file
+themselves got `notes.md is still empty — the host sent no text for it.` and `Save empty file`, and
+nothing was saved until they pressed it — measured: 0 downloads, the sentence above. The empty
+buffer of the document in front of the editor is the person's own text and is saved as it stands;
+what is still offered by name is the *other* empty document, the one that arrived empty from the
+room (`savesOwnBuffer`). The cost sentence stands only over a fetch that actually happens, which is
+`binding.hasText(path) !== true`: for a path this window holds, nothing is asked of the room and
+`Fetching opens …` described an act that was not taken. After: one press, `notes.md` on disk at 0
+bytes, no sentence at all.
+
+**The phone's gutter separates the number from the code.** Measured before: the number's ink ended
+at x=51, the code began at x=55 — 4 px, where a pointer device's gap is 26. The width was in the
+number column, which holds three digits of a document that never reaches them; the glyph margin is
+the line height and cannot shrink, a peer's badge being drawn in it. `lineNumbersMinChars: 2`,
+`lineDecorationsWidth: 14`: the gutter is the same 55 px, the code does not move, and the gap is 14
+(a pointer device's own 26 would put the gutter back at 77 of 390).
+
+**A long display name reads on a phone.** Rows stopped wrapping in the wave's own pass, so the name
+shared the line with the verbs and got 76 px at 320 with a 23-character name — about nine bold
+characters — and nothing on the page showed the rest: a `title` carries a peer id and only for
+duplicate names, and touch has no tooltip. The verb labels are not painted on touch any more
+(their words stay in the accessibility tree as the control's accessible name, where `display: none`
+would have taken them out with the pixels), and a name that still does not fit takes a second line
+instead of an ellipsis, at every width — `Francesca B…` is a row a reader cannot tell from another,
+and a 336 px desktop panel cut it the same way. After, at 320: the peer row's name 76 → 109 px with
+the whole name shown over three lines, the own row 171 → 180 over two; at 390, 146 → 179 with the
+whole name over two.
+
+**The landscape start card fits.** At 844x390 in a browser with no folder picker the card held
+517 px of content in 367 and `Join` — the one action it exists for — spanned y=355-400, cut off the
+bottom; the card that can host cut the same button, and a guest's cut its quiet line. A phone on
+its side has the width and not the height, so the card reads as two columns there: the mark beside
+the heading, the name field on the left, the invite path and `Join` on the right, and the refusal
+under both. Measured after: 348 px of content in a 350 px card for the pickerless start card, 300
+for the one that can host, 245 for a guest's, nothing cut and no scroll inside any of them. The
+upright card is untouched: 553 in 553, 484 in 484, 399 in 399.
+
+**The desktop's presence badge reaches the row's edge.** The wave's fix landed on touch only: on a
+pointer device the row's own control is `opacity: 0` until hover and holds its 24 px slot, so the
+badge ended at x=245 on a row ending at x=284, where the roster's own verbs end at x=277. The badge
+is painted after the control now, so the control's slot cannot hold it off the edge, and the row's
+one auto margin goes with whichever of them stands first on the right (`:has()`). After: the badge
+ends at x=276 at rest, under hover and under keyboard focus, with nothing moving between the three,
+and Tab from the row lands on the `⤓` exactly as it did.
+
+**The connection's own row says whose row it is.** `(you)` went with `· host` in the wave, and the
+row was left marked by its colour and the control that renames it. It is back as a quiet mark after
+the name, and the row carries `aria-current="true"` for the reader who cannot see the word — a mark
+that stands on its own rather than a colour a second row can wear.
+
+**The two in-row edits answer the same way.** Clicking outside the create row kept a typed name,
+clicking outside the rename field threw it away, and the create row's `✓` was disabled while the
+rename's never was. The two agree now: a stray click keeps what was typed and leaves the edit open,
+only an empty field closes, and the `✓` is disabled while the field names nothing — the create
+row's own rule, and the one that does not throw away a typed path. Measured, driving the field with
+a real mouse press on the editor: under the rule the field had, the field and its 23-character name
+were gone (`renameOpen: null`); under the rule the create row already followed, the field stands
+with the name in it, and an emptied field still closes.
+
+**The name edit opens focused.** Verified while measuring the above: `nameField` called
+`field.focus()` while the row was still outside the document, and a detached field ignores that —
+the driver's own `activeElement` was Monaco's textarea right after `Rename` was pressed. The call is
+a microtask now, which is late enough that the row is in the page; measured after: `activeElement`
+is the field, so the person types at once and the `✓` and `✕` are one Tab from the name.
+
+**The strip's chevron is declared before the call that draws it.** `applyStripRole()` runs at module
+level and read a `let` written below it: unbundled, the page throws in the temporal dead zone, and
+esbuild's lowering of a top-level `let` to `var` hid it in `dist/`. The declaration moved above the
+call, and `test/file-strip.test.ts` pins the order, which is the only place the fault is visible.
+
+**The follow segment's two comments sit over their own rules.** Both were stacked at
+`#file-strip-follow`, and the second described a zero basis — the rule below it, `flex: 1 1 0` on
+the name the segment carries — while the rule it stood over sets `flex-shrink: 8`.
