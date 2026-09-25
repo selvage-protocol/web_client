@@ -150,7 +150,9 @@ export function emptyEditorActionLabel(action: EmptyEditorAction): string {
     case 'follow':
       return 'Follow';
     case 'stop-follow':
-      return 'Following ✓';
+      // No tick: the word is the state, the control carries `aria-pressed`, and a mark after a word
+      // that already says it is decoration.
+      return 'Following';
   }
 }
 

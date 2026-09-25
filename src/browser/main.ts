@@ -69,7 +69,7 @@ import {
   stillEmptySentence,
 } from './fetch-download.ts';
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
-import { EMPTY_IN_ROOM_TITLE, IN_THE_ROOM_TITLE } from './tree-state.ts';
+import { EMPTY_IN_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
 import { renderRoster } from './roster.ts';
 import {
@@ -1549,11 +1549,15 @@ function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefi
 /**
  * The file strip: the open file's whole state, in one line above the editor.
  *
- * It is where four things that used to be said elsewhere now live — which file is open (nothing
- * said it at all on a phone), whether its text is in the room, whether it is read-only, and
- * whether the folder refused the last write to it — and the `⤓` that saves it. The follow segment
- * is the fifth: the banner that used to stand over the editor is this segment now, in the followed
- * peer's own colour, with the stop control in it.
+ * It is where three things that used to be said elsewhere now live — which file is open (nothing
+ * said it at all on a phone), whether it is read-only, and whether the folder refused the last write
+ * to it — and the `⤓` that saves it. The follow segment is the fourth: the banner that used to stand
+ * over the editor is this segment now, in the followed peer's own colour, with the stop control in it.
+ *
+ * What it no longer says is that the open file's text is in the room. Opening a file is what puts it
+ * there, so for the file on screen the mark was always true: a fact the reader already has, said
+ * again. The tree's `●` still carries it, where it is news — a file this window has not opened — and
+ * the peers in a file are on that row's badges, where the fact is *who*.
  */
 function syncStrip(): void {
   const path = binding?.currentPath();
@@ -1580,18 +1584,6 @@ function syncStrip(): void {
   }
   fileStripChips.replaceChildren();
   if (path !== undefined) {
-    if (binding?.isOpenInRoom(path) === true) {
-      const chip = document.createElement('span');
-      chip.className = 'chip room';
-      // The dot is the tree's own mark in the tree's own colour, and the words beside it are the
-      // chip's: the same fact wears the same mark on both surfaces.
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.textContent = '●';
-      chip.append(dot, ' in the room');
-      chip.title = IN_THE_ROOM_TITLE;
-      fileStripChips.appendChild(chip);
-    }
     if (binding?.hasText(path) === true && binding.isTextEmpty(path)) {
       const chip = document.createElement('span');
       chip.className = 'chip';

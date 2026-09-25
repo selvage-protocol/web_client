@@ -72,18 +72,28 @@ describe('the strip is in the shell, above the editor', () => {
 });
 
 describe('what the strip states', () => {
-  it('marks the room’s copy, the empty state and the read-only state as chips, not sentences', () => {
-    // The room chip is the tree's own mark in the tree's own colour, and the words beside it are
-    // the chip's: one fact, one mark, whichever surface it lands on.
-    assert.match(main, /dot\.textContent = '●'/, 'the strip does not say the text is in the room');
-    assert.match(main, /chip\.append\(dot, ' in the room'\)/, 'the strip names the room in words of its own');
-    assert.match(style, /#file-strip-chips \.chip\.room \.dot \{ color: var\(--open-mark\); \}/,
-      'the strip paints a colour of its own for the room mark');
-    assert.match(style, /#tree button\.row \.in-room \{ color: var\(--open-mark\)/,
-      'the tree and the strip no longer wear the same mark');
+  it('marks the empty state and the read-only state as chips, not sentences', () => {
     assert.match(main, /chip\.textContent = 'empty'/, 'the strip does not say a file reads empty');
     assert.match(main, /chip\.textContent = 'Read-only'/, 'the read-only state is not a marker');
     assert.match(main, /VIEWER_SENTENCE/, 'the read-only chip explains nothing on hover');
+  });
+
+  it('does not say the open file is in the room, which the person can already see', () => {
+    // Opening a file is what puts its text in the room, so for the file on screen the mark was
+    // always true — the owner's own example of a sentence the reader already has. The tree's `●`
+    // carries the fact where it is news (a file this window has not opened), and the peers in a
+    // file are the row's badges.
+    assert.ok(
+      !/in the room'/.test(main),
+      'the strip still says the open file\u2019s text is in the room',
+    );
+    assert.ok(!/chip\.room/.test(main), 'the strip still builds a room chip');
+    assert.ok(
+      !/#file-strip-chips \.chip\.room/.test(style),
+      'the stylesheet still paints a room chip in the strip',
+    );
+    assert.match(style, /#tree button\.row \.in-room \{ color: var\(--open-mark\)/,
+      'the tree lost the mark that says a file\u2019s text is in the room');
   });
 
   it('carries the host’s refused write, in the words the folder refused with', () => {

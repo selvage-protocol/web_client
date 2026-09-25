@@ -535,7 +535,13 @@ export class GrantTreeView {
     row.className = 'row';
     const listedPath = child.path;
     row.append(iconSpan(fileIcon(listedPath)), nameSpan(child.name));
-    appendRoomMark(row, this.markFor(listedPath));
+    // The file this window has open wears no `●`: opening it is what put its text in the room, so for
+    // the row the editor is showing the mark is always true, and the row already reads as the open
+    // one. Every other row's mark is news — a file whose text has reached the room and one whose has
+    // not look the same otherwise — and the peers in a file are this row's badges, which say *who*.
+    if (listedPath !== current) {
+      appendRoomMark(row, this.markFor(listedPath));
+    }
     // The row's own badge container, kept so a presence move repaints this row rather than the tree
     // around it.
     const here = presence.get(listedPath) ?? [];

@@ -4,7 +4,7 @@
  * path text (where someone is reads on the grant tree, as a badge on their
  * file). The own name leads, with a you marker, the name it is seated under
  * and one control of its own to change it. Follow is a toggle, so the row a
- * window is following reads `Following ✓` and pressing it stops, exactly as the
+ * window is following reads `Following` and pressing it stops, exactly as the
  * file strip's own Stop does: one state, reachable from either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
@@ -85,7 +85,7 @@ const RENAME_LABEL = 'Set the name other participants see';
 /**
  * What a pressed toggle does when it is pressed, in the desktop clients' own words
  * (`vscode_client/test/vocabulary.test.ts`, carried by the parity study). The button's name is
- * the state it is in — `Following ✓` — so the act is what a pointer reads in the tooltip.
+ * the state it is in — `Following` — so the act is what a pointer reads in the tooltip.
  */
 const STOP_FOLLOW_LABEL = 'Stop following';
 
@@ -336,7 +336,7 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
   follow.type = 'button';
   follow.setAttribute('aria-pressed', follows ? 'true' : 'false');
   if (follows) {
-    follow.append(iconSpan('follow'), labelSpan('Following ✓'));
+    follow.append(iconSpan('follow'), labelSpan('Following'));
     follow.title = STOP_FOLLOW_LABEL;
     follow.addEventListener('click', () => view.onStopFollow(peer.peerId));
   } else {
