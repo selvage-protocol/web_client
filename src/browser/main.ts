@@ -19,6 +19,7 @@ import { MAX_DISPLAY_NAME_UNITS, INCOMPLETE_INVITE_SENTENCE, fragmentOf, inviteS
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   cardIntentOf,
+  clearNameFailure,
   createJoinGate,
   initJoinCard,
   joinOnEnter,
@@ -27,6 +28,7 @@ import {
   resolveJoin,
   saveDisplayName,
   showJoinFailure,
+  showNameFailure,
   showRejoinCard,
   validateDisplayName,
 } from './join.ts';
@@ -193,6 +195,9 @@ const nameInput = document.getElementById('name') as HTMLInputElement;
 const joinButton = document.getElementById('join-button') as HTMLButtonElement;
 const joinMessage = document.getElementById('join-message') as HTMLElement;
 const joinError = document.getElementById('join-error') as HTMLElement;
+const nameError = document.getElementById('name-error') as HTMLElement;
+/** The name field and the line its own refusal is written in, as the one thing `join.ts` reads. */
+const nameField = { field: nameInput, error: nameError };
 const hostError = document.getElementById('host-error') as HTMLElement;
 const sessionBar = document.getElementById('session') as HTMLElement;
 const sessionIdentity = document.getElementById('session-identity') as HTMLElement;
@@ -544,6 +549,11 @@ joinForm.addEventListener('submit', (event) => {
 nameInput.addEventListener('keydown', (event) => {
   joinOnEnter(event, runPrimary);
 });
+// The refusal is about the value that was submitted, so it goes the moment the value changes:
+// a sentence still standing over a name the person has since typed is a line about nothing.
+nameInput.addEventListener('input', () => {
+  clearNameFailure(nameField);
+});
 inviteInput.addEventListener('keydown', (event) => {
   joinOnEnter(event, attemptJoin);
 });
@@ -606,20 +616,37 @@ if (window.__selvagePendingJoin === true) {
 
 function attemptJoin(): void {
   // One failure stands on the card at a time: the line the other action left goes with this
-  // attempt.
+  // attempt, and so does this path's own — a refusal about an invite the person has since
+  // replaced is a line about nothing.
   hostError.textContent = '';
-  let held: HeldJoin;
+  joinError.textContent = '';
+  clearNameFailure(nameField);
+  // Read at submit time: a queued join holds these until load, so anything
+  // typed meanwhile must not rewrite the attempt.
+  const typedName = nameInput.value;
+  const pastedInvite = linkIsTheInvite ? '' : inviteInput.value;
+  let displayName: string;
   try {
-    // Read at submit time: a queued join holds these until load, so anything
-    // typed meanwhile must not rewrite the attempt.
-    held = {
-      displayName: validateDisplayName(nameInput.value),
-      figured: resolveJoin(
-        addressBarInvite(linkIsTheInvite, params),
-        linkIsTheInvite ? '' : inviteInput.value,
-        window.location.href,
-      ),
-    };
+    displayName = validateDisplayName(typedName);
+  } catch (error: unknown) {
+    // The name is asked for above both actions, so its refusal stands at the field rather than
+    // under whichever button was pressed: the button is one screen away, and it is not the thing
+    // that is wrong.
+    showNameFailure(nameField, describe(error));
+    // Nothing left the page, but a held early submit disabled the button before this bundle
+    // arrived: a refused pre-flight (a blank name) hands the card back the way a refused join
+    // does, or the guest's only way on is Enter.
+    joinButton.disabled = false;
+    joinButton.textContent = 'Join';
+    return;
+  }
+  let figured: JoinTarget;
+  try {
+    figured = resolveJoin(
+      addressBarInvite(linkIsTheInvite, params),
+      pastedInvite,
+      window.location.href,
+    );
   } catch (error: unknown) {
     const base = fallbackBase();
     console.error(`[selvage] join failed (${joinFailureDetail(error, base)})`);
@@ -627,14 +654,11 @@ function attemptJoin(): void {
       { invitePath, joinError },
       describeJoinErrorForDisplay(error, base, params.get('debug') === '1'),
     );
-    // Nothing left the page, but a held early submit disabled the button
-    // before this bundle arrived: a refused pre-flight (a blank name, a link
-    // that names no session) hands the card back the way a refused join does,
-    // or the guest's only way on is Enter.
     joinButton.disabled = false;
     joinButton.textContent = 'Join';
     return;
   }
+  const held: HeldJoin = { displayName, figured };
   // A pasted link can be as damaged as the one in the address bar: the same check, the same
   // sentence, and the precise reason in the console rather than on the card.
   const shortfall = inviteShortfall(held.figured);
@@ -744,6 +768,9 @@ async function seatSession(seat: Seat): Promise<void> {
   // The folder, when this window has one, is what a create writes to; a guest is offered no control
   // and reads the empty tree's own sentence instead.
   hostFolder = seat.folder;
+  // The way out says what it costs this window: a host's press ends the room for everyone in it,
+  // and the role is only known once the seat is taken.
+  leaveControl.showRole(seat.folder !== undefined);
   republishGrant = seat.republish;
   // The two create verbs are the window's that holds a folder, and no one else's.
   sharedActions.hidden = seat.folder === undefined;
@@ -922,16 +949,18 @@ async function attemptHost(): Promise<void> {
     return;
   }
   // One failure stands on the card at a time: the line the other action left goes with this
-  // attempt, and a refusal lands under the button that asked for it.
+  // attempt, and a refusal lands where the thing that is wrong stands — the name at the field,
+  // the folder under the button that asked for it.
   hostError.textContent = '';
   joinError.textContent = '';
+  clearNameFailure(nameField);
   let displayName: string;
   try {
     displayName = validateDisplayName(nameInput.value);
   } catch (error) {
-    // The name is asked for here, so the refusal about it stands here: under the button
-    // that needed it, never under the invite path above.
-    hostError.textContent = describe(error);
+    // The name is asked for above the button, so the refusal about it stands at the field: under
+    // the button was a line the reader had to find, and it marked nothing.
+    showNameFailure(nameField, describe(error));
     return;
   }
   hosting = true;
@@ -1236,7 +1265,6 @@ function drawRoster(participants: Participant[]): void {
             cancel: () => endRename(),
           },
     onRename: () => startRename(),
-    onCopyInvite: () => void copyShareLink(),
     onGoTo: (peerId) => {
       const participant = participants.find((candidate) => candidate.peerId === peerId);
       void binding?.goTo(peerId).catch((error: unknown) => {
@@ -1344,7 +1372,12 @@ function syncStrip(): void {
     if (binding?.isOpenInRoom(path) === true) {
       const chip = document.createElement('span');
       chip.className = 'chip room';
-      chip.textContent = '● in the room';
+      // The dot is the tree's own mark in the tree's own colour, and the words beside it are the
+      // chip's: the same fact wears the same mark on both surfaces.
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.textContent = '●';
+      chip.append(dot, ' in the room');
       chip.title = IN_THE_ROOM_TITLE;
       fileStripChips.appendChild(chip);
     }
@@ -1693,11 +1726,23 @@ const SHOWN_STATUS_TOPICS: ReadonlySet<StatusTopic> = new Set(['role', 'refusal'
  * two states that change what typing means say their own name. The sentence with the countdown in it
  * is the strip below.
  */
+/**
+ * The bar's dot, which is the glanceable half of room health: a healthy room paints the dot alone,
+ * and the two states that change what typing means paint their own name beside it. The sentence
+ * with the countdown in it is the strip below. The name is set in every state, the green one
+ * included: there it is clipped out of the paint, so a screen reader has it and the eye does not.
+ */
 function setHealth(state: 'ok' | 'reconnecting' | 'away'): void {
   health.dataset.health = state;
-  const label = state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'Host away' : '';
+  const label =
+    state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'Host away' : 'Connected';
   healthLabel.textContent = label;
-  health.title = state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'The host is away' : 'Connected';
+  health.title =
+    state === 'reconnecting'
+      ? 'Reconnecting…'
+      : state === 'away'
+        ? 'The host is away'
+        : 'Connected';
 }
 
 /**

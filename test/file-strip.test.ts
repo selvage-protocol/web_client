@@ -70,7 +70,14 @@ describe('the strip is in the shell, above the editor', () => {
 
 describe('what the strip states', () => {
   it('marks the room’s copy, the empty state and the read-only state as chips, not sentences', () => {
-    assert.match(main, /'● in the room'/, 'the strip does not say the text is in the room');
+    // The room chip is the tree's own mark in the tree's own colour, and the words beside it are
+    // the chip's: one fact, one mark, whichever surface it lands on.
+    assert.match(main, /dot\.textContent = '●'/, 'the strip does not say the text is in the room');
+    assert.match(main, /chip\.append\(dot, ' in the room'\)/, 'the strip names the room in words of its own');
+    assert.match(style, /#file-strip-chips \.chip\.room \.dot \{ color: var\(--open-mark\); \}/,
+      'the strip paints a colour of its own for the room mark');
+    assert.match(style, /#tree button\.row \.in-room \{ color: var\(--open-mark\)/,
+      'the tree and the strip no longer wear the same mark');
     assert.match(main, /chip\.textContent = 'empty'/, 'the strip does not say a file reads empty');
     assert.match(main, /chip\.textContent = 'Read-only'/, 'the read-only state is not a marker');
     assert.match(main, /VIEWER_SENTENCE/, 'the read-only chip explains nothing on hover');

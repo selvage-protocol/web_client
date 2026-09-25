@@ -215,6 +215,36 @@ describe('the page’s own wiring', () => {
     assert.match(sidebar, /aria-valuetext/, 'a screen reader hears a bare number of pixels');
   });
 
+  it('states the width the panel renders at: its own box and not its content', () => {
+    // The separator's `aria-valuenow` is the width `paint()` writes, so what it writes has to be
+    // the width the panel renders at. The shell's other boxes are `border-box`; `#side` was not, so
+    // the 0.7em of padding each side sat outside the declared width and a 374 px value rendered
+    // 394 px at the reviewer's window, with `aria-valuetext` reading 26.7 rem for a 28.1 rem panel.
+    assert.match(
+      style,
+      /#side \{[^}]*box-sizing:\s*border-box/,
+      'the width the separator states is not the width the panel renders at',
+    );
+    const source = readFileSync(new URL('../src/browser/sidebar.ts', import.meta.url), 'utf8');
+    // And both read the one number: the width is clamped once, in `paint`, so the style, the readout
+    // and the next remembered value are the same width rather than three roundings of it.
+    assert.match(
+      source,
+      /width = clampWidth\(width, options\.viewportWidth\(\), options\.remPx\(\)\);/,
+      'the painted width is not brought inside the bounds the readout states',
+    );
+    assert.match(
+      source,
+      /separator\.setAttribute\('aria-valuenow', String\(rounded\)\)/,
+      'the readout is not the width the panel is given',
+    );
+    assert.match(
+      source,
+      /side\.style\.width = collapsed \? '' : `\$\{rounded\}px`/,
+      'the painted width is not the width the readout states',
+    );
+  });
+
   it('lets the pointer go and keeps the drag, and resets on a double click', () => {
     assert.match(main, /wireSidebar\(\{/, 'the panel is not wired');
     const sidebar = readFileSync(new URL('../src/browser/sidebar.ts', import.meta.url), 'utf8');

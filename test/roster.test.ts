@@ -228,17 +228,15 @@ describe('roster rows', () => {
     assert.equal(buttons[0].disabled, false, 'the rename control is dead');
   });
 
-  it('a lone host reads that it is alone, with the one act that changes it', () => {
-    const calls = [];
-    const { list } = render([], { onCopyInvite: () => void calls.push('copy') });
+  it('a lone host reads that it is alone, and where the one act that changes it is', () => {
+    // The line carried a second `Copy invite link` beside the bar's own: the same control twice on
+    // one screen. It names the control in the bar instead, and the act stays where the link is.
+    const { list } = render([]);
     const alone = list.children[1];
     assert.ok(alone !== undefined && alone.className === 'alone', 'nothing says the room is empty');
     assert.match(textOf(alone), /No one else yet\./);
-    const button = buttonsIn(alone).find((candidate) => textOf(candidate).includes('Copy invite link'));
-    assert.ok(button !== undefined, 'the empty-room line has no way to invite anyone');
-    button.fire('click');
-    assert.deepEqual(calls, ['copy'], 'the invite control copies nothing');
-    assert.equal(textOf(button), 'Link copied', 'the copy confirms nothing in place');
+    assert.match(textOf(alone), /Copy invite link in the bar above\./);
+    assert.equal(buttonsIn(alone).length, 0, 'the room is invited from two places again');
     // The line is for a room with nobody else in it, and it goes the moment somebody arrives.
     assert.equal(render([SAM]).list.children.length, 2, 'the alone line stands beside a peer');
   });

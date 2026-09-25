@@ -209,6 +209,11 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
       side.style.width = '';
       return;
     }
+    // One number, and it is the number the panel renders at: the width is brought inside the window's
+    // bounds here, so what the style declares, what the separator states and what the next write
+    // remembers are the same width. Read unclamped from storage, a width from a wider window used to
+    // paint one number and report another.
+    width = clampWidth(width, options.viewportWidth(), options.remPx());
     const rounded = Math.round(width);
     side.style.width = collapsed ? '' : `${rounded}px`;
     side.hidden = collapsed;
@@ -216,7 +221,7 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
     const { min, max } = widthLimits(options.viewportWidth(), options.remPx());
     separator.setAttribute('aria-valuemin', String(Math.round(min)));
     separator.setAttribute('aria-valuemax', String(Math.round(max)));
-    separator.setAttribute('aria-valuenow', String(Math.round(clampWidth(width, options.viewportWidth(), options.remPx()))));
+    separator.setAttribute('aria-valuenow', String(rounded));
     separator.setAttribute('aria-valuetext', `${(rounded / options.remPx()).toFixed(1)} rem`);
     rail.title = 'Show files and people';
     rail.setAttribute('aria-label', 'Show files and people');

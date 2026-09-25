@@ -410,6 +410,45 @@ export function initJoinCard(
 }
 
 /**
+ * The name's own refusal, at the field it is about.
+ *
+ * The card's two actions both need the name, and each of them has an error line under its own
+ * button — which is a screen away from where the name is asked, and said nothing about which
+ * field was wrong: pressing the primary action with an empty name left focus on the button that
+ * was pressed and the field unmarked, so the sentence read as the button's own failure. The
+ * refusal stands beside the field now, focus goes to the field, and the field wears the
+ * `aria-invalid` that says the same thing to a screen reader.
+ *
+ * A field is only invalid while the card is saying so: typing clears both, because the sentence
+ * is about the value that was submitted and the value has changed.
+ */
+export interface NameField {
+  /** The input the card asks the name in. */
+  field: {
+    setAttribute(name: string, value: string): void;
+    removeAttribute?(name: string): void;
+    focus?(): void;
+  };
+  /** The line the refusal is written in, beside the field. */
+  error: { textContent: string };
+}
+
+export function showNameFailure(field: NameField, message: string): void {
+  field.error.textContent = message;
+  field.field.setAttribute('aria-invalid', 'true');
+  field.field.focus?.();
+}
+
+export function clearNameFailure(field: NameField): void {
+  field.error.textContent = '';
+  if (field.field.removeAttribute !== undefined) {
+    field.field.removeAttribute('aria-invalid');
+    return;
+  }
+  field.field.setAttribute('aria-invalid', 'false');
+}
+
+/**
  * A refused join is opened before it is written: its line stands inside the invite
  * path, under Join, beside the paste box it is about, and a bare page's early submit
  * is replayed after the bundle lands with the disclosure still shut — a refusal

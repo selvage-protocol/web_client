@@ -27,6 +27,7 @@ import { fileIcon, iconSpan, labelSpan } from './icons.ts';
 import { badgeSignature, changedBadgePaths, initials } from './presence.ts';
 import {
   HOST_AWAY_ROW_TITLE,
+  NOT_HERE_TAG,
   dirOpen,
   roomMark,
   rowsKey,
@@ -1055,14 +1056,14 @@ function orderOf(child: GrantChild): string {
   return `${child.directory ? '0' : '1'}${child.name}`;
 }
 
-/** The `●` or `empty` a row wears, or nothing. */
+/** The `●`, `empty` or `not fetched yet` a row wears, or nothing. */
 function appendRoomMark(row: HTMLElement, mark: ReturnType<typeof roomMark>): void {
   if (mark.kind === 'none') {
     return;
   }
   const span = document.createElement('span');
-  span.className = mark.kind === 'in-room' ? 'in-room' : 'empty-tag';
-  span.textContent = mark.kind === 'in-room' ? '●' : 'empty';
+  span.className = mark.kind === 'in-room' ? 'in-room' : mark.kind === 'empty' ? 'empty-tag' : 'pending-tag';
+  span.textContent = mark.kind === 'in-room' ? '●' : mark.kind === 'empty' ? 'empty' : NOT_HERE_TAG;
   span.title = mark.title;
   row.appendChild(span);
 }

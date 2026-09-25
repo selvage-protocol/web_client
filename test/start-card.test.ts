@@ -27,9 +27,11 @@ import {
   CARD_JOIN_CLASS,
   CARD_START_CLASS,
   cardIntentOf,
+  clearNameFailure,
   initJoinCard,
   primaryActionOf,
   showJoinFailure,
+  showNameFailure,
 } from '../src/browser/join.ts';
 import type { JoinCardElements } from '../src/browser/join.ts';
 
@@ -211,25 +213,67 @@ describe('the join card: what a person who followed a link reads', () => {
 });
 
 describe('the name error stands where the name was asked for', () => {
-  it('the start action reports into its own line, beside its own button', () => {
+  it('the name refusal stands at the field, whichever action asked for it', () => {
+    // The reviewer read this line under the button that was pressed, with focus still on the button
+    // and the field unmarked, so it read as the button's own failure rather than the name's. Both
+    // actions send the refusal to the field now.
+    assert.match(
+      main,
+      /showNameFailure\(nameField, describe\(error\)\)/,
+      'a refused name reaches no field',
+    );
+    assert.equal(
+      (main.match(/showNameFailure\(nameField/g) ?? []).length,
+      2,
+      'one of the card\u2019s two actions still reports the name somewhere else',
+    );
+    // It clears the other line \u2014 one failure stands on the card at a time \u2014 and it writes no
+    // failure of its own into either of them.
     const attempt = sliceBetween(main, 'async function attemptHost', 'async function offerHosting');
     assert.ok(
-      attempt.includes('hostError.textContent = describe(error)'),
-      'a refused name does not reach the line under the start button',
-    );
-    // It clears the other line — one failure stands on the card at a time — and it never
-    // writes a failure of its own into it.
-    assert.ok(
       !/joinError\.textContent = (?!'')/.test(attempt),
-      'the start action still writes its failure into the join path\'s error line',
+      'the start action still writes its failure into the join path\u2019s error line',
     );
     assert.match(
       attempt,
       /joinError\.textContent = ''/,
       'a stale failure under the invite path survives an attempt to start a room',
     );
-    // The line is inside the start action's own block, under the button and above the
-    // standing warning: it moves with the action, and it is hidden while it is empty.
+    assert.match(
+      attempt,
+      /clearNameFailure\(nameField\)/,
+      'a stale refusal of the name survives an attempt to start a room',
+    );
+    // The field's line is the field's: beside the box it is about, above the invite path, and
+    // hidden while it is empty.
+    const label = card.indexOf('<label>The name other participants see');
+    const input = card.indexOf('id="name"');
+    const error = card.indexOf('id="name-error"');
+    const path = card.indexOf('id="invite-path"');
+    assert.ok(label !== -1 && input !== -1 && error !== -1 && path !== -1, 'the card lost a part');
+    assert.ok(label < input && input < error && error < path, 'the refusal is not beside the field');
+    assert.match(card, /id="name-error" role="alert"/, 'the refusal line announces nothing');
+    assert.match(
+      card,
+      /<input id="name"[^>]*aria-describedby="name-error"/,
+      'the line a screen reader is told about is not associated with the field',
+    );
+    assert.match(rule('#name-error:empty'), /display:\s*none/, 'an empty refusal line holds a gap');
+    assert.match(
+      style,
+      /#join input\[aria-invalid='true'\] \{[^}]*border-color:/,
+      'an invalid field is not drawn as one',
+    );
+  });
+
+  it('the field and the two buttons keep their own lines under their own controls', () => {
+    // The folder and the socket failures have no field to stand at: they keep the button that asked.
+    const attempt = sliceBetween(main, 'async function attemptHost', 'async function offerHosting');
+    assert.match(
+      attempt,
+      /hostError\.textContent = picked\.sentence/,
+      'a refused folder reaches no line under the button',
+    );
     const wrap = sliceBetween(card, '<div id="host-wrap"', '</div>');
     const button = wrap.indexOf('id="host-button"');
     const error = wrap.indexOf('id="host-error"');
@@ -238,29 +282,65 @@ describe('the name error stands where the name was asked for', () => {
     assert.ok(button < error && error < note, 'the failure does not stand under the button it belongs to');
     assert.match(wrap, /id="host-error" role="alert"/, 'the failure line announces nothing');
     assert.match(rule('#host-error:empty'), /display:\s*none/, 'an empty failure line holds a gap');
-  });
-
-  it('the join path keeps its own, inside the reveal, under Join', () => {
+    // And the join path's own line, inside the reveal, under Join, keeps the invite failures.
     const inside = sliceBetween(card, '<details id="invite-path">', '</details>');
     const join = inside.indexOf('id="join-button"');
-    const error = inside.indexOf('id="join-error"');
-    assert.ok(join !== -1 && error !== -1 && join < error, 'the join failure is not under Join');
+    const joinLine = inside.indexOf('id="join-error"');
+    assert.ok(join !== -1 && joinLine !== -1 && join < joinLine, 'the join failure is not under Join');
     assert.match(inside, /id="join-error" role="alert"/, 'the join failure announces nothing');
+  });
+
+  it('the join path clears the field\u2019s refusal too, and writes no name failure of its own', () => {
     const attempt = sliceBetween(main, 'function attemptJoin', 'async function runJoin');
     assert.ok(
       !/hostError\.textContent = (?!'')/.test(attempt),
-      'the join writes its failure into the start action\'s error line',
+      'the join writes its failure into the start action\u2019s error line',
     );
     assert.match(
       attempt,
       /hostError\.textContent = ''/,
       'a stale failure under the start button survives an attempt to join',
     );
+    assert.match(attempt, /clearNameFailure\(nameField\)/, 'a stale refusal of the name survives a join');
+    assert.match(attempt, /joinError\.textContent = ''/, 'a stale invite refusal survives the next join');
+    assert.match(
+      attempt,
+      /showNameFailure\(nameField, describe\(error\)\)/,
+      'a refused name reaches no field on the join path',
+    );
   });
 
-  it('neither line is the other\'s: the two are separate elements', () => {
+  it('neither line is the other\u2019s: the three are separate elements', () => {
     assert.equal((html.match(/id="join-error"/g) ?? []).length, 1, 'the join error line is repeated');
     assert.equal((html.match(/id="host-error"/g) ?? []).length, 1, 'the start error line is repeated');
+    assert.equal((html.match(/id="name-error"/g) ?? []).length, 1, 'the name error line is repeated');
+  });
+});
+
+describe('the name field refuses for itself', () => {
+  /** The field and its line, as small as `join.ts` touches them. */
+  function fieldDouble() {
+    const attributes: Record<string, string> = {};
+    const field = {
+      focused: 0,
+      setAttribute: (name: string, value: string) => void (attributes[name] = value),
+      removeAttribute: (name: string) => void delete attributes[name],
+      focus: () => void (field.focused += 1),
+    };
+    return { field, attributes, error: { textContent: '' } };
+  }
+
+  it('writes at the field, marks it invalid and puts focus there', () => {
+    // The three things the reviewer found missing when the sentence stood under the button:
+    // the words beside the box, `aria-invalid` on it, and focus where the person has to type.
+    const { field, attributes, error } = fieldDouble();
+    showNameFailure({ field, error }, 'Type the name other participants will see.');
+    assert.equal(error.textContent, 'Type the name other participants will see.');
+    assert.equal(attributes['aria-invalid'], 'true', 'the field is not marked invalid');
+    assert.equal(field.focused, 1, 'focus stayed on the button that was pressed');
+    clearNameFailure({ field, error });
+    assert.equal(error.textContent, '', 'the refusal outlives the value it was about');
+    assert.equal(attributes['aria-invalid'], undefined, 'the field is still marked invalid');
   });
 });
 

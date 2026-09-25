@@ -42,6 +42,10 @@
         --primary-hover: #d5b4fa;
         --primary-foreground: #1e1e2e;
         --ring: #cba6f7;
+        /* The one colour a mark for *the room holds this text open* is drawn in, wherever it is
+           drawn: the tree's dot and the file strip's chip wear the same green, so a person reads
+           one fact and not two. */
+        --open-mark: #a6e3a1;
         --radius: 0.5rem;
         --shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.8);
       }
@@ -97,13 +101,19 @@
       #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
         font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
       #health .dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex: none;
-        background: #a6e3a1; }
+        background: var(--open-mark); }
       #health[data-health='reconnecting'] { color: var(--warning); }
       #health[data-health='reconnecting'] .dot { background: var(--warning);
         animation: health-pulse 1.4s ease-in-out infinite; }
       #health[data-health='away'] { color: var(--danger); }
       #health[data-health='away'] .dot { background: var(--danger); }
-      #health-label:empty { display: none; }
+      /* The green state is the dot alone. Its name is in the document for a screen reader and
+         clipped out of the paint, because a `title` is not an accessible name and a dot with
+         nothing beside it says nothing to one; the two states that change what typing means
+         paint theirs. */
+      #health[data-health='ok'] #health-label { position: absolute; width: 1px; height: 1px;
+        margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+        border: 0; }
       @keyframes health-pulse { 50% { opacity: 0.35; } }
       @media (prefers-reduced-motion: reduce) {
         #health[data-health='reconnecting'] .dot { animation: none; }
@@ -232,7 +242,8 @@
       /* The panel and the editor, and the panel's own edge between them: 1 px drawn, a wider
          invisible hit area, and the rail the panel becomes when it is shut. */
       #side { width: 21rem; flex: none; overflow-y: auto; background: var(--card);
-        padding: 0.9em 0.7em 1.2em; container-type: inline-size; container-name: side; }
+        padding: 0.9em 0.7em 1.2em; container-type: inline-size; container-name: side;
+        box-sizing: border-box; }
       #side-resizer { position: relative; flex: none; width: 8px; margin-left: -4px;
         cursor: col-resize; touch-action: none; background: none; }
       #side-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3.5px;
@@ -266,6 +277,9 @@
         padding: 0 0.35em; white-space: nowrap; }
       #file-strip-chips .chip.warn { color: var(--warning); border-color: var(--warning); }
       #file-strip-chips .chip.room { border: none; padding: 0; }
+      /* The dot is the tree's own mark, in the tree's colour: the words beside it are the chip's,
+         and the mark that means the room holds this text open is one colour on both surfaces. */
+      #file-strip-chips .chip.room .dot { color: var(--open-mark); }
       #file-strip-follow { display: inline-flex; align-items: center; gap: 0.5em; min-width: 0;
         font-weight: 600; border-radius: var(--radius); }
       #file-strip-follow:empty { display: none; }
@@ -309,7 +323,7 @@
          beside the name, and the finger-sized floor the touch query gives every button. */
       #roster .rename-save, #roster .rename-cancel { font-size: 0.8em; padding: 0.25em 0.5em; }
       #roster li.self .swatch { background: var(--primary); }
-      #roster .actions { display: flex; gap: 0.25em; flex: none; }
+      #roster .actions { display: flex; align-items: center; gap: 0.25em; flex: none; }
       /* Quiet verbs: present at rest, no chrome to add up around two names. */
       #roster .actions button { font-size: 0.8em; padding: 0.3em 0.6em; background: none;
         border-color: transparent; color: var(--muted-foreground); }
@@ -359,10 +373,13 @@
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
-      /* What the room knows about a row: its text is in the room (`●`), or the room holds it and
-         nothing has arrived (`empty`), or the folder refused a write to it (`⚠`). */
-      #tree button.row .in-room { color: #a6e3a1; font-size: 0.7em; flex: none; }
-      #tree button.row .empty-tag, #tree button.row .unsaved { font-size: 0.68em; font-weight: 500;
+      /* What the room knows about a row: its text is in the room (`●`), the room sent text and it
+         is empty (`empty`), the room holds it open and nothing has arrived (`not fetched yet`), or
+         the folder refused a write to it (`⚠`). The two tags wear one chip: they are one mark in
+         two states, and the words are what tell them apart. */
+      #tree button.row .in-room { color: var(--open-mark); font-size: 0.7em; flex: none; }
+      #tree button.row .empty-tag, #tree button.row .pending-tag,
+      #tree button.row .unsaved { font-size: 0.68em; font-weight: 500;
         white-space: nowrap; color: var(--muted-foreground); border: 1px solid var(--border-strong);
         border-radius: 3px; padding: 0 0.3em; flex: none; }
       #tree button.row .unsaved { color: var(--warning); border-color: var(--warning); }
@@ -471,6 +488,14 @@
         font-size: 1rem; font-weight: normal; padding: 0.7em 0.8em;
         transition: border-color 0.15s ease; }
       #join input:focus { border-color: var(--primary); }
+      /* A field the card refused: the colour says so at the field, which is what `aria-invalid`
+         says to a screen reader. The line and the field stand together — `#name-error` is drawn
+         by the field and the start action's line by its button, and the name's refusal goes to
+         the field whichever button asked for it. */
+      #join input[aria-invalid='true'] { border-color: var(--danger); }
+      #name-error { margin: 0.45em 0 0; font-size: 0.85em; line-height: 1.45;
+        color: var(--danger); }
+      #name-error:empty { display: none; }
       #join-button { display: flex; width: 100%; justify-content: center;
         margin-top: 0.4rem; padding: 0.8em 1.1em; font-size: 1em;
         transition: background-color 0.15s ease,
@@ -613,10 +638,12 @@
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
         <!-- The dot is the glanceable half of room health and the strip below is the sentence with
-             the countdown in it: a healthy room says nothing, and the two states that change what
-             typing means say their name where the connection is read. -->
-        <span id="health" data-health="ok" title="Connected">
-          <span class="dot" aria-hidden="true"></span><span id="health-label"></span>
+             the countdown in it: a healthy room paints the dot alone, and the two states that change
+             what typing means add their name beside it. The name is in the markup in every state —
+             read by a screen reader, clipped out of the paint while the dot is green — because the
+             dot is `aria-hidden` and a `title` is not an accessible name. -->
+        <span id="health" data-health="ok" aria-live="polite" title="Connected">
+          <span class="dot" aria-hidden="true"></span><span id="health-label">Connected</span>
         </span>
         <!-- Leaving closes the tab without closing the tab: the session is dropped and the card
              comes back with a fresh link as the way in. A host's press asks first — its leaving
@@ -734,8 +761,13 @@
              replayed. The bundle replays a held join. -->
         <form id="join-form" action="#" onsubmit="if (!window.__selvageJoinArmed) { window.__selvagePendingSubmit = true; var path = document.getElementById('invite-path'); window.__selvagePendingInvitePath = path ? path.open === true : false; } return false;">
           <label>The name other participants see
-            <input id="name" type="text" maxlength="32" autocomplete="off" placeholder="Ada" />
+            <input id="name" type="text" maxlength="32" autocomplete="off"
+              aria-describedby="name-error" />
           </label>
+          <!-- The name's own refusal, at the field it is about: the start action's line stands
+               under its button, and the button is a screen away from where the name is asked.
+               Both are written by the card, and only one of them at a time (`main.ts`). -->
+          <p id="name-error" role="alert"></p>
           <!-- The invite path, under the name both intents ask. With no invite it is this one
                quiet line, and the browser's own disclosure shows the paste box and Join when
                the person says they have a link — with no script, so a page whose bundle is

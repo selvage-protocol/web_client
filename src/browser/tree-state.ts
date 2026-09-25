@@ -69,9 +69,11 @@ export function dirOpen(path: string, pinned: ReadonlySet<string>, current: stri
  * cannot otherwise tell. `inRoom` is the room's own open-document set, which both roles receive, so
  * the mark means the same thing on both sides.
  *
- * The `empty` tag deliberately does not claim why. A guest cannot tell an empty file from text the
- * host has not sent yet — nothing in the protocol distinguishes them — so the tag says both. A host
- * can tell, because this page read the file, so its tag says the one true thing.
+ * `empty` is a fact the page has been told: the text is here, and it is empty. It used to cover the
+ * other state as well — the room holds a path open and nothing has arrived for it — so a guest's row
+ * said `empty` for a document the host had not sent a byte of, and the only thing that separated the
+ * two was a `title`, which a phone never shows. That is a claim about a document nobody has read, so
+ * the unfetched state has a tag of its own and `empty` is left for the empty one.
  */
 export interface RoomRowState {
   /** The room holds this path open. */
@@ -87,17 +89,34 @@ export interface RoomRowState {
 export type RoomMark =
   | { kind: 'none' }
   | { kind: 'in-room'; title: string }
-  | { kind: 'empty'; title: string };
+  | { kind: 'empty'; title: string }
+  | { kind: 'not-here'; title: string };
 
 /** The tooltip for the `●` a row wears when its text is in the room. */
 export const IN_THE_ROOM_TITLE = 'Its text is in the room.';
 
-/** What an `empty` tag says on a guest's screen, where the two causes cannot be told apart. */
-export const EMPTY_IN_ROOM_TITLE =
-  'Empty in the room. Either the file is empty, or the host has not sent its text yet.';
+/** What the `empty` tag says on a guest's screen, where the room is the one that sent the text. */
+export const EMPTY_IN_ROOM_TITLE = 'The room sent its text, and it is empty.';
 
 /** What it says on a host's screen, where this page read the file itself. */
 export const EMPTY_FILE_TITLE = 'The file is empty.';
+
+/**
+ * What the tag for the unfetched state reads, on both roles' screens.
+ *
+ * A guest's row is waiting on a fetch it asked for and nobody has answered; a host's is waiting on
+ * a file this window has not read yet. `fetched` is the page's own word for the first, and the two
+ * titles below say which one this is rather than making the tag say both.
+ */
+export const NOT_HERE_TAG = 'not fetched yet';
+
+/** What the tag says to a guest: the room holds it open and the text has not arrived. */
+export const NOT_SENT_TITLE =
+  'The room holds it open, and its text has not arrived yet.';
+
+/** What it says to a host, which fetches nothing: this window has not read the file yet. */
+export const NOT_READ_TITLE =
+  'The room holds it open, and this window has not read the file yet.';
 
 /** What a guest's row says while the host is away, since no text can arrive until it returns. */
 export const HOST_AWAY_ROW_TITLE = 'The host is away, so its text cannot arrive.';
@@ -106,11 +125,11 @@ export function roomMark(state: RoomRowState): RoomMark {
   if (!state.inRoom) {
     return { kind: 'none' };
   }
-  if (state.textHere && !state.textEmpty) {
-    return { kind: 'in-room', title: IN_THE_ROOM_TITLE };
+  if (!state.textHere) {
+    return { kind: 'not-here', title: state.host ? NOT_READ_TITLE : NOT_SENT_TITLE };
   }
-  if (state.host) {
-    return { kind: 'empty', title: EMPTY_FILE_TITLE };
+  if (state.textEmpty) {
+    return { kind: 'empty', title: state.host ? EMPTY_FILE_TITLE : EMPTY_IN_ROOM_TITLE };
   }
-  return { kind: 'empty', title: EMPTY_IN_ROOM_TITLE };
+  return { kind: 'in-room', title: IN_THE_ROOM_TITLE };
 }

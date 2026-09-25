@@ -321,6 +321,17 @@ describe('what a phone cannot hover', () => {
     assert.doesNotMatch(style, /#roster \.why/, 'a dead verb’s explanation is still in the shell');
   });
 
+  it('keeps the waiting line on the row it belongs to, not floating above it', () => {
+    // Measured at 390x844: `not in a file yet` sat in the same action row as the Follow button,
+    // stretched to that button's 44 px height with its text at the top of the box, so it read as a
+    // line of its own above the peer. The action row centres its children.
+    assert.match(
+      declarations(style, '#roster .actions'),
+      /align-items:\s*center/,
+      'the waiting line floats above the row it belongs to',
+    );
+  });
+
   it('carries a tap-revealed line for the peer a caret belongs to', () => {
     assert.ok(html.includes('id="peek"'), 'no tap-revealed line in the shell');
     assert.match(declarations(style, '#peek'), /position:\s*fixed/);
