@@ -30,6 +30,7 @@ import { MonacoBinding } from '../src/browser/editor.ts';
 import { rosterLabel } from '../src/browser/names.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
+import { fetchAndSave, fetchStandMs } from '../src/browser/fetch-download.ts';
 
 const BASE = process.env.SELVAGE_BASE ?? 'wss://selvage-demo.dontblameme.dev';
 const NOTES = 'notes.md';
@@ -156,10 +157,12 @@ function check(name, condition) {
 // `§7.1` seals the room state from the host's listing, so the tree is walked before the mint:
 // todo.txt is listed but never opened or seeded, which is the unpublished case below, and
 // shared/held.txt is listed and on the host's disk but never opened in its window, which is the
-// case the room's own hold reaches.
+// case the room's own hold reaches. empty.txt is listed and on the host's disk holding nothing at
+// all, which is the case an empty answer is the whole of.
 const HELD = 'shared/held.txt';
 const HELD_TEXT = 'the host’s own copy of it\n';
-const listing = listingSource([NOTES, MAIN, TODO, HELD]);
+const EMPTY = 'empty.txt';
+const listing = listingSource([NOTES, MAIN, TODO, HELD, EMPTY]);
 const hostEngine = pageEngine(
   await PeerEngine.host({
     baseUrl: BASE,
@@ -178,6 +181,7 @@ hostFiles.texts.set(MAIN, SEED_MAIN);
 hostFiles.disk.set(NOTES, SEED_NOTES);
 hostFiles.disk.set(MAIN, SEED_MAIN);
 hostFiles.disk.set(HELD, HELD_TEXT);
+hostFiles.disk.set(EMPTY, '');
 const hostBridge = new SessionBridge({ engine: hostEngine, host: hostFiles });
 hostBridge.documentOpened(NOTES);
 hostBridge.documentOpened(MAIN);
@@ -282,6 +286,47 @@ await waitFor(
 );
 check('the guest’s buffer holds the host’s copy', true);
 check('and the path reads published once the text has arrived', binding.isUnpublished(HELD) === false);
+
+// (2c) A file the host has and that is empty is answered, not waited out. The room sends the empty
+// document — `has` is what an answer is, empty included, and the engine under `src/engine` is what
+// publishes one — and the fetch reports that answer the moment it lands rather than standing for
+// the whole window. Measured against a real `selvaged`, an answered ask took the whole stand
+// (3 007 ms) while the answer itself had landed 101 ms in, with the row saying `Asking the host …`
+// for all of it. The host never opens empty.txt, so what the guest receives is the host's own read
+// of its working copy, which is the only path that can produce an empty answer at all.
+const emptyStandMs = fetchStandMs(guestEngine.session().keepalive.awareness_renew_ms);
+const standPolls = Math.trunc(emptyStandMs / 100);
+const fetched = [];
+let emptyPolls = 0;
+let answeredAt;
+const askedAt = Date.now();
+const fetchOutcome = await fetchAndSave(
+  EMPTY,
+  {
+    has: (path) => guestEngine.has(path),
+    text: (path) => guestEngine.text(path),
+    open: (path) => binding.requestText(path),
+    save: (path, text) => void fetched.push([path, text]),
+  },
+  {
+    standMs: emptyStandMs,
+    wait: async (ms) => {
+      emptyPolls += 1;
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      if (answeredAt === undefined && guestEngine.has(EMPTY)) answeredAt = Date.now() - askedAt;
+    },
+  },
+);
+check('the room answers an empty granted file with a document', guestEngine.has(EMPTY));
+check('and the answer carries no text', guestEngine.text(EMPTY) === '');
+check('the fetch reports that answer as the empty one', fetchOutcome.kind === 'empty');
+check('and saves nothing that was not asked for', fetched.length === 0);
+// The whole stand is what a fetch that read on for text would have spent; the answer is one poll or
+// a few, so a fetch that stops at it spends a small fraction of the bound.
+check(
+  `and stops at the answer, not at the stand (${String(emptyPolls)} of ${String(standPolls)} polls, ${String(answeredAt ?? -1)} ms in)`,
+  emptyPolls * 4 < standPolls,
+);
 
 // Duplicate names disambiguate in the roster vocabulary: the twin takes the
 // host's name, so the guest's peer list itself holds the clash.
