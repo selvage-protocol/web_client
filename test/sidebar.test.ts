@@ -266,7 +266,7 @@ describe('the page’s own wiring', () => {
   it('narrows its own contents rather than its columns, at a container query on the panel', () => {
     assert.match(style, /#side \{[^}]*container-type: inline-size/, 'the panel measures no container');
     assert.match(style, /@container side \(max-width: 18rem\)/, 'nothing answers a narrow panel');
-    assert.match(style, /@container side \(max-width: 18rem\) \{[\s\S]*?\.label \{ display: none; \}/,
-      'a narrow panel keeps the verbs’ words and loses the tree');
+    assert.match(style, /@container side \(max-width: 18rem\) \{[\s\S]*?#tree button\.row, #tree summary \{ padding-left/,
+      'a narrow panel keeps the padding of a wide one and loses the tree');
   });
 });

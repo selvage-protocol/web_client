@@ -20,6 +20,7 @@ import {
   keyboardInsetFor,
   watchTouchQuery,
 } from '../src/browser/mobile.ts';
+import { FACE_LIMIT, PHONE_FACE_LIMIT } from '../src/browser/room.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 // Comments removed: a rule's selector list is read off the text, and a comment
@@ -274,7 +275,12 @@ describe('the sizes a finger needs', () => {
     // A content-box `min-height` is a floor on the content, and the padding sits
     // outside it: the strip rendered 63 px tall for a 44 px floor before this.
     assert.match(share, /box-sizing:\s*border-box/, 'the 44 px floor is not the box the finger hits');
-    assert.match(declarations(touch, '#roster .actions button'), /min-width:\s*44px/, 'roster verbs stay 26 px wide');
+    // A face is a circle and its box is that circle, so the floor cannot be a `min-height` on it:
+    // one taller than the width draws an ellipse. The shape keeps its size and the fingertip gets
+    // its 44 px from the box the pseudo-element lays over the 5 px it overlaps its neighbour by.
+    assert.match(declarations(touch, '#faces .av'), /min-height:\s*0/, 'a face takes the box floor and is drawn as an ellipse');
+    assert.match(declarations(touch, '#faces .av::before'), /inset:\s*-5px/, 'a face is a 34 px target on a phone');
+    assert.match(declarations(touch, '#menu .acts button'), /min-height:\s*44px/, 'the menu\u2019s verbs are under the target size');
     // A row's own action, measured at 390x844: the download control and a folder's `\u22ef` are both
     // 24x44 — one glyph in a box a thumb is four times too wide for, on a row whose own press opens
     // the file, which for a guest opens it for every peer.
@@ -290,8 +296,8 @@ describe('the sizes a finger needs', () => {
     for (const control of [
       '#tree .new-commit',
       '#tree .new-cancel',
-      '#roster .rename-save',
-      '#roster .rename-cancel',
+      '#menu .rename-save',
+      '#menu .rename-cancel',
     ]) {
       assert.match(
         declarations(touch, control),
@@ -300,7 +306,8 @@ describe('the sizes a finger needs', () => {
       );
     }
     assert.match(declarations(touch, '#tree .new-line'), /gap:\s*0\.6em/, 'the two answers abut');
-    assert.match(declarations(touch, '#roster .rename-edit'), /gap:\s*0\.6em/, 'the two answers abut');
+    // The menu's pair is the same two answers in the same shape: the field, then ✓ and ✕.
+    assert.match(declarations(touch, '#menu .rename-edit'), /gap:\s*0\.6em/, 'the two answers abut');
   });
 
   it('keeps the desktop density: the sizes above are behind the touch query', () => {
@@ -325,47 +332,31 @@ describe('the panel on a phone', () => {
     assert.match(main, /showPanel\(!phoneLayout\.matches\)/, 'the panel does not start shut on a phone');
   });
 
-  it('keeps the roster to one alignment: the verbs stay on the name\u2019s line', () => {
-    // Measured at 390x844 with five peers: a long name wrapped the row's verbs onto a line of
-    // their own, left-aligned at x=17 and 82 px tall, while a short name kept them right-aligned on
-    // the name's line at x=207 and 57 px. Two alignments and two heights in one list, and the
-    // phrase a reader scans for — `not in a file yet` — in a different place on every row. What
-    // wraps is the name's own box and not the row, so a tall row is a long name and never a verb
-    // in the wrong place.
-    const row = declarations(mediaBlock(TOUCH_QUERY), '#roster li');
-    assert.match(row, /flex-wrap:\s*nowrap/, 'the verbs drop to a line of their own again');
-    assert.ok(!/flex-wrap:\s*wrap/.test(row), 'a roster row still wraps its actions');
+  it('draws a phone\u2019s faces at the phone\u2019s own size, three at a time', () => {
+    // Measured at 390x844: the bar is 111 px and the faces add none of it. The strip gives up the
+    // room it keeps above the circle on a wider screen, so a 34 px face sits inside the 44 px row
+    // Leave already holds — measured after: the bar is 111 px, unchanged. Size and cap are one
+    // decision: three 34 px faces are what fits beside a session name, the health dot and the way
+    // out, and the rest are behind the `+N` (`room.ts`).
+    const phone = mediaBlock(PHONE_QUERY);
+    const face = declarations(phone, '.av');
+    assert.match(face, /width:\s*34px/, 'the phone face is not the size the design measured');
+    assert.match(face, /height:\s*34px/, 'the phone face is not the size the design measured');
+    assert.match(declarations(phone, '#faces'), /padding-top:\s*0/,
+      'the strip still reserves room above the circle');
+    assert.equal(PHONE_FACE_LIMIT, 3, 'a phone shows more faces than its bar has room for');
+    assert.equal(FACE_LIMIT, 5, 'the desktop cap moved');
   });
 
-  it('gives the name the room the verb labels were taking, and a second line when that is not enough', () => {
-    // Measured at 320x640 with a 23-character name: the peer row's name got 76 px beside `Follow`
-    // and `not in a file yet` — about nine bold characters, and nothing on the page showed the rest,
-    // a phone having no tooltip and the `title` carrying a peer id at most. The verbs' words are
-    // still the control's own accessible name: `display: none` would take them out of the
-    // accessibility tree with the pixels, which is what the narrow-panel container query already
-    // does to a `Go to` that carries no tooltip either.
-    const touch = mediaBlock(TOUCH_QUERY);
-    const label = declarations(touch, '#roster .actions button .label');
-    assert.match(label, /clip-path:\s*inset\(50%\)/, 'the verbs are painted by their labels again');
-    assert.doesNotMatch(label, /display:\s*none/,
-      'the verb\u2019s own words leave the accessibility tree with the pixels');
-    // And a name that still does not fit takes a second line rather than an ellipsis: the row's
-    // verbs keep the place they hold on every other row, because the name wraps and not the row.
-    // That rule is not in the touch block: a name cut to `Francesca B…` is unreadable on a 336 px
-    // desktop panel, where nothing carries the full name either.
-    assert.match(declarations(style, '#roster .name'), /white-space:\s*normal/,
+  it('keeps a long name whole in the menu, where a wrapping name is all there is', () => {
+    // Measured at 320x640 with a 23-character name: the row's name got 76 px beside `Follow` and
+    // `not in a file yet` — about nine bold characters, and nothing on the page showed the rest, a
+    // phone having no tooltip. The menu is a column with a row to itself for the name, so it wraps
+    // and is never cut: a name cut to `Francesca B…` is a name a reader cannot tell from another.
+    assert.match(declarations(style, '#menu .name'), /overflow-wrap:\s*anywhere/,
       'a long name is cut where nothing shows the rest of it');
-    assert.doesNotMatch(declarations(style, '#roster .name'), /text-overflow:\s*ellipsis/,
+    assert.doesNotMatch(declarations(style, '#menu .name'), /text-overflow:\s*ellipsis/,
       'the ellipsis is back, so the name is cut again');
-    // And it breaks at the points a name has before it breaks inside one. `anywhere` broke
-    // `Bartholomew Fitzwilliam-Ockham` between two letters in the panel — measured at 1280x900, the
-    // own row drew `Bartholome` over `w` in a 101 px box — and a name broken mid-word reads as two
-    // names. `break-word` still breaks a word that cannot fit on a line of its own, so a long name
-    // stays whole on the phone; what it stops is breaking one that has a space to break at.
-    assert.match(declarations(style, '#roster .name'), /overflow-wrap:\s*break-word/,
-      'a long name breaks inside a word while a space is left to break at');
-    assert.doesNotMatch(declarations(style, '#roster .name'), /overflow-wrap:\s*anywhere/,
-      'the name breaks anywhere again');
   });
 
   it('makes its cap the box the panel actually takes', () => {
@@ -493,23 +484,21 @@ describe('what a phone cannot hover', () => {
     assert.match(group, /aria-label="Copy invite link"/, 'the control lost its accessible name');
   });
 
-  it('says where a peer is in the row, for the finger that cannot hover it', () => {
+  it('says where a peer is in the menu, for the finger that cannot hover it', () => {
     // There is no dead verb left to explain: a peer with nothing open reads where they are, at every
     // width and with no `title` behind it. What is pinned is the line's own style, which is text on
     // screen rather than a tooltip.
-    assert.match(declarations(style, '#roster .waiting'), /color:\s*var\(--muted-foreground\)/);
-    assert.doesNotMatch(style, /#roster \.why/, 'a dead verb’s explanation is still in the shell');
+    assert.match(declarations(style, '#menu .waiting'), /color:\s*var\(--muted-foreground\)/);
+    assert.doesNotMatch(style, /#roster/, 'a rule for a panel that is gone survived in the shell');
   });
 
-  it('keeps the waiting line on the row it belongs to, not floating above it', () => {
-    // Measured at 390x844: `not in a file yet` sat in the same action row as the Follow button,
-    // stretched to that button's 44 px height with its text at the top of the box, so it read as a
-    // line of its own above the peer. The action row centres its children.
-    assert.match(
-      declarations(style, '#roster .actions'),
-      /align-items:\s*center/,
-      'the waiting line floats above the row it belongs to',
-    );
+  it('stacks the acts under the person they are about, in the column the design draws', () => {
+    // The waiting line stands where a `Go to` would, one verb per line under the head, rather than
+    // beside a name it is not about.
+    assert.match(declarations(style, '#menu .acts'), /flex-direction:\s*column/,
+      'the verbs are a row again, and the waiting line stands beside a name');
+    assert.match(declarations(style, '#menu .acts'), /border-top:\s*1px/,
+      'the acts are not told apart from the head');
   });
 
   it('carries a tap-revealed line for the peer a caret belongs to', () => {

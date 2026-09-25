@@ -437,11 +437,6 @@ const CHROME = `(() => {
   const text = (id) => document.getElementById(id)?.textContent ?? '';
   const leaf = (element) => element !== null && element.getClientRects().length > 0;
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => row.textContent.trim());
-  // The host's marker is a crown and not a word, so a row's own text cannot say which seat hosts:
-  // the mark is read off the row, and the text is kept beside it.
-  const roster = [...document.querySelectorAll('#roster li')].map(
-    (row) => row.textContent.trim() + (row.querySelector('.role') === null ? '' : '[crown]'),
-  );
   const rect = (element) => {
     if (element === null) return null;
     const box = element.getBoundingClientRect();
@@ -490,8 +485,6 @@ const CHROME = `(() => {
     fileStrip: document.getElementById('file-strip')?.innerText ?? '',
     fileStripChips: document.getElementById('file-strip-chips')?.innerText ?? '',
     fileStripFollow: document.getElementById('file-strip-follow')?.innerText ?? '',
-    hostRow: roster.find((row) => /\[crown\]/.test(row)) ?? '',
-    roster,
     treeRows: rows,
     createRow: document.querySelectorAll('#tree .new-row').length,
     localFolders: [...document.querySelectorAll('#tree .local')].map((tag) => tag.textContent),
@@ -506,6 +499,119 @@ const CHROME = `(() => {
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight && terms.getBoundingClientRect().top >= 0,
     footer: rect(document.getElementById('demo-footer')),
     joinCard: rect(document.getElementById('join')),
+  };
+})()`;
+
+/**
+ * The faces in the session bar: what each one is read by, which marks it wears, and the size it is
+ * actually drawn at. The label and the title are the two readings a person has — one for a screen
+ * reader and one for a pointer — and the crown and the eye are pictures, so they are counted rather
+ * than read.
+ */
+const FACES = `(() => {
+  const faces = [...document.querySelectorAll('#faces .av')].map((face) => {
+    const box = face.getBoundingClientRect();
+    return {
+      label: face.getAttribute('aria-label') ?? '',
+      title: face.getAttribute('title') ?? '',
+      classes: face.className,
+      crown: face.querySelector('.crown') !== null,
+      eye: face.querySelector('.eye') !== null,
+      expanded: face.getAttribute('aria-expanded'),
+      size: Math.round(box.width) + 'x' + Math.round(box.height),
+    };
+  });
+  const bar = document.getElementById('session');
+  const strip = document.getElementById('file-strip');
+  return {
+    faces,
+    group: document.getElementById('faces')?.getAttribute('aria-label') ?? '',
+    barHeight: Math.round(bar.getBoundingClientRect().height),
+    chromeHeight: Math.round(bar.getBoundingClientRect().height + strip.getBoundingClientRect().height),
+  };
+})()`;
+
+/**
+ * What the cluster costs the bar, measured the only way it can be: the same bar with the cluster
+ * hidden. The design's number is 0 px on a phone, and a bar that grew would be a bar that took a
+ * line from the editor for a row of faces.
+ *
+ * The face's own box is 34 px there, and its hit area is not its box: the fingertip target is the
+ * 5 px laid around it, so the reading that says so is what a point 3 px outside the edge lands on.
+ */
+const BAR_COST = `(() => {
+  const bar = document.getElementById('session');
+  const faces = document.getElementById('faces');
+  const strip = document.getElementById('file-strip');
+  const withFaces = bar.getBoundingClientRect().height;
+  const chrome = withFaces + strip.getBoundingClientRect().height;
+  const display = faces.style.display;
+  faces.style.display = 'none';
+  const withoutFaces = bar.getBoundingClientRect().height;
+  faces.style.display = display;
+  const face = document.querySelector('#faces .av');
+  const box = face === null ? null : face.getBoundingClientRect();
+  const at = (x, y) => {
+    const node = document.elementFromPoint(x, y);
+    if (node === null) return null;
+    return (node.className === '' ? node.tagName : String(node.className)).toString();
+  };
+  const identity = document.getElementById('session-identity');
+  const truncated = () => identity !== null && identity.scrollWidth > identity.clientWidth + 1;
+  const identityTruncatedWithFaces = truncated();
+  faces.style.display = 'none';
+  const identityTruncatedWithoutFaces = truncated();
+  faces.style.display = display;
+  return {
+    identityTruncatedWithFaces,
+    identityTruncatedWithoutFaces,
+    barWithFaces: Math.round(withFaces),
+    barWithoutFaces: Math.round(withoutFaces),
+    added: Math.round(withFaces - withoutFaces),
+    chrome: Math.round(chrome),
+    barAfterRestore: Math.round(bar.getBoundingClientRect().height),
+    face: box === null ? null : { width: Math.round(box.width), height: Math.round(box.height) },
+    // Where the fingertip's 44 px comes from: a point outside the circle that still lands on it.
+    hitAbove: box === null ? null : at(Math.round(box.left + box.width / 2), Math.round(box.top - 3)),
+    hitLeft: box === null ? null : at(Math.round(box.left - 3), Math.round(box.top + box.height / 2)),
+  };
+})()`;
+
+/**
+ * The open dialog: what it is read by, what it says about the person, the acts it offers, and where
+ * it stands against the face it came from.
+ */
+const MENU = `(() => {
+  const menu = document.getElementById('menu');
+  if (menu === null) return null;
+  const box = menu.getBoundingClientRect();
+  const anchor = document.querySelector('#faces [aria-expanded="true"]');
+  const at = anchor === null ? null : anchor.getBoundingClientRect();
+  const active = document.activeElement;
+  return {
+    label: menu.getAttribute('aria-label'),
+    role: menu.getAttribute('role'),
+    head: (menu.querySelector('.head')?.innerText ?? '').trim(),
+    where: (menu.querySelector('.where')?.textContent ?? '').trim(),
+    acts: [...menu.querySelectorAll('.acts button')].map((button) => ({
+      text: (button.textContent ?? '').trim(),
+      pressed: button.getAttribute('aria-pressed'),
+      title: button.getAttribute('title'),
+      disabled: button.disabled,
+    })),
+    waiting: (menu.querySelector('.waiting')?.textContent ?? '').trim(),
+    refusal: (menu.querySelector('.refusal')?.textContent ?? '').trim(),
+    back: (menu.querySelector('.back')?.textContent ?? '').trim(),
+    rows: [...menu.querySelectorAll('.list button')].map((row) => row.getAttribute('aria-label')),
+    focus:
+      active === null || active === document.body
+        ? null
+        : (active.getAttribute('aria-label') ?? (active.textContent ?? '').trim()).slice(0, 40) || active.tagName,
+    placement: {
+      gapUnderTheFace: at === null ? null : Math.round(box.top - at.bottom),
+      rightEdgeOnTheFace: at === null ? null : Math.round(box.right) === Math.round(at.right),
+      insideTheFrame: box.left >= 0 && box.right <= window.innerWidth,
+    },
   };
 })()`;
 
@@ -736,47 +842,126 @@ async function reviewDesktop(page, server, written, failures) {
   // Cancel the create row before the rest, so nothing else photographs it.
   await page.evaluate(`document.querySelector('#tree .new-cancel')?.click()`);
 
-  // The own-name edit, asked for the way a person asks: the self row's Rename.
+  // The own-name edit, asked for the way a person asks: your own face in the bar, then Rename in
+  // the menu it opens.
+  await page.evaluate(`document.querySelector('#faces .av.me').click()`);
+  await waitFor(
+    page,
+    'the menu your own face opens',
+    `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+    (label) => label === 'Ada',
+  );
   await page.evaluate(`(() => {
-    const row = document.querySelector('#roster li.self');
-    // The own row's one control. Its label is a word and its aria-label is the sentence a screen
-    // reader reads, so it is found by its own text.
-    const button = [...row.querySelectorAll('button')].find((candidate) => /Rename/.test(candidate.textContent ?? ''));
+    const button = [...document.querySelectorAll('#menu button')].find((candidate) => /Rename/.test(candidate.textContent ?? ''));
     button.click();
     return button.textContent;
   })()`);
   await waitFor(
     page,
     'the rename field and its two controls',
-    `[document.querySelectorAll('#roster .rename').length, document.querySelectorAll('#roster .rename-save').length, document.querySelectorAll('#roster .rename-cancel').length].join(',')`,
+    `[document.querySelectorAll('#menu .rename').length, document.querySelectorAll('#menu .rename-save').length, document.querySelectorAll('#menu .rename-cancel').length].join(',')`,
     (counts) => counts === '1,1,1',
   );
   await delay(300);
+  facts.ownMenu = await page.evaluate(MENU);
+  log('your own menu, with the edit open:', JSON.stringify(facts.ownMenu));
   log('wrote', await record(written, page, '04-rename-field-open.png'));
-  await page.evaluate(`document.querySelector('#roster .rename-cancel')?.click()`);
+  await page.evaluate(`document.querySelector('#menu .rename-cancel')?.click()`);
   await delay(200);
+  // Escape closes the dialog and puts focus back on the face it came from: the menu is a dialog, and
+  // a dialog that closed onto nothing is a person who has to find their place again.
+  facts.afterEscape = await page.evaluate(`(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const face = document.querySelector('#faces .av.me');
+    return { menu: document.getElementById('menu') === null ? 'closed' : 'open', focused: document.activeElement === face };
+  })()`);
+  log('Escape on the menu:', JSON.stringify(facts.afterEscape));
 
-  // A second peer, the shape a guest has: the real engine over the real wire, one caret in the file
-  // the page has open, and a follow to watch the strip's follow segment.
+  // A press that lands outside the dialog takes it down, and it is the same press that moves the
+  // caret: the person asked for the editor, and the dialog is not between them and it.
+  await page.evaluate(`document.querySelector('#faces .av.me').click()`);
+  await waitFor(
+    page,
+    'your own menu again',
+    `document.getElementById('menu') === null ? null : 'open'`,
+    (open) => open === 'open',
+  );
+  const editorPoint = await page.evaluate(`(() => {
+    const box = document.querySelector('.monaco-editor')?.getBoundingClientRect();
+    return box === undefined ? null : { x: Math.round(box.left + 80), y: Math.round(box.top + 70) };
+  })()`);
+  if (editorPoint !== null) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: editorPoint.x, y: editorPoint.y, button: 'left', clickCount: 1 });
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: editorPoint.x, y: editorPoint.y, button: 'left', clickCount: 1 });
+    await delay(200);
+    facts.afterOutsidePress = await page.evaluate(`(() => ({
+      menu: document.getElementById('menu') === null ? 'closed' : 'open',
+      focused: document.activeElement === null ? 'none' : (document.activeElement.tagName + '.' + String(document.activeElement.className).split(' ')[0]),
+    }))()`);
+    log('a press outside the menu:', JSON.stringify(facts.afterOutsidePress));
+    if (facts.afterOutsidePress.menu !== 'closed') {
+      failures.push('a press outside the dialog left it open');
+    }
+  }
+
+  // The room fills: the real engines over the real wire, one caret each in the file the page has
+  // open. Five seats beside the host's own is one more than a desktop bar shows, which is what puts
+  // the `+N` on the bar — and what the followed face has to be pinned out from behind.
   const invite = await copyInvite(page, server.origin);
-  const guest = await PeerEngine.join({
-    invite,
-    displayName: 'Bob',
-    webSocketFactory: nativeWebSocketFactory,
-  });
+  const guests = [];
   try {
-    guest.setSelection(openedPath, { anchor: 0, head: 3 });
+    for (const displayName of ['Bob', 'Carla', 'Dee', 'Emil', 'Fay']) {
+      const engine = await PeerEngine.join({
+        invite,
+        displayName,
+        webSocketFactory: nativeWebSocketFactory,
+      });
+      guests.push(engine);
+      // Opened, not only selected: a path is what the room reads off the peer, and a menu with no
+      // `Go to` in it is a menu with nothing to photograph.
+      await engine.open(openedPath);
+      engine.setSelection(openedPath, { anchor: 0, head: 3 });
+    }
     await waitFor(
       page,
-      'the second peer in the roster',
-      `[...document.querySelectorAll('#roster li')].some((row) => /Bob/.test(row.textContent ?? ''))`,
-      (there) => there === true,
+      'four faces and the +N over the rest',
+      `document.querySelectorAll('#faces .av').length`,
+      (count) => count === 5,
     );
+    await delay(300);
+    facts.faces = await page.evaluate(FACES);
+    facts.hostFace = facts.faces.faces.find((face) => /, host/.test(face.label))?.label ?? '';
+    // The same reading the phone takes, on a pointer device's bar: the cluster's own cost there.
+    facts.barCost = await page.evaluate(BAR_COST);
+    log('the faces in the bar:', JSON.stringify(facts.faces));
+    log('what the faces cost the bar:', JSON.stringify(facts.barCost));
+    log('wrote', await record(written, page, '16-faces-in-the-bar.png'));
+
+    // Bob's menu, from his own face: where he is, `Go to`, and `Follow`.
     await page.evaluate(`(() => {
-      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-      const button = [...row.querySelectorAll('button')].find((candidate) => /Follow/.test(candidate.textContent ?? ''));
+      const face = [...document.querySelectorAll('#faces .av')].find((candidate) =>
+        (candidate.getAttribute('aria-label') ?? '').startsWith('Bob'),
+      );
+      face.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'Bob’s menu',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Bob',
+    );
+    await delay(300);
+    facts.personMenu = await page.evaluate(MENU);
+    log('a person’s menu:', JSON.stringify(facts.personMenu));
+    log('wrote', await record(written, page, '17-person-menu.png'));
+
+    // Follow, from the menu: the same state as the strip's segment, from the other side. The press
+    // takes the dialog down, so what follows is the bar showing the follow it turned on.
+    await page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('#menu button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
       button.click();
-      return button.textContent;
+      return true;
     })()`);
     const followed = await waitFor(
       page,
@@ -785,48 +970,100 @@ async function reviewDesktop(page, server, written, failures) {
       (text) => /Bob/.test(text),
     );
     facts.followSegment = followed;
-    // The same state from the other side: the roster row's toggle, pressed, and what pressing it
-    // again does. Read from the row rather than assumed, because the strip's segment is the two of
-    // them agreeing and only one of them is a control.
-    facts.rosterToggle = await page.evaluate(`(() => {
-      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-      const button = [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
-      if (button === undefined) return null;
-      return {
-        text: (button.textContent ?? '').trim(),
-        pressed: button.getAttribute('aria-pressed'),
-        title: button.getAttribute('title'),
-        disabled: button.disabled,
-      };
-    })()`);
-    log('following:', JSON.stringify(followed), 'the roster toggle:', JSON.stringify(facts.rosterToggle));
+    facts.menuClosedOnFollow = await page.evaluate(`document.getElementById('menu') === null`);
+    facts.following = await page.evaluate(FACES);
+    log('following:', JSON.stringify(followed), 'the faces:', JSON.stringify(facts.following));
     await delay(400);
     log('wrote', await record(written, page, '05-following-a-peer.png'));
-    // Pressing the pressed toggle stops the follow, which is the whole of the toggle: the state is
-    // what the row reads, and the press is what it does.
-    facts.rosterToggleAfterPress = await page.evaluate(`(() => {
-      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-      const button = [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
+
+    // Everyone in the room: the `+N` opens the list, and a row opens that person's menu with the way
+    // back to the list in it. Fay is the last seat, so she is one of the faces the bar counted away.
+    await page.evaluate(`document.querySelector('#faces .av.more').click()`);
+    await waitFor(
+      page,
+      'the list of everyone',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Everyone in the room',
+    );
+    await delay(300);
+    facts.everyone = await page.evaluate(MENU);
+    log('everyone in the room:', JSON.stringify(facts.everyone));
+    log('wrote', await record(written, page, '18-everyone-in-the-room.png'));
+
+    await page.evaluate(`(() => {
+      const row = [...document.querySelectorAll('#menu .list button')].find((candidate) =>
+        (candidate.getAttribute('aria-label') ?? '').startsWith('Fay'),
+      );
+      row.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'Fay’s menu, opened from the list',
+      `document.getElementById('menu')?.querySelector('.back')?.textContent ?? null`,
+      (back) => back === 'Everyone in the room',
+    );
+    await delay(300);
+    facts.menuFromTheList = await page.evaluate(MENU);
+    log('a person’s menu, opened from the list:', JSON.stringify(facts.menuFromTheList));
+    log('wrote', await record(written, page, '19-menu-from-the-list.png'));
+
+    // The way back puts focus on the row the person was picked from, which is the row they are
+    // looking for when the list returns.
+    facts.backToList = await page.evaluate(`(() => {
+      document.querySelector('#menu .back').click();
+      const active = document.activeElement;
+      const rows = [...document.querySelectorAll('#menu .list button')];
+      const picked = rows.find((row) => (row.getAttribute('aria-label') ?? '').startsWith('Fay'));
+      return {
+        label: document.getElementById('menu')?.getAttribute('aria-label') ?? null,
+        rows: rows.map((row) => (row.getAttribute('aria-label') ?? '').split(',')[0]),
+        focusIsThePickedRow: active === picked,
+      };
+    })()`);
+    log('back to the list:', JSON.stringify(facts.backToList));
+
+    // Follow the seat the bar counted away: the ring is the one place a follow shows on the bar, so
+    // the face wearing it takes the last shown slot instead of staying behind the count.
+    await page.evaluate(`(() => {
+      const row = [...document.querySelectorAll('#menu .list button')].find((candidate) =>
+        (candidate.getAttribute('aria-label') ?? '').startsWith('Fay'),
+      );
+      row.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'Fay’s menu again',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Fay',
+    );
+    await page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('#menu button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
       button.click();
       return true;
     })()`);
-    facts.afterTogglePress = await waitFor(
+    await waitFor(
       page,
-      'the follow to end when the pressed toggle is pressed',
-      `(() => {
-        const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-        const button = row === undefined ? undefined : [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
-        return {
-          pressed: button === undefined ? null : button.getAttribute('aria-pressed'),
-          text: button === undefined ? '' : (button.textContent ?? '').trim(),
-          strip: document.getElementById('file-strip-follow')?.innerText ?? '',
-        };
-      })()`,
-      (state) => state.pressed === 'false',
+      'the followed face to be pinned onto the bar',
+      `document.querySelector('#faces .av[aria-label^="Fay"]') === null ? null : 'shown'`,
+      (shown) => shown === 'shown',
     );
-    log('the toggle pressed again:', JSON.stringify(facts.afterTogglePress));
+    facts.pinnedFollowing = await page.evaluate(FACES);
+    log('following a face that was behind the count:', JSON.stringify(facts.pinnedFollowing));
+    // The last *face*, not the last button: the `+N` stands after every face it counts.
+    const shownNow = facts.pinnedFollowing.faces.filter((face) => !face.classes.includes('more'));
+    if (!/^Fay, following$/.test(shownNow.at(-1)?.label ?? '')) {
+      failures.push(
+        `the followed face is not the last one shown: ${JSON.stringify(facts.pinnedFollowing.faces.map((face) => face.label))}`,
+      );
+    }
+    await delay(400);
+    log('wrote', await record(written, page, '20-following-a-pinned-face.png'));
   } finally {
-    await guest.disconnect();
+    for (const engine of guests) {
+      await engine.disconnect();
+    }
   }
 
   // The pill under a held hover, and what a pointer could read off it: the room key must not be
@@ -952,9 +1189,10 @@ async function reviewDesktop(page, server, written, failures) {
   const before = await page.evaluate(readFolder);
   const alreadyThere = before.includes(marker);
   // The precondition the check rests on: nothing else has written this file yet. The only other
-  // writer is the bridge's own save, which fires on an edit the *room* made, and this window's peer
-  // left before the typing started — so a file that no longer holds what the picker seeded it with
-  // would mean the change the check is about to see was not this window's own.
+  // writer is the bridge's own save, which fires on an edit the *room* made; the peers this run
+  // joined hold a selection each and type nothing. A file that no longer holds what the picker
+  // seeded it with is therefore caught here, before the check can mistake it for this window's own
+  // write.
   if (before !== SEED[openedPath]) {
     failures.push(
       `${openedPath} was already ${JSON.stringify(before)} before the host typed, so this check cannot tell the host\u2019s own write from another`,
@@ -1021,11 +1259,11 @@ async function reviewDesktop(page, server, written, failures) {
     }
   }
   log('the host\u2019s own edit and the folder:', JSON.stringify(facts.hostWriteBack));
-  return { facts, invite };
+  return { facts, invite, openedPath };
 }
 
 /** The touch shots, in the touch browser: the phone's layout, and a guest fetching a file to save. */
-async function reviewTouch(page, server, invite, written, ...hostPages) {
+async function reviewTouch(page, server, invite, written, openedPath) {
   const facts = {};
   if (FOOTER) {
     // The finding this stands for: the reviewer's phone shot of a guest card, with the notice the
@@ -1080,6 +1318,91 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   facts.settled = await page.evaluate(GUEST_ROWS);
   log('the guest, at rest:', JSON.stringify(facts.settled));
   log('wrote', await record(written, page, '02-in-room-phone.png'));
+
+  // The bar's faces on a phone: your own seat, the host's crowned one, and the rest counted, with
+  // the cluster costing the bar nothing — measured against the same bar with the cluster hidden,
+  // which is the only reading that says "0 px" rather than "small".
+  const crowd = [];
+  try {
+    for (const displayName of ['Gus', 'Hal', 'Ivy']) {
+      const engine = await PeerEngine.join({
+        invite,
+        displayName,
+        webSocketFactory: nativeWebSocketFactory,
+      });
+      crowd.push(engine);
+      await engine.open(openedPath);
+      engine.setSelection(openedPath, { anchor: 0, head: 3 });
+    }
+    await waitFor(
+      page,
+      'two faces and the +N over the rest, on a phone',
+      `document.querySelectorAll('#faces .av').length`,
+      (count) => count === 3,
+    );
+    await delay(400);
+    facts.phoneFaces = await page.evaluate(FACES);
+    facts.phoneBar = await page.evaluate(BAR_COST);
+    log('the phone’s faces:', JSON.stringify(facts.phoneFaces));
+    log('what the faces cost the bar:', JSON.stringify(facts.phoneBar));
+    if (facts.phoneBar.added !== 0) {
+      failures.push(`the faces add ${facts.phoneBar.added} px to the phone’s session bar`);
+    }
+    log('wrote', await record(written, page, '21-phone-faces-in-the-bar.png'));
+
+    // A face's menu on a phone, and the follow that pins a counted-away face onto the bar.
+    facts.phoneMenu = await page.evaluate(`(() => {
+      document.querySelector('#faces .av:not(.me)').click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'a face’s menu on a phone',
+      `document.getElementById('menu') === null ? null : 'open'`,
+      (open) => open === 'open',
+    );
+    await delay(300);
+    facts.phonePersonMenu = await page.evaluate(MENU);
+    log('a person’s menu on a phone:', JSON.stringify(facts.phonePersonMenu));
+    log('wrote', await record(written, page, '22-phone-person-menu.png'));
+    await page.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await delay(200);
+
+    // Behind the count: the `+N` on a phone, the last face on the list, and the ring that brings it
+    // back onto the bar.
+    const last = facts.phoneFaces.faces.at(-1);
+    await page.evaluate(`document.querySelector('#faces .av.more').click()`);
+    await waitFor(
+      page,
+      'the list of everyone on a phone',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Everyone in the room',
+    );
+    await page.evaluate(`(() => {
+      const row = document.querySelector('#menu .list li:last-child button');
+      row.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'the last seat’s menu on a phone',
+      `document.getElementById('menu')?.querySelector('.back')?.textContent ?? null`,
+      (back) => back === 'Everyone in the room',
+    );
+    await page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('#menu .acts button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
+      button.click();
+      return true;
+    })()`);
+    await delay(400);
+    facts.phoneFollowing = await page.evaluate(FACES);
+    log('the phone following the last seat on the list:', JSON.stringify(facts.phoneFollowing), 'was:', JSON.stringify(last));
+    log('wrote', await record(written, page, '23-phone-follows-a-pinned-face.png'));
+  } finally {
+    for (const engine of crowd) {
+      await engine.disconnect();
+    }
+  }
   // Every directory open, so the row the fetch is about is on screen: a note inside a collapsed
   // folder is a note nobody can see.
   await page.evaluate(`(() => {
@@ -1392,7 +1715,7 @@ async function main() {
     facts.desktop = desktop.facts;
     const touch = await launchChromium({ pointer: 'touch' });
     browsers.push({ name: 'phone', page: touch });
-    facts.phone = await reviewTouch(touch, server, desktop.invite, written, mouse);
+    facts.phone = await reviewTouch(touch, server, desktop.invite, written, desktop.openedPath);
     // Last, and in the two browsers already up: the empty room's two empty states need a folder with
     // nothing in it, which the seeded run never has (`reviewEmptyRoom`).
     facts.empty = await reviewEmptyRoom(mouse, touch, server, written);

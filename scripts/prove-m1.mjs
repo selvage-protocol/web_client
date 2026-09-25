@@ -5,7 +5,7 @@
  * factory, the session bridge, and the real `MonacoBinding` with a fake editor
  * standing in for Monaco — against a real `selvaged`: the room is minted by this
  * checkout's own engine, the guest joins the way the page does (with the default
- * `/meta` check, no skip), and the proof walks the roster, the grant tree, a
+ * `/meta` check, no skip), and the proof walks the room's participants, the grant tree, a
  * jump, a follow, convergence both ways, a reconnect, and the degraded `/meta`
  * a cross-origin page sees. What is not covered here is Monaco itself; the
  * adapter owns no protocol logic beyond offset mapping, which both sides count
@@ -273,9 +273,9 @@ const binding = new MonacoBinding({
 });
 guestEngine.setSelection(NOTES, { anchor: 0, head: 0 });
 
-// The roster names the host with the caret mapping's colour.
+// The room's participants name the host with the caret mapping's colour.
 const roster = await waitFor(
-  'roster to name the host',
+  'the room to name the host',
   () => {
     const participants = binding.participants();
     return participants.length > 0 ? participants : undefined;
@@ -283,10 +283,10 @@ const roster = await waitFor(
   10_000,
 );
 const hostRow = roster.find((row) => row.displayName === 'prove-host');
-check('roster names the host', hostRow !== undefined);
-check('roster colour reuses the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
-console.log(`roster: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
-// The role each side is seated with (`§13.4`), which the roster draws as its own marker and the
+check('the room names the host', hostRow !== undefined);
+check('participant colour reuses the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
+console.log(`participants: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
+// The role each side is seated with (`§13.4`), which a face wears as its own marker and the
 // room's peer list never carries for this connection: the page reads its own seat's role from the
 // session. Printed because it is the one fact a browser cannot be asked for here.
 console.log(

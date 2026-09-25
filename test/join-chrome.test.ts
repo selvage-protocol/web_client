@@ -634,7 +634,7 @@ describe('the message homes', () => {
       /function showGoToRefusal\([\s\S]{0,400}?goToRefusal = \{ peerId, text \}/,
       'a refusal has no state to stand in',
     );
-    assert.match(main, /goToRefusal,/, 'the roster is never told about a refusal');
+    assert.match(main, /goToRefusal,/, 'the menu is never told about a refusal');
     assert.match(main, /GO_TO_REFUSAL_STAND_MS = 4000/, 'a refusal stands for ever, or for a guessed number');
     assert.match(main, /announce\(text\)/, 'a refusal is never announced');
     // Its own clock, and only one: two presses on one row produce the same sentence, so a timer
@@ -648,7 +648,7 @@ describe('the message homes', () => {
     // frame: a follow that opened no document leaves the pane showing.
     assert.match(
       main,
-      /syncRoster\(binding\.participants\(\)\);\n\s+syncEmptyEditor\(\);/,
+      /drawRoom\(binding\.participants\(\)\);\n\s+syncEmptyEditor\(\);/,
       'the empty pane’s follow toggle waits for an unrelated room event',
     );
   });

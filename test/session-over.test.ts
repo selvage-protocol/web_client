@@ -34,7 +34,7 @@ import { displayShareLink, fitReadout } from '../src/browser/share.ts';
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 const ended = readFileSync(new URL('../src/browser/ended.ts', import.meta.url), 'utf8');
 const shareBox = readFileSync(new URL('../src/browser/share-box.ts', import.meta.url), 'utf8');
-const roster = readFileSync(new URL('../src/browser/roster.ts', import.meta.url), 'utf8');
+const room = readFileSync(new URL('../src/browser/room.ts', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
@@ -187,12 +187,11 @@ describe('leaving the session', () => {
       assert.ok(!ended.includes(gone), `${gone} still lives in ended.ts`);
     }
     assert.ok(!shareBox.includes('retire'), 'the share box can still retire a link');
-    // The roster still draws disabled actions of its own — the self row's, and
-    // a peer's Go to while they are in no document. They are reasoned, not
-    // dead (test/roster.test.ts pins every one's title); what the terminal
-    // state must not leave behind is its own dead-room vocabulary.
-    assert.ok(!roster.includes('disabledReason'), 'the roster can still draw terminal reasons');
-    assert.ok(!roster.includes('view.disabled'), 'the roster can still draw a dead-room flag');
+    // The menu draws the acts a person can press — Go to, Follow, the own name's edit — and a peer
+    // in no file is told so rather than offered a dead verb (test/room.test.ts pins every one's
+    // name). What the terminal state must not leave behind is its own dead-room vocabulary.
+    assert.ok(!room.includes('disabledReason'), 'the menu can still draw terminal reasons');
+    assert.ok(!room.includes('view.disabled'), 'the menu can still draw a dead-room flag');
     assert.ok(!style.includes('.retired'), 'the shell still styles a retired link');
   });
 });

@@ -265,8 +265,12 @@ describe('the leave control', () => {
     const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="session-note"'));
     const leave = bar.indexOf('id="leave-wrap"');
     assert.ok(leave !== -1, 'the leave control is not in the bar');
+    assert.ok(bar.indexOf('id="faces"') < leave, 'the faces are not the last thing before the way out');
     assert.ok(bar.indexOf('</div>', bar.indexOf('id="leave-confirm"')) > leave);
-    assert.match(style, /#leave-wrap \{[^}]*margin-left: auto/, 'the way out is not at the far right');
+    // The bar's right-hand push is the faces': the cluster is what stands at the right, and the way
+    // out follows it with nothing after it.
+    assert.match(style, /#faces \{[^}]*margin-left: auto/, 'the faces are not at the far right');
+    assert.ok(!/#leave-wrap \{[^}]*margin-left/.test(style), 'the way out still takes the push itself');
     assert.match(style, /#leave \{[^}]*border-color: var\(--border-strong\)/, 'it reads as a label, not a button');
   });
 

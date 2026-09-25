@@ -369,6 +369,24 @@ describe('what a row says about the room', () => {
     assert.equal(allWithClass(row, 'pending-tag').length, 0, 'a file with text waits on a fetch');
   });
 
+  it('names the host on their badge, where a crown has no circle to sit on', () => {
+    // The crown a face wears is half the circle it is drawn on; a 17 px square badge is not one, and
+    // at a size that reads it pokes out of the row. The role goes in the tooltip instead — the same
+    // `name · Host` a face reads — and every other badge carries the bare name as it always has.
+    const host = rowState({
+      participants: [
+        { ...participant('p-host', 'Mira', '#94e2d5', 'main.rs'), role: 'host' },
+        participant('p-guest', 'sam', '#e06c75', 'main.rs'),
+      ],
+    });
+    const badges = allWithClass(host, 'badge');
+    assert.deepEqual(
+      badges.map((badge) => badge.title),
+      ['Mira \u00b7 Host', 'sam'],
+    );
+    assert.equal(allWithClass(host, 'crown').length, 0, 'a badge wears a crown it has no room for');
+  });
+
   it('wears a tag of its own while the room holds the file and nothing has arrived', () => {
     // The row used to say `empty` here, which claims a document nobody has read: the room holds the
     // path open and not a byte has been sent, so the tag says exactly that. The two titles are what

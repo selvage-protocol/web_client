@@ -588,9 +588,11 @@ describe('joined chrome', () => {
     assert.ok(!html.includes('room-label'), 'room label still in the page shell');
   });
 
-  it('the roster heading reads People', () => {
-    assert.ok(html.includes('<h2>People</h2>'), 'People heading missing');
-    assert.ok(!html.includes('<h2>Here</h2>'), 'Here heading still on the page');
+  it('has no People roster: the people are the faces in the session bar', () => {
+    assert.ok(!html.includes('<h2>People</h2>'), 'the People heading is still in the shell');
+    assert.ok(!html.includes('id="roster"'), 'the roster list is still in the shell');
+    assert.ok(!main.includes('roster.ts'), 'the page still draws a roster');
+    assert.match(html, /<span id="faces"><\/span>/, 'the bar carries no room for the faces');
   });
 
   it('the whole link bar copies — no separate Copy button', () => {
