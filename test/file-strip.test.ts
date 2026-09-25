@@ -18,6 +18,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const treeView = readFileSync(new URL('../src/browser/tree-view.ts', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
@@ -110,8 +111,14 @@ describe('what the strip states', () => {
       !/#file-strip-chips \.chip\.room/.test(style),
       'the stylesheet still paints a room chip in the strip',
     );
-    assert.match(style, /#tree button\.row \.in-room \{ color: var\(--open-mark\)/,
-      'the tree lost the mark that says a file\u2019s text is in the room');
+    // And the tree's own dot went with it: it stood on every file whose text had reached the room,
+    // which is every file this window opened, so it told a reader a fact about their own act. What
+    // a row still says is the two states of the text that nobody can see — `empty`, `not fetched
+    // yet` — and the `⚠` a refused write puts there.
+    assert.ok(!/\.in-room/.test(style), 'the tree paints a dot for a file the room holds again');
+    assert.ok(!/'●'/.test(treeView), 'a row draws the dot for a file the room holds again');
+    assert.match(style, /#tree button\.row \.empty-tag/, 'the empty tag lost its chip');
+    assert.match(style, /#tree button\.row \.pending-tag/, 'the unfetched tag lost its chip');
   });
 
   it('puts a row\u2019s own marks in one place: the badges, then the buttons', () => {

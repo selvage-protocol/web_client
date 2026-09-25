@@ -533,10 +533,9 @@ export class GrantTreeView {
     row.className = 'row';
     const listedPath = child.path;
     row.append(iconSpan(fileIcon(listedPath)), nameSpan(child.name));
-    // The file this window has open wears no `●`: opening it is what put its text in the room, so for
-    // the row the editor is showing the mark is always true, and the row already reads as the open
-    // one. Every other row's mark is news — a file whose text has reached the room and one whose has
-    // not look the same otherwise — and the peers in a file are this row's badges, which say *who*.
+    // The row of the file this window has open is dashed and bold, so it needs no mark; what is left
+    // for `appendRoomMark` is the two states of the text itself, and who is in a file is this row's
+    // badges, which say *who*.
     if (listedPath !== current) {
       appendRoomMark(row, this.markFor(listedPath));
     }
@@ -1062,14 +1061,22 @@ function orderOf(child: GrantChild): string {
   return `${child.directory ? '0' : '1'}${child.name}`;
 }
 
-/** The `●`, `empty` or `not fetched yet` a row wears, or nothing. */
+/**
+ * The `empty` or `not fetched yet` tag a row wears, or nothing.
+ *
+ * `in-room` draws nothing. The green `●` said the room holds the file's text, which for every row
+ * but one is also what the reader can see for themselves — a file this window opened is one the
+ * room holds open — and the owner read it, on every such row, as a mark the page did not need. What
+ * is left is the two states nobody can see: a document the room sent that reads empty, and one it
+ * holds open with nothing arrived for it.
+ */
 function appendRoomMark(row: HTMLElement, mark: ReturnType<typeof roomMark>): void {
-  if (mark.kind === 'none') {
+  if (mark.kind !== 'empty' && mark.kind !== 'not-here') {
     return;
   }
   const span = document.createElement('span');
-  span.className = mark.kind === 'in-room' ? 'in-room' : mark.kind === 'empty' ? 'empty-tag' : 'pending-tag';
-  span.textContent = mark.kind === 'in-room' ? '●' : mark.kind === 'empty' ? 'empty' : NOT_HERE_TAG;
+  span.className = mark.kind === 'empty' ? 'empty-tag' : 'pending-tag';
+  span.textContent = mark.kind === 'empty' ? 'empty' : NOT_HERE_TAG;
   span.title = mark.title;
   row.appendChild(span);
 }

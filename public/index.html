@@ -42,10 +42,11 @@
         --primary-hover: #d5b4fa;
         --primary-foreground: #1e1e2e;
         --ring: #cba6f7;
-        /* The one colour a mark for *the room holds this text open* is drawn in, wherever it is
-           drawn: the tree's dot and the file strip's chip wear the same green, so a person reads
-           one fact and not two. */
-        --open-mark: #a6e3a1;
+        /* The one green this page draws a good answer in, wherever it is: the dot that says the
+           room is connected, and the ✓ the row that keeps a name shows under a pointer. It was
+           named for a mark that no longer exists — a dot beside every file whose text had reached
+           the room, which is what opening a file does. */
+        --ok: #a6e3a1;
         --radius: 0.5rem;
         --shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.8);
       }
@@ -101,7 +102,7 @@
       #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
         font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
       #health .dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex: none;
-        background: var(--open-mark); }
+        background: var(--ok); }
       #health[data-health='reconnecting'] { color: var(--warning); }
       #health[data-health='reconnecting'] .dot { background: var(--warning);
         animation: health-pulse 1.4s ease-in-out infinite; }
@@ -318,7 +319,7 @@
       #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
         flex: none; padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
       #tree .new-commit:hover:not(:disabled), #roster .rename-save:hover:not(:disabled) {
-        color: #a6e3a1; border-color: var(--border-strong); }
+        color: var(--ok); border-color: var(--border-strong); }
       #tree .new-cancel:hover:not(:disabled), #roster .rename-cancel:hover:not(:disabled) {
         color: var(--danger); border-color: var(--border-strong); }
       #roster li.self .swatch { background: var(--primary); }
@@ -379,11 +380,12 @@
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
-      /* What the room knows about a row: its text is in the room (`●`), the room sent text and it
-         is empty (`empty`), the room holds it open and nothing has arrived (`not fetched yet`), or
-         the folder refused a write to it (`⚠`). The two tags wear one chip: they are one mark in
-         two states, and the words are what tell them apart. */
-      #tree button.row .in-room { color: var(--open-mark); font-size: 0.7em; flex: none; }
+      /* What a row says about the room when it has something a person cannot see: the room sent
+         text and it is empty (`empty`), the room holds it open and nothing has arrived (`not fetched
+         yet`), or the folder refused a write to it (`⚠`). The two tags wear one chip: they are one
+         mark in two states, and the words are what tell them apart. The green dot that said the
+         text had reached the room is gone: it was drawn on every file the room held, and the one
+         thing it told a reader was a fact about a file they had opened themselves. */
       #tree button.row .empty-tag, #tree button.row .pending-tag,
       #tree button.row .unsaved { font-size: 0.68em; font-weight: 500;
         white-space: nowrap; color: var(--muted-foreground); border: 1px solid var(--border-strong);
