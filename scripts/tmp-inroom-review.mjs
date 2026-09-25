@@ -437,7 +437,11 @@ const CHROME = `(() => {
   const text = (id) => document.getElementById(id)?.textContent ?? '';
   const leaf = (element) => element !== null && element.getClientRects().length > 0;
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => row.textContent.trim());
-  const roster = [...document.querySelectorAll('#roster li')].map((row) => row.textContent.trim());
+  // The host's marker is a crown and not a word, so a row's own text cannot say which seat hosts:
+  // the mark is read off the row, and the text is kept beside it.
+  const roster = [...document.querySelectorAll('#roster li')].map(
+    (row) => row.textContent.trim() + (row.querySelector('.role') === null ? '' : '[crown]'),
+  );
   const rect = (element) => {
     if (element === null) return null;
     const box = element.getBoundingClientRect();
@@ -486,12 +490,15 @@ const CHROME = `(() => {
     fileStrip: document.getElementById('file-strip')?.innerText ?? '',
     fileStripChips: document.getElementById('file-strip-chips')?.innerText ?? '',
     fileStripFollow: document.getElementById('file-strip-follow')?.innerText ?? '',
-    hostRow: roster.find((row) => /host/i.test(row)) ?? '',
+    hostRow: roster.find((row) => /\[crown\]/.test(row)) ?? '',
     roster,
     treeRows: rows,
     createRow: document.querySelectorAll('#tree .new-row').length,
     localFolders: [...document.querySelectorAll('#tree .local')].map((tag) => tag.textContent),
-    inRoomDots: document.querySelectorAll('#tree .in-room').length,
+    // A row says "not fetched yet" while the room holds a path open and this window has no text
+    // for it, so this is the count of rows still waiting on the room — what a row wears now that
+    // the dot for "the text is here" is gone. (No backticks here: this is inside a template.)
+    unfetchedTags: document.querySelectorAll('#tree .pending-tag').length,
     sessionNote: text('session-note'),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
     phonePanelOpen: document.getElementById('side')?.hidden !== true,
@@ -556,7 +563,9 @@ const EMPTY_PANE = `(() => {
 const GUEST_ROWS = `(() => {
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => ({
     text: (row.textContent ?? '').trim(),
-    inRoom: row.querySelector('.in-room') !== null,
+    // The room holds the row open and this window has no text for it yet: the one state a fetch
+    // moves, and the row's reading of the dot this driver used to key on.
+    pending: row.querySelector('.pending-tag') !== null,
     emptyTag: row.querySelector('.empty-tag') !== null,
     download: row.querySelector('.download') !== null,
   }));
@@ -646,8 +655,9 @@ async function hostAndOpen(page, server) {
     (rows) => rows > 0,
   );
   // The path the click opens, read off the row itself rather than off its text: a row carries an
-  // icon and its `\u25cf` as well as the name, and a name is not a path. A file row holds its leaf in
-  // its own `.label`, and the directory it sits in is the nearest `details[data-dir]`.
+  // icon and the tags the room knows about it as well as the name, and a name is not a path. A file
+  // row holds its leaf in its own `.label`, and the directory it sits in is the nearest
+  // `details[data-dir]`.
   const openedPath = await page.evaluate(`(() => {
     const rows = [...document.querySelectorAll('#tree button.row')];
     const first = rows.find((row) => /README[.]md|notes[.]md/.test(row.textContent ?? '')) ?? rows[0];
@@ -1082,28 +1092,45 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
 
   // A file whose text has not been fetched, saved from its own row. The row's action is visible
   // without hover — the whole point — and the fetch is what opens the file for everyone.
-  const target = await page.evaluate(`(() => {
-    const row = [...document.querySelectorAll('#tree button.row')].find((candidate) => {
-      const button = candidate.querySelector('.download');
-      return button !== null && candidate.querySelector('.in-room') === null;
-    });
-    if (row === undefined) return null;
-    const button = row.querySelector('.download');
-    const path = (button.getAttribute('aria-label') ?? '').replace(/^Download /, '');
-    button.click();
-    return path;
-  })()`);
-  facts.downloadTarget = target;
-  log('a file with no text here, saved from its row:', JSON.stringify(target));
-  if (target === null) {
-    throw new Error('no row offered a download: nothing to photograph');
+  //
+  // Which row that is is not on the tree: a file whose text is already in this window and one the
+  // room does not hold look exactly alike now that the row draws no dot for "the text is here", and
+  // a row whose text *is* here saves the file at once and says nothing about a fetch. So the row is
+  // found by asking each one in turn and keeping the first that answers with the cost line.
+  const candidates = await page.evaluate(`[...document.querySelectorAll('#tree button.row')]
+    .map((row) => row.querySelector('.download'))
+    .filter((button) => button !== null)
+    .map((button) => (button.getAttribute('aria-label') ?? '').replace(/^Download /, ''))`);
+  facts.downloadCandidates = candidates;
+  let target = null;
+  for (const path of candidates) {
+    await page.evaluate(`(() => {
+      const label = 'Download ' + ${JSON.stringify(path)};
+      const button = [...document.querySelectorAll('#tree .download')].find(
+        (candidate) => candidate.getAttribute('aria-label') === label,
+      );
+      button?.click();
+      return true;
+    })()`);
+    try {
+      await waitFor(
+        page,
+        'the row to say what the fetch costs',
+        ROW_NOTE,
+        (note) => note !== null && /Fetching opens/.test(note.text),
+        1500,
+      );
+      target = path;
+      break;
+    } catch {
+      // This window held the text, so the page saved the file at once: not the row to photograph.
+    }
   }
-  await waitFor(
-    page,
-    'the row to say what the fetch costs',
-    ROW_NOTE,
-    (note) => note !== null && /Fetching opens/.test(note.text),
-  );
+  facts.downloadTarget = target;
+  log('a file with no text here, saved from its row:', JSON.stringify(target), 'of', JSON.stringify(candidates));
+  if (target === null) {
+    throw new Error('no row offered a fetch: nothing to photograph');
+  }
   facts.fetchNote = await page.evaluate(ROW_NOTE);
   facts.fetchBusy = await page.evaluate(
     `document.querySelector('#tree .row-actions.busy')?.getAttribute('aria-label') ?? null`,
@@ -1111,35 +1138,49 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   log('the fetch, in the row it is about:', JSON.stringify(facts.fetchNote), facts.fetchBusy);
   log('wrote', await record(written, page, '11-download-unfetched-phone.png'));
 
-  // Where it ended. The row gains `●` when the text lands — the fetch is what put it in the room —
-  // and a fetch the host did not answer says the wait is still running and offers the person trying
-  // again. What that line *offers* is what tells a room that answered with an empty document from a
-  // room that has said nothing: the first offers to save an empty file and the second does not, and
-  // a run that recorded only the words could not say which of the two it saw.
+  // Where it ended. A fetch says what it costs, asks the room, and only the text arriving ends with
+  // the row idle and nothing to say: the row's busy mark is what the page clears when the fetch
+  // settles on a save, and a room that answered with an empty document or has said nothing at all
+  // leaves its own line up. What that line *offers* tells those two apart — the first offers to save
+  // an empty file and the second says the wait is still running — and a run that recorded only the
+  // words could not say which of the two it saw.
+  //
+  // What is *not* read here is the `●` the row used to gain when the text landed. The row draws no
+  // dot for it now, and the busy mark is the page's own statement that the fetch has not settled.
+  // The tag is recorded beside it, because the fetch's own open is what puts it up.
   // The path the driver clicked, and no other: a fetch of `notes.md` is not a fetch of `main.ts`.
-  const landed = async () =>
-    (await page.evaluate(
+  let sawBusy = false;
+  const landed = async () => {
+    const row = await page.evaluate(
       `(() => {
         const wanted = ${JSON.stringify(target)};
         const leaf = wanted.slice(wanted.lastIndexOf('/') + 1);
-        const row = [...document.querySelectorAll('#tree button.row')].find((candidate) =>
+        const found = [...document.querySelectorAll('#tree button.row')].find((candidate) =>
           [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
         );
-        return row !== undefined && row.querySelector('.in-room') !== null;
+        if (found === undefined) return null;
+        return {
+          busy: found.querySelector('.row-actions.busy') !== null,
+          pending: found.querySelector('.pending-tag') !== null,
+        };
       })()`,
-    )) === true;
+    );
+    if (row === null) return false;
+    sawBusy = sawBusy || row.busy;
+    return sawBusy && !row.busy && !row.pending;
+  };
   let outcome = { landed: false, note: null, state: 'none' };
   const states = [];
   for (let tick = 0; tick < 160 && !outcome.landed; tick += 1) {
     const note = await page.evaluate(ROW_NOTE);
     const state = settledState(note);
-    outcome = { landed: await landed(), note, state };
+    outcome = { landed: state === 'none' && (await landed()), note, state };
     if (states[states.length - 1] !== state) states.push(state);
     if (state === 'empty' || state === 'pending') break;
     await delay(250);
   }
   facts.fetchStates = states;
-  facts.fetchOutcome = outcome;
+  facts.fetchOutcome = { ...outcome, sawBusy };
   if (!outcome.landed) {
     // The row's own answer to a fetch that did not land, and the design's: not a bare failure, but a
     // sentence and the things a person can do about it. `Save empty file` is only one of them where
@@ -1167,7 +1208,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
       await delay(250);
     }
     facts.fetchStates = states;
-    facts.fetchOutcome = outcome;
+    facts.fetchOutcome = { ...outcome, sawBusy };
   }
   facts.afterFetch = await page.evaluate(GUEST_ROWS);
   log('the guest, after the fetch:', JSON.stringify({ landed: outcome.landed, ...facts.afterFetch }));
@@ -1181,7 +1222,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
       JSON.stringify(facts.afterFetch.rows),
       'and the host page read:',
       JSON.stringify(await arguments[4].evaluate(
-        `[...document.querySelectorAll('#tree button.row')].map((row) => (row.textContent ?? '').trim() + (row.querySelector('.in-room') === null ? '' : '[text in the room]'))`,
+        `[...document.querySelectorAll('#tree button.row')].map((row) => (row.textContent ?? '').trim() + (row.querySelector('.pending-tag') === null ? '' : '[not fetched yet]'))`,
       )),
     );
   }
