@@ -171,9 +171,10 @@ Four things that shape it:
   and the key names are excluded, a binary-named path is left out, and a file past the
   size bound is refused.
 
-**Download** takes the open document out of the room and onto the person's disk — for a
-guest who has just edited a file and cannot keep it, and for a host whose folder refused
-the write. It is the control beside the share bar, and it is off while nothing is open.
+**Download** takes a document out of the room and onto the person's disk — for a guest
+who has just edited a file and cannot keep it, and for a host whose folder refused the
+write. It is one control per file row, where the room's files are, and it is there for
+every file the room holds.
 
 ### Checks
 
@@ -256,13 +257,15 @@ only.
 On a device with a pointer the first shared file opens focused, so typing starts at
 once. A phone focuses it on the first tap instead, so the soft keyboard does not stand
 over a room nobody has seen, and starts with the tree and roster behind a
-`Files and people` control. The People roster leads with your own name — one swatch, one
-quiet `(you)`, one Rename — and lists who else is here, never path text: a `Go to` where
-the peer is in a file and `not in a file yet` where it is not, and a `Follow` toggle that
+`Files and people` control. The People roster leads with your own name — one swatch and
+the one Rename control, which is what says the row is yours — and lists who else is here,
+never path text: a crown where the peer is hosting, a `Go to` where the peer is in a file
+and `not in a file yet` where it is not, and a `Follow` toggle that
 reads `Following` pressed and stops the follow when it is pressed. A go-to the room
 cannot answer — the peer closed the file, or its caret does not resolve here — says so
 under that row for four seconds. The tree lists what the room shares with a peer badge on
-whose file is whose. An action that refuses says so beside its own control, or in the
+whose file is whose, and a tag beside a file whose text the room sent empty or holds open
+with nothing arrived for it. An action that refuses says so beside its own control, or in the
 alert where it has none.
 
 Following shows a segment in the file strip, in the followed peer's colour, with the stop
