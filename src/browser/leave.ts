@@ -30,6 +30,16 @@ export interface LeaveOptions {
    * is worse than one asked for a guest.
    */
   hosting(): boolean;
+  /**
+   * Whether the control has room for the host's four-word verb.
+   *
+   * A phone's session bar is one row per control, and `Leave and end the room` is 213 px of a
+   * 390 px bar: it wraps the bar onto a third row, which measured 138 px of an 844 px screen —
+   * a sixth of the phone, held for the whole session. The consequence is not lost with the words:
+   * it is this control's accessible name and its tooltip, and the question the press asks says it
+   * in full one tap later. Absent means there is room.
+   */
+  shortLabel?(): boolean;
   /** The control and the panel its question stands in. */
   surface: LeaveSurface;
   /** Leaves the session. */
@@ -82,6 +92,14 @@ export const LEAVE_TITLE = 'Leave the session';
  */
 export const LEAVE_HOST_LABEL = 'Leave and end the room';
 
+/**
+ * The host's verb where the bar has no room for it, which is a phone (`LeaveOptions.shortLabel`).
+ *
+ * The guest's own word, because that is what the control says to a finger: what the press costs is
+ * in the panel it opens, in `HOST_LEAVE_QUESTION`'s own sentence, and in the control's name.
+ */
+export const LEAVE_HOST_SHORT_LABEL = LEAVE_LABEL;
+
 /** The answer that leaves: the words on the destructive button in the panel. */
 export const LEAVE_ASKING_LABEL = 'Leave anyway';
 
@@ -133,7 +151,8 @@ export function wireLeave(options: LeaveOptions): LeaveControl {
    */
   const showRole = (hosting: boolean): void => {
     const name = hosting ? LEAVE_HOST_LABEL : LEAVE_TITLE;
-    button.textContent = hosting ? LEAVE_HOST_LABEL : LEAVE_LABEL;
+    const short = options.shortLabel?.() === true;
+    button.textContent = hosting && !short ? LEAVE_HOST_LABEL : LEAVE_HOST_SHORT_LABEL;
     button.setAttribute('aria-label', name);
     button.title = name;
   };

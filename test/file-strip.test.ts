@@ -73,6 +73,11 @@ describe('the strip is in the shell, above the editor', () => {
       /if \(phoneLayout\.matches\) \{\n    fileStrip\.setAttribute\('aria-expanded'/,
       'the state is set on a device with no disclosure',
     );
+    // And the name is a read of what is open, so it is re-applied where the open file moves rather
+    // than standing as the load left it: measured with README.md open the name read `Files and
+    // people`, and in an empty room with nothing open it read `Files and people, README.md open`.
+    const strip = main.slice(main.indexOf('function syncStrip'), main.indexOf('const VIEWER_SENTENCE'));
+    assert.match(strip, /applyStripRole\(\)/, 'the disclosure\u2019s name is never re-read');
   });
 
   it('says nothing about which file is open when there is none, and no chips either', () => {

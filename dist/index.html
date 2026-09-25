@@ -568,7 +568,9 @@
       }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
-      @media (max-width: 640px) {
+      /* Narrow, or a phone on its side. Two conditions for the same shape: a 390 px-wide window and
+         an 844x390 touch device are the same layout, and only the first is a width. */
+      @media (max-width: 640px), (any-hover: none) and (max-height: 480px) {
         /* The demo instance appends its own notice after `#app` — the non-commercial terms and the
            link to them, injected by its own front (`reference_server/packaging/prod`) — and this
            page lays it out inside the viewport rather than under a full-height app. On a phone that
@@ -583,6 +585,37 @@
           font-size: 10.5px !important;
           line-height: 1.3 !important;
         }
+        /* The identity gives way first. Measured at 320x640 with a long guest name: the brand's
+           own content was 289 px of the bar's 290 px, so the health dot could not share the row
+           with it and wrapped onto one of its own — with the copy strip on a third, the bar took
+           138 px of a 640 px screen. A zero basis is what lets the brand share its row, and it
+           already truncates with an ellipsis. */
+        #brand { flex: 1 1 0; }
+        /* The editor first and the panel under it, in that order, because on a phone the strip
+           above the editor *is* the panel's disclosure: with the panel first, opening it pushed
+           the strip 343 px down the screen (measured: y=138 shut, y=481 open), so the tap that
+           opened the panel was nowhere near the tap that closes it. The strip stays where it is
+           and the panel opens beneath it. */
+        #workspace { flex-direction: column; }
+        #pane { order: 1; }
+        /* `border-box` so the cap is the panel's own box: without it the padding
+           and the border sat outside the 38% and the panel took 42%. The cap is
+           60% because the panel is the disclosure a phone reads: at 38% a room
+           with one other peer already pushed every file row below its own fold.
+           A touch device takes the whole of what is left instead — the query
+           below — where the strip above it is the way out. */
+        #side { order: 2; width: auto !important; border-bottom: none;
+          border-top: 1px solid var(--border); max-height: 60%; box-sizing: border-box; }
+        #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
+        /* Two panes do not fit behind a card at this width: the panel's own
+           width of tree leaves a sliver of code, cut by the card. A phone gets
+           the veil over the plain background instead. */
+        #preview { display: none; }
+      }
+      /* Narrow, and only narrow: the session bar's own shape. A phone on its side has the width for
+         one row of controls — measured at 844x390 the whole bar is 62 px — and wrapping it onto
+         three was 111 px of a 390 px screen, a quarter of the device. */
+      @media (max-width: 640px) {
         #session { flex-wrap: wrap; row-gap: 0.4em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
         /* The readout goes and the words take the row: at this width the icon beside a
@@ -594,18 +627,6 @@
            stands down for it, having nothing left to name. */
         #share-group.hand-copy #share { display: block; }
         #share-group.hand-copy .share-label { display: none; }
-        #workspace { flex-direction: column; }
-        /* `border-box` so the cap is the panel's own box: without it the padding
-           and the border sat outside the 38% and the panel took 42%. The cap is
-           60% because the panel is the disclosure a phone reads: at 38% a room
-           with one other peer already pushed every file row below its own fold. */
-        #side { width: auto !important; border-bottom: 1px solid var(--border);
-          max-height: 60%; box-sizing: border-box; }
-        #join { width: calc(100vw - 1.6rem); padding: 1.5rem 1.4rem 1.3rem; }
-        /* Two panes do not fit behind a card at this width: the panel's own
-           width of tree leaves a sliver of code, cut by the card. A phone gets
-           the veil over the plain background instead. */
-        #preview { display: none; }
       }
       /* A finger, not a pointer. Everything here is behind `(any-hover: none)`,
          true only where no input mechanism the device has can hover, so a
@@ -613,7 +634,11 @@
          below is a touch affordance, not a size.
          Two conditions, because they answer two questions: `(any-hover: none)`
          is `touch at all` (field type and target size), and the phone query is
-         `this is a phone` (the card is a sheet, the panel is a disclosure). */
+         `this is a phone` (the card is a sheet, the panel is a disclosure). The
+         phone query has two arms, because a phone has two shapes: held upright
+         it is narrow, and turned on its side it is short. Both are written out
+         in full rather than shared, so the two `@media` blocks below and
+         `PHONE_QUERY` in `mobile.ts` read the same words. */
       @media (any-hover: none) {
         /* iOS zooms the page in when a focused field is under 16 px, and the
            root is 14 px, so the fields' own `1rem` never cleared the floor.
@@ -629,6 +654,10 @@
         /* A touch device has no hover, so nothing a row holds back is reachable: the actions are
            always drawn, and a directory's two-verb set is one visible `⋯`. */
         #tree summary .icon-button, #tree button.row .row-actions { opacity: 1; }
+        /* And they are a fingertip wide. Measured at 390x844: the download control and a folder's
+           `⋯` are both 24x44 — one glyph in a box a thumb is four times too wide for, on a row
+           whose own press opens the file, which for a guest opens it for every peer. */
+        #tree .icon-button { min-width: 44px; }
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
         #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
@@ -649,15 +678,51 @@
           bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
         }
       }
-      @media (any-hover: none) and (max-width: 640px) {
+      @media (any-hover: none) and (max-width: 640px), (any-hover: none) and (max-height: 480px) {
         /* The panel is a disclosure on a phone, not a permanent 42% cut: it is
            shut on join and a file open shuts it again (main.ts). */
         /* Width is not a phone's business: no separator is drawn, and the panel is today's
            full-width disclosure, opened from the file strip above the editor. */
         #side-resizer { display: none; }
+        /* The panel takes everything left under the strip, and the editor is not on screen while
+           it is open: a phone has one screen and the panel is the thing on it. The 60 % cap above
+           is what hid the tree — with five peers the panel was 402 px of a 627 px workspace and
+           the first file row sat 58 px below its own bottom edge (320x640: 166 px below), behind
+           an inner scroller with nothing to say it scrolled. Measured after: the panel is the
+           whole 627 px and the first row is inside it. */
+        #side { flex: 1 1 auto; min-height: 0; max-height: none; }
+        /* The panel is the screen here, and its own furniture took room the tree does not get: its
+           two headings stood 1.5em above each of them, and a roster row is 0.45em of padding
+           around a 44 px control — measured at 320x640 with five peers, the first file row was
+           166 px below the panel's own bottom edge before any of this. The rows keep their
+           fingertip-sized controls and lose the padding around them. */
+        #side h2, .panel-head { margin: 0.8em 0 0.35em; }
+        #roster li { padding: 0.3em 0.55em; }
+        body:has(#side:not([hidden])) #pane { flex: none; }
+        body:has(#side:not([hidden])) #editor-area { display: none; }
         #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
           box-sizing: border-box; }
         #file-strip-path, #file-strip-path.none { font-weight: 600; color: var(--foreground); }
+        /* One line, whoever is being followed. Measured at 390x844: `Following Ada Lovelace-Byron
+           of Ockham` wrapped the strip to 72 px and left the file's own name 50 px wide (`REA…`);
+           at 320 it was five lines, a 109 px strip and `RE…`. The name gives way with the same
+           ellipsis the rest of the page uses, so the strip stays the 44 px row it is and the file
+           it is about keeps its name. */
+        /* The file's own name keeps its room and the followed peer's gives way: the segment is the
+           strip's second fact, and the name it carries is on the roster too. A zero basis is what
+           says so — the label takes the room that is left over, and only the file's own name is
+           cut when even that is not enough. */
+        #file-strip-follow { flex-shrink: 8; }
+        #file-strip-follow .follow-name { flex: 1 1 0; min-width: 0; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; }
+        /* The strip is the only way to the panel and it said nothing about it: a line with the
+           file's name and no mark, a chevron, an icon or an expanded state. The mark stands at the
+           far right, where the strip's other control used to be, and turns as the panel opens. */
+        #file-strip .disclosure { flex: none; margin-left: auto; color: var(--muted-foreground);
+          transition: transform 0.12s ease; }
+        #file-strip[aria-expanded='true'] { background: var(--muted);
+          border-bottom-color: var(--border-strong); }
+        #file-strip[aria-expanded='true'] .disclosure { transform: rotate(90deg); }
         /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
            the top of the screen empty and stood over the non-commercial notice the demo appends
            under the page, so what a phone shows first is the thing to do and the notice below it
