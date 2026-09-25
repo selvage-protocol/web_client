@@ -134,9 +134,9 @@ export async function fetchAndSave(
 ): Promise<FetchSaveOutcome> {
   if (ports.has(path)) {
     const text = ports.text(path);
-    // Even a path this window already holds is not saved while what it holds is nothing: a
-    // document with no text in it may be an empty file the room keeps, and the person is offered
-    // the choice rather than handed a file that may be a lie (`canSaveAtOnce`).
+    // Even a path this window already holds is not saved while what it holds is nothing: a document
+    // with no text in it is the room's answer that the file it read is empty, and an answer is
+    // offered as the choice it is rather than handed over as the file's contents (`canSaveAtOnce`).
     if (text === '') {
       return { kind: 'empty', text };
     }
@@ -149,10 +149,11 @@ export async function fetchAndSave(
     return { kind: 'failed', sentence: fetchFailedSentence(path, reason(error)) };
   }
   const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  // The wait is for the *text*, not for the receipt, and the two are not the same moment: a room
-  // answers an open by holding an empty document for the path, and the host's copy lands in it a
-  // frame or a second later (the in-room driver measured exactly that). A loop that stopped at the
-  // receipt would call the fetch empty while the text was still on its way.
+  // The wait is for the *text*: the room's answer for a file with content and that content are the
+  // same document, so what arrives is either a document carrying text or the room's answer that the
+  // file is empty, and a loop that stopped at the document would have nothing left to read. The
+  // bound below is what the loop keeps reading for, so an answer that lands empty here is reported
+  // when the stand ends, and one that was already here was reported above (`ports.has`).
   const polls = options.polls ?? Math.max(1, Math.ceil((options.standMs ?? FETCH_STAND_MS) / POLL_MS));
   const here = (): boolean => ports.has(path) && ports.text(path) !== '';
   for (let poll = 0; poll < polls && !here(); poll += 1) {
@@ -177,16 +178,15 @@ export async function fetchAndSave(
  * Whether a download can go straight to the browser's own save, with no fetch behind it.
  *
  * The test is the *text*, and not the room's receipt of the path. `has(path)` is true once a
- * document for the path is here, and a document with no text in it is exactly what a room holds
- * for a file that is genuinely empty: only the text can be saved without lying. Saving on the
- * receipt is how a guest ends up with an empty file named `src/main.ts` on its disk and nothing to
- * say the real contents were still coming — the defect this module exists to prevent, and the one
- * the in-room driver caught: the fetch that had timed out left the room holding an empty document,
- * the next press of the row's action took this path, and an empty file was saved without a word.
+ * document for the path is here, and a document with no text in it is the room's answer that the
+ * file it read is empty — the answer, and not the file's contents. Saving on that receipt is how a
+ * guest is handed an empty file named `src/main.ts` on its disk: the defect this module exists to
+ * prevent, and the one the in-room driver caught — the fetch that had timed out left the room
+ * holding an empty document, the next press of the row's action took this path, and an empty file
+ * was saved without a word.
  *
  * So an empty answer is never saved without being asked for: it goes through `fetchAndSave`, which
- * waits while the text may still arrive and offers `Save empty file` only for a document the room
- * has actually sent (`FetchSaveOutcome`).
+ * offers `Save empty file` for the document the room sent (`FetchSaveOutcome`).
  */
 export function canSaveAtOnce(text: string): boolean {
   return text !== '';
