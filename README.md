@@ -134,8 +134,8 @@ reload rejoins from it.
 
 ### Start a room from the page
 
-A page with no invite can start one: type the name, press **Start a session here**, and
-the browser asks for a folder. The folder is the room's working copy — the page walks it
+A page with no invite can start one: type the name, press **Choose a folder to share…**,
+and the browser asks for a folder. The folder is the room's working copy — the page walks it
 for the listing a guest's tree draws, reads a file out when a guest asks for it, and
 writes the text the room settles on back through it. Nothing is uploaded, and no file
 outside the folder the person picked can be named through the handle. The invite link is
@@ -171,7 +171,7 @@ the write. It is the control beside the share bar, and it is off while nothing i
 ```sh
 npm run typecheck   # tsc --noEmit over src/
 npm test            # the whole suite; no server needed
-npm run test:ci     # the suite CI runs: test/identity.test.ts excluded, see below
+npm run test:ci     # the suite CI runs: every file, see below
 npm run check:types # Content-Type of every dist/ file, against a live page
 scripts/ci-local.sh checks   # what .github/workflows/ci.yml runs, in one command
 ```
@@ -179,14 +179,15 @@ scripts/ci-local.sh checks   # what .github/workflows/ci.yml runs, in one comman
 `typecheck` covers `src/`, which is all `tsconfig.json` includes.
 
 `test` runs the suite with a fake editor standing in for Monaco: the adapter, languages,
-follow, roster, grants, tree refresh, share links, the join card, mobile, identity, and
-the serve-types contract. `identity` reads files outside this repository, and fails when
-it is checked out alone or in a worktree: it compares the marks with the `site` checkout
-beside this one. It is the one test that needs a sibling, and CI runs `test:ci`,
-`scripts/test-ci.mjs`, which excludes that file by name. An exclusion whose file has
-been renamed is an error rather than a suite that covers less than it says, and every
-other file, `serve-types` included, runs. The checks that need something live,
-`check:types` (a deployed page) and the proofs (a `selvaged`), run locally only.
+follow, roster, the empty pane, grants, tree refresh, share links, the join card, mobile,
+identity, and the serve-types contract. `identity` reads files outside this repository:
+one of its tests compares the marks with the `site` checkout beside this one, and it reads
+this repository's own git directory to find that sibling from a worktree as well as from a
+checkout. Where there is no sibling — a single-repository CI job — that one test skips
+with the reason and the rest of the file runs, icons and clock chunks included. `test:ci`,
+`scripts/test-ci.mjs`, is that suite; it names no exclusions, and the checks that need
+something live, `check:types` (a deployed page) and the proofs (a `selvaged`), run locally
+only.
 
 `check:types` is live, and tests a deployment rather than the local static server. It
 defaults to the demo page and takes another base as an argument,
@@ -246,18 +247,20 @@ only.
 On a device with a pointer the first shared file opens focused, so typing starts at
 once. A phone focuses it on the first tap instead, so the soft keyboard does not stand
 over a room nobody has seen, and starts with the tree and roster behind a
-`Files and people` control. The People roster leads with your own name and lists who
-else is here with go-to and follow, never path text. The tree lists what the room shares
-with a peer badge on whoever's file is whose; an open file the host hasn't shared wears
-a `not yet shared` pill (`not shared by the host` on a phone, where a title cannot be
-hovered), and an action that refuses says so in the alert. The tree is the only way to
-open a document.
+`Files and people` control. The People roster leads with your own name — one swatch, one
+quiet `(you)`, one Rename — and lists who else is here, never path text: a `Go to` where
+the peer is in a file and `not in a file yet` where it is not, and a `Follow` toggle that
+reads `Following ✓` pressed and stops the follow when it is pressed. A go-to the room
+cannot answer — the peer closed the file, or its caret does not resolve here — says so
+under that row for four seconds. The tree lists what the room shares with a peer badge on
+whose file is whose. An action that refuses says so beside its own control, or in the
+alert where it has none.
 
-Following shows a banner in the followed peer's colour with the stop control on it, and
-ends when you type, navigate (open a file from the tree or go to someone), stop it, or
-the peer leaves. When the host's socket drops, the session note names the grace window
-and counts it down to the room's own deadline; when the host returns it says so for a few
-seconds and then clears. When the room ends, because the host does not return before the
+Following shows a segment in the file strip, in the followed peer's colour, with the stop
+control on it, and ends when you type, navigate (open a file from the tree or go to
+someone), stop it, or the peer leaves. When the host's socket drops, the session note
+names the grace window and counts it down to the room's own deadline; when the host
+returns it says so for a few seconds and then clears. When the room ends, because the host does not return before the
 grace expires, the page leaves the session: the socket closes, the binding and the editor
 are dropped, the chrome comes down, and the card returns over the blurred preview carrying
 `The room is gone (host did not return). Nothing in the room was saved. Paste a fresh
@@ -313,9 +316,10 @@ would be inventing a request the protocol does not have.
 The page's own modules:
 
 - `src/browser/main.ts`: the page. Display name, invite, the editable document, the
-  People roster with go-to and follow, the presence-badged grant tree, the follow banner
-  with the one stop control, the panel disclosure a phone gets, and the page-origin share
-  link whose whole bar copies.
+  People roster with go-to and a follow toggle, the presence-badged grant tree, the file
+  strip above the editor (the open file's state, the follow's own stop, the save control),
+  the panel disclosure a phone gets, and the page-origin share link whose whole bar
+  copies.
 - `src/browser/transport.ts`: the engine's socket from the browser's own WebSocket. The
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
@@ -340,8 +344,15 @@ The page's own modules:
 - `src/browser/icons.ts`: the inline-SVG set and the per-type tree icon, a solid page in
   the type's colour with a short label so it reads in a tree row.
 - `src/browser/roster.ts`: the People roster as a testable render, the own name first as
-  a full row (swatch, quiet `you`, reasoned disabled actions), one row per peer, no path
-  text.
+  a full row (swatch, quiet `you`, the one verb the row can act on), one row per peer with
+  no path text, a `Go to` only where there is somewhere to go, a `Follow` toggle that
+  stops on its second press, and a refused go-to's sentence on the row that asked for it.
+- `src/browser/empty-editor.ts`: the editor pane with no document in front of it — a host
+  whose folder is empty, a host with files to pick from, a guest whose host has shared
+  nothing, a guest with files to pick from — each naming the next act and putting its
+  control where the step is, with the peer that is already in a file offered beside them.
+  On a phone the act is `Browse files`, since the panel starts shut and nothing else opens
+  it.
 - `src/browser/share-box.ts`: the share bar as one copy control. Click anywhere, or
   focus and press Enter, to copy; an overlay inside the bar names the `Link copied`
   confirmation briefly and hides, and the readout never leaves, so no layout shifts.
@@ -349,11 +360,12 @@ The page's own modules:
 - `src/browser/mobile.ts`: what a touch-only browser is given, the two media queries the
   phone layout keys on, the editor options a phone needs (no minimap, wrapped lines,
   16 px), and how tall the app is when a soft keyboard shrinks the visual viewport.
-- `src/browser/notice.ts`: the message homes the page keeps: the session note in the
+- `src/browser/notice.ts`: the two message homes the page keeps: the session note in the
   chrome (the host-leave warning while the grace runs, counting its window down to the
-  room's deadline, and the host's return for a few seconds), the failure alert that shows
-  an action that refused, and the line a tap reveals where a `title` would have shown a
-  pointer. The countdown's number is an element of its own with the live region off, so
+  room's deadline, the dropped socket's line while the engine re-dials, and the host's
+  return for a few seconds), and the failure alert — an action that refused with no control
+  to sit beside, and an error the room reports about the session — plus the line a tap
+  reveals where a `title` would have shown a pointer. The countdown's number is an element of its own with the live region off, so
   the sentence is announced once and the count never is; the alert and the tap line are
   one mechanism, standing a few seconds and leaving on their own.
 - `src/browser/ended.ts`: the end of a session, the sentences for it (the desktop clients'
@@ -366,7 +378,8 @@ The page's own modules:
 
 `public/` is the page shell, which carries the site's mark as its own pixels, a 104 px
 render of `mark-transparent.png` inlined in the shell so no frame waits on an image.
-`node scripts/inline-mark.mjs` prints a refreshed one.
+`node scripts/inline-mark.mjs` prints a refreshed one, levelled the way the site levels the copy
+the nav bar paints (`scripts/mark-level.mjs`).
 
 `scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-v2.mjs`, the
 wire's proof in a real browser; `prove-fb2.mjs`, the
@@ -403,11 +416,18 @@ with the comment and line-number tokens stepped one shade lighter, because Mocha
 is 4.4:1 on the editor ground and under AA for the two dims a reader reads most.
 
 The card and the session bar wear a 104 px render of `public/mark-transparent.png`, the
-site's copy byte-identical, inlined in the shell. The tab is the rasters `npm run build`
-renders from `mark-opaque.png` at the sizes the site serves (16, 32, 48, 180) and the two
-the manifest names (192, 512). `node scripts/inline-mark.mjs` prints the data URI to paste
-if the site's master changes, and `test/identity.test.ts` holds the two together byte for
-byte. The mark is the owner's `svp` monogram in Mocha/mauve.
+site's copy byte-identical, inlined in the shell and levelled for the dark ground it lands
+on: the same gamma curve the site applies to its own nav mark, because the owner's artwork
+is dark enough that the typical ink pixel measured 1.72:1 on this page's card, and 5.0:1
+after the curve. `scripts/mark-level.mjs` owns the whole derivation — the area-averaged
+resample of an alpha image is not the same operation in every ImageMagick release this page
+is built with, which is red CI rather than a judgement call — and `test/identity.test.ts`
+measures that pixel over the card's own ground, from the inlined file's own pixels, and
+fails a derivative that goes dark again. The tab is the rasters `npm run build` renders from
+`mark-opaque.png` at the sizes the site serves (16, 32, 48, 180) and the two the manifest
+names (192, 512). `node scripts/inline-mark.mjs` prints the data URI to paste if the
+site's master changes, and the same test holds the two together byte for byte. The mark is
+the owner's `svp` monogram in Mocha/mauve.
 
 ## Proofs
 

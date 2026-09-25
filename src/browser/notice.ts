@@ -1,12 +1,14 @@
 /**
  * The two message homes the page keeps: a failure alert and a session note.
  *
- * The failure alert is an error surface: it appears only when an action a guest
- * took refused, stands a few seconds, and leaves on its own. Progress, success
- * and connection chatter never reach it. The session note is the one line about
- * the room itself: the host's socket detached and the grace window is running,
- * so it stays for as long as that is true, counting the window down. When the
- * room actually ends the page leaves and says so on the card.
+ * The failure alert is for a failure with no control on screen — a path this
+ * host could not read out of its own folder, or an error the room reported about
+ * the session itself. It stands a few seconds and leaves on its own. Progress,
+ * success and connection chatter never reach it. The session note is the one line
+ * about the room itself: the host's socket detached and the grace window is
+ * running, so it stays for as long as that is true, counting the window down, and
+ * the host's return stands in it briefly. When the room actually ends the page
+ * leaves and says so on the card.
  */
 
 export interface NoticeOptions {
@@ -207,23 +209,6 @@ export interface SessionNote {
   /** Shows one sentence that stands `standMs` and then takes itself down. */
   say(text: string, standMs: number): void;
   /**
-   * Shows one sentence of news about what the person just asked for or what the room said about
-   * this connection — the role it seated here, a go-to the room could not answer, an error the
-   * room reported — for the one transient stand. The page shows only the topics nothing else on
-   * it states (`main.ts`, `SHOWN_STATUS_TOPICS`); a follow's own sentences are the banner's.
-   *
-   * The strip holds one line, so a later sentence replaces an earlier one and the two never
-   * stack, and the same sentence said again while it stands is nothing to do: a repeated line
-   * would restart the clock and re-announce, in a polite live region, words that have not
-   * changed.
-   *
-   * It yields to the room's own warning: the grace countdown and the dropped line are each
-   * armed by a single event and nothing re-arms them, so a sentence that took the strip from
-   * either would delete the only reading of a room that is closing or out of reach, and a room
-   * that is out of reach is exactly when a landing would go unanswered.
-   */
-  status(text: string): void;
-  /**
    * Shows the line a dropped socket wears while the engine re-dials it (`§9.1`). It stands until
    * `endDropped` takes it down, because the retry has no length to stand for: a bounded backoff
    * can run for the room's whole advertised grace, and a line on its own timer would either lie
@@ -275,7 +260,7 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
     element.textContent = '';
   };
 
-  /** One sentence of news, standing one transient stand; see `SessionNote.status`. */
+  /** One sentence of news, standing one transient stand and then taking itself down. */
   const say = (text: string, standMs: number): void => {
     stop();
     element.textContent = text;
@@ -327,20 +312,6 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
           stop();
         }
       }, 1000);
-    },
-
-    status(text: string): void {
-      const tone = element.dataset.tone;
-      if (tone === 'grace' || tone === 'dropped') {
-        return;
-      }
-      if (tone === 'plain' && element.textContent === text) {
-        // The same sentence again: a follow re-lands and re-says itself on every frame the
-        // peer moves. Writing it back would restart the clock and re-announce, in a polite
-        // live region, a line that has not changed.
-        return;
-      }
-      say(text, TRANSIENT_STAND_MS);
     },
 
     say,

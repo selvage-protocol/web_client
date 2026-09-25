@@ -147,7 +147,7 @@
          can show a box waiting on a request, and a background paints no alt
          text either way. `test/join-paint.test.ts` checks these bytes against
          the file. */
-      .mark { flex: none; background-image: url("data:image/png;base64,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");
+      .mark { flex: none; background-image: url("data:image/png;base64,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");
         background-repeat: no-repeat; background-position: center; background-size: contain; }
       /* The strip is a flex row for the dot's sake, and the countdown substitutes its time into
          the middle of one sentence: every child of a flex container wears the `gap` on both sides,
@@ -332,9 +332,14 @@
       /* Where a peer is, when the answer is nowhere: a quiet line where Go to would stand, rather
          than a disabled verb and a sentence explaining it. */
       #roster .waiting { flex: none; font-size: 0.8em; color: var(--muted-foreground); }
-      /* The lone host's own line, under the row that says who they are. */
+      /* A go-to the room could not answer: the sentence the row was pressed for, on its own line
+         under it, standing the few seconds the page holds it (design §5.1). */
+      #roster .refusal { flex-basis: 100%; font-size: 0.8em; color: var(--muted-foreground);
+        line-height: 1.35; }
+      /* The lone host's own line, under the row that says who they are: it names the act and the
+         bar above is where the control is, so the row holds no copy of it. */
       #roster li.alone { font-size: 0.85em; color: var(--muted-foreground); }
-      #roster li.alone .copy-invite { font-size: 0.8em; padding: 0.25em 0.5em; }
+      #roster li.alone .pointer { color: var(--muted-foreground); }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
          will appear. The kind is the button's, so the field carries no convention of its own — and
@@ -421,7 +426,20 @@
       #tree .stale { color: var(--muted-foreground); font-size: 0.85em; padding: 0.5em 0.55em;
         margin: 0 0 0.5em; border-bottom: 1px solid var(--border); }
       #tree button.row:disabled { cursor: not-allowed; }
+      #editor-area { position: relative; display: flex; flex-direction: column; flex: 1;
+        min-height: 0; min-width: 0; }
       #editor { flex: 1; min-height: 0; min-width: 0; }
+      /* The empty pane, over the editor it takes the place of. The blocks are `empty-editor.ts`'s:
+         a lead, what the block is about, and the acts beside it. */
+      #editor-empty { position: absolute; inset: 0; background: var(--background);
+        overflow-y: auto; padding: 1.4em 1.5em; box-sizing: border-box; }
+      #editor-empty .empty-block + .empty-block { margin-top: 1.6em;
+        padding-top: 1.2em; border-top: 1px solid var(--border); }
+      #editor-empty .empty-lead { margin: 0 0 0.4em; font-size: 1.1em; font-weight: 650;
+        color: var(--foreground); }
+      #editor-empty .empty-text { margin: 0; color: var(--muted-foreground); line-height: 1.55;
+        max-width: 36em; }
+      #editor-empty .empty-actions { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0.95em 0 0; }
       #live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
         overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
       /* The editor the card stands over: a file tree beside the code the tree
@@ -511,6 +529,14 @@
         transition: background-color 0.15s ease,
         border-color 0.15s ease, transform 0.08s ease; }
       #host-button:active:not(:disabled) { transform: translateY(1px); }
+      /* The guest card's other intent, as the one line it is worth there: hosting is not what
+         the person came for, so it is a quiet verb with no button's chrome, and pressing it is
+         what puts the start card — this paragraph's home — in front of them. */
+      #host-quiet { display: flex; width: 100%; justify-content: center; margin: 0; padding: 0.3em 0;
+        background: none; border-color: transparent; color: var(--muted-foreground);
+        font-size: 0.9em; }
+      #host-quiet:hover:not(:disabled) { background: none; border-color: transparent;
+        color: var(--foreground); }
       #join.card-start #join-button { background: var(--muted); border-color: var(--border);
         color: var(--foreground); font-weight: 500; }
       #join.card-start #join-button:hover:not(:disabled) { background: var(--muted-hover);
@@ -540,6 +566,20 @@
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
         font-size: 0.9em; }
       @media (max-width: 640px) {
+        /* The demo instance appends its own notice after `#app` — the non-commercial terms and the
+           link to them, injected by its own front (`reference_server/packaging/prod`) — and this
+           page lays it out inside the viewport rather than under a full-height app. On a phone that
+           notice is three lines of prose, 80 px and about a tenth of the screen, held for the whole
+           session: once a session is on screen it is one fine-print strip instead — measured at
+           390x844, 35 px — with every word it says and its link intact, at the size the whole
+           sentence fits at rather than the size it was written in. It is the notice's *own* inline
+           styles the `!important`s have to beat (the deployment injects it, and it carries no class
+           or id this page could reach), and past the session it is the full proof, as on arrival. */
+        body:has(#session:not([hidden])) > aside {
+          padding: 0.25rem 0.7rem !important;
+          font-size: 10.5px !important;
+          line-height: 1.3 !important;
+        }
         #session { flex-wrap: wrap; row-gap: 0.4em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
         /* The readout goes and the words take the row: at this width the icon beside a
@@ -788,9 +828,14 @@
              found to have a directory picker: a control that could only refuse is worse than a
              sentence, and the sentence is what stands here when either is missing. `type`
              `button` keeps it out of the join form's submission, so the pre-bundle hold on that
-             form has nothing to do with it. -->
+             form has nothing to do with it.
+
+             The card has two intents and each says hosting its own way: on the bare page this
+             is the card's own action, and on a guest's it is one quiet line — pressing it is
+             what puts the start card in front of the person (`main.ts`, `swapCardToStart`). -->
         <div id="host-wrap" hidden>
-          <button id="host-button" type="button" hidden>Choose a folder to share</button>
+          <button id="host-button" type="button" hidden>Choose a folder to share…</button>
+          <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
           <p id="host-share"></p>
           <p id="host-note"></p>
@@ -834,7 +879,13 @@
             <span id="file-strip-follow"></span>
             <button id="download" type="button" aria-label="Download the open file" title="Download the open file" disabled></button>
           </div>
-          <div id="editor"></div>
+          <div id="editor-area">
+            <div id="editor"></div>
+            <!-- The pane with nothing in front of it: what a room holds, or holds back, and the one
+                 act that follows from it (design §7, `empty-editor.ts`). It covers the editor while
+                 it stands, because a buffer with no document in it goes nowhere (`§6.3`). -->
+            <div id="editor-empty" hidden></div>
+          </div>
         </div>
       </div>
       <div id="live" aria-live="polite"></div>

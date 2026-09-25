@@ -3,8 +3,9 @@
  * swatch, their name, the role the room gives them, and the two verbs — never
  * path text (where someone is reads on the grant tree, as a badge on their
  * file). The own name leads, with a you marker, the name it is seated under
- * and one control of its own to change it. The follow banner owns the one stop
- * control, so a followed row reads Following and offers nothing to press.
+ * and one control of its own to change it. Follow is a toggle, so the row a
+ * window is following reads `Following ✓` and pressing it stops, exactly as the
+ * file strip's own Stop does: one state, reachable from either side.
  *
  * The own row's edit is a field the page opens and closes, not the roster's
  * own state: the page holds it, stops re-drawing the list while it is open — a
@@ -58,8 +59,18 @@ export interface RosterView {
   selfRole?: Role;
   /** The own-name edit in progress, when one is open. */
   renaming?: RosterRename;
+  /**
+   * The sentence a go-to was refused with, and the row it is about.
+   *
+   * A go-to refusal is a race — the peer closed the file, or the caret does not resolve here — and
+   * the row that was pressed is the one place the answer belongs. It is not a state: the page takes
+   * it down after its own stand and re-draws (`main.ts`).
+   */
+  goToRefusal?: { peerId: string; text: string };
   onGoTo(peerId: string): void;
   onFollow(peerId: string): void;
+  /** The press on the row already following: the toggle's own off. */
+  onStopFollow(peerId: string): void;
   /** Opens the own-name edit. Absent where the page has no name to change. */
   onRename?: () => void;
 }
@@ -70,6 +81,13 @@ export interface RosterView {
  * verb, and this is what a pointer reads on it.
  */
 const RENAME_LABEL = 'Set the name other participants see';
+
+/**
+ * What a pressed toggle does when it is pressed, in the desktop clients' own words
+ * (`vscode_client/test/vocabulary.test.ts`, carried by the parity study). The button's name is
+ * the state it is in — `Following ✓` — so the act is what a pointer reads in the tooltip.
+ */
+const STOP_FOLLOW_LABEL = 'Stop following';
 
 /** What the edit's two visible ways out are called, in the row's own words. */
 const RENAME_SAVE_LABEL = 'Set this name';
@@ -111,7 +129,8 @@ function selfRow(view: RosterView): HTMLElement {
   if (view.selfColour !== undefined) {
     swatch.style.backgroundColor = view.selfColour;
   }
-  swatch.title = 'this is you';
+  // No `title` on it: the row already says `(you)` in words, beside the swatch, and a tooltip that
+  // repeats it is a second reading of one fact that a finger can never reach (`design` §0.1, §0.5).
   row.appendChild(swatch);
   const who = document.createElement('span');
   who.className = 'who';
@@ -322,16 +341,30 @@ function peerRow(peer: RosterPeer, all: readonly RosterPeer[], view: RosterView)
     go.addEventListener('click', () => view.onGoTo(peer.peerId));
     actions.appendChild(go);
   }
+  // Follow is a toggle: pressed it reads the state it is in, and pressing it again is what stops
+  // the follow. The strip's `Stop following` remains the primary place for that; this is the same
+  // state from the other side, and it is the only control this row offers once it is the target.
+  const follows = view.followedPeerId === peer.peerId;
   const follow = document.createElement('button');
   follow.type = 'button';
-  if (view.followedPeerId === peer.peerId) {
-    follow.append(iconSpan('follow'), labelSpan('Following'));
-    follow.disabled = true;
+  follow.setAttribute('aria-pressed', follows ? 'true' : 'false');
+  if (follows) {
+    follow.append(iconSpan('follow'), labelSpan('Following ✓'));
+    follow.title = STOP_FOLLOW_LABEL;
+    follow.addEventListener('click', () => view.onStopFollow(peer.peerId));
   } else {
     follow.append(iconSpan('follow'), verbLabel('Follow'));
     follow.addEventListener('click', () => view.onFollow(peer.peerId));
   }
   actions.appendChild(follow);
   row.appendChild(actions);
+  // The refusal the press earned, under the row that was pressed, for as long as the page stands
+  // it: `nothing to go to: Ada is not in a document` is about this peer and nowhere else.
+  if (view.goToRefusal?.peerId === peer.peerId) {
+    const refusal = document.createElement('span');
+    refusal.className = 'refusal';
+    refusal.textContent = view.goToRefusal.text;
+    row.appendChild(refusal);
+  }
   return row;
 }

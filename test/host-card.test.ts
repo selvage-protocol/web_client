@@ -23,7 +23,6 @@ import {
   clearHostingMark,
   hostAvailability,
   hostUnreadNote,
-  hostWarningFor,
   markHosting,
   takeHostingNotice,
 } from '../src/browser/host.ts';
@@ -87,22 +86,55 @@ describe('the host action in the shell', () => {
   });
 
   it('asks for a folder by name, and says what a guest gets', () => {
-    assert.match(html, /Choose a folder to share/, 'the button does not say what it does');
+    // The ellipsis is the platform's own convention for "this opens a picker" (design §7.1).
+    assert.match(html, /Choose a folder to share\u2026/, 'the button does not say what it does');
     // The button asks for a folder; the line under it says what sharing one means, so the
     // warning about the tab is not the only thing the card says about the room.
-    assert.match(main, /HOST_BUTTON_LABEL = 'Choose a folder to share'/, 'the label the bundle puts back differs from the shell');
+    assert.match(main, /HOST_BUTTON_LABEL = 'Choose a folder to share\u2026'/, 'the label the bundle puts back differs from the shell');
     assert.match(HOST_GUESTS_NOTE, /file names/i, 'the card never says what a guest sees');
     assert.match(HOST_GUESTS_NOTE, /only when someone opens it/i, 'the card implies the text is sent up front');
     assert.match(main, /HOST_GUESTS_NOTE/, 'the sentence is not the one the card writes');
-    assert.match(main, /hostShare\.textContent = availability\.kind === 'explained' \? '' : HOST_GUESTS_NOTE/);
+    assert.match(
+      main,
+      /hostShare\.textContent = offered \? HOST_GUESTS_NOTE : ''/,
+      'the note about what a guest sees is not the one the start card writes',
+    );
   });
 
-  it("scopes the tab warning to the start action on a guest's card", () => {
-    // A guest who followed a link read "This tab is the host. Close or reload it and the room
-    // ends..." under the join, as if it were about the room they just entered. On that card the
-    // start action is the alternative under Join, and the warning says so.
-    assert.match(hostWarningFor('start'), /^This tab is the host/);
-    assert.match(hostWarningFor('join'), /^If you start your own session instead, this tab is the host/);
+  it("says hosting in one quiet line on a guest's card, and the tab warning only on the start card", () => {
+    // Design §7.1: a guest arrived for the join, so hosting is one quiet line — pressing it is
+    // what puts the start card, the paragraph and the picker in front of them — and the paragraph
+    // about whose tab this is is read where the decision to host is made.
+    assert.match(html, /<button id="host-quiet" type="button" hidden>Or start your own session<\/button>/,
+      'the guest card carries no quiet line');
+    const showing = sliceBetween(main, 'function showHosting', 'hostQuiet.addEventListener');
+    assert.match(showing, /if \(cardIntent === 'join'\)/, 'the two intents are said the same way');
+    assert.match(showing, /hostQuiet\.hidden = !offered/, 'the quiet line stands where hosting is not offered');
+    assert.match(showing, /hostButton\.hidden = true/, 'the start button still stands on a guest card');
+    assert.match(showing, /hostNote\.textContent = offered \? '' : availability\.note/,
+      'a guest is read the paragraph about a tab the card has not offered to make a host');
+    // And the paragraph is the start card's own, once.
+    assert.match(showing, /hostNote\.textContent = availability\.note;/, 'the start card says nothing about whose tab it is');
+    assert.match(HOST_TAB_WARNING, /^This tab is the host/, 'the paragraph names the wrong tab');
+    assert.ok(!/hostWarningFor/.test(main), 'the scoped warning survived the collapse');
+  });
+
+  it('puts the start card in front of the person when the quiet line is pressed', () => {
+    const swap = sliceBetween(main, 'function swapCardToStart', 'hostQuiet.addEventListener');
+    assert.match(swap, /cardIntent = 'start'/, 'the card keeps the join intent it swapped away from');
+    assert.match(swap, /showCardIntent\(cardElements\(\), 'start'\)/, 'the card is never repainted in the start intent');
+    // The join intent opened the invite path itself, so the swap shuts it: the card is the start
+    // variant, and the disclosure is the way back to the link the address bar still carries.
+    assert.match(swap, /invitePath\.open = false/, 'the swap leaves the guest’s join box open');
+    // The name is one field either way, so nothing typed is lost.
+    assert.ok(!/nameInput\.value =/.test(swap), 'the swap clears the name the person typed');
+    // The press hid the control it was made with, so focus goes with it: a keyboard left on a
+    // hidden element has nowhere to be.
+    assert.match(
+      swap,
+      /\(hostButton\.hidden \? nameInput : hostButton\)\.focus\(\)/,
+      'the swap hides the control that was pressed and leaves focus on it',
+    );
   });
 });
 
@@ -113,31 +145,29 @@ describe('whether the card offers to start a room', () => {
   const server = (meta: Meta): ServerRead => ({ kind: 'server', meta });
 
   it('offers it only where a folder can be picked and the page is the server', () => {
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta), scope: 'start' }), {
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
       kind: 'offered',
       note: HOST_TAB_WARNING,
     });
-    // The same offer on a guest's card carries the warning that names the action it belongs to.
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta), scope: 'join' }), {
-      kind: 'offered',
-      note: hostWarningFor('join'),
-    });
+    // One wording, whichever card is asking: a guest's card writes the paragraph nowhere, and the
+    // start card that pressing its quiet line brings up is the only place it stands (`showHosting`).
+    assert.equal(hostAvailability({ picker: true, read: server(sealedMeta) }).note, HOST_TAB_WARNING);
   });
 
   it('explains a browser that cannot hand over a folder, and says joining still works', () => {
-    const availability = hostAvailability({ picker: false, read: server(sealedMeta), scope: 'start' });
+    const availability = hostAvailability({ picker: false, read: server(sealedMeta) });
     assert.equal(availability.note, HOST_NEEDS_A_BROWSER);
     assert.equal(availability.kind, 'explained');
     assert.match(HOST_NEEDS_A_BROWSER, /Joining a room here still works/);
   });
 
   it("explains a page that is not the server's own page rather than guessing at one", () => {
-    const availability = hostAvailability({ picker: true, read: { kind: 'not-a-server' }, scope: 'start' });
+    const availability = hostAvailability({ picker: true, read: { kind: 'not-a-server' } });
     assert.deepEqual(availability, { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE });
     // A picker that cannot pick is the first answer either way: the /meta read is not worth
     // making where there is nothing to do with its answer.
     assert.equal(
-      hostAvailability({ picker: false, read: { kind: 'not-a-server' }, scope: 'start' }).kind,
+      hostAvailability({ picker: false, read: { kind: 'not-a-server' } }).kind,
       'explained',
     );
   });
@@ -146,15 +176,12 @@ describe('whether the card offers to start a room', () => {
     // M1: `/meta` is advisory (§2), so a deadline that passed is not an answer about this
     // origin. The offer stands with a note that says what was not read — the sentence for a
     // page that is not a Selvage server's is the one answer that would be untrue here.
-    const availability = hostAvailability({ picker: true, read: { kind: 'no-answer' }, scope: 'start' });
+    const availability = hostAvailability({ picker: true, read: { kind: 'no-answer' } });
     assert.equal(availability.kind, 'unchecked');
     assert.equal(availability.note, HOST_UNREAD_NOTE);
-    // On a guest's card the same note carries the scoped warning, so its own opening sentence
-    // stands unchanged and only the warning under it names the action it belongs to.
-    assert.equal(
-      hostAvailability({ picker: true, read: { kind: 'no-answer' }, scope: 'join' }).note,
-      hostUnreadNote('join'),
-    );
+    // The note is one sentence, whatever card it would stand on: `hostUnreadNote` is the same
+    // wording the constant carries, so the two cannot drift into two answers.
+    assert.equal(hostUnreadNote(), HOST_UNREAD_NOTE);
     assert.ok(
       !availability.note.includes(HOST_NEEDS_THE_SERVERS_PAGE),
       'a read that did not answer still says the page was not served by a Selvage server',
@@ -162,7 +189,7 @@ describe('whether the card offers to start a room', () => {
     assert.match(availability.note, /has not answered \/meta/);
     // A body that answered and is a Selvage server's is the offer, whatever it seats: there is
     // no version to decide and no control whose only outcome is a refusal.
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta), scope: 'start' }), {
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
       kind: 'offered',
       note: HOST_TAB_WARNING,
     });
@@ -198,13 +225,14 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
     assert.ok(META_REREAD_TIMEOUT_MS > 2000, 'the second ask is no longer than the first');
   });
 
-  it('draws the button and the note from the availability it just made', () => {
+  it('draws the line and the note from the availability it just made', () => {
     assert.match(main, /hostNote\.textContent = availability\.note/, 'the note is not what is written');
     assert.match(
       main,
-      /hostButton\.hidden = availability\.kind === 'explained'/,
-      'a button is shown where only a sentence belongs, or the other way round',
+      /const offered = availability\.kind !== 'explained'/,
+      'nothing tells a sentence from an action',
     );
+    assert.match(main, /hostButton\.hidden = !offered/, 'a button is shown where only a sentence belongs');
   });
 
   it("shows the card's own copy for a failed host, not the socket's", () => {

@@ -8,6 +8,10 @@
  * `date:create`/`date:modify` — so a fresh clone, whose `public/mark-opaque.png`
  * has a new mtime, rendered four different icons from identical bytes. All four
  * are dropped here; the source's own `Software` tag stays.
+ *
+ * The card's own mark does not come through here: it is an alpha image, and
+ * resampling one is not the same in every ImageMagick release this page is
+ * built with. `scripts/mark-level.mjs` owns that whole derivation.
  */
 
 import { execFileSync } from 'node:child_process';

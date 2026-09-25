@@ -69,8 +69,9 @@ jobs:
         run: scripts/check-dist.sh "$RUNNER_TEMP/dist-committed"
 
       # `test/identity.test.ts` compares the page's mark with the `site` checkout
-      # beside this one, which a single-checkout job does not have; it is excluded
-      # there, and named so the exclusion cannot go stale (scripts/test-ci.mjs).
+      # beside this one, which a single-checkout job does not have: that one test
+      # skips, with that reason, and the rest of the file — the icons' determinism
+      # and the clock chunks a fresh clone would render differently — runs here.
       # `test/serve-types.test.ts` needs no sibling and runs. The checks that do need
       # something live — `npm run check:types` (a deployed page) and `npm run prove*`
       # (a `selvaged`) — run locally; the image workflow's smoke is the served-page

@@ -114,13 +114,17 @@ export type FolderPickRefusal =
   /** This browser has no directory picker at all: Firefox, Safari, and every page that is not
    * a secure context. */
   | 'unsupported'
-  /** The person dismissed the prompt. */
-  | 'cancelled'
   /** The browser refused: not called from a user gesture, or a folder it will not hand over. */
   | 'refused';
 
 export type FolderPick =
   | { kind: 'picked'; folder: FolderWorkingCopy }
+  /**
+   * The person dismissed the prompt. It is its own outcome rather than a refusal with a sentence:
+   * choosing not to share a folder is not a mistake to be told about, and a card that wrote a red
+   * line for it made a decision look like a failure (design §7.1). The card is simply as it was.
+   */
+  | { kind: 'cancelled' }
   | { kind: 'refused'; cause: FolderPickRefusal; sentence: string };
 
 /** The picker's own id, so the browser reopens where the person last chose. */
@@ -137,8 +141,6 @@ export function folderPickSentence(cause: FolderPickRefusal, detail = ''): strin
   switch (cause) {
     case 'unsupported':
       return 'This browser cannot hand a page a folder. Chrome and Edge can; Firefox and Safari cannot. Joining a room still works here — hosting one from this page needs a Chromium browser.';
-    case 'cancelled':
-      return 'No folder was chosen, so no room was started.';
     case 'refused':
       return `The browser would not hand over that folder${detail === '' ? '' : ` (${detail})`}. A folder it keeps for itself — a system folder, your home directory itself — cannot be shared.`;
   }
@@ -277,7 +279,7 @@ export async function pickFolder(picker: PickFolder | undefined): Promise<Folder
   } catch (error: unknown) {
     const name = errorName(error);
     if (name === 'AbortError') {
-      return { kind: 'refused', cause: 'cancelled', sentence: folderPickSentence('cancelled') };
+      return { kind: 'cancelled' };
     }
     return { kind: 'refused', cause: 'refused', sentence: folderPickSentence('refused', name) };
   }

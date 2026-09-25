@@ -328,10 +328,11 @@ export class GrantTreeView {
       const empty = document.createElement('p');
       empty.className = 'empty';
       // An empty room reads differently to the two people looking at it: a guest is waiting on the
-      // host, and a host is the one who can fill it — with the controls above the tree, which is why
-      // this sentence names an act rather than the absence of files.
+      // host, and a host is the one who can fill it. The host's line is the short one now — the
+      // editor pane beside it carries the explanation and the two acts (design §7.2), and the two
+      // verbs in this panel's own header are the act the line would otherwise describe.
       empty.textContent = this.canCreate()
-        ? 'You have not shared anything from this folder yet. Create a file, and it joins the room.'
+        ? 'Nothing here yet.'
         : 'The host has not shared any files yet.';
       this.pane.appendChild(empty);
       return;

@@ -29,10 +29,11 @@ import {
   saveDisplayName,
   showJoinFailure,
   showNameFailure,
+  showCardIntent,
   showRejoinCard,
   validateDisplayName,
 } from './join.ts';
-import type { CardIntent, JoinTarget } from './join.ts';
+import type { CardIntent, JoinCardElements, JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
 import { iconSpan, iconSvg, labelSpan } from './icons.ts';
@@ -72,6 +73,11 @@ import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
 import { EMPTY_IN_ROOM_TITLE, IN_THE_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
 import { renderRoster } from './roster.ts';
+import {
+  emptyEditorFor,
+  renderEmptyEditor,
+} from './empty-editor.ts';
+import type { EmptyEditorAction } from './empty-editor.ts';
 import { renameSelf } from './rename.ts';
 import { wireLeave } from './leave.ts';
 import { wireShareBox } from './share-box.ts';
@@ -213,10 +219,12 @@ const leaveCancel = document.getElementById('leave-cancel') as HTMLButtonElement
 const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement;
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
+const hostQuiet = document.getElementById('host-quiet') as HTMLButtonElement;
 const hostShare = document.getElementById('host-share') as HTMLElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
+const editorEmpty = document.getElementById('editor-empty') as HTMLElement;
 const rosterList = document.getElementById('roster') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
 const sharedActions = document.getElementById('shared-actions') as HTMLElement;
@@ -310,6 +318,24 @@ function collapsePanel(): void {
   }
 }
 
+/**
+ * The card's live controls, in one bundle: what its intent is painted through (`showCardIntent`,
+ * the swap below) and what its `initJoinCard` reads. One object, so the wiring and every later
+ * repaint cannot disagree about which elements the card is.
+ */
+function cardElements(): JoinCardElements {
+  return {
+    pane: joinPane,
+    startHeading,
+    joinHeading,
+    invitePath,
+    inviteReveal,
+    inviteWrap,
+    inviteInput,
+    nameInput,
+  };
+}
+
 const params = pageQueryParams(window.location.search);
 // Which of the card's two intents this page has: a room and its token in the address bar
 // are the invite the host sent, and the card asks the name alone and joins it. With neither,
@@ -317,6 +343,9 @@ const params = pageQueryParams(window.location.search);
 // only if they turn out to have a link. A room the address bar named that is now gone
 // leaves the card in the join shape anyway (`leaveSession`): a fresh link is the way in.
 let cardIntent: CardIntent = cardIntentOf(params);
+/** The `/meta` read the card's host action was offered on, so the swap repaints from it rather than
+ * asking the page's own origin a second time (`showHosting`). */
+let lastServerRead: ServerRead | undefined;
 // The address bar's invite is the way in until the room it names is over.
 let linkIsTheInvite = cardIntent === 'join';
 // The card shell is inline HTML, so it paints before this bundle arrives: wire only the intent
@@ -324,7 +353,7 @@ let linkIsTheInvite = cardIntent === 'join';
 // paint without stealing a field the guest already typed into. The name is the question both
 // intents ask — each action needs it — so focus belongs there either way.
 initJoinCard(
-  { pane: joinPane, startHeading, joinHeading, invitePath, inviteReveal, inviteWrap, inviteInput, nameInput },
+  cardElements(),
   params,
   window.localStorage,
 );
@@ -710,7 +739,7 @@ async function runJoin(held: HeldJoin): Promise<void> {
 }
 
 /** What the host button says, before and after an attempt. */
-const HOST_BUTTON_LABEL = 'Choose a folder to share';
+const HOST_BUTTON_LABEL = 'Choose a folder to share…';
 
 /**
  * The editor stack and the shared-text opener guard, both of which a join and a host need
@@ -968,6 +997,12 @@ async function attemptHost(): Promise<void> {
   hostButton.textContent = 'Opening…';
   try {
     const picked = await pickFolder(folderPicker);
+    if (picked.kind === 'cancelled') {
+      // A dismissed prompt is not a failure: the person changed their mind, and the card is simply
+      // as it was. The red `No folder was chosen…` this used to write made a decision look like a
+      // mistake, and it is the one refusal the person already knows the answer to.
+      return;
+    }
     if (picked.kind === 'refused') {
       hostError.textContent = picked.sentence;
       return;
@@ -1036,17 +1071,58 @@ async function offerHosting(): Promise<void> {
  * Puts one read of the page's own origin on the card: the note beside the action, what choosing a
  * folder shares, and whether there is an action at all.
  *
- * The warning is worded for the card it stands on: a guest's card offers the start action as the
- * alternative under Join, so the tab warning there opens with that (`host.ts`), and a guest who
- * never touches the button is not told about a tab that is not theirs.
+ * The two intents say it differently, and that is the whole of the collapse (design §7.1). On the
+ * start card the action is the card's own — the button that says what happens next, and the
+ * paragraph about the tab that click makes the host of. On a guest's card hosting is the alternative
+ * to the thing the person came for, so it is one quiet line and nothing else: pressing it is what
+ * puts the start card in front of them (`swapCardToStart`). A page where hosting is not on offer at
+ * all says why, in one line, wherever the action would have stood.
  */
 function showHosting(picker: boolean, read: ServerRead): void {
-  const availability = hostAvailability({ picker, read, scope: cardIntent });
+  lastServerRead = read;
+  const availability = hostAvailability({ picker, read });
+  const offered = availability.kind !== 'explained';
   hostWrap.hidden = false;
-  hostShare.textContent = availability.kind === 'explained' ? '' : HOST_GUESTS_NOTE;
+  if (cardIntent === 'join') {
+    hostQuiet.hidden = !offered;
+    hostButton.hidden = true;
+    hostShare.textContent = '';
+    hostNote.textContent = offered ? '' : availability.note;
+    return;
+  }
+  hostQuiet.hidden = true;
+  hostShare.textContent = offered ? HOST_GUESTS_NOTE : '';
   hostNote.textContent = availability.note;
-  hostButton.hidden = availability.kind === 'explained';
+  hostButton.hidden = !offered;
 }
+
+/**
+ * The guest card's one quiet line: the start card, in front of the person.
+ *
+ * The card the address bar made is a guest's, and this is the other intent it can be — the name is
+ * the same field either way, so nothing typed is lost. The invite path is shut as it goes: the join
+ * intent opened it itself, the person never did, and the way back is the disclosure it leaves behind
+ * (`Have an invite link?`) with the link still in the address bar.
+ */
+function swapCardToStart(): void {
+  if (cardIntent === 'start') {
+    return;
+  }
+  cardIntent = 'start';
+  showCardIntent(cardElements(), 'start');
+  invitePath.open = false;
+  if (lastServerRead !== undefined) {
+    showHosting(folderPicker !== undefined, lastServerRead);
+  }
+  // The press hid the control it was made with, so the keyboard goes where the press led: the
+  // start action when this page can offer one, and the name — the one thing the card still asks
+  // for — when the sentence about this page's own origin stands in its place.
+  (hostButton.hidden ? nameInput : hostButton).focus();
+}
+
+hostQuiet.addEventListener('click', () => {
+  swapCardToStart();
+});
 
 /** This page's own origin, read as the session base a room started here would be seated on. */
 function pageBase(): SessionBase | undefined {
@@ -1193,6 +1269,9 @@ function applyStripRole(): void {
 }
 applyStripRole();
 phoneLayout.addEventListener('change', applyStripRole);
+// The pane with no document in it offers the panel's own verb only on a device that needs it, so the
+// query moving is a redraw of it too.
+phoneLayout.addEventListener('change', () => syncEmptyEditor());
 
 async function copyShareLink(): Promise<void> {
   // Every attempt starts from the bar's rest state: a fallback that failed has the whole link in
@@ -1233,7 +1312,8 @@ async function copyShareLink(): Promise<void> {
 
 /**
  * Who is here: the own name first, then one row per peer. Where someone is
- * reads on the grant tree, not here; the follow banner owns the one stop.
+ * reads on the grant tree, not here; the strip's follow segment owns the one
+ * stop and the row's own toggle is the same state from the other side.
  *
  * An own-name edit holds the list still (`renamingName`): a presence frame lands
  * every few hundred milliseconds while anybody types, and a list redrawn under
@@ -1255,6 +1335,7 @@ function drawRoster(participants: Participant[]): void {
     selfName,
     selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
     selfRole: engine?.session().role,
+    goToRefusal,
     renaming:
       renamingName === undefined
         ? undefined
@@ -1265,19 +1346,65 @@ function drawRoster(participants: Participant[]): void {
             cancel: () => endRename(),
           },
     onRename: () => startRename(),
-    onGoTo: (peerId) => {
-      const participant = participants.find((candidate) => candidate.peerId === peerId);
-      void binding?.goTo(peerId).catch((error: unknown) => {
-        failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
-      });
-    },
-    onFollow: (peerId) => {
-      const participant = participants.find((candidate) => candidate.peerId === peerId);
-      void binding?.follow(peerId).catch((error: unknown) => {
-        failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
-      });
-    },
+    onGoTo: (peerId) => goToParticipant(peerId),
+    onFollow: (peerId) => followParticipant(peerId),
+    // The same state from the other side: the row's toggle pressed is the strip's Stop pressed.
+    onStopFollow: () => binding?.stopFollowing(),
   });
+}
+
+/**
+ * Landing on a peer, from wherever the press came: the roster's `Go to`, or the empty pane's own.
+ *
+ * A rejection is the room being unreachable, which is the alert's; a refusal the room answers with
+ * is not a rejection at all, and lands on the row (`showGoToRefusal`).
+ */
+function goToParticipant(peerId: string): void {
+  const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
+  void binding?.goTo(peerId).catch((error: unknown) => {
+    failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+  });
+}
+
+/** Following a peer, from wherever the press came: the roster's `Follow`, or the empty pane's own. */
+function followParticipant(peerId: string): void {
+  const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
+  void binding?.follow(peerId).catch((error: unknown) => {
+    failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+  });
+}
+
+/**
+ * A go-to the room could not answer, under the row that asked for it (design §5.1).
+ *
+ * The refusal is a race — the peer closed the file, or its caret does not resolve here — and the
+ * answer belongs where the press was. It is not a state: it stands
+ * `GO_TO_REFUSAL_STAND_MS` and then goes, and the room's next presence frame does not re-raise it,
+ * because nothing is wrong with the room. The sentence is announced once, since the row is where the
+ * eye already is and a screen reader has no hover to find a line under it.
+ */
+let goToRefusal: { peerId: string; text: string } | undefined;
+/** The standing refusal's own clock. One at a time: a press replaces the sentence *and* the timer. */
+let goToRefusalTimer: number | undefined;
+
+/** How long a refused go-to stands on its row. */
+const GO_TO_REFUSAL_STAND_MS = 4000;
+
+function showGoToRefusal(peerId: string | undefined, text: string): void {
+  if (peerId === undefined) {
+    return;
+  }
+  if (goToRefusalTimer !== undefined) {
+    window.clearTimeout(goToRefusalTimer);
+  }
+  goToRefusal = { peerId, text };
+  goToRefusalTimer = window.setTimeout(() => {
+    goToRefusalTimer = undefined;
+    goToRefusal = undefined;
+    syncRoster(binding?.participants() ?? []);
+  }, GO_TO_REFUSAL_STAND_MS);
+  syncRoster(binding?.participants() ?? []);
+  announce(text);
 }
 
 /**
@@ -1335,6 +1462,82 @@ function syncGrant(): void {
   // The one control whose state is the open document re-reads it here, where every event that
   // can move the open document already lands.
   syncStrip();
+  // And so does the pane with no document in it: which state it is in is a fact about the listing
+  // and the presence beside it, both of which land here.
+  syncEmptyEditor();
+}
+
+/**
+ * The pane with no document in front of it (`§6.3`, design §7).
+ *
+ * The state is a read of the room as it stands — who is hosting, how many files the listing carries,
+ * which peer is in a file — so it is drawn wherever the listing or the presence lands (`syncGrant`),
+ * and nowhere else. A document open here means the pane has something better to show, and the
+ * overlay goes.
+ */
+function syncEmptyEditor(): void {
+  const path = binding?.currentPath();
+  renderEmptyEditor(
+    editorEmpty,
+    binding === undefined || path !== undefined
+      ? undefined
+      : emptyEditorFor({
+          host: hostFolder !== undefined,
+          folder: hostFolder?.name ?? '',
+          files: binding.grantListing().length,
+          hostName: binding.participants().find((participant) => participant.role === 'host')?.displayName ?? '',
+          phone: phoneLayout.matches,
+          peer: peerInAFile(binding.participants()),
+          following: binding.following()?.peerId,
+        }),
+    runEmptyEditorAction,
+  );
+}
+
+/**
+ * The first peer that is in a file, as the pane's own block names one: a peer with no path has
+ * nothing to go to, and the roster already says so (`roster.ts`).
+ */
+function peerInAFile(
+  participants: readonly Participant[],
+): { peerId: string; name: string; path: string } | undefined {
+  const found = participants.find((participant) => participant.path !== undefined && participant.path !== '');
+  return found === undefined || found.path === undefined
+    ? undefined
+    : { peerId: found.peerId, name: found.displayName, path: found.path };
+}
+
+/**
+ * What the empty pane's own controls do. The create opens the row in the tree, so it opens the panel
+ * a phone keeps shut first: a field nobody can see is a control that does nothing. The invite is the
+ * bar's own handler, so the confirmation is the pill's `Link copied` wherever the act was pressed.
+ */
+function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefined): void {
+  switch (action) {
+    case 'new-file':
+      showPanel(true);
+      beginCreate('file');
+      break;
+    case 'copy-invite':
+      void copyShareLink();
+      break;
+    case 'browse-files':
+      showPanel(true);
+      break;
+    case 'go-to':
+      if (peerId !== undefined) {
+        goToParticipant(peerId);
+      }
+      break;
+    case 'follow':
+      if (peerId !== undefined) {
+        followParticipant(peerId);
+      }
+      break;
+    case 'stop-follow':
+      binding?.stopFollowing();
+      break;
+  }
 }
 
 /**
@@ -1577,8 +1780,10 @@ function syncFollow(following: Following | undefined, ended?: string): void {
   fileStripFollow.style.backgroundColor = '';
   if (binding !== undefined) {
     // The toggle mirrors the indicator: a follow ended by typing or by the peer leaving re-renders
-    // here, not on the next room event.
+    // here, not on the next room event. The pane's own toggle is the same state, so it is redrawn
+    // with it — a follow that opened no document leaves the pane showing.
     syncRoster(binding.participants());
+    syncEmptyEditor();
   }
   if (following === undefined) {
     if (ended === undefined) {
@@ -1663,6 +1868,7 @@ function leaveSession(sentence: string): void {
   opening = undefined;
   renderedPath = undefined;
   tree = undefined;
+  goToRefusal = undefined;
   openDirs.clear();
   fullShareLink = '';
   shareGroup.classList.remove('hand-copy');
@@ -1672,6 +1878,7 @@ function leaveSession(sentence: string): void {
   fileStripPath.textContent = '';
   fileStripChips.replaceChildren();
   fileStripFollow.replaceChildren();
+  renderEmptyEditor(editorEmpty, undefined, runEmptyEditorAction);
   // The question a host was reading goes with the room it was about, and the control that asked it
   // goes back to rest: one owner for that state, so the next session's first press raises a panel.
   leaveControl.close();
@@ -1702,6 +1909,13 @@ function leaveSession(sentence: string): void {
     },
     sessionOverMessage(sentence),
   );
+  // The card is the guest's now, and the host action is the card's own shape is what says so: the
+  // paragraph about whose tab this is belongs to the start card, and a button left standing here
+  // from a room whose page was bare is the other intent's. Nothing is asked of the page's origin
+  // again — the read the offer rested on stands (`showHosting`).
+  if (lastServerRead !== undefined) {
+    showHosting(folderPicker !== undefined, lastServerRead);
+  }
   // The join gate was left settled by the join that just ended: another join
   // from this card has to start clean.
   joinGate.release();
@@ -1709,17 +1923,31 @@ function leaveSession(sentence: string): void {
 }
 
 /**
- * The status sentences the page shows, by topic — the ones whose fact nothing else on the page
- * states.
+ * The status topics the page routes, and where each one goes.
  *
- * The binding raises every topic and this is where the page decides. A follow's sentences are the
- * strip's own segment now (who is followed, and a Stop control in it); the roster is where a peer's
- * arrival and departure read; the role is the strip's `Read-only` chip, a state rather than a
- * sentence; and a room that is over comes back as the card carrying the room's own sentence. What is
- * left is what has no surface of its own: a go-to the room could not answer, and what the room said
- * about the session itself.
+ * The binding raises every topic and this is where the page decides. Three of them have a surface of
+ * their own and no case here at all: a follow's sentences are the file strip's own segment (who is
+ * followed, and a Stop control in it), the roster is where a peer's arrival and departure read, and a
+ * room that is over comes back as the card carrying the room's own sentence.
+ *
+ * - `role` is a state rather than a sentence: the strip's `Read-only` chip, which stays while it is
+ *   true instead of a toast the person had to have caught. It is announced once, because a chip
+ *   that appears with no words is a change a screen reader would otherwise miss.
+ * - `refusal` is a go-to the room could not answer, and it stands under the roster row that asked
+ *   (`showGoToRefusal`).
+ * - `error` is the room's own word about the session, and nothing on screen is about it: it is the
+ *   alert's, the one home for a failure with no control to sit beside (design §6.1).
  */
-const SHOWN_STATUS_TOPICS: ReadonlySet<StatusTopic> = new Set(['role', 'refusal', 'error']);
+function statusRoute(topic: StatusTopic): 'role' | 'refusal' | 'error' | undefined {
+  switch (topic) {
+    case 'role':
+    case 'refusal':
+    case 'error':
+      return topic;
+    default:
+      return undefined;
+  }
+}
 
 /**
  * The bar's dot, which is the glanceable half of room health: a healthy room says nothing, and the
@@ -1846,17 +2074,23 @@ function onNotice(notice: BindingNotice): void {
       syncGrant();
       break;
     case 'status':
-      // News with no other home, and never a second copy of a control: see `SHOWN_STATUS_TOPICS`.
-      // The read-only state is a chip in the file strip now, so the role is a state rather than a
-      // sentence: the person never has to have caught the toast to know it.
-      if (notice.topic === 'role') {
-        readOnly = true;
-        syncStrip();
-        announce(VIEWER_SENTENCE);
-        break;
-      }
-      if (SHOWN_STATUS_TOPICS.has(notice.topic)) {
-        sessionNote.status(notice.text);
+      // Where each topic goes, and why: `statusRoute` and the two functions it names.
+      switch (statusRoute(notice.topic)) {
+        case 'role':
+          // The read-only state is a chip in the file strip, so the role is a state rather than a
+          // sentence: the person never has to have caught a toast to know it.
+          readOnly = true;
+          syncStrip();
+          announce(VIEWER_SENTENCE);
+          break;
+        case 'refusal':
+          showGoToRefusal(notice.peerId, notice.text);
+          break;
+        case 'error':
+          failureAlert.show(notice.text);
+          break;
+        default:
+          break;
       }
       break;
     case 'grant':

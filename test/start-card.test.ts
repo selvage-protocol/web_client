@@ -191,14 +191,17 @@ describe('the join card: what a person who followed a link reads', () => {
     assert.equal(wired.inviteWrap.hidden, true, 'the guest is asked to paste the link they followed');
   });
 
-  it('keeps the start action, secondary, and offers it on both intents', () => {
-    // Both intents are offered it: the read `/meta` answers is not skipped because
-    // the address carried a link, so a guest holding one can still start a room.
+  it('offers hosting as one quiet line, and says what it costs only on the start card', () => {
+    // Both intents are offered it: the read `/meta` answers is not skipped because the address
+    // carried a link, so a guest holding one can still start a room. On that card it is one quiet
+    // line — design §7.1 — and the paragraph about whose tab this is belongs to the start card the
+    // line opens, where the decision to host is actually made.
     const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
     assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');
     assert.ok(offering.includes('hostWrap.hidden = false'), 'the start action is never revealed');
-    // And it is the quiet one there: the join button keeps the rule that carries the
-    // primary look, and the start button is left with the page's own plain button.
+    assert.ok(!/scope/.test(offering), 'the offer is worded for a card it is not on');
+    // The line is the guest's; the button keeps the join card's own leading rule.
+    assert.match(html, /id="host-quiet"/, 'the guest card carries no quiet line');
     assert.match(rule('#join-button'), /margin-top/, 'the join button lost its own rule');
     assert.match(
       html,
@@ -208,6 +211,10 @@ describe('the join card: what a person who followed a link reads', () => {
     assert.ok(
       !new RegExp(`#join\\.${CARD_JOIN_CLASS} #host-button`).test(style),
       'the join card dresses the start action like its own',
+    );
+    assert.ok(
+      !new RegExp(`#join\\.${CARD_JOIN_CLASS} #host-quiet`).test(style),
+      'the quiet line is dressed like the join card’s own action',
     );
   });
 });

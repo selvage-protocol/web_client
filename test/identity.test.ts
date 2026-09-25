@@ -4,31 +4,73 @@
  * chrome's mark and the OpenGraph image. Nothing here is redrawn: the sources
  * are byte-identical copies of the site's files, the sized icons are rendered
  * by the build from the opaque master, and the mark in the shell is 104 px of
- * the transparent master, decoded here and checked against that same renderer.
- * The site keeps its opaque mark as the OpenGraph image (`app/`), which is the
- * same file this page serves as `mark-opaque.png`.
+ * the transparent master, levelled the way the site levels its own nav copy
+ * (`MARK_GAMMA`, `scripts/mark-level.mjs`), decoded here and checked against
+ * that same renderer. The site keeps its opaque mark as the OpenGraph image
+ * (`app/`), which is the same file this page serves as `mark-opaque.png`.
  *
  * The site's `app/icon.svg` — the vector monogram this page used to copy as
  * `favicon.svg` — is gone: its `clipPath` pointed at a `<g>` and the whole
  * monogram was clipped away, so it rendered nothing but its background plate.
  * The site's icon set is its own pixels now, and this page's tab is the rasters
  * below.
+ *
+ * The one test that reads the `site` checkout beside this one skips, with the
+ * reason, where there is no such checkout — a single-repository CI job, or a
+ * copy of this repository standing on its own. Everything else here needs this
+ * checkout alone and runs everywhere.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderIcon } from '../scripts/dist-icons.mjs';
+import { MARK_GAMMA, decodePng, renderLevelledMark } from '../scripts/mark-level.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const site = resolve(root, '..', 'site');
+
+/**
+ * The `site` checkout beside this one, or `undefined` where there is none.
+ *
+ * A worktree lives under `<repo>/.worktrees/<name>`, so the parent of *this*
+ * directory is not the parent that holds the siblings: the repository's own
+ * common git directory is, in a checkout and in a worktree alike. A copy that
+ * is not a git checkout at all falls back to the directory itself, which is
+ * where a plain clone's sibling would be.
+ */
+function siblingSite(): string | undefined {
+  let repo = root;
+  try {
+    const common = execFileSync(
+      'git',
+      ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { encoding: 'utf8' },
+    ).trim();
+    if (common !== '') {
+      repo = dirname(common);
+    }
+  } catch {
+    // Not a git checkout: the directory this test sits in is the best answer there is.
+  }
+  const site = resolve(repo, '..', 'site');
+  return existsSync(site) ? site : undefined;
+}
+
+const site = siblingSite();
+/** Why the byte-for-byte comparison cannot run here, or `false` where it can. */
+const noSibling =
+  site === undefined &&
+  'no `site` checkout beside this one: the mark cannot be compared byte for byte with the site that owns it';
 
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+/** One PNG's pixels, for comparing two encodings of the same raster. */
+const rasterSha = (png: ReturnType<typeof decodePng>) => createHash('sha256').update(png.raster).digest('hex');
 
 /**
  * The site's hash for one of its files. The sibling checkout is edited in
@@ -37,18 +79,19 @@ const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest(
  * byte-for-byte against the site rather than against a redraw.
  */
 function siteSha256(path) {
+  const at = resolve(site as string, path);
   try {
-    return sha256(resolve(site, path));
+    return sha256(at);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     return createHash('sha256')
-      .update(execFileSync('git', ['-C', site, 'show', `HEAD:${path}`]))
+      .update(execFileSync('git', ['-C', site as string, 'show', `HEAD:${path}`]))
       .digest('hex');
   }
 }
 
 describe('identity', () => {
-  it('ships the site mark byte-identical, never redrawn', () => {
+  it('ships the site mark byte-identical, never redrawn', { skip: noSibling }, () => {
     for (const [ours, theirs] of [
       ['public/mark-opaque.png', 'app/opengraph-image.png'],
       ['public/mark-transparent.png', 'public/mark-transparent.png'],
@@ -73,12 +116,20 @@ describe('identity', () => {
     assert.match(html, /property="og:image" content="mark-opaque\.png"/);
   });
 
-  it('brands the page chrome with the mark', () => {
+  it('brands the page chrome with the mark, and the mark alone', () => {
     // One rule carries the mark's bytes and both marks wear it: nothing to
     // fetch, and no element that could paint alt text or a broken-image box
     // (see test/join-paint.test.ts for the first-frame side).
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
-    assert.match(html, /<span id="brand"><span class="mark" aria-hidden="true"><\/span>Selvage/);
+    // The mark carries the brand and the words beside it carry the one fact the bar has about
+    // *which* session this is: whose room, or whose folder is exposed (design §3.1). A `Selvage`
+    // wordmark in this span would be the brand twice and the fact never.
+    assert.match(
+      html,
+      /<span id="brand"><span class="mark" aria-hidden="true"><\/span><span id="session-identity"><\/span><\/span>/,
+    );
+    const brand = html.slice(html.indexOf('<span id="brand">'), html.indexOf('id="share-group"'));
+    assert.ok(!/>[^<]*Selvage/.test(brand), `the wordmark is back beside the mark: ${brand}`);
     assert.equal(
       (html.match(/<span class="mark" aria-hidden="true"><\/span>/g) ?? []).length,
       2,
@@ -96,25 +147,104 @@ describe('identity', () => {
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
     const found = html.match(/url\("data:image\/png;base64,([^"]+)"\)/);
     assert.ok(found !== null, 'the shell carries no inlined mark');
-    const inlined = Buffer.from(found[1] ?? '', 'base64');
+    const shown = decodePng(Buffer.from(found[1] ?? '', 'base64'));
     // 104 px is the card's 3.25rem at 2x: the largest the mark is ever shown.
-    assert.equal(inlined.readUInt32BE(16), 104, 'the inlined mark is not 104 px wide');
-    assert.equal(inlined.readUInt32BE(20), 104, 'the inlined mark is not 104 px tall');
+    assert.equal(shown.width, 104, 'the inlined mark is not 104 px wide');
+    assert.equal(shown.height, 104, 'the inlined mark is not 104 px tall');
     const scratch = resolve(root, '.tmp/mark-inline');
     mkdirSync(scratch, { recursive: true });
     try {
       const rendered = resolve(scratch, 'mark-104.png');
-      renderIcon(resolve(root, 'public/mark-transparent.png'), 104, rendered);
+      renderLevelledMark(resolve(root, 'public/mark-transparent.png'), 104, rendered);
+      // The pixels, not the file: two encoders may compress one raster differently, and what is
+      // pinned here is the owner's artwork as the renderer resampled and levelled it.
       assert.equal(
-        sha256(rendered),
-        createHash('sha256').update(inlined).digest('hex'),
+        rasterSha(decodePng(readFileSync(rendered))),
+        rasterSha(shown),
         'the inlined mark is not what the renderer makes of the site\'s mark',
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
   });
+
+  it('levels the mark for the dark ground it lands on', () => {
+    // The owner's export is a shaded wordmark, dark enough that on this page's card it reads as a
+    // smudge: the site measured the same defect on its own bar and fixed it the same way, and this
+    // is the page's half of that — the mark's own pixels, composited over the ground the card
+    // paints, at the non-text floor WCAG sets for a mark beside text. A derivative that goes dark
+    // again fails here; the unlevelled render measures 1.72:1 and fails it.
+    const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
+    const ground = /--card:\s*(#[0-9a-f]{6})/i.exec(html)?.[1] ?? '';
+    assert.notEqual(ground, '', 'the card\'s own ground is not in the stylesheet');
+    const inlined = Buffer.from(
+      html.match(/url\("data:image\/png;base64,([^"]+)"\)/)?.[1] ?? '',
+      'base64',
+    );
+    const ink = markInk(decodePng(inlined), ground);
+    assert.ok(
+      ink.ratio >= NON_TEXT_MIN,
+      `the mark's typical ink pixel is ${ink.colour} on ${ground} = ${ink.ratio.toFixed(2)}:1, under the ${NON_TEXT_MIN}:1 floor (${ink.pixels} ink pixels)`,
+    );
+    // And the measurement reaches the mark: a transparent field would be no ink at all.
+    assert.ok(ink.pixels > 100, `the mark has ${ink.pixels} ink pixels, so nothing was measured`);
+    // The curve is the one this module names, so a derivative that lifted it by another number
+    // would have to be pasted in by hand over this test.
+    assert.ok(MARK_GAMMA > 1, 'the levelling curve is no curve at all');
+  });
 });
+
+/** The floor a non-text mark beside text has to clear (`WCAG` 1.4.11). */
+const NON_TEXT_MIN = 3;
+
+/** Half coverage: less opaque than this is a glyph's antialiased fringe, not ink. */
+const MARK_INK_ALPHA = 50;
+
+/**
+ * The mark's typical ink pixel over `ground`, its count and the contrast ratio between them.
+ *
+ * The mark is shown as pixels rather than as a token, so the only way to measure the tone it
+ * paints is to read them: `mark-level.mjs` decodes the PNG to its 8-bit samples, the pixels are
+ * composited over the ground the card paints them on, and the median of what is left is the mark
+ * as a reader sees it. The median rather than the mean, so a mark that is dark except for a
+ * highlight does not pass; alpha above half coverage, so the transparent field beside the glyphs
+ * is not counted as ink at all.
+ */
+function markInk(png: ReturnType<typeof decodePng>, ground: string) {
+  const { channels, raster } = png;
+  assert.equal(channels, 4, 'the mark is not an alpha image, so its ink cannot be told from its field');
+  const base = [1, 3, 5].map((at) => parseInt(ground.slice(at, at + 2), 16));
+  const ink: { lum: number; colour: string }[] = [];
+  for (let at = 0; at < raster.length; at += 4) {
+    const alpha = (raster[at + 3] as number) / 255;
+    if ((raster[at + 3] as number) <= MARK_INK_ALPHA) {
+      continue;
+    }
+    const pixel = [0, 1, 2].map((channel) =>
+      Math.round((raster[at + channel] as number) * alpha + base[channel]! * (1 - alpha)),
+    );
+    const colour = `#${pixel.map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+    ink.push({ lum: relativeLuminance(pixel), colour });
+  }
+  assert.ok(ink.length > 0, 'the mark has no pixel above half coverage');
+  ink.sort((a, b) => a.lum - b.lum);
+  const median = ink[Math.floor(ink.length / 2)]!;
+  const groundLum = relativeLuminance(base);
+  return {
+    colour: median.colour,
+    pixels: ink.length,
+    ratio: (Math.max(median.lum, groundLum) + 0.05) / (Math.min(median.lum, groundLum) + 0.05),
+  };
+}
+
+/** WCAG's relative luminance of an sRGB triple. */
+function relativeLuminance(rgb: readonly number[]): number {
+  const channel = (value: number): number => {
+    const c = value / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(rgb[0]!) + 0.7152 * channel(rgb[1]!) + 0.0722 * channel(rgb[2]!);
+}
 
 /** The four icons the build renders from the opaque mark. */
 const RENDERED_ICONS = [

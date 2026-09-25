@@ -21,7 +21,7 @@ const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-const strip = /<div id="file-strip">[\s\S]*?<\/div>\n          <div id="editor">/.exec(html)?.[0] ?? '';
+const strip = /<div id="file-strip">[\s\S]*?<\/div>\n          <div id="editor-area">/.exec(html)?.[0] ?? '';
 
 describe('the strip is in the shell, above the editor', () => {
   it('carries a path, its chips, the follow segment and the save control', () => {
