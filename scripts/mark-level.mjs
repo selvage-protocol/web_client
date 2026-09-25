@@ -1,13 +1,17 @@
 /**
- * The card's mark: the renderer's own resample, and the levelling applied to the samples in JS.
+ * The card's mark: the renderer's own resample of the owner's export, and a curve that is applied
+ * to the samples in JS.
  *
- * The owner's export is a shaded wordmark whose glyph tones sit between `#2d111e` and `#7cc9c0`,
- * so on this page's dark grounds the median ink pixel measured 1.7:1 and the monogram read as a
- * smudge beside the name it belongs to. The site levelled its own nav copy with ImageMagick's
- * `-gamma 2.4` for the same reason (`site/README.md`, "The site mark").
+ * **The curve is the identity, and that is the point.** It was 2.4, lifting a mark whose shaded
+ * glyph tones sit between `#2d111e` and `#7cc9c0` to a median ink of 4.9:1 on this page's ground:
+ * the unlevelled render measures 1.72:1, under the 3:1 floor WCAG sets for a non-text mark beside
+ * text. That floor does not apply here. `1.4.11` exempts logotypes — "text that is part of a logo
+ * or brand name has no contrast requirement" — and this mark is the owner's own artwork, which is
+ * worn unmodified everywhere it appears. Levelling it was a change to somebody else's drawing made
+ * to satisfy a rule that exempts it.
  *
- * Nothing here is a redraw or a recolour: the curve is `pow(value, 1/gamma)` on the colour channels,
- * alpha untouched, which is what the site's derivative does and nothing more.
+ * Nothing here is a redraw or a recolour either way: the curve is `pow(value, 1/gamma)` on the
+ * colour channels, alpha untouched. At 1 it returns every sample as it arrived.
  *
  * The resample is this module's too, and for a reason CI found: the mark is an *alpha* image, and
  * resampling one — premultiply, average, unpremultiply — is not the same in every ImageMagick
@@ -21,8 +25,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { deflateSync, inflateSync } from 'node:zlib';
 
-/** The curve the mark is levelled by. `1.7:1` on this page's ground becomes `4.9:1`. */
-export const MARK_GAMMA = 2.4;
+/**
+ * The curve the mark's colour channels are put through: the identity, so the mark the page paints
+ * is the mark the owner exported. See the module note for why the 2.4 it used to be was the wrong
+ * answer to the wrong rule.
+ */
+export const MARK_GAMMA = 1.0;
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
