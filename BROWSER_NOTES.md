@@ -3846,8 +3846,10 @@ against the top of `#app`.
 there against Leave's own 44 px row, the strip gives up the 6 px of padding it keeps above the
 circle on a wider screen, and the generic touch floor of 44 px cannot be a `min-height` on a face:
 the box *is* the circle, and a floor taller than the width draws an ellipse. The shape keeps its
-34 px and the fingertip gets its 44 px from a pseudo-element laid 5 px around it — measured at
-390x844 with `elementFromPoint`, a point 3 px above and 3 px left of a face lands on that face.
+34 px and the target is 44 px tall from a pseudo-element laid 5 px above and below it — measured at
+390x844 with `elementFromPoint`, a point 3 px above a face lands on that face. It is not laid 5 px
+to the sides as well: the faces overlap by 8 px, so a horizontal extension would cover the
+neighbouring face, which is already a control, and a tap near an edge would open the wrong person.
 Measured against the same bar with the cluster hidden: 111 px both ways, and the RESTORE is
 checked too, so a measurement that left `display: none` behind cannot read as zero.
 

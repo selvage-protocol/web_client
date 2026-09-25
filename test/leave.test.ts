@@ -42,7 +42,7 @@ const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'u
  * module touches is here — the panel's hidden flag, the question line, the two answers, focus, and
  * the document the outside-press watch hangs on.
  */
-function control(hosting: boolean, options: { shortLabel?: () => boolean } = {}) {
+function control(hosting: boolean, options: { shortLabel?: () => boolean; label?: boolean } = {}) {
   const seen: string[] = [];
   const outside: Array<(event: unknown) => void> = [];
   const make = (tag: string) => {
@@ -84,6 +84,8 @@ function control(hosting: boolean, options: { shortLabel?: () => boolean } = {})
   const button = make('button');
   const cancel = make('button');
   const go = make('button');
+  // The span a phone's control keeps its words in while the icon takes their place.
+  const label = make('span');
   // The panel is what holds its own question and the two answers, which is what makes a press on
   // either of them a press inside the panel.
   panel.children.push(question, cancel, go);
@@ -96,10 +98,11 @@ function control(hosting: boolean, options: { shortLabel?: () => boolean } = {})
       button: button as unknown as HTMLElement,
       cancel: cancel as unknown as HTMLButtonElement,
       go: go as unknown as HTMLButtonElement,
+      ...(options.label === true ? { label: label as unknown as HTMLElement } : {}),
     },
     leave: () => void seen.push('left'),
   });
-  return { panel, question, button, cancel, go, seen, outside, leave };
+  return { panel, question, button, label, cancel, go, seen, outside, leave };
 }
 
 describe('the way out of a session', () => {
@@ -163,6 +166,24 @@ describe('the way out of a session', () => {
     );
     assert.match(main, /getElementById\('leave'\)/, 'the page never reaches the control');
     assert.match(main, /leaveControl\.press\(\)/, 'the control is never pressed');
+    // A phone draws the design's icon over the words, and the words are not dropped with the paint:
+    // they move into a span (`leave.ts`'s own `label`) that the stylesheet clips, so the control is
+    // still named and tooltipped in full. The icon is built from the icon set, never a second copy
+    // of the glyph in the shell.
+    assert.match(main, /iconSpan\('leave'\)/, 'the way out is drawn without the design’s icon');
+    assert.match(main, /label: leaveLabel/, 'the icon has no words to keep in the DOM');
+  });
+
+  it('keeps the phone’s words in the DOM while the icon takes their place', () => {
+    const host = control(true, { label: true });
+    host.leave.showRole(true);
+    assert.equal(host.label.textContent, LEAVE_HOST_LABEL, 'the phone’s control lost its words');
+    assert.equal(host.button.textContent, '', 'the role words were written over the button’s icon');
+    assert.equal(host.button.attributes['aria-label'], LEAVE_HOST_LABEL, 'the phone’s control is unnamed');
+    const guest = control(false, { label: true });
+    guest.leave.showRole(false);
+    assert.equal(guest.label.textContent, LEAVE_LABEL, 'the guest’s way out lost its word');
+    assert.equal(guest.button.attributes['aria-label'], LEAVE_TITLE, 'the guest’s way out is unnamed');
   });
 
   it('leaves at once for a guest, whose going costs nobody else anything', () => {

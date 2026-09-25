@@ -1234,13 +1234,23 @@ const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink());
  * as the way in; a host's press asks first, because its connection is the room's (`leave.ts`). The
  * question stands in the panel anchored under the control, so the two answers are one glance from
  * the sentence that asks for them.
+ *
+ * The control's words live in their own span so a phone can draw the design's icon over them: the
+ * span keeps the text in the DOM — a screen reader and a pointer still read it — and the stylesheet
+ * clips it out of the paint on a phone while a pointer device shows it. `showRole` rewrites the
+ * span, not the button, so the icon is not the thing it takes away.
  */
+const leaveLabel = document.createElement('span');
+leaveLabel.className = 'label';
+leaveLabel.textContent = leaveButton.textContent ?? '';
+leaveButton.replaceChildren(iconSpan('leave'), leaveLabel);
 const leaveControl = wireLeave({
   hosting: () => hostFolder !== undefined,
   surface: {
     panel: leaveConfirm,
     question: leaveQuestion,
     button: leaveButton,
+    label: leaveLabel,
     cancel: leaveCancel,
     go: leaveAnyway,
   },

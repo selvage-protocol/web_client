@@ -276,10 +276,12 @@ describe('the sizes a finger needs', () => {
     // outside it: the strip rendered 63 px tall for a 44 px floor before this.
     assert.match(share, /box-sizing:\s*border-box/, 'the 44 px floor is not the box the finger hits');
     // A face is a circle and its box is that circle, so the floor cannot be a `min-height` on it:
-    // one taller than the width draws an ellipse. The shape keeps its size and the fingertip gets
-    // its 44 px from the box the pseudo-element lays over the 5 px it overlaps its neighbour by.
+    // one taller than the width draws an ellipse. The target is got back around the shape in the one
+    // dimension the bar has room for — 34 px of circle and the 5 px above and below it — and not in
+    // both: the design's circles overlap by 8 px, so a horizontal 5 px would cover the neighbouring
+    // face, which is already a control.
     assert.match(declarations(touch, '#faces .av'), /min-height:\s*0/, 'a face takes the box floor and is drawn as an ellipse');
-    assert.match(declarations(touch, '#faces .av::before'), /inset:\s*-5px/, 'a face is a 34 px target on a phone');
+    assert.match(declarations(touch, '#faces .av::before'), /inset:\s*-5px 0/, 'a face is a 34 px target on a phone');
     assert.match(declarations(touch, '#menu .acts button'), /min-height:\s*44px/, 'the menu\u2019s verbs are under the target size');
     // A row's own action, measured at 390x844: the download control and a folder's `\u22ef` are both
     // 24x44 — one glyph in a box a thumb is four times too wide for, on a row whose own press opens
@@ -308,6 +310,17 @@ describe('the sizes a finger needs', () => {
     assert.match(declarations(touch, '#tree .new-line'), /gap:\s*0\.6em/, 'the two answers abut');
     // The menu's pair is the same two answers in the same shape: the field, then ✓ and ✕.
     assert.match(declarations(touch, '#menu .rename-edit'), /gap:\s*0\.6em/, 'the two answers abut');
+  });
+  it('gives the phone a way out that is the design’s icon, and keeps its words', () => {
+    // The text verb measured 68 px of the bar and the session's own name needs 24 of them to stay
+    // whole beside the faces: the phone draws the design's icon in a 44 px box, and the words stay
+    // in `#leave .label` — clipped out of the paint but still in the DOM, so the control is named
+    // and tooltipped in full for a screen reader and a pointer. A pointer device keeps the verb.
+    const phone = mediaBlock(PHONE_QUERY);
+    assert.match(declarations(phone, '#leave'), /min-width:\s*44px/, 'the phone’s way out is under a fingertip');
+    assert.match(declarations(phone, '#leave .icon'), /display:\s*inline-flex/, 'the phone draws no icon for the way out');
+    assert.match(declarations(phone, '#leave .label'), /clip-path:\s*inset\(50%\)/, 'the phone’s words are dropped rather than clipped');
+    assert.match(declarations(style, '#leave .icon'), /display:\s*none/, 'a pointer device draws the phone’s icon too');
   });
 
   it('keeps the desktop density: the sizes above are behind the touch query', () => {

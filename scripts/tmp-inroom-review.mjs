@@ -536,8 +536,10 @@ const FACES = `(() => {
  * hidden. The design's number is 0 px on a phone, and a bar that grew would be a bar that took a
  * line from the editor for a row of faces.
  *
- * The face's own box is 34 px there, and its hit area is not its box: the fingertip target is the
- * 5 px laid around it, so the reading that says so is what a point 3 px outside the edge lands on.
+ * The face's own box is 34 px there, and its hit area is not its box: the target is 44 px tall from
+ * the 5 px laid above and below it — not to the sides, where the overlapping circles would take a
+ * neighbour's edge — so the readings that say so are what a point 3 px above and 3 px beside the
+ * edge land on.
  */
 const BAR_COST = `(() => {
   const bar = document.getElementById('session');
@@ -559,12 +561,16 @@ const BAR_COST = `(() => {
   const identity = document.getElementById('session-identity');
   const truncated = () => identity !== null && identity.scrollWidth > identity.clientWidth + 1;
   const identityTruncatedWithFaces = truncated();
+  const identityWithFaces = identity === null ? null : { width: Math.round(identity.clientWidth), needs: Math.round(identity.scrollWidth) };
   faces.style.display = 'none';
   const identityTruncatedWithoutFaces = truncated();
+  const identityWithoutFaces = identity === null ? null : { width: Math.round(identity.clientWidth), needs: Math.round(identity.scrollWidth) };
   faces.style.display = display;
   return {
     identityTruncatedWithFaces,
     identityTruncatedWithoutFaces,
+    identityWithFaces,
+    identityWithoutFaces,
     barWithFaces: Math.round(withFaces),
     barWithoutFaces: Math.round(withoutFaces),
     added: Math.round(withFaces - withoutFaces),
@@ -574,6 +580,71 @@ const BAR_COST = `(() => {
     // Where the fingertip's 44 px comes from: a point outside the circle that still lands on it.
     hitAbove: box === null ? null : at(Math.round(box.left + box.width / 2), Math.round(box.top - 3)),
     hitLeft: box === null ? null : at(Math.round(box.left - 3), Math.round(box.top + box.height / 2)),
+  };
+})()`;
+
+/**
+ * Where focus is: on a face (its peer anchor), on a control in the dialog, or nowhere (the body).
+ * A redraw that replaces the focused element leaves `#faces` with nothing in focus, which is the
+ * body — the state three findings were about.
+ */
+const FOCUS = `(() => {
+  const active = document.activeElement;
+  const faces = document.getElementById('faces');
+  const menu = document.getElementById('menu');
+  return {
+    tag: active === null ? 'none' : active.tagName,
+    anchor: active?.getAttribute?.('data-anchor') ?? null,
+    label: active?.getAttribute?.('aria-label') ?? null,
+    onAFace: active !== null && faces !== null && faces.contains(active),
+    inTheMenu: active !== null && menu !== null && menu.contains(active),
+    onTheBody: active === document.body,
+  };
+})()`;
+
+/**
+ * The tap area a phone face actually gets: the columns of the neighbour beside your own seat that
+ * land on that neighbour, on the bar, or on a face that has no business taking the tap. A face's
+ * box is 34 px; the design's circles overlap, so what matters is how much of that box answers for
+ * the face rather than for the one it overlaps.
+ */
+const TAP_WIDTH = `(() => {
+  const faces = [...document.querySelectorAll('#faces .av')];
+  const own = faces.find((face) => face.classList.contains('me')) ?? faces[0];
+  const peer = faces[faces.indexOf(own) + 1];
+  if (peer === undefined) return null;
+  const box = peer.getBoundingClientRect();
+  const y = Math.round(box.top + box.height / 2);
+  const owner = new Map();
+  for (let x = Math.round(box.left); x < Math.round(box.right); x += 1) {
+    const at = document.elementFromPoint(x, y);
+    const face = at === null ? null : at.closest('#faces .av');
+    let key = 'none';
+    if (face === peer) key = 'peer';
+    else if (face === own) key = 'own';
+    else if (face !== null && face.classList.contains('more')) key = 'more';
+    else if (face !== null) key = 'other';
+    owner.set(key, (owner.get(key) ?? 0) + 1);
+  }
+  return { width: Math.round(box.width), columns: Math.round(box.width), ...Object.fromEntries(owner) };
+})()`;
+
+/** The way out on a phone: its box, and the words it still carries out of the paint. */
+const LEAVE = `(() => {
+  const button = document.getElementById('leave');
+  if (button === null) return null;
+  const box = button.getBoundingClientRect();
+  const label = button.querySelector('.label');
+  const icon = button.querySelector('.icon');
+  return {
+    text: button.textContent,
+    ariaLabel: button.getAttribute('aria-label'),
+    title: button.getAttribute('title'),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+    iconDrawn: icon !== null && getComputedStyle(icon).display !== 'none',
+    labelInTheDom: label !== null,
+    labelClipped: label !== null && getComputedStyle(label).position === 'absolute',
   };
 })()`;
 
@@ -976,6 +1047,31 @@ async function reviewDesktop(page, server, written, failures) {
     await delay(400);
     log('wrote', await record(written, page, '05-following-a-peer.png'));
 
+    // A follow from the menu leaves focus on the followed face: the anchor face the press came
+    // from, which the follow pins into the strip. A redraw that replaced the faces without putting
+    // it back left focus on the body, and the next Tab started from the top of the page.
+    facts.followFocus = await page.evaluate(FOCUS);
+    log('focus after following from the menu:', JSON.stringify(facts.followFocus));
+    const followedFace = facts.following.faces.find((face) => face.classes.includes('followed'));
+    if (facts.followFocus.onAFace !== true || facts.followFocus.label !== followedFace?.label) {
+      failures.push(`following from the menu left focus on ${JSON.stringify(facts.followFocus)}, not the followed face ${JSON.stringify(followedFace?.label)}`);
+    }
+
+    // And a face keeps focus while somebody else types: a presence frame lands on every keystroke
+    // and every face is drawn again. Focus one, move a peer's caret, and read it back.
+    facts.carlaFocused = await page.evaluate(`(() => {
+      const face = [...document.querySelectorAll('#faces .av')].find((candidate) => (candidate.getAttribute('aria-label') ?? '').startsWith('Carla'));
+      face.focus();
+      return document.activeElement === face;
+    })()`);
+    guests[0].setSelection(openedPath, { anchor: 12, head: 13 });
+    await delay(700);
+    facts.focusWhileATypingPeer = await page.evaluate(FOCUS);
+    log('focus while a peer types:', JSON.stringify(facts.focusWhileATypingPeer));
+    if ((facts.focusWhileATypingPeer.label ?? '').startsWith('Carla') !== true) {
+      failures.push(`a peer's presence frame dropped focus to ${JSON.stringify(facts.focusWhileATypingPeer)}`);
+    }
+
     // Everyone in the room: the `+N` opens the list, and a row opens that person's menu with the way
     // back to the list in it. Fay is the last seat, so she is one of the faces the bar counted away.
     await page.evaluate(`document.querySelector('#faces .av.more').click()`);
@@ -1263,7 +1359,7 @@ async function reviewDesktop(page, server, written, failures) {
 }
 
 /** The touch shots, in the touch browser: the phone's layout, and a guest fetching a file to save. */
-async function reviewTouch(page, server, invite, written, openedPath) {
+async function reviewTouch(page, server, invite, written, openedPath, failures) {
   const facts = {};
   if (FOOTER) {
     // The finding this stands for: the reviewer's phone shot of a guest card, with the notice the
@@ -1283,6 +1379,27 @@ async function reviewTouch(page, server, invite, written, openedPath) {
     log('wrote', await record(written, page, '03-prejoin-phone-with-footer.png'));
   }
 
+  // The phone as a host, before it joins anywhere as a guest: the session's own name is the host's
+  // `Sharing “project”`, and it is the bar's identity — whole, or cut by the faces and the way out
+  // beside it — that the way out's width decides. This is the state the design measures whole.
+  await page.setViewport(PHONE, { touch: true });
+  await hostAndOpen(page, server);
+  await delay(400);
+  facts.hostPhoneBar = await page.evaluate(BAR_COST);
+  facts.hostPhoneLeave = await page.evaluate(LEAVE);
+  facts.hostPhoneTap = await page.evaluate(TAP_WIDTH);
+  log('the host phone’s bar:', JSON.stringify(facts.hostPhoneBar));
+  log('the phone’s way out, as host:', JSON.stringify(facts.hostPhoneLeave));
+  if (facts.hostPhoneBar.identityTruncatedWithFaces === true) {
+    failures.push(`the host’s session name is cut at ${JSON.stringify(facts.hostPhoneBar.identityWithFaces)}`);
+  }
+  if (facts.hostPhoneBar.barWithFaces !== 111) {
+    failures.push(`the host’s phone session bar is ${facts.hostPhoneBar.barWithFaces} px, not 111`);
+  }
+  if (facts.hostPhoneLeave !== null && facts.hostPhoneLeave.width !== 44) {
+    failures.push(`the host’s way out is ${facts.hostPhoneLeave.width} px wide, not the design’s 44`);
+  }
+  log('wrote', await record(written, page, '24-phone-host-bar.png'));
   // The guest itself: the invite the host page copied, opened on a touch device. The panel is shut
   // there and the strip is the only thing on screen that says which file is open.
   await page.setViewport(PHONE, { touch: true });
@@ -1343,10 +1460,22 @@ async function reviewTouch(page, server, invite, written, openedPath) {
     await delay(400);
     facts.phoneFaces = await page.evaluate(FACES);
     facts.phoneBar = await page.evaluate(BAR_COST);
+    facts.phoneTap = await page.evaluate(TAP_WIDTH);
+    facts.phoneLeave = await page.evaluate(LEAVE);
     log('the phone’s faces:', JSON.stringify(facts.phoneFaces));
     log('what the faces cost the bar:', JSON.stringify(facts.phoneBar));
     if (facts.phoneBar.added !== 0) {
       failures.push(`the faces add ${facts.phoneBar.added} px to the phone’s session bar`);
+    }
+    log('the phone’s way out, as guest:', JSON.stringify(facts.phoneLeave));
+    log('the neighbour face’s tap area:', JSON.stringify(facts.phoneTap));
+    // The session's own name is whole with the faces beside it: the way out's 44 px is what gives
+    // the name the room the text verb took.
+    if (facts.phoneBar.identityTruncatedWithFaces === true) {
+      failures.push(`the guest’s session name is cut at ${JSON.stringify(facts.phoneBar.identityWithFaces)}`);
+    }
+    if (facts.phoneTap !== null && facts.phoneTap.columns - (facts.phoneTap.peer ?? 0) > 14) {
+      failures.push(`the face beside your own answers for ${facts.phoneTap.peer ?? 0} of its ${facts.phoneTap.columns} columns`);
     }
     log('wrote', await record(written, page, '21-phone-faces-in-the-bar.png'));
 
@@ -1715,7 +1844,7 @@ async function main() {
     facts.desktop = desktop.facts;
     const touch = await launchChromium({ pointer: 'touch' });
     browsers.push({ name: 'phone', page: touch });
-    facts.phone = await reviewTouch(touch, server, desktop.invite, written, desktop.openedPath);
+    facts.phone = await reviewTouch(touch, server, desktop.invite, written, desktop.openedPath, failures);
     // Last, and in the two browsers already up: the empty room's two empty states need a folder with
     // nothing in it, which the seeded run never has (`reviewEmptyRoom`).
     facts.empty = await reviewEmptyRoom(mouse, touch, server, written);

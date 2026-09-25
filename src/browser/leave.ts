@@ -54,6 +54,13 @@ export interface LeaveSurface {
   question: HTMLElement;
   /** The control in the bar, which asks the question. */
   button: HTMLElement;
+  /**
+   * The span the control's words live in, where the bar draws an icon over them (a phone). The
+   * words stay in the DOM there — they are what a pointer and a screen reader still read — and this
+   * is the element `showRole` rewrites rather than the button's whole content, which would take the
+   * icon with it. Absent where the control is text alone.
+   */
+  label?: HTMLElement;
   /** The quiet answer, and where focus lands. */
   cancel: HTMLButtonElement;
   /** The destructive answer: this is the press that ends the room. */
@@ -115,7 +122,7 @@ export const HOST_LEAVE_QUESTION =
   'Leaving ends the room for everyone in it; the invite link stops working, and the last keystrokes may not reach your folder.';
 
 export function wireLeave(options: LeaveOptions): LeaveControl {
-  const { panel, question, button, cancel, go } = options.surface;
+  const { panel, question, button, cancel, go, label } = options.surface;
   question.textContent = HOST_LEAVE_QUESTION;
   go.textContent = LEAVE_ASKING_LABEL;
   cancel.textContent = LEAVE_CANCEL_LABEL;
@@ -152,7 +159,12 @@ export function wireLeave(options: LeaveOptions): LeaveControl {
   const showRole = (hosting: boolean): void => {
     const name = hosting ? LEAVE_HOST_LABEL : LEAVE_TITLE;
     const short = options.shortLabel?.() === true;
-    button.textContent = hosting && !short ? LEAVE_HOST_LABEL : LEAVE_HOST_SHORT_LABEL;
+    const words = hosting && !short ? LEAVE_HOST_LABEL : LEAVE_HOST_SHORT_LABEL;
+    if (label === undefined) {
+      button.textContent = words;
+    } else {
+      label.textContent = words;
+    }
     button.setAttribute('aria-label', name);
     button.title = name;
   };

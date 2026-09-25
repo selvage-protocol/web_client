@@ -124,6 +124,9 @@
       #leave-wrap { position: relative; flex: none; display: flex; }
       #leave { flex: none; background: none; border-color: var(--border-strong);
         color: var(--danger); font-weight: 600; }
+      /* The icon is the phone's way out (the phone block below); a pointer device shows the verb
+         alone, as it always has. */
+      #leave .icon { display: none; }
       #leave:hover:not(:disabled) { background: rgba(243, 139, 168, 0.14);
         border-color: var(--danger); color: var(--danger); }
       /* The host's question, under the button that asked it: the two answers are one glance from
@@ -152,7 +155,7 @@
       .av { position: relative; flex: none; width: 30px; height: 30px; padding: 0;
         box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
         border-radius: 50%; border: 2px solid var(--input); background: var(--c);
-        color: var(--input); font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--input); font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
         margin-left: -8px; gap: 0; }
       .av:first-child { margin-left: 0; }
       .av:hover:not(:disabled) { background: var(--c); border-color: var(--input); z-index: 3; }
@@ -181,9 +184,11 @@
         width: calc(100% * 0.5); transform: translateX(-50%); display: flex;
         pointer-events: none; z-index: 1; color: var(--warning); }
       .av .crown svg { width: 100%; height: auto; }
-      /* The faces the cluster could not show: one control, counted, where a face would be. */
-      .av.more { --c: var(--muted); color: var(--foreground); font-weight: 600; font-size: 11px;
-        line-height: 1; }
+      /* The faces the cluster could not show: one control, counted, where a face would be. It is the
+         interface's own sans, not the initials' monospace: two digits in a circle are a word, and
+         the design draws them in the face the room's own labels wear. */
+      .av.more { --c: var(--muted); color: var(--foreground);
+        font: 600 11px/1 system-ui, -apple-system, "Segoe UI", sans-serif; }
       .av.more:hover:not(:disabled) { background: var(--muted-hover); }
       /* The person menu: the leave question's own card, anchored under the face that opened it,
          and the list the `+N` opens. Its place is set by the bundle, so its own left and top are
@@ -431,7 +436,7 @@
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
       /* On a pointer device the row's own control is revealed by hover and holds its 24 px slot while
          it is invisible, which held the marks that far off the row's edge — measured at 1280x900, the
-         badge ended at x=245 on a row ending at x=284, where the roster's own verbs end at 277. So the
+         badge ended at x=245 on a row ending at x=284 — 39 px short of the edge it belongs beside. So the
          marks take the edge and the control appears to their left, in the slot it had already
          reserved: nothing moves when hover or focus brings it in. A touch device draws the control
          always and keeps it on the edge, with the marks beside it.
@@ -740,11 +745,12 @@
           padding: 0.6em 0.55em 0.6em 0.8em; }
         /* A face is a circle and its box is that circle, so the fingertip floor above cannot be a
            `min-height` on it: a floor taller than the width draws an ellipse, which is what the
-           face stops being. The shape is kept and the target is got back around it — an avatar's
-           hit area is its own box plus the 5 px laid over the gap it overlaps its neighbour by,
-           which is the 44 px the rest of this block gives a control. */
+           face stops being. The floor the target clears is 44 px in the one dimension the bar has
+           room for: 34 px of circle plus the 5 px above and below it. It cannot be 44 px wide too —
+           the design's circles overlap by 8 px, so a horizontal 5 px would land on the neighbouring
+           face, which is already a control, and the tap would open the wrong person. */
         #faces .av { min-height: 0; }
-        #faces .av::before { content: ''; position: absolute; inset: -5px; }
+        #faces .av::before { content: ''; position: absolute; inset: -5px 0; }
         /* The menu's own controls are a column of full-width rows, so they take the floor as every
            other control does; the pair beside the name field takes the width of one. */
         #menu .acts button, #menu .list button { min-height: 44px; }
@@ -781,6 +787,15 @@
            the height of a bar that has none to spare. Measured at 390x844: 0 px. */
         #faces { padding-top: 0; padding-bottom: 0; }
         .av { width: 34px; height: 34px; }
+        /* The way out is the design's icon here: a 44 px square where the text verb measured 68 px
+           of the bar, which is the 24 px the session's own name needs to stay whole beside the
+           faces. The words are not dropped — they live in `#leave .label`, kept in the DOM for the
+           screen reader and the pointer, and clipped out of the paint — and a pointer device keeps
+           the visible verb, because the icon is only drawn here. */
+        #leave { min-width: 44px; padding: 0; justify-content: center; }
+        #leave .icon { display: inline-flex; }
+        #leave .label { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+          overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
         body:has(#side:not([hidden])) #pane { flex: none; }
         body:has(#side:not([hidden])) #editor-area { display: none; }
         #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
@@ -794,7 +809,7 @@
            carries is the one inside it that is cut. */
         #file-strip-follow { flex-shrink: 8; }
         /* The file's own name keeps its room and the followed peer's gives way: the segment is the
-           strip's second fact, and the name it carries is on the roster too. A zero basis is what
+           strip's second fact, and the name it carries is on the followed face too. A zero basis is what
            says so — the label takes the room that is left over, and only the file's own name is
            cut when even that is not enough. */
         #file-strip-follow .follow-name { flex: 1 1 0; min-width: 0; overflow: hidden;
