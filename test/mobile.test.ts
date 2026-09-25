@@ -93,11 +93,13 @@ describe('the editor a phone gets', () => {
     // Measured in Chromium at 390x844: the line numbers, the fold arrows and the decoration width
     // took 96 of the 390 px — a quarter of the screen, and 30 % at 320 — for numbers no phone
     // document reaches and arrows a fingertip cannot hit. The glyph margin is the column a peer's
-    // badge is drawn in, so it stays.
+    // badge is drawn in, so it stays. What is left of the 55 px this adds up to is the separation
+    // the number and the code need: measured before, the number's ink ended at x=51 and the code
+    // started at x=55 — 4 px, against the 26 a pointer device has.
     const phone = editorOptionsFor(true);
-    assert.equal(phone.lineNumbersMinChars, 3, 'the line-number column is Monaco\u2019s default width');
+    assert.equal(phone.lineNumbersMinChars, 2, 'the line-number column is wider than a phone document needs');
     assert.equal(phone.folding, false, 'the fold arrows still take a column of a phone\u2019s gutter');
-    assert.equal(phone.lineDecorationsWidth, 4, 'the decoration width is still Monaco\u2019s 10 px');
+    assert.equal(phone.lineDecorationsWidth, 14, 'the code is left against the line numbers again');
     assert.equal(phone.glyphMargin, true, 'the peer badges lost the column they are drawn in');
   });
 });
