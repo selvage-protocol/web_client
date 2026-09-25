@@ -126,8 +126,12 @@ describe('the host action in the shell', () => {
     assert.match(showing, /if \(cardIntent === 'join'\)/, 'the two intents are said the same way');
     assert.match(showing, /hostQuiet\.hidden = !offered/, 'the quiet line stands where hosting is not offered');
     assert.match(showing, /hostButton\.hidden = true/, 'the start button still stands on a guest card');
-    assert.match(showing, /hostNote\.textContent = offered \? '' : availability\.note/,
-      'a guest is read the sentence about a room the card has not offered to make a host');
+    // And nothing is said about hosting a guest never asked for: the four-line refusal about a
+    // missing directory picker stood under Join on the card of somebody who came here to join, and
+    // the quiet line went with it — a press that could only lead to a card with no action on it is
+    // worse than no verb.
+    assert.match(showing, /hostWrap\.hidden = !offered/, 'a guest is read about hosting the card does not offer');
+    assert.match(showing, /hostNote\.textContent = '';/, 'the guest card still explains a refusal it never asked for');
     // And the sentence is the start card's own, once.
     assert.match(showing, /hostNote\.textContent = availability\.note;/, 'the start card says nothing about what the room costs');
     // One sentence, and it is the facts the person cannot see for themselves: the room and its

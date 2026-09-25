@@ -547,6 +547,16 @@
         color: var(--primary-foreground); font-weight: 600; }
       #join.card-start #host-button:hover:not(:disabled) { background: var(--primary-hover);
         border-color: var(--primary-hover); }
+      /* A page that cannot start a room leads with the way in it does have. Measured at 390x844 in
+         a browser with no directory picker: the card led with a four-line refusal, joining was
+         behind a 11.9 px `Have an invite link?` summary, and the one action the card could take was
+         styled as the muted one. `no-host` is set by `showHosting` where the start action cannot be
+         offered at all — no picker, or a page that is not the server's own — and it makes Join the
+         card's action. */
+      #join.no-host #join-button { background: var(--primary); border-color: var(--primary);
+        color: var(--primary-foreground); font-weight: 600; }
+      #join.no-host #join-button:hover:not(:disabled) { background: var(--primary-hover);
+        border-color: var(--primary-hover); }
       /* The start action's own failure, under the button that asked for the name. */
       #host-error { margin: 0.6rem 0 0; color: var(--danger); font-size: 0.9em; }
       #host-error:empty { display: none; }

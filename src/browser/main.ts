@@ -1088,20 +1088,32 @@ function showHosting(picker: boolean, read: ServerRead): void {
   lastServerRead = read;
   const availability = hostAvailability({ picker, read });
   const offered = availability.kind !== 'explained';
-  hostWrap.hidden = false;
+  // A guest asked to join, and a page that cannot host has nothing to say to them: the four-line
+  // refusal that stood under Join was about an action this card is not offering, on the card of
+  // somebody who never asked for it. The quiet verb goes with it — a press that could only lead to
+  // a card with no action on it is worse than no verb — and what is left is the way in.
   if (cardIntent === 'join') {
+    hostWrap.hidden = !offered;
     hostQuiet.hidden = !offered;
     hostButton.hidden = true;
-    hostNote.textContent = offered ? '' : availability.note;
+    hostNote.textContent = '';
     hostShare.textContent = '';
     return;
   }
+  hostWrap.hidden = false;
   hostQuiet.hidden = true;
   hostNote.textContent = availability.note;
   hostButton.hidden = !offered;
   // What the folder gives away stands with the button that asks for it, and only there: the person
   // picking the folder is the only one who can act on it, and only before the click.
   hostShare.textContent = offered ? HOST_SHARE_NOTE : '';
+  // A page that cannot start a room leads with the way in it does have. The invite path opens —
+  // joining was behind a 11.9 px summary and a four-line refusal led the card — and Join takes the
+  // card's own action, because the one thing this card can do is the one thing it should offer.
+  joinPane.classList.toggle('no-host', !offered);
+  if (!offered) {
+    invitePath.open = true;
+  }
 }
 
 /**
