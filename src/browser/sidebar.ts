@@ -1,9 +1,9 @@
 /**
  * The files-and-people panel's width: how it is dragged, keyed, remembered, collapsed, and put back.
  *
- * The panel is a column of the page and its width is the reader's, not the design's: a roster of
- * names wants little, a tree of paths wants room, and the same person wants both at different
- * moments. It is the one piece of chrome a page is expected to let a person size, and the platform's
+ * The panel is a column of the page and its width is the reader's, not the design's: a tree of
+ * paths wants room, and the same person wants more or less of it at different moments. It is the
+ * one piece of chrome a page is expected to let a person size, and the platform's
  * own way of doing it is a `role="separator"` a pointer can drag and a keyboard can move.
  *
  * The arithmetic is here as pure functions over numbers, so every bound is pinned without a DOM:

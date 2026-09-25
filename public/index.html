@@ -121,7 +121,7 @@
       }
       /* The way out: the one destructive thing in the bar, at its far right, with a border so it
          reads as the button it is — and never anything to its right. */
-      #leave-wrap { position: relative; flex: none; margin-left: auto; display: flex; }
+      #leave-wrap { position: relative; flex: none; display: flex; }
       #leave { flex: none; background: none; border-color: var(--border-strong);
         color: var(--danger); font-weight: 600; }
       #leave:hover:not(:disabled) { background: rgba(243, 139, 168, 0.14);
@@ -141,6 +141,89 @@
         border-color: var(--danger); color: #1e1e2e; font-weight: 700; }
       #leave-confirm .confirm-actions .danger:hover:not(:disabled) { background: #f7a8bf;
         border-color: #f7a8bf; }
+      /* The people, in the bar: a face per seat, and the menu a face opens. The strip takes the
+         bar's own right-hand push, so it stands to the right of the invite pill and Leave follows
+         it, and it is the last thing before the way out on every width. The padding is the room a
+         crown and two rings paint into above and beside the faces. */
+      #faces { display: inline-flex; align-items: center; padding: 6px 4px 4px; flex: none;
+        min-width: 0; margin-left: auto; }
+      /* The avatar is its own circle, rim and all: the box *is* the face, which is why an
+         overlapping strip is drawn with a negative margin on every face but the first. */
+      .av { position: relative; flex: none; width: 30px; height: 30px; padding: 0;
+        box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; border: 2px solid var(--input); background: var(--c);
+        color: var(--input); font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin-left: -8px; gap: 0; }
+      .av:first-child { margin-left: 0; }
+      .av:hover:not(:disabled) { background: var(--c); border-color: var(--input); z-index: 3; }
+      .av[aria-expanded="true"] { z-index: 3; }
+      /* You: a solid ring. Followed: a dashed ring and an eye. Both are shapes, so two faces in
+         one colour — or a face in the ring's own colour — still read apart. */
+      .av.me { z-index: 2; box-shadow: 0 0 0 2px var(--foreground); margin-right: 4px; }
+      .av.me:not(:first-child) { margin-left: 4px; }
+      .av.followed { z-index: 2; margin-left: 4px; margin-right: 4px; }
+      /* Drawn as a layer rather than an outline, so a host's crown can sit over it, not under it. */
+      .av.followed::after { content: ''; position: absolute; inset: -6px;
+        border: 2px dashed var(--primary); border-radius: 50%; pointer-events: none; }
+      .av.followed:first-child { margin-left: 0; }
+      .av:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+      .av .eye { position: absolute; z-index: 1; right: -6px; bottom: -6px; width: 15px;
+        height: 15px; border-radius: 50%; background: var(--primary); color: var(--primary-foreground);
+        display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--input); box-sizing: border-box; }
+      .av .eye svg { width: 9px; height: 9px; stroke-width: 2.2; }
+      /* The host's crown: Phosphor `crown-simple`, filled, the whole 256 box. The design draws it
+         half the circle wide, its box top 0.41 of it above the circle's top edge — and 100% here is
+         that same circle: the avatar's padding box inside its 2 px rim, which is also what `top`
+         measures from. Yellow is the one colour the caret palette leaves out, so a crown never sits
+         on a fill of its own colour. */
+      .av .crown { position: absolute; top: calc(100% * -0.41); left: 50%;
+        width: calc(100% * 0.5); transform: translateX(-50%); display: flex;
+        pointer-events: none; z-index: 1; color: var(--warning); }
+      .av .crown svg { width: 100%; height: auto; }
+      /* The faces the cluster could not show: one control, counted, where a face would be. */
+      .av.more { --c: var(--muted); color: var(--foreground); font-weight: 600; font-size: 11px;
+        line-height: 1; }
+      .av.more:hover:not(:disabled) { background: var(--muted-hover); }
+      /* The person menu: the leave question's own card, anchored under the face that opened it,
+         and the list the `+N` opens. Its place is set by the bundle, so its own left and top are
+         only ever what `placeMenu` wrote. */
+      #menu { position: absolute; z-index: 10; box-sizing: border-box; width: max-content;
+        min-width: 15rem; max-width: min(20rem, calc(100% - 16px)); padding: 0.35em;
+        background: var(--card); border: 1px solid var(--border-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow); }
+      #menu .head { display: flex; gap: 0.6em; align-items: flex-start; padding: 0.45em 0.55em 0.55em; }
+      #menu .head .av { width: 26px; height: 26px; font-size: 10px; margin: 2px 0 0 2px;
+        cursor: default; }
+      #menu .who { min-width: 0; }
+      #menu .name { font-weight: 700; overflow-wrap: anywhere; }
+      #menu .marks { color: var(--muted-foreground); font-size: 0.85em; font-weight: 500;
+        margin-left: 0.3em; white-space: nowrap; }
+      #menu .where { color: var(--muted-foreground); font-size: 0.85em; overflow-wrap: anywhere; }
+      #menu .acts { display: flex; flex-direction: column; gap: 2px;
+        border-top: 1px solid var(--border); padding-top: 0.35em; }
+      #menu .acts button, #menu .list button { width: 100%; background: none;
+        border-color: transparent; text-align: left; }
+      #menu .acts button:hover:not(:disabled), #menu .list button:hover { background: var(--muted-hover);
+        border-color: var(--border-strong); }
+      #menu .waiting, #menu .refusal { font-size: 0.85em; color: var(--muted-foreground);
+        padding: 0.35em 0.7em; }
+      #menu .refusal { color: var(--warning); }
+      #menu .back { background: none; border-color: transparent; font-size: 0.85em;
+        color: var(--muted-foreground); margin-bottom: 0.2em; }
+      #menu .list { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0;
+        padding: 4px 0 0; max-height: min(36rem, calc(100vh - 8rem)); overflow-y: auto; }
+      #menu .list button { gap: 0.6em; padding: 0.35em 0.55em; }
+      #menu .list .av { pointer-events: none; width: 26px; height: 26px; font-size: 10px;
+        margin: 3px 4px 3px 2px; }
+      #menu .list .label { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+      #menu .list .label .where { font-size: 0.8em; }
+      #menu .rename-edit { display: flex; align-items: center; gap: 0.3em; padding: 0.3em 0.35em; }
+      #menu .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
+      #menu .acts .rename-save, #menu .acts .rename-cancel { flex: none; width: auto;
+        padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
+      #menu .rename-save:hover:not(:disabled) { color: var(--ok); border-color: var(--border-strong); }
+      #menu .rename-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--border-strong); }
       /* The owner's mark, whose pixels are in this document: a 104 px render of
          the master the site owns (`public/mark-transparent.png`, resampled by
          the same renderer the build's icons use and worn as it was exported),
@@ -295,55 +378,15 @@
         color: var(--muted-foreground); }
       #shared-actions button:hover:not(:disabled) { background: var(--muted-hover);
         border-color: var(--border-strong); color: var(--foreground); }
-      #roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2em; }
-      #roster li { display: flex; gap: 0.5em; align-items: center; padding: 0.45em 0.55em;
-        border-radius: var(--radius); }
-      #roster li:hover { background: var(--muted); }
-      #roster li.following { background: var(--muted); outline: 1px solid var(--border-strong); }
-      #roster .swatch { flex: none; width: 0.75em; height: 0.75em; border-radius: 50%; align-self: center; }
-      #roster .who { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 0.4em; line-height: 1.3; }
-      /* A name is the one thing on a roster row that nobody can shorten, so it is the thing that
-         wraps: a name cut to `Francesca B…` is a row a reader cannot tell from another one, and
-         touch has no tooltip to read the rest from. The row's verbs keep the place they hold on
-         every other row, because it is the name's own box that takes the second line and not the
-         row, and a name that fits takes one line as it always did. */
-      #roster .name { font-weight: 700; color: var(--foreground); white-space: normal;
-        overflow-wrap: break-word; }
-      /* The crown a host's row wears: a mark with no words, sized to the row's own text and drawn
-         in the same quiet tone as the rest of a row's chrome. It carries its name for a screen
-         reader and for a pointer, because a picture cannot say `host` by itself. */
-      #roster .role { display: inline-flex; flex: none; color: var(--muted-foreground); }
-      #roster .role .icon svg { width: 1em; height: 1em; }
-      /* The own row's word for itself, beside the name it belongs to: the crown's own quiet tone, and
-         never wrapped away from the name it is about. */
-      #roster .you { flex: none; font-size: 0.85em; color: var(--muted-foreground); }
-      /* The own-name edit: the row's name becomes the field it is about, sized to the row
-         rather than to the card's field, and it takes the room the name had. */
-      #roster .rename-edit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.3em; }
-      #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
-      /* The two ways out of an edit, and the same two in both places an edit is made: the tree's
-         create row and the roster's own name. One pair of glyphs — `✓` keeps it, `✕` drops it — with
-         the page's quiet chrome at rest and one colour each under a pointer. */
-      #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
+      /* The create row's two ways out: one pair of glyphs — `✓` keeps it, `✕` drops it — with the
+         page's quiet chrome at rest and one colour each under a pointer. The menu's own edit wears
+         the same pair, sized for the dialog it stands in (`#menu`). */
+      #tree .new-commit, #tree .new-cancel {
         flex: none; padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
-      #tree .new-commit:hover:not(:disabled), #roster .rename-save:hover:not(:disabled) {
+      #tree .new-commit:hover:not(:disabled) {
         color: var(--ok); border-color: var(--border-strong); }
-      #tree .new-cancel:hover:not(:disabled), #roster .rename-cancel:hover:not(:disabled) {
+      #tree .new-cancel:hover:not(:disabled) {
         color: var(--danger); border-color: var(--border-strong); }
-      #roster li.self .swatch { background: var(--primary); }
-      #roster .actions { display: flex; align-items: center; gap: 0.25em; flex: none; }
-      /* Quiet verbs: present at rest, no chrome to add up around two names. */
-      #roster .actions button { font-size: 0.8em; padding: 0.3em 0.6em; background: none;
-        border-color: transparent; color: var(--muted-foreground); }
-      #roster .actions button:hover:not(:disabled) { background: var(--muted-hover);
-        border-color: var(--border-strong); color: var(--foreground); }
-      /* Where a peer is, when the answer is nowhere: a quiet line where Go to would stand, rather
-         than a disabled verb and a sentence explaining it. */
-      #roster .waiting { flex: none; font-size: 0.8em; color: var(--muted-foreground); }
-      /* A go-to the room could not answer: the sentence the row was pressed for, on its own line
-         under it, standing the few seconds the page holds it (design §5.1). */
-      #roster .refusal { flex-basis: 100%; font-size: 0.8em; color: var(--muted-foreground);
-        line-height: 1.35; }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
          will appear. The kind is the button's, so the field carries no convention of its own — and
@@ -596,11 +639,9 @@
          with one job each, and the person granting is the only one who can act on them. */
       #host-share { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
-      /* The panel's contents at a narrow width: the panel is the same panel, and its labels give
-         way to their tooltips rather than wrapping the tree out of its own column. */
+      /* The panel's contents at a narrow width: the panel is the same panel, and its rows give up
+         their padding rather than wrapping an item out of its own column. */
       @container side (max-width: 18rem) {
-        #roster .actions button { padding: 0.3em 0.45em; }
-        #roster .actions button .label { display: none; }
         #tree button.row, #tree summary { padding-left: 0.35em; padding-right: 0.35em; }
       }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
@@ -681,7 +722,7 @@
            root is 14 px, so the fields' own `1rem` never cleared the floor.
            `#share` is a readonly field the clipboard fallback focuses, and it
            is visible wherever the phone sheet that hides it does not apply. */
-        #join input, #join-message, #share, #new-name, #tree .new-name, #roster .rename {
+        #join input, #join-message, #share, #new-name, #tree .new-name, #menu .rename {
           font-size: 16px; }
         /* 44 px is the smallest a fingertip is expected to hit. The floor is on
            the box, not on the content: `min-height` sits inside the padding
@@ -697,28 +738,22 @@
         #tree .icon-button { min-width: 44px; }
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
-        #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
+        /* A face is a circle and its box is that circle, so the fingertip floor above cannot be a
+           `min-height` on it: a floor taller than the width draws an ellipse, which is what the
+           face stops being. The shape is kept and the target is got back around it — an avatar's
+           hit area is its own box plus the 5 px laid over the gap it overlaps its neighbour by,
+           which is the 44 px the rest of this block gives a control. */
+        #faces .av { min-height: 0; }
+        #faces .av::before { content: ''; position: absolute; inset: -5px; }
+        /* The menu's own controls are a column of full-width rows, so they take the floor as every
+           other control does; the pair beside the name field takes the width of one. */
+        #menu .acts button, #menu .list button { min-height: 44px; }
+        #menu .rename-save, #menu .rename-cancel { min-width: 44px; }
         /* The two ways out of an edit are one glyph each: 27 px wide, 4 px apart, measured on a
            390 px screen. That is a miss on the field or the name beside them, so on a touch device
-           both pairs take the width of a fingertip and the row opens up between them. The create
-           row and the roster's own name are the same pair, so they are sized together. */
-        #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
-          min-width: 44px; }
-        #tree .new-line, #roster .rename-edit { gap: 0.6em; }
-        /* One alignment in one list. A row that wrapped took its verbs onto a line of their own —
-           left-aligned at the row's padding, 82 px tall — while a row that did not kept them
-           right-aligned on the name's line, 57 px: measured at 390x844 with five peers, the two
-           readings were x=17 and x=207 in the same list. So the row does not wrap: the verbs stay
-           on the name's line, and a name that does not fit takes a second line of its own
-           (`#roster .name`), which is the name's business and not the row's. */
-        #roster li { flex-wrap: nowrap; }
-        /* The verbs are their icons on a touch device, and their words are kept for the reader who
-           cannot see the icon: measured at 320x640, a 23-character name had 76 px beside the
-           labels and 109 px without them, and `display: none` would take the control's accessible
-           name away with the pixels. */
-        #roster .actions button .label {
-          position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
-          overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+           both pairs take the width of a fingertip and the row opens up between them. */
+        #tree .new-commit, #tree .new-cancel { min-width: 44px; }
+        #tree .new-line, #menu .rename-edit { gap: 0.6em; }
         #alert, #peek {
           bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
         }
@@ -737,12 +772,15 @@
            whole 627 px and the first row is inside it. */
         #side { flex: 1 1 auto; min-height: 0; max-height: none; }
         /* The panel is the screen here, and its own furniture took room the tree does not get: its
-           two headings stood 1.5em above each of them, and a roster row is 0.45em of padding
-           around a 44 px control — measured at 320x640 with five peers, the first file row was
-           166 px below the panel's own bottom edge before any of this. The rows keep their
-           fingertip-sized controls and lose the padding around them. */
+           two headings stood 1.5em above each of them — measured at 320x640 with five peers, the
+           first file row was 166 px below the panel's own bottom edge before any of this. The rows
+           keep their fingertip-sized controls and lose the padding around them. */
         #side h2, .panel-head { margin: 0.8em 0 0.35em; }
-        #roster li { padding: 0.3em 0.55em; }
+        /* The phone's faces: 34 px on the bar's own row, which is Leave's 44 px already — the strip
+           gives up the room it keeps above the circle on a wider screen, so a face adds nothing to
+           the height of a bar that has none to spare. Measured at 390x844: 0 px. */
+        #faces { padding-top: 0; padding-bottom: 0; }
+        .av { width: 34px; height: 34px; }
         body:has(#side:not([hidden])) #pane { flex: none; }
         body:has(#side:not([hidden])) #editor-area { display: none; }
         #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
@@ -835,6 +873,11 @@
         <span id="health" data-health="ok" aria-live="polite" title="Connected">
           <span class="dot" aria-hidden="true"></span><span id="health-label">Connected</span>
         </span>
+        <!-- Who is here, as faces: one press per person, and the menu that person's acts are in.
+             The cluster is drawn by the bundle (`room.ts`) and it takes the bar's own right-hand
+             push — the way out stands at its right, where it always has. The element *is* the
+             strip: `renderRoom` names it and fills it. -->
+        <span id="faces"></span>
         <!-- Leaving closes the tab without closing the tab: the session is dropped and the card
              comes back with a fresh link as the way in. A host's press asks first — its leaving
              ends the room for everyone in it — and the question stands in the panel under its own
@@ -997,8 +1040,6 @@
       </div>
       <div id="workspace" hidden>
         <div id="side">
-          <h2>People</h2>
-          <ul id="roster"></ul>
           <div class="panel-head">
             <h2>Shared</h2>
             <!-- A browser host may create a file or a directory in the folder it picked: a room's

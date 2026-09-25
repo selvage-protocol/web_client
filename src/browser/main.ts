@@ -70,8 +70,17 @@ import {
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
 import { EMPTY_IN_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
-import { renameHoldsTheList, renderRoster } from './roster.ts';
-import type { RosterRename } from './roster.ts';
+import {
+  FACE_LIMIT,
+  MORE_ANCHOR,
+  PHONE_FACE_LIMIT,
+  focusInto,
+  placeMenu,
+  renderEveryoneMenu,
+  renderPersonMenu,
+  renderRoom,
+} from './room.ts';
+import type { RenameEdit, RoomPerson } from './room.ts';
 import {
   emptyEditorFor,
   renderEmptyEditor,
@@ -223,7 +232,7 @@ const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
 const editorEmpty = document.getElementById('editor-empty') as HTMLElement;
-const rosterList = document.getElementById('roster') as HTMLElement;
+const faceStrip = document.getElementById('faces') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
 const sharedActions = document.getElementById('shared-actions') as HTMLElement;
 const newFileButton = document.getElementById('new-file') as HTMLButtonElement;
@@ -295,7 +304,11 @@ function showPanel(open: boolean): void {
   syncEmptyEditor();
 }
 
-phoneLayout.addEventListener('change', () => showPanel(!phoneLayout.matches));
+phoneLayout.addEventListener('change', () => {
+  showPanel(!phoneLayout.matches);
+  // The cluster's own cap is a phone's, and the query that decided it has just changed.
+  drawRoom(binding?.participants() ?? []);
+});
 // The panel competes with the editor on a phone (a 42 % cut of a 844 px screen)
 // and starts shut there; every other device has the room for both.
 showPanel(!phoneLayout.matches);
@@ -457,7 +470,7 @@ let opening: string | undefined;
 let fullShareLink = '';
 /** The server the last join attempt reached for, for the unreachable-server copy. */
 let lastBase = '';
-/** The joined display name, for the roster's self row. */
+/** The joined display name, for this window's own face. */
 let selfName = '';
 /** The tree's guest-pinned directories, kept across re-renders. */
 const openDirs = new Set<string>();
@@ -793,7 +806,7 @@ interface Seat {
 
 /**
  * Everything a session has once the handshake is done and before anyone types: the share bar,
- * the editor and its binding, the tree, the roster, the first document and the focus.
+ * the editor and its binding, the tree, the faces in the bar, the first document and the focus.
  *
  * A join and a host differ in how the socket was opened and in what the bar's link means, and
  * in nothing else, so this is one function with one option that differs.
@@ -880,7 +893,7 @@ async function seatSession(seat: Seat): Promise<void> {
   });
   // The bar's own line about *which* session this is: the folder exposed, or whose room.
   setSessionIdentity();
-  syncRoster(binding.participants());
+  drawRoom(binding.participants());
   syncGrant();
   await openFirst(session);
   // The first file opens focused on a desktop, where typing starts at once. A
@@ -929,8 +942,8 @@ async function join(held: HeldJoin): Promise<void> {
   }
   // The joined name is the prefill next time: localStorage only, never the wire.
   saveDisplayName(window.localStorage, displayName);
-  // A name already in the room is allowed in, and the roster row carries the
-  // short id that tells the two apart, so no sentence is needed here.
+  // A name already in the room is allowed in, and the face carries the short
+  // id that tells the two apart, so no sentence is needed here.
 }
 
 /**
@@ -1344,66 +1357,257 @@ async function copyShareLink(): Promise<void> {
   shareBox.confirm();
 }
 
+/** The room's people, this window's own seat first, which the room's peer list never carries. */
+function roomPeople(participants: readonly Participant[]): RoomPerson[] {
+  const seated = engine?.session();
+  const peers = participants.map((participant) => ({
+    peerId: participant.peerId,
+    displayName: participant.displayName,
+    role: participant.role,
+    colour: participant.colour,
+    path: participant.path,
+    self: false,
+  }));
+  if (seated === undefined) {
+    return peers;
+  }
+  return [
+    {
+      peerId: seated.peer.peer_id,
+      displayName: selfName,
+      role: seated.role,
+      colour: peerColour(seated.peer.peer_id),
+      // Your own seat says nothing about where it is: the editor in front of the person is that
+      // answer, and the room's own path for it is not the only one this window has open.
+      path: undefined,
+      self: true,
+    },
+    ...peers,
+  ];
+}
+
 /**
- * Who is here: the own name first, then one row per peer. Where someone is
- * reads on the grant tree, not here; the strip's follow segment owns the one
- * stop and the row's own toggle is the same state from the other side.
+ * Who is here, as the faces in the bar, and the menu the face that was pressed belongs to.
  *
- * An own-name edit holds the list still only while the person is in its field
- * (`renameHoldsTheList`): a presence frame lands every few hundred milliseconds
- * while anybody types, and a list redrawn under the field would take the cursor
- * with it. An edit left open with their attention elsewhere holds nothing, and
- * the rows keep up — a roster is a read of the room as it stands, and one that
- * stopped being true while a field nobody was in stood open was a wrong list.
- * What a redraw puts back is the name the person had typed, so the hold is not
- * what keeps their words.
+ * The cluster is a read of the room as it stands — drawn wherever a presence frame lands, and
+ * nowhere else — while the dialog is drawn only when its own state changes: opened, closed, a
+ * refusal raised or retired, the own name's edit opened, dropped or committed. A dialog is a
+ * snapshot of the moment it was opened, which is why a presence frame cannot take the field out
+ * from under somebody typing in it: the roster's hold, and the bug that survived it, are gone
+ * rather than translated.
  */
-function syncRoster(participants: Participant[]): void {
-  if (renameHoldsTheList(renamingField, document.activeElement)) {
+function drawRoom(participants: Participant[]): void {
+  renderRoom(faceStrip, roomPeople(participants), {
+    followedPeerId: binding?.following()?.peerId,
+    openAnchor: menu?.anchor,
+    limit: phoneLayout.matches ? PHONE_FACE_LIMIT : FACE_LIMIT,
+    onAnchor: (anchor) => void pressAnchor(anchor),
+  });
+  // Every draw replaces the button the dialog came from, so the dialog is placed again against
+  // the one that stands there now.
+  placeOpenMenu();
+}
+
+/**
+ * The dialog, and the face it was opened from. One at a time: a press on another face replaces
+ * it, and a press on the same one closes it.
+ */
+type MenuState =
+  | { view: 'person'; peerId: string; anchor: string; fromList: boolean }
+  | { view: 'everyone'; anchor: string };
+let menu: MenuState | undefined;
+/** The dialog element, which lives as long as the dialog does. */
+let menuElement: HTMLDivElement | undefined;
+
+/** The face a dialog was opened from, as it stands in the cluster now. */
+function anchorButton(anchor: string): HTMLElement | undefined {
+  for (const button of faceStrip.querySelectorAll<HTMLElement>('[data-anchor]')) {
+    if (button.dataset.anchor === anchor) {
+      return button;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A press on a face, or on the `+N`: the same face twice closes what it opened, another one
+ * replaces it, and the `+N` opens the list of everyone.
+ */
+function pressAnchor(anchor: string): void {
+  if (menu?.anchor === anchor) {
+    closeMenu();
     return;
   }
-  drawRoster(participants);
+  openMenu(
+    anchor === MORE_ANCHOR
+      ? { view: 'everyone', anchor }
+      : { view: 'person', peerId: anchor, anchor, fromList: false },
+  );
 }
 
-/** The list as it stands, with the own-name edit open if one is. */
-function drawRoster(participants: Participant[]): void {
-  // What the field holds now rather than what it opened on: a redraw of a list nobody is typing in
-  // must not throw away a half-typed name.
-  const typed = renamingField?.value;
-  const renaming: RosterRename | undefined =
-    renamingName === undefined
-      ? undefined
-      : {
-          opened: renamingName,
-          value: typed ?? renamingName,
-          maxLength: MAX_DISPLAY_NAME_UNITS,
-          fresh: renamingField === undefined,
-          commit: (value) => void commitRename(value),
-          cancel: () => endRename(),
-          // The list was held for as long as the person was in the edit, and leaving it open with a
-          // typed name draws it now — nothing else will until the room's next presence frame. Drawn
-          // rather than re-checked: whether focus has already left by the time this runs is the
-          // browser's business, and the fact this callback carries is that the person has left.
-          leftOpen: () => drawRoster(binding?.participants() ?? []),
-        };
-  renderRoster(rosterList, participants, {
-    followedPeerId: binding?.following()?.peerId,
-    selfName,
-    selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
-    selfRole: engine?.session().role,
-    goToRefusal,
-    renaming,
-    onRename: () => startRename(),
-    onGoTo: (peerId) => goToParticipant(peerId),
-    onFollow: (peerId) => followParticipant(peerId),
-    // The same state from the other side: the row's toggle pressed is the strip's Stop pressed.
-    onStopFollow: () => binding?.stopFollowing(),
-  });
-  renamingField = renaming?.field;
+function openMenu(state: MenuState): void {
+  menu = state;
+  renamingName = undefined;
+  anchorButton(state.anchor)?.setAttribute('aria-expanded', 'true');
+  renderMenu();
+  if (menuElement !== undefined) {
+    focusInto(menuElement);
+  }
 }
 
 /**
- * Landing on a peer, from wherever the press came: the roster's `Go to`, or the empty pane's own.
+ * Closes the dialog and, unless the press that closed it was somewhere else, puts focus back on
+ * the face it came from: a press that lands on nothing should not leave the person nowhere.
+ */
+function closeMenu(refocus = true): void {
+  const anchor = menu?.anchor;
+  menu = undefined;
+  renamingName = undefined;
+  renamingField = undefined;
+  if (anchor !== undefined) {
+    anchorButton(anchor)?.setAttribute('aria-expanded', 'false');
+  }
+  menuElement?.remove();
+  menuElement = undefined;
+  if (refocus && anchor !== undefined) {
+    anchorButton(anchor)?.focus();
+  }
+}
+
+/**
+ * Draws the open dialog over the element it lives in, and moves focus into it when the press
+ * came to see something: the first control, or the one a selector names.
+ */
+function renderMenu(focusSelector?: string): void {
+  if (menu === undefined) {
+    return;
+  }
+  if (menuElement === undefined) {
+    menuElement = document.createElement('div');
+    menuElement.id = 'menu';
+    appPane.appendChild(menuElement);
+  }
+  const people = roomPeople(binding?.participants() ?? []);
+  const anchor = menu.anchor;
+  const renaming = renameView();
+  if (menu.view === 'everyone') {
+    renderEveryoneMenu(menuElement, people, {
+      followedPeerId: binding?.following()?.peerId,
+      onPick: (peerId) => void openMenu({ view: 'person', peerId, anchor, fromList: true }),
+    });
+  } else {
+    const peerId = menu.peerId;
+    const person = people.find((candidate) => candidate.peerId === peerId);
+    if (person === undefined) {
+      // The peer left while their menu stood open: a menu about nobody is not drawn.
+      closeMenu(false);
+      return;
+    }
+    renderPersonMenu(menuElement, person, {
+      all: people,
+      followedPeerId: binding?.following()?.peerId,
+      fromList: menu.fromList,
+      renaming,
+      goToRefusal,
+      // Each act takes the dialog down: it was opened for a press, and the person is about to be
+      // somewhere else — a file, a follow, or the bar with the follow's own ring on it.
+      onGoTo: (peerId) => {
+        closeMenu();
+        void goToParticipant(peerId);
+      },
+      onFollow: (peerId) => {
+        closeMenu();
+        void followParticipant(peerId);
+      },
+      // The same state from the other side: the menu's Stop is the strip's Stop.
+      onStopFollow: () => {
+        closeMenu();
+        binding?.stopFollowing();
+      },
+      onRename: () => startRename(),
+      onBack: () => void backToEveryone(),
+    });
+  }
+  if (focusSelector !== undefined) {
+    focusInto(menuElement, focusSelector);
+  }
+  renamingField = renaming?.field;
+  placeOpenMenu();
+}
+
+/** Back to the list the person was picked from, with the press back on the row it was made on. */
+function backToEveryone(): void {
+  const picked = menu?.view === 'person' ? menu.peerId : undefined;
+  const anchor = menu?.anchor;
+  if (anchor === undefined) {
+    return;
+  }
+  menu = { view: 'everyone', anchor };
+  // The pick is cleared before the draw that follows it, so the row the person came from is the
+  // one focus lands on.
+  renderMenu();
+  if (menuElement === undefined || picked === undefined) {
+    return;
+  }
+  for (const row of menuElement.querySelectorAll<HTMLElement>('.list button')) {
+    if (row.dataset.pick === picked) {
+      row.focus();
+      return;
+    }
+  }
+}
+
+/** Places the open dialog under the face it came from, measured as the two stand. */
+function placeOpenMenu(): void {
+  if (menu === undefined || menuElement === undefined) {
+    return;
+  }
+  const anchor = anchorButton(menu.anchor);
+  if (anchor !== undefined) {
+    placeMenu(menuElement, anchor, appPane);
+  }
+}
+
+/**
+ * The dialog's own two ways out: a press that lands on neither it nor a face, and Escape.
+ *
+ * A press outside keeps a name the person has typed and leaves the edit open — the rule both
+ * in-row edits follow — and everything else takes the dialog down.
+ */
+document.addEventListener('pointerdown', (event) => {
+  if (menu === undefined) {
+    return;
+  }
+  const target = event.target as Element | null;
+  if (target === null || target.closest('#menu') !== null || target.closest('[data-anchor]') !== null) {
+    return;
+  }
+  const typed = renamingField?.value.trim() ?? '';
+  if (renamingName !== undefined && typed !== '' && typed !== renamingName) {
+    return;
+  }
+  closeMenu(false);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || menu === undefined) {
+    return;
+  }
+  if (renamingName !== undefined) {
+    // The edit is what Escape leaves, and the dialog stays open on the control that opened it.
+    // The field's own Escape never reaches here: it stops the key.
+    endRename();
+    return;
+  }
+  closeMenu();
+});
+
+// The dialog is placed against the face it came from, so a window that changed size under it has
+// to be told rather than the two drifting apart.
+window.addEventListener('resize', placeOpenMenu);
+
+/**
+ * Landing on a peer, from wherever the press came: a face's `Go to`, or the empty pane's own.
  *
  * A rejection is the room being unreachable, which is the alert's; a refusal the room answers with
  * is not a rejection at all, and lands on the row (`showGoToRefusal`).
@@ -1415,7 +1619,7 @@ function goToParticipant(peerId: string): void {
   });
 }
 
-/** Following a peer, from wherever the press came: the roster's `Follow`, or the empty pane's own. */
+/** Following a peer, from wherever the press came: a face's `Follow`, or the empty pane's own. */
 function followParticipant(peerId: string): void {
   const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
   void binding?.follow(peerId).catch((error: unknown) => {
@@ -1424,19 +1628,19 @@ function followParticipant(peerId: string): void {
 }
 
 /**
- * A go-to the room could not answer, under the row that asked for it (design §5.1).
+ * A go-to the room could not answer, in the menu of the person it was asked for (design §5.1).
  *
  * The refusal is a race — the peer closed the file, or its caret does not resolve here — and the
  * answer belongs where the press was. It is not a state: it stands
  * `GO_TO_REFUSAL_STAND_MS` and then goes, and the room's next presence frame does not re-raise it,
- * because nothing is wrong with the room. The sentence is announced once, since the row is where the
- * eye already is and a screen reader has no hover to find a line under it.
+ * because nothing is wrong with the room. The sentence is announced once, since the face is where
+ * the eye already is and its menu is the only place the line is painted.
  */
 let goToRefusal: { peerId: string; text: string } | undefined;
 /** The standing refusal's own clock. One at a time: a press replaces the sentence *and* the timer. */
 let goToRefusalTimer: number | undefined;
 
-/** How long a refused go-to stands on its row. */
+/** How long a refused go-to stands in the menu it was pressed in. */
 const GO_TO_REFUSAL_STAND_MS = 4000;
 
 function showGoToRefusal(peerId: string | undefined, text: string): void {
@@ -1450,23 +1654,37 @@ function showGoToRefusal(peerId: string | undefined, text: string): void {
   goToRefusalTimer = window.setTimeout(() => {
     goToRefusalTimer = undefined;
     goToRefusal = undefined;
-    syncRoster(binding?.participants() ?? []);
+    renderMenu();
   }, GO_TO_REFUSAL_STAND_MS);
-  syncRoster(binding?.participants() ?? []);
+  // The press that earned it is where focus stays, so the sentence is drawn under it either way.
+  renderMenu('[data-act="go"]');
   announce(text);
 }
 
 /**
- * The own-name edit, open or not. The page owns it rather than the row: the
- * name the row shows and the name the room is told are both the page's, and
- * the row is drawn from this state (`drawRoster`).
+ * The own-name edit, open or not. The page owns it rather than the menu: the name the face shows
+ * and the name the room is told are both the page's, and the menu is drawn from this state.
  */
 let renamingName: string | undefined;
 /**
- * The field the open edit is in, for the draw that built it: what tells a presence frame whether the
- * person is still in the edit, and where the next draw reads the name they have typed.
+ * The field the open edit is in, for the draw that built it — what tells a press outside the menu
+ * whether the person has a name of their own in it, which a stray press keeps.
  */
 let renamingField: HTMLInputElement | undefined;
+
+/** The edit as the menu draws it, when one is open. */
+function renameView(): RenameEdit | undefined {
+  if (renamingName === undefined) {
+    return undefined;
+  }
+  return {
+    opened: renamingName,
+    value: renamingName,
+    maxLength: MAX_DISPLAY_NAME_UNITS,
+    commit: (value) => void commitRename(value),
+    cancel: () => endRename(),
+  };
+}
 
 function startRename(): void {
   if (renamingName !== undefined || binding === undefined) {
@@ -1474,24 +1692,23 @@ function startRename(): void {
   }
   renamingName = selfName;
   renamingField = undefined;
-  // Opening the field is the one drawing that happens while an edit is open, so it does
-  // not go through the hold `syncRoster` keeps.
-  drawRoster(binding.participants());
+  renderMenu('.rename');
 }
 
+/** Drops the edit and leaves the menu open on the control that opened it. */
 function endRename(): void {
   renamingName = undefined;
   renamingField = undefined;
-  syncRoster(binding?.participants() ?? []);
+  renderMenu('[data-act="rename"]');
 }
 
 /**
  * Sends the typed name and answers for it, over the page.
  *
- * `rename.ts` owns the order of the answers and the words; what is here is what
- * the page is: the row it redraws, the strip it says the confirmation in, the
- * alert a refusal stands on, and the two places the name in force lives — the
- * own row's `selfName` and the prefill the next join reads.
+ * `rename.ts` owns the order of the answers and the words; what is here is what the page is: the
+ * menu it redraws, the strip it says the confirmation in, the alert a refusal stands on, and the
+ * two places the name in force lives — the own face's `selfName` and the prefill the next join
+ * reads.
  */
 async function commitRename(raw: string): Promise<void> {
   endRename();
@@ -1505,11 +1722,12 @@ async function commitRename(raw: string): Promise<void> {
       selfName = name;
     },
     refused: (sentence) => failureAlert.show(sentence),
-    // The row already wears the new name, which is the confirmation; a sentence repeating what the
+    // The face already wears the new name, which is the confirmation; a sentence repeating what the
     // person can see would be the same fact twice.
     said: () => undefined,
   });
-  syncRoster(binding?.participants() ?? []);
+  drawRoom(binding?.participants() ?? []);
+  renderMenu('[data-act="rename"]');
 }
 
 /** The room's listing as a tree. Directories open and shut; files open and fetch. */
@@ -1553,7 +1771,7 @@ function syncEmptyEditor(): void {
 
 /**
  * The first peer that is in a file, as the pane's own block names one: a peer with no path has
- * nothing to go to, and the roster already says so (`roster.ts`).
+ * nothing to go to, and their menu says so (`room.ts`).
  */
 function peerInAFile(
   participants: readonly Participant[],
@@ -1815,7 +2033,7 @@ function syncFollow(following: Following | undefined, ended?: string): void {
     // The toggle mirrors the indicator: a follow ended by typing or by the peer leaving re-renders
     // here, not on the next room event. The pane's own toggle is the same state, so it is redrawn
     // with it — a follow that opened no document leaves the pane showing.
-    syncRoster(binding.participants());
+    drawRoom(binding.participants());
     syncEmptyEditor();
   }
   if (following === undefined) {
@@ -1855,16 +2073,10 @@ function syncFollow(following: Following | undefined, ended?: string): void {
 const FOLLOW_ENDED_STAND_MS = 4000;
 
 /**
- * Enters the terminal state: the session note carries this sentence to the
- * end, the roster clears with dead actions, the share link retires, and the
- * tree freezes on the snapshot taken here — the engine sheds its local grant
- * on the terminal close, so the snapshot must precede it.
- */
-/**
  * Leaves the session when it ends: the binding, the editor and the socket are
  * dropped, the session chrome and the tree come down, and the card returns over
  * the blurred preview carrying the reason and the next step. Nothing of the
- * dead room stays on screen — no frozen tree, no dead roster, no retired link —
+ * dead room stays on screen — no frozen tree, no dead faces, no retired link —
  * and the guest can join another room from here with one fresh link.
  *
  * The address-bar link named the room that just closed, so it stops being the
@@ -1909,7 +2121,8 @@ function leaveSession(sentence: string): void {
   fullShareLink = '';
   shareGroup.classList.remove('hand-copy');
   shareInput.value = '';
-  rosterList.replaceChildren();
+  closeMenu(false);
+  faceStrip.replaceChildren();
   treePane.replaceChildren();
   fileStripPath.textContent = '';
   fileStripChips.replaceChildren();
@@ -1963,13 +2176,13 @@ function leaveSession(sentence: string): void {
  *
  * The binding raises every topic and this is where the page decides. Three of them have a surface of
  * their own and no case here at all: a follow's sentences are the file strip's own segment (who is
- * followed, and a Stop control in it), the roster is where a peer's arrival and departure read, and a
- * room that is over comes back as the card carrying the room's own sentence.
+ * followed, and a Stop control in it), the faces in the bar are where a peer's arrival and
+ * departure read, and a room that is over comes back as the card carrying the room's own sentence.
  *
  * - `role` is a state rather than a sentence: the strip's `Read-only` chip, which stays while it is
  *   true instead of a toast the person had to have caught. It is announced once, because a chip
  *   that appears with no words is a change a screen reader would otherwise miss.
- * - `refusal` is a go-to the room could not answer, and it stands under the roster row that asked
+ * - `refusal` is a go-to the room could not answer, and it stands in the menu of the face that asked
  *   (`showGoToRefusal`).
  * - `error` is the room's own word about the session, and nothing on screen is about it: it is the
  *   alert's, the one home for a failure with no control to sit beside (design §6.1).
@@ -2012,9 +2225,10 @@ function setHealth(state: 'ok' | 'reconnecting' | 'away'): void {
 /**
  * The bar's one fact about which session this is.
  *
- * A host reads the folder it is exposing — the name is the handle's, and it is worth the glance — and
- * a guest reads whose room it is, from the roster's own `host` seat. Before the roster has arrived
- * there is nothing to name but the shape: a guest in a session it does not yet know the host of.
+ * A host reads the folder it is exposing — the name is the handle's, and it is worth the glance —
+ * and a guest reads whose room it is, from the room's own `host` seat. Before the room's peers have
+ * arrived there is nothing to name but the shape: a guest in a session it does not yet know the
+ * host of.
  */
 function setSessionIdentity(): void {
   if (hostFolder !== undefined) {
@@ -2069,8 +2283,8 @@ function onNotice(notice: BindingNotice): void {
         }
         // The dot and the dimming are one fact: green and legible together, red and dimmed together.
         setHealth(hostAway ? 'away' : 'ok');
-        syncRoster(present);
-        // The bar's identity names the host's session, which the roster is where the host appears.
+        drawRoom(present);
+        // The bar's identity names the host's session, which the room's peers are where the host appears.
         setSessionIdentity();
         // Where someone is reads on the tree, so presence moves re-render it.
         syncGrant();
@@ -2082,7 +2296,7 @@ function onNotice(notice: BindingNotice): void {
         hostAway = false;
       }
       setHealth(hostAway ? 'away' : 'ok');
-      syncRoster(notice.participants);
+      drawRoom(notice.participants);
       setSessionIdentity();
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();

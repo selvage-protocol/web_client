@@ -1082,16 +1082,20 @@ function appendRoomMark(row: HTMLElement, mark: ReturnType<typeof roomMark>): vo
 }
 
 /**
- * Who is in one file, as initials badges in peer colours: where someone is reads on the
- * tree, glanceable, instead of path text under roster names.
+ * Who is in one file, as initials badges in peer colours: where someone is reads on the tree,
+ * glanceable, instead of path text under a face in the bar.
  */
+/** What a badge says under a pointer: whose caret this is, and the role where there is one. */
 function badgeNodes(present: readonly Participant[]): HTMLElement[] {
   return present.map((participant) => {
     const badge = document.createElement('span');
     badge.className = 'badge';
     badge.style.backgroundColor = participant.colour;
     badge.textContent = initials(participant.displayName);
-    badge.title = participant.displayName;
+    // The crown a face wears needs a circle to sit on, so a 17 px square badge carries the host's
+    // role in its tooltip instead: the same `name · Host` a face reads, in the one place a row has.
+    badge.title =
+      participant.role === 'host' ? `${participant.displayName} \u00b7 Host` : participant.displayName;
     return badge;
   });
 }
