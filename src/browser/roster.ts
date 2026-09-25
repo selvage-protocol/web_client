@@ -89,7 +89,13 @@ const RENAME_LABEL = 'Set the name other participants see';
  */
 const STOP_FOLLOW_LABEL = 'Stop following';
 
-/** What the edit's two visible ways out are called, in the row's own words. */
+/**
+ * What the edit's two visible ways out are called, in the row's own words.
+ *
+ * The controls are the tree's ✓ and ✕ and carry no text of their own, so this is what a screen
+ * reader reads and what a pointer finds in the tooltip: a glyph the reader has to guess at is a
+ * control only the people who wrote the page can use.
+ */
 const RENAME_SAVE_LABEL = 'Set this name';
 const RENAME_CANCEL_LABEL = 'Leave the name as it is';
 
@@ -177,9 +183,13 @@ function selfRow(view: RosterView): HTMLElement {
 /**
  * The name the field is about, and the five ways out of it.
  *
- * Enter sends and Escape cancels, as they always did; the confirm and cancel controls beside the
- * field are the visible pair for a person who does not already know the keys — a field that only
- * answers Enter is an action with no button. Clicking outside the edit dismisses it exactly as
+ * Enter sends and Escape cancels, as they always did; the ✓ and ✕ beside the field are the visible
+ * pair for a person who does not already know the keys — a field that only answers Enter is an
+ * action with no button. They are the tree's create row's own pair, down to the glyphs, because
+ * they are the same two answers to the same question: keep this, or drop it. What is new here is
+ * the size a finger gets: the glyph is 27 px wide, and on touch both are lifted to the 44 px floor
+ * with room between them, where a miss on a file row's pair would otherwise open the file under
+ * the fingertip. Clicking outside the edit dismisses it exactly as
  * Cancel does, sending nothing: a stray click must not commit a half-typed name, and the choice
  * is no longer silent because Cancel stands in the field's own row. The dismissal is what a blur
  * is, with one exception: focus moving to the edit's own two controls is not leaving it, so their
@@ -203,14 +213,16 @@ function nameField(rename: RosterRename): HTMLElement {
   const save = document.createElement('button');
   save.type = 'button';
   save.className = 'rename-save';
-  save.textContent = 'Save';
+  save.append(iconSpan('check'));
   save.title = RENAME_SAVE_LABEL;
+  save.setAttribute('aria-label', RENAME_SAVE_LABEL);
   save.addEventListener('click', () => rename.commit(field.value));
   const cancel = document.createElement('button');
   cancel.type = 'button';
   cancel.className = 'rename-cancel';
-  cancel.textContent = 'Cancel';
+  cancel.append(iconSpan('close'));
   cancel.title = RENAME_CANCEL_LABEL;
+  cancel.setAttribute('aria-label', RENAME_CANCEL_LABEL);
   cancel.addEventListener('click', () => rename.cancel());
   // Leaving the edit is a `focusout` on the whole group, not a `blur` on the field: focus can
   // move from the field to Save or Cancel and only then outside, and a listener on the field

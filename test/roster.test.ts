@@ -347,13 +347,19 @@ describe('roster rows', () => {
     group.fire('focusout', { relatedTarget: null });
     assert.deepEqual(events, [['commit', 'ada'], ['cancel'], ['cancel']], 'the ways out went wrong');
 
-    // The visible pair: a field that only answers Enter is an action with no button, so a
-    // confirm and a cancel stand beside it for a person who does not know the keys.
+    // The visible pair: a field that only answers Enter is an action with no button, so the same ✓
+    // and ✕ the tree's create row shows stand beside it — the same two answers to the same
+    // question. They are glyphs, so the name a screen reader and a pointer read is the control's.
     const save = withClass(self, 'rename-save')[0];
     const cancel = withClass(self, 'rename-cancel')[0];
     assert.ok(save !== undefined && cancel !== undefined, 'the edit offers no visible confirm or cancel');
-    assert.equal(save.textContent, 'Save', 'the confirm control is not named');
-    assert.equal(cancel.textContent, 'Cancel', 'the cancel control is not named');
+    assert.equal(save.textContent, '', `the confirm control spells itself out: ${save.textContent}`);
+    assert.equal(save.getAttribute('aria-label'), 'Set this name');
+    assert.equal(save.title, 'Set this name');
+    assert.equal(withClass(save, 'icon').length, 1, 'the confirm control is not the ✓ the file rows show');
+    assert.equal(cancel.getAttribute('aria-label'), 'Leave the name as it is');
+    assert.equal(cancel.title, 'Leave the name as it is');
+    assert.equal(withClass(cancel, 'icon').length, 1, 'the cancel control is not the ✕ the file rows show');
     save.fire('click');
     assert.deepEqual(events.at(-1), ['commit', 'ada'], 'the confirm control does not send the name');
     cancel.fire('click');

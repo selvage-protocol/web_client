@@ -225,6 +225,28 @@ describe('the sizes a finger needs', () => {
     assert.match(declarations(touch, '#roster .actions button'), /min-width:\s*44px/, 'roster verbs stay 26 px wide');
   });
 
+  it('gives both pairs of ✓ and ✕ the width of a fingertip, and room between them', () => {
+    // The tree's create row and the roster's own name are the same two answers — keep it, drop it
+    // — drawn as the same two glyphs, so they are sized together. Measured in Chromium at 390x844:
+    // each glyph is 27 px wide and the two are 4 px apart, which is a miss on the field or the name
+    // beside them. A miss on a file row's pair opens the file instead.
+    const touch = mediaBlock(TOUCH_QUERY);
+    for (const control of [
+      '#tree .new-commit',
+      '#tree .new-cancel',
+      '#roster .rename-save',
+      '#roster .rename-cancel',
+    ]) {
+      assert.match(
+        declarations(touch, control),
+        /min-width:\s*44px/,
+        `${control} is as wide as its glyph again`,
+      );
+    }
+    assert.match(declarations(touch, '#tree .new-line'), /gap:\s*0\.6em/, 'the two answers abut');
+    assert.match(declarations(touch, '#roster .rename-edit'), /gap:\s*0\.6em/, 'the two answers abut');
+  });
+
   it('keeps the desktop density: the sizes above are behind the touch query', () => {
     assert.ok(
       !/min-height:\s*44px/.test(style.slice(0, style.indexOf(`@media ${TOUCH_QUERY}`))),

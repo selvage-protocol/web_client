@@ -312,9 +312,15 @@
          rather than to the card's field, and it takes the room the name had. */
       #roster .rename-edit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.3em; }
       #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
-      /* The edit's visible ways out, sized to the row rather than to the card: two small verbs
-         beside the name, and the finger-sized floor the touch query gives every button. */
-      #roster .rename-save, #roster .rename-cancel { font-size: 0.8em; padding: 0.25em 0.5em; }
+      /* The two ways out of an edit, and the same two in both places an edit is made: the tree's
+         create row and the roster's own name. One pair of glyphs — `✓` keeps it, `✕` drops it — with
+         the page's quiet chrome at rest and one colour each under a pointer. */
+      #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
+        flex: none; padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
+      #tree .new-commit:hover:not(:disabled), #roster .rename-save:hover:not(:disabled) {
+        color: #a6e3a1; border-color: var(--border-strong); }
+      #tree .new-cancel:hover:not(:disabled), #roster .rename-cancel:hover:not(:disabled) {
+        color: var(--danger); border-color: var(--border-strong); }
       #roster li.self .swatch { background: var(--primary); }
       #roster .actions { display: flex; align-items: center; gap: 0.25em; flex: none; }
       /* Quiet verbs: present at rest, no chrome to add up around two names. */
@@ -336,15 +342,13 @@
       #tree .new-row { list-style: none; margin: 2px 0; }
       #tree .new-row-body { padding: 0 0.55em 0.4em; }
       #tree .new-line { display: flex; align-items: center; gap: 0.3em; }
-      #tree .new-line .icon { color: var(--muted-foreground); flex: none; }
+      /* The kind's own icon, and only it: the two controls beside the field keep their own colour,
+         which is what a pointer reads at the ✓ and the ✕. */
+      #tree .new-line > .icon { color: var(--muted-foreground); flex: none; }
       #tree .new-name { flex: 1 1 5em; min-width: 0; font-size: 0.85em; padding: 0.3em 0.45em; }
       #tree .new-name.invalid { border-color: var(--danger); }
       #tree .new-slash { flex: none; color: var(--muted-foreground); }
       #tree .new-slash[hidden] { display: none; }
-      #tree .new-commit, #tree .new-cancel { flex: none; padding: 0.25em 0.4em;
-        background: none; color: var(--muted-foreground); }
-      #tree .new-commit:hover:not(:disabled) { color: #a6e3a1; border-color: var(--border-strong); }
-      #tree .new-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--border-strong); }
       /* The line under the field, which stands only when it has something to say: a refusal, or the
          folder the commit will also make. A name this room can take needs no line, and a hidden one
          keeps the tree from shifting as a person types. */
@@ -623,6 +627,13 @@
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
         #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
+        /* The two ways out of an edit are one glyph each: 27 px wide, 4 px apart, measured on a
+           390 px screen. That is a miss on the field or the name beside them, so on a touch device
+           both pairs take the width of a fingertip and the row opens up between them. The create
+           row and the roster's own name are the same pair, so they are sized together. */
+        #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
+          min-width: 44px; }
+        #tree .new-line, #roster .rename-edit { gap: 0.6em; }
         /* A row that has to wrap does: the actions are always visible at this size, and a long
            name takes the line it needs rather than pushing them off it. */
         #roster li { flex-wrap: wrap; }
