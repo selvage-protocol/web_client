@@ -888,6 +888,58 @@ async function reviewDesktop(page, server, written) {
     };
   })()`);
   log('the sidebar after the drag:', JSON.stringify(facts.sidebarAfterDrag));
+
+  // What a host's own edit does to the folder it was handed. The page keeps the file in the
+  // editor and the folder on disk, and nothing on the page saves, so a change this window makes
+  // has to be written back by the page itself — a peer's edit already is, and this is the other
+  // half. Typed through the real input path and read back out of the origin-private directory
+  // the picker stands in for, so the proof is the file's own bytes and not the editor's state.
+  const marker = 'HOST-EDIT-REACHES-THE-FOLDER';
+  const readFolder = `(async () => {
+    const root = await navigator.storage.getDirectory();
+    const project = await root.getDirectoryHandle('project');
+    const handle = await project.getFileHandle('README.md');
+    return await (await handle.getFile()).text();
+  })()`;
+  const editorBox = await page.evaluate(`(() => {
+    const box = document.querySelector('.monaco-editor')?.getBoundingClientRect();
+    return box === undefined || box === null
+      ? null
+      : { x: Math.round(box.left + 60), y: Math.round(box.top + 60) };
+  })()`);
+  const alreadyThere = (await page.evaluate(readFolder)).includes(marker);
+  if (editorBox === null) {
+    facts.hostWriteBack = { typed: false, why: 'no editor on screen' };
+  } else {
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: editorBox.x,
+      y: editorBox.y,
+      button: 'left',
+      clickCount: 1,
+    });
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: editorBox.x,
+      y: editorBox.y,
+      button: 'left',
+      clickCount: 1,
+    });
+    await page.send('Input.insertText', { text: marker });
+    try {
+      await waitFor(
+        page,
+        'the host\u2019s own edit to reach the folder',
+        readFolder,
+        (text) => typeof text === 'string' && text.includes(marker),
+        5_000,
+      );
+      facts.hostWriteBack = { typed: true, reachedTheFolder: true, alreadyThere };
+    } catch {
+      facts.hostWriteBack = { typed: true, reachedTheFolder: false, alreadyThere };
+    }
+  }
+  log('the host\u2019s own edit and the folder:', JSON.stringify(facts.hostWriteBack));
   return { facts, invite };
 }
 
