@@ -46,7 +46,6 @@ import type { NewEntryKind } from './folder.ts';
 import { createInFolder } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
-  HOST_GUESTS_NOTE,
   HOST_NEEDS_THE_SERVERS_PAGE,
   clearHostingMark,
   hostAvailability,
@@ -220,7 +219,6 @@ const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostQuiet = document.getElementById('host-quiet') as HTMLButtonElement;
-const hostShare = document.getElementById('host-share') as HTMLElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
@@ -746,8 +744,13 @@ async function runJoin(held: HeldJoin): Promise<void> {
   }
 }
 
-/** What the host button says, before and after an attempt. */
-const HOST_BUTTON_LABEL = 'Choose a folder to share…';
+/** What the host button says, before and after an attempt.
+ *
+ * The trailing ellipsis is the platform's own convention for a control that opens a system dialog
+ * (the folder picker) rather than a trailing thought, and the shell carries the same words for the
+ * frame before the bundle lands.
+ */
+const HOST_BUTTON_LABEL = 'Share a folder…';
 
 /**
  * The editor stack and the shared-text opener guard, both of which a join and a host need
@@ -1076,15 +1079,15 @@ async function offerHosting(): Promise<void> {
 }
 
 /**
- * Puts one read of the page's own origin on the card: the note beside the action, what choosing a
- * folder shares, and whether there is an action at all.
+ * Puts one read of the page's own origin on the card: the note beside the action, and whether
+ * there is an action at all.
  *
  * The two intents say it differently, and that is the whole of the collapse (design §7.1). On the
- * start card the action is the card's own — the button that says what happens next, and the
- * paragraph about the tab that click makes the host of. On a guest's card hosting is the alternative
- * to the thing the person came for, so it is one quiet line and nothing else: pressing it is what
- * puts the start card in front of them (`swapCardToStart`). A page where hosting is not on offer at
- * all says why, in one line, wherever the action would have stood.
+ * start card the action is the card's own — the button that says what happens next, and the one
+ * sentence about the room that click makes this tab the host of. On a guest's card hosting is the
+ * alternative to the thing the person came for, so it is one quiet line and nothing else: pressing
+ * it is what puts the start card in front of them (`swapCardToStart`). A page where hosting is not
+ * on offer at all says why, in one line, wherever the action would have stood.
  */
 function showHosting(picker: boolean, read: ServerRead): void {
   lastServerRead = read;
@@ -1094,12 +1097,10 @@ function showHosting(picker: boolean, read: ServerRead): void {
   if (cardIntent === 'join') {
     hostQuiet.hidden = !offered;
     hostButton.hidden = true;
-    hostShare.textContent = '';
     hostNote.textContent = offered ? '' : availability.note;
     return;
   }
   hostQuiet.hidden = true;
-  hostShare.textContent = offered ? HOST_GUESTS_NOTE : '';
   hostNote.textContent = availability.note;
   hostButton.hidden = !offered;
 }
@@ -1563,8 +1564,10 @@ function syncStrip(): void {
   fileStripPath.replaceChildren();
   fileStripPath.classList.toggle('none', path === undefined);
   if (path === undefined) {
-    // On a phone the strip is also the panel's disclosure, so it names the panel when there is no
-    // file to name: a line reading `No file open` would be a dead end with no way to the tree.
+    // On a phone the strip is also the panel's disclosure, and the only way to a shut panel's
+    // tree, so it names the panel rather than the absence of a file: `No file open` there is a
+    // dead end. A desktop has the tree standing beside the strip, so the strip is free to say what
+    // is not open.
     fileStripPath.textContent = phoneLayout.matches ? 'Files and people' : 'No file open';
   } else {
     const slash = path.lastIndexOf('/');
@@ -1920,7 +1923,7 @@ function leaveSession(sentence: string): void {
     sessionOverMessage(sentence),
   );
   // The card is the guest's now, and the host action is the card's own shape is what says so: the
-  // paragraph about whose tab this is belongs to the start card, and a button left standing here
+  // sentence about what a room costs belongs to the start card, and a button left standing here
   // from a room whose page was bare is the other intent's. Nothing is asked of the page's origin
   // again — the read the offer rested on stands (`showHosting`).
   if (lastServerRead !== undefined) {

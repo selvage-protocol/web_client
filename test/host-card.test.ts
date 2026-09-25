@@ -14,7 +14,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  HOST_GUESTS_NOTE,
   HOST_MARK_KEY,
   HOST_NEEDS_A_BROWSER,
   HOST_NEEDS_THE_SERVERS_PAGE,
@@ -85,26 +84,24 @@ describe('the host action in the shell', () => {
     assert.ok(!form.includes('host-wrap'), 'the host action sits inside the join form');
   });
 
-  it('asks for a folder by name, and says what a guest gets', () => {
-    // The ellipsis is the platform's own convention for "this opens a picker" (design §7.1).
-    assert.match(html, /Choose a folder to share\u2026/, 'the button does not say what it does');
-    // The button asks for a folder; the line under it says what sharing one means, so the
-    // warning about the tab is not the only thing the card says about the room.
-    assert.match(main, /HOST_BUTTON_LABEL = 'Choose a folder to share\u2026'/, 'the label the bundle puts back differs from the shell');
-    assert.match(HOST_GUESTS_NOTE, /file names/i, 'the card never says what a guest sees');
-    assert.match(HOST_GUESTS_NOTE, /only when someone opens it/i, 'the card implies the text is sent up front');
-    assert.match(main, /HOST_GUESTS_NOTE/, 'the sentence is not the one the card writes');
-    assert.match(
-      main,
-      /hostShare\.textContent = offered \? HOST_GUESTS_NOTE : ''/,
-      'the note about what a guest sees is not the one the start card writes',
-    );
+  it('asks for a folder in three words, and says nothing the press has already said', () => {
+    // The ellipsis is the platform's own convention for "this opens a picker".
+    assert.match(html, /Share a folder\u2026/, 'the button does not say what it does');
+    assert.match(main, /HOST_BUTTON_LABEL = 'Share a folder\u2026'/, 'the label the bundle puts back differs from the shell');
+    assert.ok(!html.includes('Choose a folder'), 'the long label survives in the shell');
+    // The card carried a second paragraph under the button saying what a guest gets — the names
+    // in the folder, and a file's text only when it is opened. That is what the grant already
+    // defines (`DESIGN.md` §4.2 states the listing is paths, never content, and says nothing
+    // about the card), so the card does not say it and the paragraph is gone from both halves.
+    assert.ok(!main.includes('HOST_GUESTS_NOTE'), 'the card says what a guest gets, again');
+    assert.ok(!main.includes('host-share') && !main.includes('hostShare'), 'the paragraph survives in the wiring');
+    assert.ok(!html.includes('host-share'), 'the paragraph survives in the shell');
   });
 
-  it("says hosting in one quiet line on a guest's card, and the tab warning only on the start card", () => {
+  it("says hosting in one quiet line on a guest's card, and the one sentence it costs on the start card", () => {
     // Design §7.1: a guest arrived for the join, so hosting is one quiet line — pressing it is
-    // what puts the start card, the paragraph and the picker in front of them — and the paragraph
-    // about whose tab this is is read where the decision to host is made.
+    // what puts the start card, the sentence and the picker in front of them — and the cost of the
+    // room is read where the decision to host is made.
     assert.match(html, /<button id="host-quiet" type="button" hidden>Or start your own session<\/button>/,
       'the guest card carries no quiet line');
     const showing = sliceBetween(main, 'function showHosting', 'hostQuiet.addEventListener');
@@ -112,10 +109,18 @@ describe('the host action in the shell', () => {
     assert.match(showing, /hostQuiet\.hidden = !offered/, 'the quiet line stands where hosting is not offered');
     assert.match(showing, /hostButton\.hidden = true/, 'the start button still stands on a guest card');
     assert.match(showing, /hostNote\.textContent = offered \? '' : availability\.note/,
-      'a guest is read the paragraph about a tab the card has not offered to make a host');
-    // And the paragraph is the start card's own, once.
-    assert.match(showing, /hostNote\.textContent = availability\.note;/, 'the start card says nothing about whose tab it is');
-    assert.match(HOST_TAB_WARNING, /^This tab is the host/, 'the paragraph names the wrong tab');
+      'a guest is read the sentence about a room the card has not offered to make a host');
+    // And the sentence is the start card's own, once.
+    assert.match(showing, /hostNote\.textContent = availability\.note;/, 'the start card says nothing about what the room costs');
+    // One sentence, and it is the fact the person cannot see for themselves: closing or reloading
+    // this tab ends the room and nothing is written down. That the tab is the host is what the
+    // press already said, the countdown is the room's own grace and to be read where it runs, and
+    // a number in it would go stale.
+    assert.match(HOST_TAB_WARNING, /^Closing or reloading this tab ends the room/, 'the sentence names some other cost');
+    assert.match(HOST_TAB_WARNING, /nothing in it is saved/i, 'the sentence does not say the room is lost');
+    assert.ok(!/\.\s/.test(HOST_TAB_WARNING), `the card is a paragraph again: ${HOST_TAB_WARNING}`);
+    assert.ok(!/\bhost\b/i.test(HOST_TAB_WARNING), `the sentence tells a host that it is hosting: ${HOST_TAB_WARNING}`);
+    assert.ok(!/\bcountdown\b|\bseconds?\b|\bminutes?\b/i.test(HOST_TAB_WARNING), `the sentence carries a number that goes stale: ${HOST_TAB_WARNING}`);
     assert.ok(!/hostWarningFor/.test(main), 'the scoped warning survived the collapse');
   });
 
@@ -149,7 +154,7 @@ describe('whether the card offers to start a room', () => {
       kind: 'offered',
       note: HOST_TAB_WARNING,
     });
-    // One wording, whichever card is asking: a guest's card writes the paragraph nowhere, and the
+    // One wording, whichever card is asking: a guest's card writes the sentence nowhere, and the
     // start card that pressing its quiet line brings up is the only place it stands (`showHosting`).
     assert.equal(hostAvailability({ picker: true, read: server(sealedMeta) }).note, HOST_TAB_WARNING);
   });
@@ -179,7 +184,7 @@ describe('whether the card offers to start a room', () => {
     const availability = hostAvailability({ picker: true, read: { kind: 'no-answer' } });
     assert.equal(availability.kind, 'unchecked');
     assert.equal(availability.note, HOST_UNREAD_NOTE);
-    // The note is one sentence, whatever card it would stand on: `hostUnreadNote` is the same
+    // The note has one wording, whatever card it would stand on: `hostUnreadNote` is the same
     // wording the constant carries, so the two cannot drift into two answers.
     assert.equal(hostUnreadNote(), HOST_UNREAD_NOTE);
     assert.ok(
@@ -271,9 +276,14 @@ describe('what a reload leaves behind', () => {
     assert.deepEqual(store.all(), { [HOST_MARK_KEY]: 'r-1' });
     const notice = takeHostingNotice(store);
     assert.ok(notice !== undefined, 'a reloaded host tab was told nothing');
-    assert.match(notice, /hosting a room/);
-    assert.match(notice, /reloading ended it/i);
-    assert.match(notice, /nothing in it was written to the folder/);
+    // One sentence, and only what this reader can act on: what the reload cost, and the one act
+    // that starts another. The page-hosted shape is what they just reloaded, and the guests'
+    // countdown belongs to the room they are no longer in.
+    assert.match(notice, /^Reloading ended the room this tab was hosting/);
+    assert.match(notice, /nothing in it was saved/i);
+    assert.match(notice, /pick the folder again to start another/i);
+    assert.ok(!/\.\s/.test(notice), `the card is a paragraph again: ${notice}`);
+    assert.ok(!/\bcountdown\b|\bgrace\b/i.test(notice), `the reloaded host is told about a room they left: ${notice}`);
     // Taken, not repeated: the card goes back to being a card.
     assert.equal(takeHostingNotice(store), undefined);
     assert.deepEqual(store.all(), {});

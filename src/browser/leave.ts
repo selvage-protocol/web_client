@@ -90,7 +90,7 @@ export const LEAVE_CANCEL_LABEL = 'Cancel';
 
 /**
  * The question a host's first press asks. It names the consequence rather than the countdown that
- * follows it: the host reads the same sentence on the card before it ever starts a room
+ * follows it: the host read the same consequence on the card before it ever started a room
  * (`HOST_TAB_WARNING`), and the grace is the room's number, not this panel's.
  */
 export const HOST_LEAVE_QUESTION =

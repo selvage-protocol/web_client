@@ -194,8 +194,8 @@ describe('the join card: what a person who followed a link reads', () => {
   it('offers hosting as one quiet line, and says what it costs only on the start card', () => {
     // Both intents are offered it: the read `/meta` answers is not skipped because the address
     // carried a link, so a guest holding one can still start a room. On that card it is one quiet
-    // line — design §7.1 — and the paragraph about whose tab this is belongs to the start card the
-    // line opens, where the decision to host is actually made.
+    // line — design §7.1 — and the one sentence about what the room costs belongs to the start
+    // card the line opens, where the decision to host is actually made.
     const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
     assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');
     assert.ok(offering.includes('hostWrap.hidden = false'), 'the start action is never revealed');
@@ -253,7 +253,7 @@ describe('the name error stands where the name was asked for', () => {
     );
     // The field's line is the field's: beside the box it is about, above the invite path, and
     // hidden while it is empty.
-    const label = card.indexOf('<label>The name other participants see');
+    const label = card.indexOf('<label>Your name');
     const input = card.indexOf('id="name"');
     const error = card.indexOf('id="name-error"');
     const path = card.indexOf('id="invite-path"');

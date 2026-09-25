@@ -252,11 +252,24 @@ describe('placeholders', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
     const name = card.slice(
-      card.indexOf('<label>The name other participants see'),
+      card.indexOf('<label>Your name'),
       card.indexOf('id="invite-path"'),
     );
     assert.ok(!/placeholder=/.test(name), 'the name field still shows an example');
     assert.match(name, /<input id="name"/, 'the field left the label that asks for it');
+  });
+
+  it('labels the name field in two words, and still labels it', () => {
+    // The owner read the card's own words: "that my display name will be my display name as
+    // well". A field still needs a name — a bare box under the heading says nothing to a screen
+    // reader, and the refusal under it is a sentence about the name — so the words are short
+    // rather than gone.
+    const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    assert.match(html, /<label>Your name\s+<input id="name"/, 'the name field lost its label');
+    assert.ok(
+      !html.includes('The name other participants see'),
+      'the card asks for the name in a sentence again',
+    );
   });
 });
 

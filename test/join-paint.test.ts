@@ -354,6 +354,14 @@ describe('the card shell decides the first frame', () => {
     assert.equal(bare.message.hidden, false, 'the line that answers it is hidden');
     assert.match(bare.message.textContent, /still loading/, 'the answer does not say what is happening');
     assert.match(bare.message.textContent, /Press Enter again/, 'the answer names no next step');
+    // Two short sentences and no filler: the line said "one moment" and "in a moment", repeated
+    // itself inside one answer, and leaned on an em dash where a full stop belongs.
+    assert.ok(!/\u2014/.test(bare.message.textContent), `the answer leans on an em dash: ${bare.message.textContent}`);
+    assert.equal(
+      (bare.message.textContent.match(/\bmoment\b/gi) ?? []).length,
+      1,
+      `the answer repeats itself: ${bare.message.textContent}`,
+    );
     assert.notEqual(bare.joinButton.textContent, 'Joining…', 'the wrong verb is on the button');
     assert.equal(bare.joinButton.disabled, false, 'the join button was disabled for a join nobody asked for');
   });

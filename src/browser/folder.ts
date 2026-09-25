@@ -140,9 +140,9 @@ export const FOLDER_PICKER_OPTIONS = { mode: 'readwrite', id: PICKER_ID } as con
 export function folderPickSentence(cause: FolderPickRefusal, detail = ''): string {
   switch (cause) {
     case 'unsupported':
-      return 'This browser cannot hand a page a folder. Chrome and Edge can; Firefox and Safari cannot. Joining a room still works here — hosting one from this page needs a Chromium browser.';
+      return 'This browser cannot hand a page a folder. Chrome and Edge can; Firefox and Safari cannot. Joining a room here still works.';
     case 'refused':
-      return `The browser would not hand over that folder${detail === '' ? '' : ` (${detail})`}. A folder it keeps for itself — a system folder, your home directory itself — cannot be shared.`;
+      return `The browser would not hand over that folder${detail === '' ? '' : ` (${detail})`}. A system folder, or your home directory itself, cannot be shared.`;
   }
 }
 
@@ -214,7 +214,7 @@ export function folderCreateSentence(cause: FolderCreateRefusal, path: string): 
     case 'binary':
       return `${path} is a name that declares a format a room cannot carry, so it was not created. Name a text file instead.`;
     case 'exists':
-      return `${path} is already in the folder, so nothing was created. This page does not rename or replace what the folder holds — name something else.`;
+      return `${path} is already in the folder, so nothing was created. This page does not rename or replace what the folder holds. Name something else.`;
     case 'missing':
       return `${path} is not in the folder: the directory it goes through has to exist before a name inside it can be created. Create that directory first.`;
     case 'not-a-file':
@@ -245,7 +245,7 @@ export function folderWriteSentence(cause: FolderWriteRefusal, path: string): st
     case 'unread':
       return `${path} had not been read from the folder before this write, so it was left alone rather than overwritten with text this page never saw.`;
     case 'stale':
-      return `${path} changed on disk since the room read it — something else wrote it (a formatter, a build, another editor, a checkout) — so it was left alone rather than overwritten. The room still holds the room's text; open the file again to bring it in.`;
+      return `${path} changed on disk since the room read it, so it was left alone rather than overwritten. Something else wrote it (a formatter, a build, another editor, a checkout); the room still holds its text, and opening the file again brings it in.`;
     case 'not-permitted':
       return `${path} could not be written: this page no longer has write access to the folder. Grant it again from the address bar, or keep the room's text with Download.`;
   }

@@ -248,32 +248,17 @@ describe('roster rows', () => {
     assert.equal(buttons[0].disabled, false, 'the rename control is dead');
   });
 
-  it('a lone host reads that it is alone, and where the one act that changes it is', () => {
-    // The line carried a second `Copy invite link` beside the bar's own: the same control twice on
-    // one screen. It names the control in the bar instead, and the act stays where the link is.
+  it('draws a lone host the row that says who they are, and nothing else', () => {
+    // The `alone` row stood under it with `No one else yet.` — which the one row above already
+    // says — and pointed at `Copy invite link` in the bar, a control the bar carries in plain
+    // sight. Two answers to no question, and the second one told a reader where to look.
     const { list } = render([]);
-    const alone = list.children[1];
-    assert.ok(alone !== undefined && alone.className === 'alone', 'nothing says the room is empty');
-    assert.match(textOf(alone), /No one else yet\./);
-    assert.match(textOf(alone), /Copy invite link in the bar above\./);
-    assert.equal(buttonsIn(alone).length, 0, 'the room is invited from two places again');
-    // The line is for a room with nobody else in it, and it goes the moment somebody arrives.
-    assert.equal(render([SAM]).list.children.length, 2, 'the alone line stands beside a peer');
-  });
-
-  it('lays the lone host’s line out as one sentence, not two columns', () => {
-    // The two halves are the row's only children and `#roster li` lays its children out in a flex
-    // row: at the panel's default width each half took a column and wrapped inside it, so the line
-    // read "No one else / yet." beside "Copy invite link in the bar / above." — measured in
-    // Chromium 152 at 1280x900 with `sideWidth: 294`, and correct again at 374 px. The line is a
-    // block, so the halves wrap under each other as the sentence they are.
+    assert.equal(list.children.length, 1, 'a lone host is read more than their own row');
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-    const rule = /#roster li\.alone \{([^}]*)\}/.exec(html);
-    assert.ok(rule !== null, 'the lone host’s line has no rule of its own');
-    assert.match(rule[1] ?? '', /display:\s*block/, 'the lone host’s line is a row of parts again');
-    // One sentence means the space between the halves is in the row and not a flex gap.
+    assert.ok(!/#roster li\.alone/.test(html), 'the lone host’s line keeps a rule of its own');
     const roster = readFileSync(new URL('../src/browser/roster.ts', import.meta.url), 'utf8');
-    assert.match(roster, /row\.append\(text, ' ', pointer\)/, 'the two halves run together as one word');
+    assert.ok(!roster.includes('aloneRow'), 'the lone host’s line survives in the roster');
+    assert.ok(!/textContent = ['"]No one else/.test(roster), 'the lone host is told the room is empty in words');
   });
 
   it('marks the host, and only the host', () => {

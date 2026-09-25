@@ -127,14 +127,14 @@ builds it from the room's own server. A `ws://host:8080/session?room=…&token=�
 the other shape the page takes, pasted into the box a bare open shows, for a room whose
 server serves no page.
 
-Either way the card carries a heading, one question (the name other participants see) and
+Either way the card carries a heading, one question (your name) and
 one confirm, over a blurred preview of the editor. Type the name and press Join or Enter,
 and the first shared file opens focused. A pasted page link lands in the address bar, so a
 reload rejoins from it.
 
 ### Start a room from the page
 
-A page with no invite can start one: type the name, press **Choose a folder to share…**,
+A page with no invite can start one: type the name, press **Share a folder…**,
 and the browser asks for a folder. The folder is the room's working copy — the page walks it
 for the listing a guest's tree draws, reads a file out when a guest asks for it, and
 writes the text the room settles on back through it. Nothing is uploaded, and no file
@@ -271,8 +271,8 @@ only mint is the one behind the folder picker, and a test pins that the guest pa
 asks for the host role.
 
 A page-hosted room has one more thing to say. The room lives in its tab, so the card warns
-before the click, and a reload says `This tab was hosting a room, and it is not any
-more…` rather than offering a card that looks like the last one.
+before the click, and a reload says `Reloading ended the room this tab was
+hosting…` rather than offering a card that looks like the last one.
 
 ## What is in the tree
 
