@@ -256,8 +256,9 @@ only.
 
 On a device with a pointer the first shared file opens focused, so typing starts at
 once. A phone focuses it on the first tap instead, so the soft keyboard does not stand
-over a room nobody has seen, and starts with the tree and roster behind a
-`Files and people` control. The People roster leads with your own name — one swatch and
+over a room nobody has seen, and starts with the tree and roster behind the file strip, which
+carries a chevron for it and opens the panel under itself. The same layout answers for a phone
+on its side: a 844x390 touch device is the phone layout and not the desktop column. The People roster leads with your own name — one swatch and
 the one Rename control, which is what says the row is yours — and lists who else is here,
 never path text: a crown where the peer is hosting, a `Go to` where the peer is in a file
 and `not in a file yet` where it is not, and a `Follow` toggle that
@@ -330,9 +331,9 @@ The page's own modules:
 
 - `src/browser/main.ts`: the page. Display name, invite, the editable document, the
   People roster with go-to and a follow toggle, the presence-badged grant tree, the file
-  strip above the editor (the open file's state, the follow's own stop, the save control),
-  the panel disclosure a phone gets, and the page-origin share link whose whole bar
-  copies.
+  strip above the editor (the open file's state, the follow's own stop, the chevron a phone
+  opens the panel with), the panel disclosure a phone gets, and the page-origin share link
+  whose whole bar copies.
 - `src/browser/transport.ts`: the engine's socket from the browser's own WebSocket. The
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
@@ -370,9 +371,10 @@ The page's own modules:
   focus and press Enter, to copy; an overlay inside the bar names the `Link copied`
   confirmation briefly and hides, and the readout never leaves, so no layout shifts.
 - `src/browser/presence.ts`: initials, one badge per line, the badge CSS.
-- `src/browser/mobile.ts`: what a touch-only browser is given, the two media queries the
-  phone layout keys on, the editor options a phone needs (no minimap, wrapped lines,
-  16 px), and how tall the app is when a soft keyboard shrinks the visual viewport.
+- `src/browser/mobile.ts`: what a touch-only browser is given, the phone query's two arms
+  (upright and on its side) and the touch query it is narrowed by, the editor options a phone
+  needs (no minimap, wrapped lines, 16 px, a 55 px gutter), and how tall the app is when a soft
+  keyboard shrinks the visual viewport.
 - `src/browser/notice.ts`: the two message homes the page keeps: the session note in the
   chrome (the host-leave warning while the grace runs, counting its window down to the
   room's deadline, the dropped socket's line while the engine re-dials, and the host's

@@ -3669,3 +3669,70 @@ change to the owner's drawing made to satisfy a rule that exempts it. `MARK_GAMM
 identity), the data URI is re-pasted from the same renderer, and the identity test bounds the ink
 from both sides: below `MARK_INK_MIN` the mark is a smudge, at or above 3:1 it has been lifted
 again, and both messages say so.
+
+## The phone, made usable (2026-09-25)
+
+The owner's verdict was that the phone experience is bad, and a measured review at 390x844 said
+why. This is what changed, with the numbers the probes read before and after.
+
+**The panel opens under the strip, and takes what the strip leaves.** The panel was the first
+thing in the column, so opening it pushed the strip 343 px down the screen — y=138 shut, y=481
+open — and the tap that opened it was nowhere near the tap that closes it. It is under the strip
+now (`#pane { order: 1 }`, `#side { order: 2 }`) and the strip stays at y=111. The 60 % cap went
+with it: it made the panel 402 px of a 627 px workspace with a 756 px content, so with five peers
+the first file row sat 58 px below the panel's own bottom edge (320x640: 272 px of 507, first row
+166 px below). A touch device gets the whole workspace and the editor is out of the flow while
+the panel is up (`body:has(#side:not([hidden]))`), and the panel's own furniture gives some back
+— its headings stood 1.5em above themselves and a roster row is 0.45em of padding around a 44 px
+control. After: five peers at 390x844, the panel is 653 px, the roster 328, the first file row
+578, and the panel does not scroll (scrollHeight 652 = clientHeight); at 320x640 the first row is
+569 of a panel ending at 591.
+
+**The strip is the disclosure and says so.** A chevron at its far right, where its other control
+used to be, turned when the panel is open, over a muted ground. `applyStripRole` draws it, so a
+pointer device never carries it, and it is a span inside the strip's own `role="button"` rather
+than a button — a control within a control is one a finger cannot reach.
+
+**The disclosure's name moves with the file it names.** `applyStripRole()` ran at load and when
+the phone query flipped, so the name was stale: with README.md open it read `Files and people`,
+and in an empty room with nothing open it read `Files and people, README.md open`. `syncStrip`
+re-applies it, which is where the open file moves.
+
+**The bar is one row for the identity and one for the link.** `Leave and end the room` is 213 px
+of a 390 px bar, so the control took a row of its own: 138 px of the screen for the whole session.
+A phone gets the verb `Leave` (`LeaveOptions.shortLabel`) — the consequence is the control's
+accessible name, its tooltip, and the question the press opens, which is where a host reads it
+anyway — and the brand gives way first with the ellipsis it already has, because at 320 its own
+content was 289 px of the bar's 290 and the health dot wrapped onto a row of its own. 138 → 111 px
+at both widths. The bar's own wrapping (the copy strip taking a row) is now a narrow-screen block
+of its own, so a phone on its side keeps one row of controls: 111 → 62 px of a 390 px screen.
+
+**A row's own action is a fingertip wide.** The download control and a folder's `⋯` were 24x44 on
+a row whose own press opens the file, which for a guest opens it for every peer. Both take the
+44 px floor.
+
+**The follow segment keeps to one line.** Following a peer with a long name grew the strip to
+72 px at 390 and 109 px at 320 and cut the file's own name to `REA…` and `RE…`. The segment gives
+way first (`flex-shrink: 8`, and a zero basis on the name it carries) because the file's name is
+what the row is about and the followed peer's is on the roster too. Path 63 → 83 px at 390 and
+51 → 81 at 320, strip 72 → 59 px at 320.
+
+**A phone on its side is the phone layout.** `PHONE_QUERY` has two arms — `(any-hover: none) and
+(max-width: 640px), (any-hover: none) and (max-height: 480px)` — and both shell blocks carry both.
+At 844x390 with touch the desktop column used to come back: a 196 px panel beside the editor, the
+strip's own download control at x=803, roster names cut to 5 px of themselves, a footer of 60 px.
+After: the panel is the width of the screen with names that read, the bar is 62 px, the footer 22.
+
+**The editor gives a phone a quarter of its width back.** Monaco's line-number column, its fold
+arrows and its decoration width took 96 of 390 px — a quarter of the screen, 30 % at 320 — for
+numbers no phone document reaches and arrows a fingertip cannot hit. `lineNumbersMinChars: 3`,
+`folding: false`, `lineDecorationsWidth: 4`: 96 → 55 px. `glyphMargin` stays on, because a peer's
+badge is drawn in it.
+
+**A page that cannot start a room leads with joining.** At 390x844 in a browser with no directory
+picker the card led with a four-line refusal, joining was behind a 11.9 px `Have an invite link?`
+summary, and Join was the muted action of the two; a guest's card carried the same refusal under
+Join for an action it never offered. A start card whose action cannot be offered opens the invite
+path and gives Join the card's own action (`#join.no-host`), the refusal stands under it, and a
+guest's card says nothing at all — the quiet verb goes too, because a press that could only lead
+to a card with no action on it is worse than no verb. The guest's card is 418 → 302 px.
