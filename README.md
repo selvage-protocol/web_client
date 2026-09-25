@@ -189,8 +189,9 @@ scripts/ci-local.sh checks   # what .github/workflows/ci.yml runs, in one comman
 `typecheck` covers `src/`, which is all `tsconfig.json` includes.
 
 `test` runs the suite with a fake editor standing in for Monaco: the adapter, languages,
-follow, roster, the empty pane, grants, tree refresh, share links, the join card, mobile,
-identity, and the serve-types contract. `identity` reads files outside this repository:
+follow, the room’s faces and the menu behind them, the empty pane, grants, tree refresh,
+share links, the join card, mobile, identity, and the serve-types contract.
+`identity` reads files outside this repository:
 one of its tests compares the marks with the `site` checkout beside this one, and it reads
 this repository's own git directory to find that sibling from a worktree as well as from a
 checkout. Where there is no sibling — a single-repository CI job — that one test skips
@@ -256,18 +257,24 @@ only.
 
 On a device with a pointer the first shared file opens focused, so typing starts at
 once. A phone focuses it on the first tap instead, so the soft keyboard does not stand
-over a room nobody has seen, and starts with the tree and roster behind the file strip, which
-carries a chevron for it and opens the panel under itself. The same layout answers for a phone
-on its side: a 844x390 touch device is the phone layout and not the desktop column. The People roster leads with your own name — one swatch and
-the one Rename control, which is what says the row is yours — and lists who else is here,
-never path text: a crown where the peer is hosting, a `Go to` where the peer is in a file
-and `not in a file yet` where it is not, and a `Follow` toggle that
-reads `Following` pressed and stops the follow when it is pressed. A go-to the room
-cannot answer — the peer closed the file, or its caret does not resolve here — says so
-under that row for four seconds. The tree lists what the room shares with a peer badge on
-whose file is whose, and a tag beside a file whose text the room sent empty or holds open
-with nothing arrived for it. An action that refuses says so beside its own control, or in the
-alert where it has none.
+over a room nobody has seen, and starts with the tree behind the file strip, which carries a
+chevron for it and opens the panel under itself. The same layout answers for a phone on its
+side: a 844x390 touch device is the phone layout and not the desktop column.
+
+The people in the room are faces in the session bar, to the right of the invite pill and before
+the way out: your own seat first, always, then the room's peers, and five at a time on a pointer
+device or three on a phone, with the rest behind a `+N` that opens the list of everyone. A face
+wears three marks, each a shape rather than a colour — a solid ring for your own seat, a dashed
+ring and an eye for the one you follow, a crown for the host — and the person you follow is never
+the one counted away, because that ring is the only place a follow shows on this bar. Pressing a
+face opens that person's menu under it, with `Go to` where they are in a file and `not in a file
+yet` where they are not, a `Follow` toggle that reads `Stop following` once it is on, and your own
+`Rename`, which edits the name in the menu itself. A go-to the room cannot answer — the peer
+closed the file, or its caret does not resolve here — says so in that menu for four seconds. The
+sidebar is the tree, under its `Shared` heading: what the room shares, with a peer badge on whose
+file is whose, and a tag beside a file whose text the room sent empty or holds open with nothing
+arrived for it. An action that refuses says so beside its own control, or in the alert where it
+has none.
 
 Following shows a segment in the file strip, in the followed peer's colour, with the stop
 control on it, and ends when you type, navigate (open a file from the tree or go to
@@ -329,11 +336,11 @@ would be inventing a request the protocol does not have.
 
 The page's own modules:
 
-- `src/browser/main.ts`: the page. Display name, invite, the editable document, the
-  People roster with go-to and a follow toggle, the presence-badged grant tree, the file
-  strip above the editor (the open file's state, the follow's own stop, the chevron a phone
-  opens the panel with), the panel disclosure a phone gets, and the page-origin share link
-  whose whole bar copies.
+- `src/browser/main.ts`: the page. Display name, invite, the editable document, the faces
+  in the session bar with go-to and a follow toggle, the presence-badged grant tree, the
+  file strip above the editor (the open file's state, the follow's own stop, the chevron a
+  phone opens the panel with), the panel disclosure a phone gets, and the page-origin share
+  link whose whole bar copies.
 - `src/browser/transport.ts`: the engine's socket from the browser's own WebSocket. The
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
@@ -357,10 +364,11 @@ The page's own modules:
   and can carry no link, image or code span into a guest's browser.
 - `src/browser/icons.ts`: the inline-SVG set and the per-type tree icon, a solid page in
   the type's colour with a short label so it reads in a tree row.
-- `src/browser/roster.ts`: the People roster as a testable render, the own name first as
-  a full row (swatch, quiet `you`, the one verb the row can act on), one row per peer with
-  no path text, a `Go to` only where there is somewhere to go, a `Follow` toggle that
-  stops on its second press, and a refused go-to's sentence on the row that asked for it.
+- `src/browser/room.ts`: the room's faces as a testable render — the cap and who is
+  showing, the marks on each face, and the dialog a face opens: `Go to` only where there is
+  somewhere to go, a `Follow` toggle that stops on its second press, the own name's edit in
+  place, a refused go-to's sentence in the menu that asked for it, and the list of everyone
+  the `+N` opens.
 - `src/browser/empty-editor.ts`: the editor pane with no document in front of it — a host
   whose folder is empty, a host with files to pick from, a guest whose host has shared
   nothing, a guest with files to pick from — each naming the next act and putting its
@@ -464,8 +472,9 @@ scheme: nothing on the page's own path completes a bare domain, because a page r
 link's base or its own origin and both always carry one.
 
 `prove` mints a room with this checkout's own engine, joins the way the page does with
-the default `/meta` check, and walks the roster, the grant tree, a jump, a follow,
-convergence both ways, a reconnect, and the degraded `/meta` a cross-origin page sees.
+the default `/meta` check, and walks the room’s participants, the grant tree, a jump, a
+follow, convergence both ways, a reconnect, and the degraded `/meta` a cross-origin page
+sees.
 `prove:fb2` covers tree-only open, create and move tree refresh, and the share-link shape
 with a round trip back into a join. `prove:flow2` re-walks the three headline flows of the
 flow review. `prove:tls` hosts and joins on the demo origin and asserts that every

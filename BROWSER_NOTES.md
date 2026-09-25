@@ -3817,3 +3817,89 @@ call, and `test/file-strip.test.ts` pins the order, which is the only place the 
 **The follow segment's two comments sit over their own rules.** Both were stacked at
 `#file-strip-follow`, and the second described a zero basis — the rule below it, `flex: 1 1 0` on
 the name the segment carries — while the rule it stood over sets `flex-shrink: 8`.
+
+## The people are faces in the bar (2026-09-25)
+
+The People roster is gone. The sidebar is the tree, and who is here is a row of faces in the
+session bar, to the right of the invite pill and before the way out. The owner's prototype
+(`ai_notes/.tmp/presence-prototype/index.html`) is what this was built to, and the shipped page
+kept everything the prototype does not draw: the health dot, the leave question, the session note,
+the alert and the peek, the empty pane, the create row, `Shared` and its two buttons.
+
+**Why the panel went.** A roster is a permanent column of names for a fact that changes rarely and
+is read in a glance, and it was drawn above a tree that needs the room: on a phone it was the
+panel's own first screen (measured at 320x640 with five peers, five 44 px rows of it over the
+tree), and every row carried the same two or three verbs for every peer. The faces say the same
+thing in the bar's own row — who is here, who hosts, who you follow — one press away from going to
+someone, following them, or renaming yourself.
+
+**What the cluster costs the bar, measured against the same bar with the cluster hidden.** On a
+phone, nothing: 111 px either way, which is the design's own number and the one that matters, since
+the faces sit inside the 44 px row Leave already holds. On a pointer device it is 51 → 58 px: the
+faces' own strip is 40 px tall (a 30 px face, the 6 px above it that a crown and two rings paint
+into, and 4 px below) against a base bar whose content was 33. The design measures its desktop bar
+at 58 px with the cluster on it, so the two agree there as well; the 7 px is the crown's room above
+the circle, and zeroing that padding on a pointer device as the phone does would clip the crown
+against the top of `#app`.
+
+**The phone's faces cost the bar nothing, and that is the whole of the sizing.** `.av` is 34 px
+there against Leave's own 44 px row, the strip gives up the 6 px of padding it keeps above the
+circle on a wider screen, and the generic touch floor of 44 px cannot be a `min-height` on a face:
+the box *is* the circle, and a floor taller than the width draws an ellipse. The shape keeps its
+34 px and the fingertip gets its 44 px from a pseudo-element laid 5 px around it — measured at
+390x844 with `elementFromPoint`, a point 3 px above and 3 px left of a face lands on that face.
+Measured against the same bar with the cluster hidden: 111 px both ways, and the RESTORE is
+checked too, so a measurement that left `display: none` behind cannot read as zero.
+
+**Three marks, and each of them a shape.** Your own seat wears a solid ring in the foreground
+colour, the person you follow a dashed mauve ring plus an eye pip, the host a crown. Colours were
+not enough for the first two: the caret palette is eight hues and a room of nine already repeats
+one, so two peers can share a fill, and a peer filled with `--primary` is a ring on their own
+colour. The followed face is also never counted into the `+N`: the ring is the one place a follow
+shows on the bar, so when it would be hidden it takes the last shown slot instead (`visibleFaces`).
+The crown is the design's glyph, not the outline this client used to draw — Phosphor
+`crown-simple`, the whole 256 box, filled, `--warning` — at half the avatar's padding box, its own
+top 0.41 of that box above the circle's. It is not on tree badges: a 17 px square is not a circle
+to sit on, and at a size that reads it pokes out of the row, so the host's badge says `Mira · Host`
+in its tooltip instead.
+
+**The menu is a snapshot, so the roster's hold is gone rather than translated.** A face opens a
+dialog anchored under itself (8 px below, right edges aligned, re-placed on a resize); it is drawn
+when its own state changes — opened, closed, a refusal raised or retired, the name edit opened,
+dropped or committed — and a presence frame redraws the cluster behind it and nothing else. That
+is the decision the old `renameHoldsTheList` was making the hard way: the roster had to be held
+still, and the bug that survived the hold (`0.4.6`'s "the roster is drawn the moment a typed edit
+is left open") was a list that stopped being true while a field nobody was in stood open. A dialog
+the person opened is a read of the room at the moment they asked for it, and the frames underneath
+it are not its business. What is kept from the roster is its own rule for a stray press: a name the
+person has typed stays where it is, and a field they have put nothing of their own in closes with
+the dialog.
+
+**The words did not move.** `Go to`, `Follow`, `Stop following`, `not in a file yet`, the rename
+intent and its two answers are the strings the two clients share (`docs/studies/client-command-parity.md`
+§5), so the menu is where they were, not what they became; `Everyone in the room` is the one string
+this round added. The go-to refusal keeps its sentence and its four seconds, in the menu of the
+person it is about. Duplicate display names still disambiguate through `rosterLabel` (`names.ts`) —
+the mock had no rule for them and the shipped one did.
+
+**The prototype draws `not in a file yet` twice** for a peer in no file: once as the header's
+`where` line and once where a `Go to` would stand. Both are in the design and both are in the
+shipped menu (`19`/`22` in the review shots), and it reads as the same sentence twice in a two-line
+dialog. It is left as the design has it, and flagged rather than quietly dropped.
+
+**The one thing the cluster costs on a phone is the session name's room.** The bar is the same
+111 px and the same two rows, but a face of 34 px and the `+N` take about 100 px of the row: at
+390x844 `In Ada's session` reads `In Ada's sessi…` with the faces on the bar and whole with them
+hidden (measured both ways in the same probe). The design's own bar keeps its name whole at 390 px
+with a room of nine, and it can: its way out is a bare icon and it draws no health dot, where
+the shipped bar spends that room on `Leave`'s own words and the connected dot. The truncation is
+the cost of keeping both, and it is the one place this bar is tighter than the design's. Nothing
+else moved: the brand still truncates with its ellipsis, and the pill keeps its own row.
+
+**The removal.** `src/browser/roster.ts`, its CSS block in the shell, `<h2>People</h2>` and
+`<ul id="roster">`, and the container query's two narrow-panel verb rules are gone; the sidebar is
+`#tree` under `Shared`. `src/browser/room.ts` replaces it — `visibleFaces`, `renderRoom`,
+`renderPersonMenu`, `renderEveryoneMenu`, `menuPlacement` and `focusInto` — with the state in
+`main.ts` (`drawRoom`, `openMenu`, `closeMenu`, `renderMenu`). `test/roster.test.ts`
+became `test/room.test.ts`, and `test/mobile.test.ts` now holds the phone's own two numbers: 34 px
+faces and a cap of three.
