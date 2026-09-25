@@ -126,17 +126,26 @@ describe('what the strip states', () => {
     assert.match(style, /#tree button\.row \.pending-tag/, 'the unfetched tag lost its chip');
   });
 
-  it('puts a row\u2019s own marks in one place: the badges, then the buttons', () => {
+  it('puts a row\u2019s own marks in one place: the badges on the edge, the buttons beside them', () => {
     // The presence badges carry the row's one auto margin. The actions carried `auto` as well, so
     // the free space was split between the two and a file somebody is in showed their badge short
     // of the button it belongs beside — measured on the phone, the badge ended 88 px left of the
     // download control. On a pointer device the actions are invisible until hover and still take
-    // their room, so the gap was there in every state.
+    // their room, so the badge was held off the row's edge there too: measured at 1280x900, the
+    // badge ended at x=245 on a row ending at x=284, where the roster's own verbs end at x=277.
     assert.match(rule('#tree button.row .presence'), /margin-left:\s*auto/,
       'the badges no longer take the row\u2019s right edge');
     assert.ok(
       !/margin-left:\s*auto/.test(rule('#tree button.row .row-actions')),
-      'two auto margins split the free space, so the badges stop in the middle of the row',
+      'the base rule gives the actions an auto margin as well, so the free space is split',
+    );
+    // The pointer device's half: the marks are painted after the control, so the control's invisible
+    // slot cannot hold them off the edge, and the row's one auto margin goes with whichever of them
+    // stands first on the right. A touch device draws the control always and is left as it was.
+    assert.match(
+      style,
+      /@media \(any-hover: hover\) \{[\s\S]*?#tree button\.row \.presence \{ order: 1; \}[\s\S]*?#tree button\.row:has\(\.row-actions\) \.presence \{ margin-left: 0; \}[\s\S]*?#tree button\.row:has\(\.row-actions\) \.row-actions \{ margin-left: auto; \}/,
+      'the row\u2019s control does not take the slack, so the marks stop short of the edge again',
     );
   });
 

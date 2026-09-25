@@ -386,6 +386,22 @@
          was split between the two and the badges of a file stopped short of the buttons they belong
          beside. */
       #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
+      /* On a pointer device the row's own control is revealed by hover and holds its 24 px slot while
+         it is invisible, which held the marks that far off the row's edge — measured at 1280x900, the
+         badge ended at x=245 on a row ending at x=284, where the roster's own verbs end at 277. So the
+         marks take the edge and the control appears to their left, in the slot it had already
+         reserved: nothing moves when hover or focus brings it in. A touch device draws the control
+         always and keeps it on the edge, with the marks beside it.
+
+         The row's one auto margin belongs to the first thing in its right-hand group, and never to
+         two of them: two `auto` margins split the free space and stop the marks half-way across. */
+      @media (any-hover: hover) {
+        #tree button.row .presence { order: 1; }
+        #tree button.row:has(.unsaved) .presence,
+        #tree button.row:has(.row-actions) .presence { margin-left: 0; }
+        #tree button.row:has(.unsaved):not(:has(.row-actions)) .unsaved,
+        #tree button.row:has(.row-actions) .row-actions { margin-left: auto; }
+      }
       #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
       /* What a row says about the room when it has something a person cannot see: the room sent
