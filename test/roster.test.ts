@@ -313,7 +313,7 @@ describe('roster rows', () => {
     );
   });
 
-  it('the open edit replaces the name with the field it is about', () => {
+  it('the open edit replaces the name with the field it is about', async () => {
     const events = [];
     const { list } = render([], {
       selfName: 'me',
@@ -335,6 +335,11 @@ describe('roster rows', () => {
     assert.equal(field.value, 'me', 'the field does not open on the current name');
     assert.equal(field.maxLength, 32, 'the field offers more than the room takes');
     assert.equal(field.getAttribute('aria-label'), 'The name other participants see');
+    // The edit was asked for by a press, so the field is where the person is — asked for on a
+    // microtask, because the row is not in the document while the field is being built and a
+    // detached field ignores `focus()`. That is the whole reason it is a microtask: without the
+    // wait the call is made against a field nobody has appended yet, which is what the page did.
+    await Promise.resolve();
     assert.equal(field.focused, true, 'the field the person asked for does not take focus');
     // The name is the field while the edit is open: one thing asks the question, not two.
     assert.equal(withClass(self, 'name').length, 0, 'the old name stands beside the field');
@@ -344,11 +349,20 @@ describe('roster rows', () => {
       'a second rename control opens a second field',
     );
     field.value = 'ada';
+    field.fire('input');
     field.fire('keydown', { key: 'Enter', preventDefault: () => {} });
     assert.deepEqual(events, [['commit', 'ada']], 'Enter does not send the typed name');
     field.fire('keydown', { key: 'Escape', preventDefault: () => {} });
+    assert.deepEqual(events, [['commit', 'ada'], ['cancel']], 'Escape does not drop the typed name');
+    // A click outside the edit keeps what was typed and leaves the edit open, which is the rule the
+    // tree's create row already followed: the field holds a name the person typed, and a stray click
+    // is not an answer. Only an empty field closes, where there is nothing to keep.
     group.fire('focusout', { relatedTarget: null });
-    assert.deepEqual(events, [['commit', 'ada'], ['cancel'], ['cancel']], 'the ways out went wrong');
+    assert.deepEqual(events, [['commit', 'ada'], ['cancel']], 'a click outside the edit threw the typed name away');
+    field.value = '';
+    field.fire('input');
+    group.fire('focusout', { relatedTarget: null });
+    assert.deepEqual(events.at(-1), ['cancel'], 'an empty field is left open');
 
     // The visible pair: a field that only answers Enter is an action with no button, so the same ✓
     // and ✕ the tree's create row shows stand beside it — the same two answers to the same
@@ -356,6 +370,12 @@ describe('roster rows', () => {
     const save = withClass(self, 'rename-save')[0];
     const cancel = withClass(self, 'rename-cancel')[0];
     assert.ok(save !== undefined && cancel !== undefined, 'the edit offers no visible confirm or cancel');
+    // And the ✓ is disabled while the field names nothing, exactly as the create row's is while its
+    // own name names nothing: a press that could only be refused is not offered.
+    assert.equal(save.disabled, true, 'the confirm control is offered for an empty name');
+    field.value = 'ada';
+    field.fire('input');
+    assert.equal(save.disabled, false, 'the confirm control is dead for a name the room takes');
     assert.equal(save.textContent, '', `the confirm control spells itself out: ${save.textContent}`);
     assert.equal(save.getAttribute('aria-label'), 'Set this name');
     assert.equal(save.title, 'Set this name');
@@ -381,9 +401,11 @@ describe('roster rows', () => {
     group.fire('focusout', { relatedTarget: null });
     assert.equal(events.length, before, 'a mousedown on a control cancels the edit instead of pressing it');
     // Leaving from a control, where the field itself is no longer focused: the group is what
-    // listens, so this is still a dismissal rather than an edit left open.
+    // listens, and a field that names nothing is the one dismissal left.
+    field.value = '';
+    field.fire('input');
     group.fire('focusout', { relatedTarget: null });
-    assert.deepEqual(events.at(-1), ['cancel'], 'a click outside the edit does not dismiss it');
+    assert.deepEqual(events.at(-1), ['cancel'], 'an empty field left by a click outside it stays open');
   });
 
   it('peer colours stay on the swatch, data-driven', () => {

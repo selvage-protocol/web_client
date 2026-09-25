@@ -199,14 +199,22 @@ function selfRow(view: RosterView): HTMLElement {
  * they are the same two answers to the same question: keep this, or drop it. What is new here is
  * the size a finger gets: the glyph is 27 px wide, and on touch both are lifted to the 44 px floor
  * with room between them, where a miss on a file row's pair would otherwise open the file under
- * the fingertip. Clicking outside the edit dismisses it exactly as
- * Cancel does, sending nothing: a stray click must not commit a half-typed name, and the choice
- * is no longer silent because Cancel stands in the field's own row. The dismissal is what a blur
- * is, with one exception: focus moving to the edit's own two controls is not leaving it, so their
- * press is not cancelled out from under them.
+ * the fingertip.
+ *
+ * The pair behaves as the create row's does, in both halves of that. The ✓ is disabled while the
+ * field names nothing, which is the one refusal a name can meet here: the protocol's bound is the
+ * field's own `maxLength`, so a name too long cannot be typed. And leaving the field keeps what was
+ * typed and leaves the edit open — a stray click must not commit a half-typed name, and must not
+ * throw one away either, which is the rule the create row already followed. Only an empty field
+ * closes, where there is nothing to keep: the create row's field holds a typed path, so a dismissal
+ * that discarded one would be the worse of the two rules to share.
+ *
+ * The dismissal is what a blur is, with one exception: focus moving to the edit's own two controls
+ * is not leaving it, so their press is not cancelled out from under them.
  *
  * Both controls are reachable by keyboard and the field takes focus when it is drawn: the edit was
- * asked for by a press, so the person is in it already.
+ * asked for by a press, so the person is in it already, which is also what puts the two controls a
+ * Tab from the name they are about.
  */
 function nameField(rename: RosterRename): HTMLElement {
   const group = document.createElement('span');
@@ -234,13 +242,20 @@ function nameField(rename: RosterRename): HTMLElement {
   cancel.title = RENAME_CANCEL_LABEL;
   cancel.setAttribute('aria-label', RENAME_CANCEL_LABEL);
   cancel.addEventListener('click', () => rename.cancel());
+  // The ✓ says the same thing the create row's does: a press that could only be refused is not
+  // offered. `maxLength` above is the protocol's bound, so an empty field is the whole of it.
+  const updateSave = (): void => {
+    save.disabled = field.value.trim() === '';
+  };
+  field.addEventListener('input', updateSave);
+  updateSave();
   // Leaving the edit is a `focusout` on the whole group, not a `blur` on the field: focus can
   // move from the field to Save or Cancel and only then outside, and a listener on the field
   // alone would miss that and leave the edit open. Focus moving between the edit's own parts is
   // not leaving it; a press on Save or Cancel is recorded on the way down as well, because a
   // browser that does not focus a button on mousedown (Safari) reports no `relatedTarget` and
   // the button's own click must still land rather than be cancelled out from under it. Anything
-  // else dismisses exactly as Cancel does.
+  // else leaves the edit as the person left it, and only an empty field closes.
   let pressed = false;
   for (const control of [save, cancel]) {
     control.addEventListener('mousedown', () => {
@@ -268,10 +283,15 @@ function nameField(rename: RosterRename): HTMLElement {
       pressed = false;
       return;
     }
-    rename.cancel();
+    if (field.value.trim() === '') {
+      rename.cancel();
+    }
   });
   group.append(field, save, cancel);
-  field.focus?.();
+  // The edit was asked for by a press, so the field is where the person is. Asked for on a
+  // microtask because the row this field belongs to is not in the document yet, and a field that is
+  // not in the document ignores `focus()`: the call made here in the same task did nothing.
+  queueMicrotask(() => field.focus?.());
   return group;
 }
 
