@@ -859,7 +859,6 @@ async function seatSession(seat: Seat): Promise<void> {
     touch: () => touchOnly,
     canCreate: () => hostFolder !== undefined,
     localFolders: () => madeFolders,
-    room: () => hostFolder?.name ?? '',
     unsaved: () => unsavedPaths,
     hostAway: () => hostAway,
     create: (path, entry) => createEntry(path, entry),

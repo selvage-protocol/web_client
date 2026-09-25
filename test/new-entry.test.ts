@@ -23,7 +23,6 @@ import {
   checkNewEntry,
   createInFolder,
   missingFolders,
-  newEntryHint,
   newEntryPath,
 } from '../src/browser/new-entry.ts';
 import type { NewEntryContext } from '../src/browser/new-entry.ts';
@@ -333,32 +332,36 @@ function context(overrides: Partial<NewEntryContext> = {}): NewEntryContext {
     kind: 'file',
     raw: '',
     parent: '',
-    room: 'demo-app',
     listing: [],
     localFolders: new Set<string>(),
     ...overrides,
   };
 }
 
+/** The shell's stylesheet, comments stripped: a rule's own declaration is read off the text. */
+const shell = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const style = shell
+  .slice(shell.indexOf('<style>'), shell.indexOf('</style>'))
+  .replace(/\/\*[\s\S]*?\*\//g, '');
+
 describe('the line under the field', () => {
-  it('says what Enter does and where the entry will land, at the root and in a directory', () => {
-    assert.equal(
-      newEntryHint('file', '', 'demo-app'),
-      'Enter creates the file in demo-app · Esc cancels',
-    );
-    assert.equal(
-      newEntryHint('file', 'src', 'demo-app'),
-      'Enter creates the file in src/ · Esc cancels',
-    );
-    assert.equal(
-      newEntryHint('directory', 'src', 'demo-app'),
-      'Enter creates the folder in src/ · Esc cancels',
+  it('takes no room at all while it is empty', () => {
+    // The line stands for a refusal or for the folder the commit will also make, and for nothing
+    // else: an empty one has to leave the tree exactly as it was, or every name typed would move
+    // the rows under the field.
+    assert.match(
+      style,
+      /#tree \.new-hint:empty \{ display: none; \}/,
+      'the empty line still takes a line the tree draws around it',
     );
   });
 
-  it('is the instruction while the field is empty, and is not an error', () => {
+  it('says nothing while the field is empty, and is not an error', () => {
+    // The row does not explain itself: the field, the `✓` beside it and the tree it stands in say
+    // what pressing it makes. The line is for what a person cannot see — a refusal, or the folder
+    // the commit will also make.
     const check = checkNewEntry(context());
-    assert.equal(check.line, 'Enter creates the file in demo-app · Esc cancels');
+    assert.equal(check.line, '', `the empty row explains itself: ${check.line}`);
     assert.equal(check.error, false);
     assert.equal(check.path, undefined, 'an empty field would create something');
   });
@@ -449,10 +452,10 @@ describe('the live checks', () => {
     );
   });
 
-  it('is the instruction again as soon as the name is one the room can take', () => {
+  it('is empty again as soon as the name is one the room can take', () => {
     const check = checkNewEntry(context({ raw: 'notes.md', listing: ['README.md'] }));
     assert.equal(check.error, false);
-    assert.equal(check.line, 'Enter creates the file in demo-app · Esc cancels');
+    assert.equal(check.line, '', `a name the room can take is explained: ${check.line}`);
     assert.equal(check.path, 'notes.md');
   });
 

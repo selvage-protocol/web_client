@@ -473,21 +473,23 @@ describe('the create row', () => {
     assert.equal(commit.tag, 'button');
     assert.equal(commit.attributes['aria-label'], 'Create file');
     assert.equal(cancel.attributes['aria-label'], 'Cancel');
-    assert.match(withClass(pane, 'new-hint').textContent, /^Enter creates the file in demo-app/);
+    // The row explains nothing: the field, the `✓` and the tree around them are the whole of what
+    // it is for, so the line stands empty until there is something a person cannot see.
+    assert.equal(withClass(pane, 'new-hint').textContent, '', 'the row explains itself');
     assert.ok(allWithClass(row, 'icon').length > 0, 'the kind’s icon is not drawn');
   });
 
-  it('names the directory variant’s own destination and kind', () => {
+  it('names the directory variant’s own kind', () => {
     const { pane, view } = creating({ listing: ['src/main.ts'] });
     view.beginCreate('directory', 'src');
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create folder');
-    assert.equal(withClass(pane, 'new-hint').textContent, 'Enter creates the folder in src/ · Esc cancels');
+    assert.equal(withClass(pane, 'new-hint').textContent, '');
     // The trailing slash is drawn outside the field rather than typed into it.
     assert.equal(withClass(pane, 'new-slash').textContent, '/');
     assert.equal(withClass(pane, 'new-slash').hidden, false);
   });
 
-  it('validates as the person types, in the line that carried the instruction', async () => {
+  it('validates as the person types, in the line under the field', async () => {
     const { pane, view, created } = creating();
     view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
@@ -571,7 +573,7 @@ describe('the create row', () => {
     assert.equal(view.isCreating(), true, 'the row closed instead of offering the next step');
     assert.equal(view.creatingIn(), 'docs', 'the row opened somewhere other than the folder just made');
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create file');
-    assert.equal(withClass(pane, 'new-hint').textContent, 'Enter creates the file in docs/ · Esc cancels');
+    assert.equal(withClass(pane, 'new-hint').textContent, '');
     assert.equal(state.listing.length, 1);
   });
 

@@ -342,8 +342,12 @@
         background: none; color: var(--muted-foreground); }
       #tree .new-commit:hover:not(:disabled) { color: #a6e3a1; border-color: var(--border-strong); }
       #tree .new-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--border-strong); }
+      /* The line under the field, which stands only when it has something to say: a refusal, or the
+         folder the commit will also make. A name this room can take needs no line, and a hidden one
+         keeps the tree from shifting as a person types. */
       #tree .new-hint { margin: 0.3em 0 0; font-size: 0.78em; line-height: 1.4;
         color: var(--muted-foreground); }
+      #tree .new-hint:empty { display: none; }
       #tree .new-line .icon.busy { animation: health-pulse 1.1s ease-in-out infinite; }
       #tree { margin: 0; padding: 0; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
