@@ -3518,11 +3518,14 @@ started.` is gone, and a decision is no longer dressed as a mistake.
 
 **The mark, levelled.** The 2026-09-18 derivation above sized the inlined mark but never
 levelled it, and the owner's export is dark: the median ink pixel measured **1.72:1** on
-this page's card (`--card`, `#181825`). `renderIcon(..., { gamma: MARK_GAMMA })` applies
-the same gamma curve the site applies to its own nav mark, after the resize and to the
-colour channels only — no redraw, no recolour — which puts that pixel at **4.90:1**.
-`test/identity.test.ts` measures it from the inlined file's own pixels, over the card's
-own ground, at the non-text floor.
+this page's card (`--card`, `#181825`). `scripts/mark-level.mjs` resamples through the
+renderer the sized icons already use, applies the same gamma curve the site applies to its
+own nav mark to the decoded colour channels — no redraw, no recolour — and puts that pixel
+at **4.90:1**. The curve is applied in JS rather than through ImageMagick's `-gamma`, which
+is not one curve in every release this page is built with: trixie's 7.1.1 rendered the
+inlined bytes differently from the 7.1.2 they were committed from, which the CI run on this
+branch's first push found. `test/identity.test.ts` measures the inlined file's own pixels
+over the card's own ground, at the non-text floor.
 
 **The demo's notice on a phone.** The instance's front injects its non-commercial notice
 after `#app`; on a phone it is three lines of prose, 80 px and about a tenth of the

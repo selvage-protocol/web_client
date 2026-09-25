@@ -378,8 +378,8 @@ The page's own modules:
 
 `public/` is the page shell, which carries the site's mark as its own pixels, a 104 px
 render of `mark-transparent.png` inlined in the shell so no frame waits on an image.
-`node scripts/inline-mark.mjs` prints a refreshed one, levelled (`MARK_GAMMA`) the way the
-site levels the copy the nav bar paints.
+`node scripts/inline-mark.mjs` prints a refreshed one, levelled the way the site levels the copy
+the nav bar paints (`scripts/mark-level.mjs`).
 
 `scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-v2.mjs`, the
 wire's proof in a real browser; `prove-fb2.mjs`, the

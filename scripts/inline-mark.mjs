@@ -1,8 +1,8 @@
 /**
  * Prints the shell's inlined mark: a 104 px render of the mark the site owns,
- * levelled the way the site levels its own nav copy (`MARK_GAMMA`), as the
- * `data:image/png;base64,…` URI `public/index.html` carries in its `.mark`
- * rule. 104 px is the card's 3.25rem at 2x, the largest the mark is ever
+ * levelled the way the site levels its own nav copy (`scripts/mark-level.mjs`),
+ * as the `data:image/png;base64,…` URI `public/index.html` carries in its
+ * `.mark` rule. 104 px is the card's 3.25rem at 2x, the largest the mark is ever
  * shown, and the renderer is the one the build's icons use — so a refresh is
  * one paste, never a redraw.
  *
@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MARK_GAMMA, renderIcon } from './dist-icons.mjs';
+import { renderLevelledMark } from './mark-level.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const size = 104;
@@ -28,7 +28,7 @@ const scratch = resolve(root, '.tmp/inline-mark');
 mkdirSync(scratch, { recursive: true });
 try {
   const out = resolve(scratch, `mark-${size}.png`);
-  renderIcon(resolve(root, 'public/mark-transparent.png'), size, out, { gamma: MARK_GAMMA });
+  renderLevelledMark(resolve(root, 'public/mark-transparent.png'), size, out);
   console.log(`data:image/png;base64,${readFileSync(out).toString('base64')}`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });

@@ -5,7 +5,7 @@
  * are byte-identical copies of the site's files, the sized icons are rendered
  * by the build from the opaque master, and the mark in the shell is 104 px of
  * the transparent master, levelled the way the site levels its own nav copy
- * (`MARK_GAMMA`, `scripts/dist-icons.mjs`), decoded here and checked against
+ * (`MARK_GAMMA`, `scripts/mark-level.mjs`), decoded here and checked against
  * that same renderer. The site keeps its opaque mark as the OpenGraph image
  * (`app/`), which is the same file this page serves as `mark-opaque.png`.
  *
@@ -25,11 +25,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MARK_GAMMA, renderIcon } from '../scripts/dist-icons.mjs';
+import { renderIcon } from '../scripts/dist-icons.mjs';
+import { MARK_GAMMA, decodePng, renderLevelledMark } from '../scripts/mark-level.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,6 +68,9 @@ const noSibling =
   'no `site` checkout beside this one: the mark cannot be compared byte for byte with the site that owns it';
 
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+/** One PNG's pixels, for comparing two encodings of the same raster. */
+const rasterSha = (png: ReturnType<typeof decodePng>) => createHash('sha256').update(png.raster).digest('hex');
 
 /**
  * The site's hash for one of its files. The sibling checkout is edited in
@@ -143,18 +147,20 @@ describe('identity', () => {
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
     const found = html.match(/url\("data:image\/png;base64,([^"]+)"\)/);
     assert.ok(found !== null, 'the shell carries no inlined mark');
-    const inlined = Buffer.from(found[1] ?? '', 'base64');
+    const shown = decodePng(Buffer.from(found[1] ?? '', 'base64'));
     // 104 px is the card's 3.25rem at 2x: the largest the mark is ever shown.
-    assert.equal(inlined.readUInt32BE(16), 104, 'the inlined mark is not 104 px wide');
-    assert.equal(inlined.readUInt32BE(20), 104, 'the inlined mark is not 104 px tall');
+    assert.equal(shown.width, 104, 'the inlined mark is not 104 px wide');
+    assert.equal(shown.height, 104, 'the inlined mark is not 104 px tall');
     const scratch = resolve(root, '.tmp/mark-inline');
     mkdirSync(scratch, { recursive: true });
     try {
       const rendered = resolve(scratch, 'mark-104.png');
-      renderIcon(resolve(root, 'public/mark-transparent.png'), 104, rendered, { gamma: MARK_GAMMA });
+      renderLevelledMark(resolve(root, 'public/mark-transparent.png'), 104, rendered);
+      // The pixels, not the file: two encoders may compress one raster differently, and what is
+      // pinned here is the owner's artwork as the renderer resampled and levelled it.
       assert.equal(
-        sha256(rendered),
-        createHash('sha256').update(inlined).digest('hex'),
+        rasterSha(decodePng(readFileSync(rendered))),
+        rasterSha(shown),
         'the inlined mark is not what the renderer makes of the site\'s mark',
       );
     } finally {
@@ -175,21 +181,16 @@ describe('identity', () => {
       html.match(/url\("data:image\/png;base64,([^"]+)"\)/)?.[1] ?? '',
       'base64',
     );
-    const scratch = resolve(root, '.tmp/mark-level');
-    mkdirSync(scratch, { recursive: true });
-    try {
-      const rendered = resolve(scratch, 'mark-104.png');
-      writeFileSync(rendered, inlined);
-      const ink = markInk(rendered, ground);
-      assert.ok(
-        ink.ratio >= NON_TEXT_MIN,
-        `the mark's typical ink pixel is ${ink.colour} on ${ground} = ${ink.ratio.toFixed(2)}:1, under the ${NON_TEXT_MIN}:1 floor (${ink.pixels} ink pixels)`,
-      );
-      // And the measurement reaches the mark: a transparent field would be no ink at all.
-      assert.ok(ink.pixels > 100, `the mark has ${ink.pixels} ink pixels, so nothing was measured`);
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+    const ink = markInk(decodePng(inlined), ground);
+    assert.ok(
+      ink.ratio >= NON_TEXT_MIN,
+      `the mark's typical ink pixel is ${ink.colour} on ${ground} = ${ink.ratio.toFixed(2)}:1, under the ${NON_TEXT_MIN}:1 floor (${ink.pixels} ink pixels)`,
+    );
+    // And the measurement reaches the mark: a transparent field would be no ink at all.
+    assert.ok(ink.pixels > 100, `the mark has ${ink.pixels} ink pixels, so nothing was measured`);
+    // The curve is the one this module names, so a derivative that lifted it by another number
+    // would have to be pasted in by hand over this test.
+    assert.ok(MARK_GAMMA > 1, 'the levelling curve is no curve at all');
   });
 });
 
@@ -203,21 +204,15 @@ const MARK_INK_ALPHA = 50;
  * The mark's typical ink pixel over `ground`, its count and the contrast ratio between them.
  *
  * The mark is shown as pixels rather than as a token, so the only way to measure the tone it
- * paints is to read them: ImageMagick decodes the PNG to its own 8-bit RGBA samples (it is
- * already the gate's renderer, so no second decoder enters the suite for one file), the pixels
- * are composited over the ground the card paints them on, and the median of what is left is the
- * mark as a reader sees it. The median rather than the mean, so a mark that is dark except for a
+ * paints is to read them: `mark-level.mjs` decodes the PNG to its 8-bit samples, the pixels are
+ * composited over the ground the card paints them on, and the median of what is left is the mark
+ * as a reader sees it. The median rather than the mean, so a mark that is dark except for a
  * highlight does not pass; alpha above half coverage, so the transparent field beside the glyphs
  * is not counted as ink at all.
  */
-function markInk(path: string, ground: string) {
-  const png = readFileSync(path);
-  const width = png.readUInt32BE(16);
-  const height = png.readUInt32BE(20);
-  const raster = execFileSync('magick', [path, '-depth', '8', 'rgba:-'], {
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  assert.equal(raster.length, width * height * 4, 'the decoder did not return the mark\'s pixels');
+function markInk(png: ReturnType<typeof decodePng>, ground: string) {
+  const { channels, raster } = png;
+  assert.equal(channels, 4, 'the mark is not an alpha image, so its ink cannot be told from its field');
   const base = [1, 3, 5].map((at) => parseInt(ground.slice(at, at + 2), 16));
   const ink: { lum: number; colour: string }[] = [];
   for (let at = 0; at < raster.length; at += 4) {
