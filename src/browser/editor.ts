@@ -2,7 +2,14 @@ import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
-import { DEFAULT_SAVE_SETTLE_MS, grantUnion, peerColour, realTimers, render } from '../bridge/index.ts';
+import {
+  DEFAULT_SAVE_SETTLE_MS,
+  grantUnion,
+  peerColour,
+  realTimers,
+  render,
+  translucent,
+} from '../bridge/index.ts';
 import type { GrantRefusal, Timers } from '../bridge/index.ts';
 import type { FolderWork } from './folder.ts';
 import { grantLevels } from './tree.ts';
@@ -163,6 +170,8 @@ export class MonacoBinding implements EditorHost {
   private readonly stops: Array<() => void> = [];
   private readonly colours = new Map<string, string>();
   private readonly badges = new Map<string, string>();
+  /** The colour the page has given each seat, empty until it hands its room in (`setSeatColours`). */
+  private seatColours: ReadonlyMap<string, string> = new Map();
   private readonly cursors: monaco.editor.IEditorDecorationsCollection;
   private readonly style: HTMLStyleElement;
   /** The badge rules alone, so a cache restart can drop the rules it no longer names. */
@@ -437,8 +446,9 @@ export class MonacoBinding implements EditorHost {
 
   /**
    * The room's other participants, read at the moment it is asked for. A peer with
-   * no document is still listed: its colour derives from its id, so there is
-   * always a caret colour to look it up by.
+   * no document is still listed: it has a colour whether or not the page has handed
+   * its seats in — the bridge's own derivation from the peer id — so there is always
+   * a caret colour to look it up by.
    */
   participants(): Participant[] {
     // Past the end nobody is here: the faces clear instead of lingering
@@ -458,9 +468,32 @@ export class MonacoBinding implements EditorHost {
       peerId: peer.peer_id,
       displayName: peer.display_name === '' ? peer.peer_id : peer.display_name,
       role: peer.role,
-      colour: peerColour(peer.peer_id),
+      colour: this.seatColour(peer.peer_id, peerColour(peer.peer_id)),
       path: paths.get(peer.peer_id),
     }));
+  }
+
+  /**
+   * The colour each seat wears in this window, keyed by peer id, as the page worked it out from the
+   * room its own bar draws (`seats.ts`). Handed in rather than derived here, so the faces, the
+   * tree's badges and the carets are one answer instead of three that can disagree.
+   *
+   * A peer the map does not name keeps the bridge's colour — the hash of its id — which is also what
+   * a page that hands no seats in at all reads, owner and guest alike.
+   */
+  setSeatColours(colours: ReadonlyMap<string, string>): void {
+    if (this.disposed || sameColours(this.seatColours, colours)) {
+      return;
+    }
+    this.seatColours = colours;
+    // The carets and their badges are already drawn in the colours this replaces: a seat moves
+    // under them whenever somebody joins or leaves, and the frame that says so repaints here.
+    this.renderCursors(this.bridge.cursors());
+  }
+
+  /** The seat's colour where the page named one, and what the binding would have drawn otherwise. */
+  private seatColour(peerId: string, otherwise: string): string {
+    return this.seatColours.get(peerId) ?? otherwise;
   }
 
   /**
@@ -541,7 +574,7 @@ export class MonacoBinding implements EditorHost {
     return {
       peerId: this.followingPeerId,
       name: this.followingName,
-      colour: peerColour(this.followingPeerId),
+      colour: this.seatColour(this.followingPeerId, peerColour(this.followingPeerId)),
     };
   }
 
@@ -1010,14 +1043,17 @@ export class MonacoBinding implements EditorHost {
   }
 
   renderCursors(cursors: Cursor[]): void {
+    // The bridge's colours are the desktop client's, derived from the peer id. This window's seats
+    // are its own, so a cursor is repainted on the way to the screen — caret, fill and badge together.
+    const seated = cursors.map((cursor) => this.seatCursor(cursor));
     const model = this.path === undefined ? undefined : this.models.get(this.path);
     if (model === undefined) {
       this.cursors.clear();
       this.drawn = [];
       return;
     }
-    const here = cursors.filter((cursor) => cursor.path === this.path);
-    this.drawn = cursors;
+    const here = seated.filter((cursor) => cursor.path === this.path);
+    this.drawn = seated;
     // One glyph-margin badge per line: badges on one line share a lane and
     // would draw over one another, so the lowest peer id wins the lane.
     const badged = onePerLine(here, (cursor) => model.getPositionAt(cursor.head).lineNumber);
@@ -1232,6 +1268,20 @@ export class MonacoBinding implements EditorHost {
     });
   }
 
+  /**
+   * One cursor in this window's own seat colour, fill and all. The bridge derives a peer's colour
+   * from its id — the desktop client's rule, so the same peer reads the same in every window of
+   * it — and the page's seats replace it wherever one is named.
+   */
+  private seatCursor(cursor: Cursor): Cursor {
+    const seat = this.seatColours.get(cursor.peerId);
+    if (seat === undefined) {
+      return cursor;
+    }
+    // The same quarter alpha the bridge fills a selection with.
+    return { ...cursor, colour: seat, fill: translucent(seat, 0.25) };
+  }
+
   private colourClass(name: string, rule: string): string {
     const known = this.colours.get(name);
     if (known !== undefined) {
@@ -1269,6 +1319,22 @@ export class MonacoBinding implements EditorHost {
 
 function peerName(displayName: string, peerId: string): string {
   return displayName === '' ? peerId : displayName;
+}
+
+/**
+ * Whether two seat maps name the same colour for the same peer, so a presence frame that moved
+ * nobody costs no repaint: the page hands its seats in on every frame the room reports.
+ */
+function sameColours(left: ReadonlyMap<string, string>, right: ReadonlyMap<string, string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const [peerId, colour] of left) {
+    if (right.get(peerId) !== colour) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

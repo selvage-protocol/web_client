@@ -111,6 +111,7 @@ import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
 import { schemeMatchBase, serverBaseOf } from './servers.ts';
+import { seatColours } from './seats.ts';
 import {
   PHONE_QUERY,
   TOUCH_QUERY,
@@ -1528,6 +1529,24 @@ function roomPeople(participants: readonly Participant[]): RoomPerson[] {
 }
 
 /**
+ * The room's people, each wearing the colour of the seat its person takes.
+ *
+ * The seats are worked out here, once per presence frame, from the people the bar already draws:
+ * the host's seat first, then your own, then the room's order (`seats.ts`). Handing the same answer
+ * to the editor is what keeps the faces, the tree's badges and the carets one colour per peer rather
+ * than three that can disagree.
+ */
+function seatedRoom(participants: readonly Participant[]): RoomPerson[] {
+  const people = roomPeople(participants);
+  const colours = seatColours(people);
+  binding?.setSeatColours(colours);
+  return people.map((person) => ({
+    ...person,
+    colour: colours.get(person.peerId) ?? person.colour,
+  }));
+}
+
+/**
  * Who is here, as the faces in the bar, and the menu the face that was pressed belongs to.
  *
  * The cluster and the dialog are both reads of the room as it stands, so both are drawn wherever a
@@ -1542,7 +1561,7 @@ function roomPeople(participants: readonly Participant[]): RoomPerson[] {
  * into it is put back by the draw that follows — so the dialog is never stale while nobody types.
  */
 function drawRoom(participants: Participant[]): void {
-  renderRoom(faceStrip, roomPeople(participants), {
+  renderRoom(faceStrip, seatedRoom(participants), {
     followedPeerId: binding?.following()?.peerId,
     openAnchor: menu?.anchor,
     limit: phoneLayout.matches ? PHONE_FACE_LIMIT : FACE_LIMIT,
@@ -1659,7 +1678,7 @@ function renderMenu(focusSelector?: string): void {
     menuElement.id = 'menu';
     appPane.appendChild(menuElement);
   }
-  const people = roomPeople(binding?.participants() ?? []);
+  const people = seatedRoom(binding?.participants() ?? []);
   const anchor = menu.anchor;
   const renaming = renameView();
   if (menu.view === 'everyone') {

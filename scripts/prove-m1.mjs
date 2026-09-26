@@ -23,6 +23,7 @@ import { PeerEngine } from '../src/bridge/index.ts';
 import { listingSource, pageEngine } from '../src/browser/relay.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
+import { seatColours } from '../src/browser/seats.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
@@ -284,7 +285,26 @@ const roster = await waitFor(
 );
 const hostRow = roster.find((row) => row.displayName === 'prove-host');
 check('the room names the host', hostRow !== undefined);
-check('participant colour reuses the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
+// Two readings of a peer's colour, and this binding has been handed neither by the page: the
+// bridge's own derivation from the peer id, which is what the desktop client paints by.
+check('a participant with no seats handed in wears the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
+// The seats the page hands in are what the participants wear (`seats.ts`): the host's seat first,
+// then your own, then the room's order. The guest is looking at somebody else's room, so its host
+// takes Mauve whatever seat it holds in the room's own list — and which seat that is is the room's
+// word, in the state it seals, which arrives after the roster does.
+const crowned = await waitFor(
+  'the room to name the seat that is hosting',
+  () => binding.participants().find((row) => row.role === 'host'),
+  10_000,
+);
+const seats = seatColours([
+  { peerId: guestEngine.session().peer.peer_id, role: guestEngine.session().role },
+  ...binding.participants().map((row) => ({ peerId: row.peerId, role: row.role })),
+]);
+binding.setSeatColours(seats);
+const seated = binding.participants().find((row) => row.peerId === crowned.peerId);
+check('the seats the page hands in are what the participants wear', seated.colour === seats.get(crowned.peerId));
+check('and the room’s host takes Mauve', seated.colour === '#cba6f7');
 console.log(`participants: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
 // The role each side is seated with (`§13.4`), which a face wears as its own marker and the
 // room's peer list never carries for this connection: the page reads its own seat's role from the
