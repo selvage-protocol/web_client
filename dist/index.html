@@ -474,14 +474,33 @@
       #tree summary:hover .icon-button, #tree summary:focus-within .icon-button { opacity: 1; }
       #tree .row-actions.busy { color: var(--primary); }
       #tree .row-actions.busy .icon { animation: health-pulse 1.1s ease-in-out infinite; }
+      /* The row asking to be taken out is the row itself: the name stays where it was and goes
+         through, the icon becomes the trash that is about to do it, and the two actions become
+         confirm and cancel in the very slots the download and the delete held, so nothing moves
+         under the pointer that just pressed. */
+      #tree .del-row { cursor: default; }
+      #tree .del-row .del-mark { flex: none; display: inline-flex; width: 1em; height: 1em;
+        color: var(--danger); }
+      #tree .del-name { text-decoration: line-through; }
+      #tree button.del-yes, #tree button.del-no { flex: none; box-sizing: border-box; width: 1.7em;
+        padding: 0.4em 0; justify-content: center; background: none; border-color: transparent; }
+      #tree button.del-yes { color: var(--ok); }
+      #tree button.del-no { color: var(--danger); }
+      #tree button.del-yes:hover, #tree button.del-no:hover { background: var(--muted);
+        border-color: var(--border-strong); }
+      #tree li.file > button.del-yes, #tree li.file > button.del-no { margin-left: 0.5em; }
+      #tree summary.del-row button.del-no { margin-right: -0.55em; }
+      /* What a folder takes with it is shown struck rather than counted, all the way down. */
+      #tree .del-plain .del-plain-name, #tree li.sum .del-plain-name { text-decoration: line-through; }
+      #tree li.sum { display: flex; align-items: center; gap: 0.4em; padding: 0.4em 0.55em;
+        font-weight: 600; list-style: none; }
+      /* Where a file being moved would land: the folder it would join, marked as a whole, because
+         the order inside a folder is alphabetical and not the user's to set. */
+      #tree button.row[draggable="true"] { cursor: grab; }
+      #tree li.dragging { opacity: 0.45; }
+      #tree summary.drop-into, #tree button.row.drop-into, #tree ul.drop-into {
+        background: var(--muted); box-shadow: inset 0 0 0 1px var(--primary); }
       #tree li { position: relative; }
-      #tree .row-menu { position: absolute; right: 0.4em; top: 100%; z-index: 7;
-        display: flex; flex-direction: column; min-width: 11em; padding: 0.25em;
-        background: var(--card); border: 1px solid var(--border-strong);
-        border-radius: var(--radius); box-shadow: var(--shadow); }
-      #tree .row-menu button { background: none; border-color: transparent; text-align: left;
-        justify-content: flex-start; font-size: 0.85em; }
-      #tree .row-menu button:hover { background: var(--muted-hover); border-color: var(--border-strong); }
       /* A sentence that stands under the row it is about: a download that has not landed, and the
          two things a person may do about it. */
       #tree .row-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em;
@@ -726,13 +745,14 @@
         button, summary, #tree button.row { min-height: 44px; box-sizing: border-box; }
         #tree-actions button { min-width: 44px; }
         /* A touch device has no hover, so nothing a row holds back is reachable: the actions are
-           always drawn, and a directory's two-verb set is one visible `⋯`. A file row's own control
-           is drawn beside the row at the width it wears under a pointer. */
+           always drawn, and a folder's own two — a new file and the trash — are drawn on the row
+           itself rather than behind a menu. A file row's own controls are drawn beside the row at
+           the width they wear under a pointer. */
         #tree summary .icon-button { opacity: 1; }
         #tree .row-actions .icon-button { width: 1.7em; opacity: 1; pointer-events: auto;
           margin-left: 0.5em; }
         /* And they are a fingertip wide. Measured at 390x844: the download control and a folder's
-           `⋯` are both 24x44 — one glyph in a box a thumb is four times too wide for, on a row
+           trash are both 24x44 — one glyph in a box a thumb is four times too wide for, on a row
            whose own press opens the file, which for a guest opens it for every peer. */
         #tree .icon-button { min-width: 44px; }
         #share-group { min-height: 44px; box-sizing: border-box;
@@ -751,8 +771,9 @@
         #menu .rename-save, #menu .rename-cancel { min-width: 44px; }
         /* The two ways out of an edit are one glyph each: 27 px wide, 4 px apart, measured on a
            390 px screen. That is a miss on the field or the name beside them, so on a touch device
-           both pairs take the width of a fingertip and the row opens up between them. */
-        #tree .new-commit, #tree .new-cancel { min-width: 44px; }
+           both pairs take the width of a fingertip and the row opens up between them. The row that
+           is asking to be taken out is the same pair in a file row's own slots. */
+        #tree .new-commit, #tree .new-cancel, #tree .del-yes, #tree .del-no { min-width: 44px; }
         #tree .new-line, #menu .rename-edit { gap: 0.6em; }
       }
       @media (any-hover: none) and (max-width: 640px), (any-hover: none) and (max-height: 480px) {
