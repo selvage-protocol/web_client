@@ -56,13 +56,12 @@ export type BindingNotice =
   | { kind: 'status'; text: string; topic: StatusTopic; peerId?: string }
   /**
    * Something the person asked for did not happen, and the sentence says why: a write the
-   * stale-file guard refused, or a path this host could not read out of its own folder. When the
-   * failure is about one path (`path`), the page marks that path's row with it rather than showing a
-   * sentence that comes and goes while the file on disk stays behind the room; a failure with no
-   * path to sit on is the alert's.
+   * stale-file guard refused, or a path this host could not read out of its own folder. The path the
+   * failure is about is carried for the record and for a caller that wants to name it; the page
+   * shows the sentence, on its transient line.
    */
   | { kind: 'failure'; text: string; path?: string }
-  /** A write to `path` landed, so the mark a refusal left on its row goes. */
+  /** A write to `path` landed, which is the answer to a refusal that came before it. */
   | { kind: 'saved'; path: string };
 
 /**

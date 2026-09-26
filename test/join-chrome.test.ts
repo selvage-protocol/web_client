@@ -597,9 +597,14 @@ describe('the message homes', () => {
       'the routed topics are not the three with no other surface',
     );
     assert.ok(!main.includes('SHOWN_STATUS_TOPICS'), 'the shown-topics set survived the routing');
-    // Each one goes where its fact belongs: the role is the strip's chip, the refusal is the row
-    // that asked for the go-to, and a session error is the alert's.
-    assert.match(main, /readOnly = true;\n\s+syncStrip\(\);/, 'the read-only state reaches no chip');
+    // Each one goes where its fact belongs: the role is announced rather than painted — the strip
+    // is the open file and nothing else — the refusal is the row that asked for the go-to, and a
+    // session error is the alert's.
+    assert.match(
+      main,
+      /case 'role':[\s\S]{0,400}?announce\(VIEWER_SENTENCE\);/,
+      'the read-only state is said nowhere',
+    );
     assert.match(
       main,
       /case 'refusal':\n\s+showGoToRefusal\(notice\.peerId, notice\.text\);/,

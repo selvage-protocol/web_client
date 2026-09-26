@@ -282,26 +282,27 @@ describe('brand heading', () => {
     assert.ok(!/<main[^>]*>[\s\S]*<main/.test(html), 'the page has more than one landmark');
   });
 
-  it('shows room health as a dot, with its words only when there is something to say', () => {
+  it('shows room health as a dot only when there is something to say', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
     assert.match(
       html,
       /<span id="health" data-health="ok" aria-live="polite" title="Connected">/,
-      'no health dot in the bar',
+      'no health element in the bar',
     );
-    // The dot is `aria-hidden` and a `title` is not an accessible name, so the healthy state's
-    // name is in the document and clipped out of the paint: a screen reader reads it and the eye
-    // does not. The two other states paint theirs beside the dot.
+    // A healthy room paints nothing at all: the green dot was the build's own, and the design draws
+    // the bar with no health control on it. The name stays in the document for the moment one of the
+    // other two states arrives — the element is the live region that announces them — and the two
+    // states that change what typing means paint their own colour and their own words.
+    assert.match(
+      style,
+      /#health\[data-health='ok'\] \{ display: none; \}/,
+      'a healthy room paints a dot the design does not draw',
+    );
     assert.match(
       html,
       /<span class="dot" aria-hidden="true"><\/span><span id="health-label">Connected<\/span>/,
       'the healthy state carries no name for a screen reader',
-    );
-    assert.match(
-      style,
-      /#health\[data-health='ok'\] #health-label \{[^}]*clip-path: inset\(50%\)/,
-      'a healthy room paints its own name',
     );
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     for (const state of ["'reconnecting'", "'away'"]) {
@@ -623,8 +624,13 @@ describe('joined chrome', () => {
     assert.ok(/await openFirst\(session\);[\s\S]*?editor\.focus\(\)/.test(main), 'join never focuses the editor');
   });
 
-  it('the roster owns no stop control', () => {
-    assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a roster stop survived beside the strip one');
-    assert.ok(main.includes("labelSpan('Stop following')"), 'the follow segment lost its stop');
+  it('the stop control lives in the person’s menu and nowhere else', () => {
+    // The roster used to carry a stop of its own beside the strip's segment; both are gone, and the
+    // one control that ends a follow is the toggle in the menu of the person being followed.
+    const room = readFileSync(new URL('../src/browser/room.ts', import.meta.url), 'utf8');
+    assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a stop survived on the page');
+    assert.match(room, /labelSpan\(follows \? 'Stop following' : 'Follow'\)/,
+      'the person’s menu lost its follow toggle',
+    );
   });
 });

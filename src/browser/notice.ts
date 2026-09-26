@@ -39,8 +39,13 @@ export interface CountParts {
 }
 
 export interface FailureAlert {
-  /** Shows one failure; a later failure replaces it and restarts the clock. */
-  show(text: string): void;
+  /**
+   * Shows one failure; a later failure replaces it and restarts the clock.
+   *
+   * `standMs` is for a sentence with a stand of its own — a follow that ended stands four seconds
+   * where a failure stands seven — and is the page's, not the alert's: one line has one lifetime.
+   */
+  show(text: string, standMs?: number): void;
   /** Takes the failure down now. */
   dismiss(): void;
 }
@@ -69,7 +74,6 @@ export type TapPeek = FailureAlert;
  * and different homes, so they are one implementation with two names.
  */
 function wireTransientLine(element: HTMLElement, options: NoticeOptions): FailureAlert {
-  const standMs = options.standMs ?? TRANSIENT_STAND_MS;
   const schedule = options.schedule ?? ((run, ms) => setTimeout(run, ms));
   const cancel =
     options.cancel ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
@@ -84,12 +88,12 @@ function wireTransientLine(element: HTMLElement, options: NoticeOptions): Failur
   };
 
   return {
-    show(text: string): void {
+    show(text: string, standMs?: number): void {
       if (pending !== undefined) {
         cancel(pending);
       }
       element.textContent = text;
-      pending = schedule(dismiss, standMs);
+      pending = schedule(dismiss, standMs ?? options.standMs ?? TRANSIENT_STAND_MS);
     },
     dismiss,
   };
