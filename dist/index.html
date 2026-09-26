@@ -103,7 +103,7 @@
       /* Health is painted only where there is something to say: while the room is fine the bar says
          nothing, and the dot with its own name stands for the two states that change what typing
          means — amber while the socket is re-dialling, red while the host is away and the grace is
-         running. The sentence with the countdown is the strip below. */
+         running. The session card in the notices column carries the countdown and who left. */
       #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
         font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
       #health[data-health='ok'] { display: none; }
@@ -215,7 +215,9 @@
         border-color: var(--border-strong); }
       #menu .waiting, #menu .refusal { font-size: 0.85em; color: var(--muted-foreground);
         padding: 0.35em 0.7em; }
-      #menu .refusal { color: var(--warning); }
+      #menu .refusal { color: var(--warning); display: flex; flex-direction: column; }
+      /* The design's second line: the room's own reason, quieter than the headline over it. */
+      #menu .refusal .detail { color: var(--muted-foreground); }
       #menu .back { background: none; border-color: transparent; font-size: 0.85em;
         color: var(--muted-foreground); margin-bottom: 0.2em; }
       #menu .list { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0;
@@ -240,19 +242,39 @@
          the file. */
       .mark { flex: none; background-image: url("data:image/png;base64,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");
         background-repeat: no-repeat; background-position: center; background-size: contain; }
-      /* The strip is a flex row for the dot's sake, and the countdown substitutes its time into
-         the middle of one sentence: every child of a flex container wears the `gap` on both sides,
-         so a run left as its own child — the number's span, a lead text node — would space a
-         substituted number by `gap` rather than by a space, and differently from a substituted
-         word. `defaultCountParts` therefore builds the sentence inside one element (`notice.ts`). */
-      #session-note { display: flex; align-items: center; gap: 0.6em; padding: 0.7em 1.1em;
-        background: var(--card); border-bottom: 1px solid var(--border);
-        font-weight: 600; color: var(--warning); }
-      #session-note::before { content: ''; flex: none; width: 0.5em; height: 0.5em;
-        border-radius: 50%; background: currentColor; }
-      /* The countdown is the warning; the host's return is news, not a warning. */
-      #session-note[data-tone="plain"] { color: var(--foreground); }
-      #session-note:empty { display: none; }
+      /* The notices: one column over the workspace, in the top-right corner and out of the flow, so
+         a sentence arriving never moves the editor under it and the column takes no click from what
+         it covers. The bundle sets its top from the bar's own height (`placeNotices`) and the shell
+         stretches it under the bar and the file strip on a phone. */
+      #notices { position: absolute; z-index: 15; right: 12px; width: max-content;
+        max-width: calc(100% - 24px);
+        display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+        pointer-events: none; }
+      #toasts { display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+        max-width: 100%; }
+      /* The card and the toasts are one shape: the design's own, a card that floats over the
+         workspace. The card's colour is the state it is in — the warning while the grace runs, the
+         danger once it is out, plain for a sentence about the room that is not a warning. */
+      #session-card, .toast { position: relative; box-sizing: border-box; overflow: hidden;
+        display: flex; align-items: flex-start; gap: 0.6em; padding: 0.65em 0.85em;
+        width: max-content; max-width: 22rem; font-size: 0.9em;
+        background: var(--card); border: 1px solid; border-radius: var(--radius);
+        box-shadow: var(--shadow); }
+      #session-card { color: var(--warning); border-color: rgba(249, 226, 175, 0.4); }
+      #session-card[data-tone='over'] { color: var(--danger); border-color: rgba(243, 139, 168, 0.4); }
+      #session-card[data-tone='plain'] { color: var(--foreground); border-color: var(--border-strong); }
+      .toast { color: var(--mocha-sky); border-color: rgba(137, 220, 235, 0.4); }
+      #session-card .icon, .toast .icon { margin-top: 0.15em; }
+      #session-card .body { display: flex; flex-direction: column; min-width: 0; }
+      #session-card .msg, .toast .msg { color: var(--foreground); font-weight: 600; }
+      /* The bar is the window draining: its own width is the whole of the grace, and the bundle
+         draws it from the same reading the countdown is written from, so the two cannot disagree. */
+      #session-card .bar { position: absolute; left: 0; bottom: 0; width: 100%; height: 2px;
+        background: currentColor; opacity: 0.5; transform-origin: left;
+        transition: transform 1s linear; }
+      #toasts-more { align-self: flex-end; box-sizing: border-box; padding: 0.1em 0.6em;
+        font-size: 0.75em; color: var(--muted-foreground); background: var(--card);
+        border: 1px solid var(--border); border-radius: 999px; }
       /* The pill is a preview and not a field: it is sized to what it shows (below), and
          bounded to a share of the bar so a link longer than the display is built to show —
          a long host, a shape this module has not seen — cannot crowd what stands beside it.
@@ -308,13 +330,10 @@
         align-items: center; justify-content: center; gap: 0.45em;
         background: var(--input); border-radius: var(--radius);
         color: var(--primary); font-size: 0.9em; font-weight: 600; white-space: nowrap; }
-      /* `--keyboard-inset` is the distance from the layout viewport's floor up
-         to the visual viewport's, set from `fitVisualViewport`; a fixed line is
-         placed against the layout viewport, which the keyboard leaves alone. */
-      #alert { position: fixed; left: 50%; bottom: calc(1.25rem + var(--keyboard-inset, 0px));
-        transform: translateX(-50%);
-        /* Above `#peek`: a failure outranks the tap line when both stand. */
-        z-index: 6; box-sizing: border-box; max-width: min(34rem, calc(100vw - 2rem));
+      /* The failure alert and the tap-revealed line: the two sentences about something that just
+         happened, floating in the notices column. The alert is closer to the corner than the tap
+         line, because a failure outranks what a fingertip was told. */
+      #alert { box-sizing: border-box; max-width: min(34rem, calc(100vw - 2rem));
         padding: 0.7em 1em; background: var(--card); border: 1px solid var(--border-strong);
         border-left: 3px solid var(--danger); border-radius: var(--radius);
         box-shadow: var(--shadow); color: var(--foreground); }
@@ -322,9 +341,7 @@
       /* The tap-revealed line: what a `title` says to a pointer, said on screen
          to a finger. Same anatomy as the failure alert so the page has one
          voice for a transient line, and quiet enough to stand over the editor. */
-      #peek { position: fixed; left: 50%; bottom: calc(1.25rem + var(--keyboard-inset, 0px));
-        transform: translateX(-50%);
-        z-index: 5; box-sizing: border-box; max-width: min(30rem, calc(100vw - 2rem));
+      #peek { box-sizing: border-box; max-width: min(30rem, calc(100vw - 2rem));
         padding: 0.6em 0.9em; background: var(--card); border: 1px solid var(--border-strong);
         border-radius: var(--radius); box-shadow: var(--shadow); color: var(--foreground);
         font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -433,7 +450,6 @@
       /* A folder's badges say who is inside it, so they stand only while it is shut: expanded, the
          rows inside it carry the same badges where the person actually is. */
       #tree details[open] > summary .presence { display: none; }
-      #tree button.row.away { opacity: 0.55; }
       /* A row's own actions: out of the way of a pointer's reading, and always there for a finger. */
       #tree .row-chrome { display: inline-flex; align-items: center; gap: 0.2em; margin-left: auto;
         flex: none; }
@@ -490,6 +506,10 @@
         max-width: 36em; }
       #editor-empty .empty-actions { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0.95em 0 0; }
       #live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+        overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+      /* The same shape for a sentence that belongs to a card rather than to the page: the session
+         card says one thing to a screen reader, from its own element, and changes it once. */
+      .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
         overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
       /* The editor the card stands over: a file tree beside the code the tree
          has open, in the page's own tokens. A picture, and nothing more: it
@@ -734,11 +754,14 @@
            both pairs take the width of a fingertip and the row opens up between them. */
         #tree .new-commit, #tree .new-cancel { min-width: 44px; }
         #tree .new-line, #menu .rename-edit { gap: 0.6em; }
-        #alert, #peek {
-          bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
-        }
       }
       @media (any-hover: none) and (max-width: 640px), (any-hover: none) and (max-height: 480px) {
+        /* A phone has no room beside the bar and its file strip runs the whole width, so the
+           column is stretched under both (`placeNotices` puts its top below the strip). */
+        #notices { left: 12px; right: 12px; width: auto; max-width: none;
+          align-items: stretch; }
+        #toasts { align-items: stretch; }
+        #session-card, .toast { width: auto; max-width: none; }
         /* The panel is a disclosure on a phone, not a permanent 42% cut: it is
            shut on join and a file open shuts it again (main.ts). */
         /* Width is not a phone's business: no separator is drawn, and the panel is today's
@@ -834,11 +857,12 @@
           <span class="share-label" aria-hidden="true">Copy invite link</span>
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
-        <!-- The dot is the glanceable half of room health and the strip below is the sentence with
-             the countdown in it: a healthy room paints the dot alone, and the two states that change
-             what typing means add their name beside it. The name is in the markup in every state —
-             read by a screen reader, clipped out of the paint while the dot is green — because the
-             dot is `aria-hidden` and a `title` is not an accessible name. -->
+        <!-- The dot is the glanceable half of room health and the session card below is the
+             sentence with the countdown in it: a healthy room paints the dot alone, and the two
+             states that change what typing means add their name beside it. The name is in the
+             markup in every state — read by a screen reader, clipped out of the paint while the
+             dot is green — because the dot is `aria-hidden` and a `title` is not an accessible
+             name. -->
         <span id="health" data-health="ok" aria-live="polite" title="Connected">
           <span class="dot" aria-hidden="true"></span><span id="health-label">Connected</span>
         </span>
@@ -864,7 +888,25 @@
           </div>
         </div>
       </div>
-      <div id="session-note" aria-live="polite"></div>
+      <div id="notices">
+        <!-- The room's own lifecycle line: the host leaving and the grace window, the host coming
+             back, a socket the engine is re-dialling. It is one more polite region, for the same
+             reason the others are, and the ticking line is hidden from assistive tech, so the card's
+             own sentence is what changes once. -->
+        <div id="session-card" aria-live="polite" data-tone="" hidden>
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2 14.6 13.6H1.4z"/><path d="M8 6.4v3.2"/><path d="M8 11.7h.01"/></svg></span>
+          <span class="body">
+            <span class="msg" aria-hidden="true"></span>
+            <span class="when" aria-hidden="true"></span>
+          </span>
+          <span class="sr"></span>
+          <span class="bar" aria-hidden="true"></span>
+        </div>
+        <div id="alert" role="alert"></div>
+        <div id="peek" aria-live="polite"></div>
+        <div id="toasts" aria-live="polite"></div>
+        <div id="toasts-more" hidden></div>
+      </div>
       <!-- A picture of an editor for the card to stand over: none of it is
            real and nothing in it is reachable, so `inert` and `aria-hidden`
            between them keep a screen reader from reading a file tree that
@@ -1040,9 +1082,7 @@
           </div>
         </div>
       </div>
-      <div id="live" aria-live="polite"></div>
-      <div id="peek" aria-live="polite"></div>
-      <div id="alert" role="alert"></div>
+      <div id="live" class="sr" aria-live="polite"></div>
     </main>
     <script>
       // Pre-bundle guard, first so nothing below can disarm it: the card shell
