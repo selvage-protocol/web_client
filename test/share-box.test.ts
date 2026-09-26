@@ -51,11 +51,15 @@ function wire(overrides = {}) {
   group.appendChild(input);
   const calls = [];
   const scheduled = [];
+  const delays = [];
   const box = wireShareBox(group, () => void calls.push('copy'), {
-    schedule: (fn) => void scheduled.push(fn),
+    schedule: (fn, ms) => {
+      scheduled.push(fn);
+      delays.push(ms);
+    },
     ...overrides,
   });
-  return { group, icon, input, calls, scheduled, box };
+  return { group, icon, input, calls, scheduled, delays, box };
 }
 
 describe('share box', () => {
@@ -76,15 +80,17 @@ describe('share box', () => {
   });
 
   it('the confirmation is an overlay: the link stays, then it hides', () => {
-    const { group, icon, input, calls, scheduled, box } = wire();
+    const { group, icon, input, calls, scheduled, delays, box } = wire();
     group.fire('click', {});
     assert.deepEqual(calls, ['copy']);
     box.confirm();
     assert.ok(group.classList.contains('copied'), 'no confirmation state on the bar');
-    assert.ok(/Link copied/.test(textOf(group)), `no confirmation copy: ${textOf(group)}`);
+    assert.ok(/Copied/.test(textOf(group)), `no confirmation copy: ${textOf(group)}`);
     assert.ok(group.children.includes(icon), 'the morph moved the icon');
     assert.ok(group.children.includes(input), 'the morph removed the link readout');
     assert.equal(scheduled.length, 1);
+    // The design's own stand: `Copied` stands 1.8 s.
+    assert.deepEqual(delays, [1800], 'the confirmation stands for a guessed time');
     scheduled[0]();
     assert.ok(!group.classList.contains('copied'), 'the confirmation never reverted');
     assert.ok(group.children.includes(input), 'the link never stayed');

@@ -215,7 +215,9 @@
         border-color: var(--border-strong); }
       #menu .waiting, #menu .refusal { font-size: 0.85em; color: var(--muted-foreground);
         padding: 0.35em 0.7em; }
-      #menu .refusal { color: var(--warning); }
+      #menu .refusal { color: var(--warning); display: flex; flex-direction: column; }
+      /* The design's second line: the room's own reason, quieter than the headline over it. */
+      #menu .refusal .detail { color: var(--muted-foreground); }
       #menu .back { background: none; border-color: transparent; font-size: 0.85em;
         color: var(--muted-foreground); margin-bottom: 0.2em; }
       #menu .list { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0;

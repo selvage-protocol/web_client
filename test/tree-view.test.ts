@@ -508,7 +508,7 @@ describe('the create row', () => {
     assert.equal(input.attributes.placeholder, undefined, 'the field carries a greyed example');
     assert.equal(input.focused, true, 'the field does not take focus');
     assert.equal(commit.tag, 'button');
-    assert.equal(commit.attributes['aria-label'], 'Create file');
+    assert.equal(commit.attributes['aria-label'], 'Create');
     assert.equal(cancel.attributes['aria-label'], 'Cancel');
     // The row explains nothing: the field, the `✓` and the tree around them are the whole of what
     // it is for, so the line stands empty until there is something a person cannot see.
@@ -519,7 +519,8 @@ describe('the create row', () => {
   it('names the directory variant’s own kind', () => {
     const { pane, view } = creating({ listing: ['src/main.ts'] });
     view.beginCreate('directory', 'src');
-    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create folder');
+    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
+    assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New folder name in src');
     assert.equal(withClass(pane, 'new-hint').textContent, '');
     // The trailing slash is drawn outside the field rather than typed into it.
     assert.equal(withClass(pane, 'new-slash').textContent, '/');
@@ -609,7 +610,12 @@ describe('the create row', () => {
     assert.deepEqual(created, [['docs', 'directory']]);
     assert.equal(view.isCreating(), true, 'the row closed instead of offering the next step');
     assert.equal(view.creatingIn(), 'docs', 'the row opened somewhere other than the folder just made');
-    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create file');
+    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
+    assert.equal(
+      withClass(pane, 'new-name').attributes['aria-label'],
+      'New file name in docs',
+      'the row does not say which folder it is naming a file in',
+    );
     assert.equal(withClass(pane, 'new-hint').textContent, '');
     assert.equal(state.listing.length, 1);
   });
@@ -704,11 +710,14 @@ describe('the create row', () => {
     assert.deepEqual(order, ['alpha/', '<the create row>', 'zulu/']);
   });
 
-  it('says `Create folder` on the folder variant and hides the slash on the file one', () => {
+  it('hides the slash on the file variant and its own folder’s slash on the directory one', () => {
     const { pane, view } = creating();
     view.beginCreate('file', '');
     assert.equal(withClass(pane, 'new-slash').hidden, true, 'a file row draws a directory slash');
-    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create file');
+    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
+    // The field is named for what it asks for, and for the folder the row stands in when it is in
+    // one: `New folder name in src` is a question about `src`, and nothing else on the row says so.
+    assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New file name');
   });
 });
 

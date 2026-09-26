@@ -531,18 +531,25 @@ describe('the message homes', () => {
     assert.match(editor, /topic: 'refusal',\n\s+peerId,/, 'a refusal reaches the page without its peer');
     const refusal = /function showGoToRefusal\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
     assert.notEqual(refusal, '', 'the page has no home for a refusal');
-    assert.match(refusal, /goToRefusal = \{ peerId, text \}/, 'a refusal has no state to stand in');
+    assert.match(refusal, /goToRefusal = \{ peerId, detail \}/, 'a refusal has no state to stand in');
     // With no menu to carry it — the empty pane's own press, or a refusal with no peer — it is the
     // alert's, the page's transient line for a press that could not do what it said.
     assert.match(
       refusal,
-      /if \(peerId === undefined \|\| menu\?\.view !== 'person' \|\| menu\.peerId !== peerId\) \{\n\s+failureAlert\.show\(text\);/,
+      /if \(peerId === undefined \|\| menu\?\.view !== 'person' \|\| menu\.peerId !== peerId\) \{\n\s+failureAlert\.show\(sentence\);/,
       'a refusal with no menu to paint it in goes nowhere',
+    );
+    // The design's two parts, and the room's own reason in the one line the other home reads.
+    assert.match(refusal, /const sentence = `\$\{NOTHING_TO_GO_TO\}: \$\{detail\}`/, 'the refusal is one flat line');
+    assert.match(
+      main,
+      /case 'refusal':\n\s+showGoToRefusal\(notice\.peerId, notice\.text\);/,
+      'a refusal reaches no place to stand',
     );
     assert.match(refusal, /renderMenu\('\[data-act="go"\]'\)/, 'a refusal is painted in no menu');
     assert.match(main, /goToRefusal,/, 'the menu is never told about a refusal');
     assert.match(main, /GO_TO_REFUSAL_STAND_MS = 4000/, 'a refusal stands for ever, or for a guessed number');
-    assert.match(refusal, /announce\(text\)/, 'a refusal is never announced');
+    assert.match(refusal, /announce\(sentence\)/, 'a refusal is never announced');
     // Its own clock, and only one: two presses on one row produce the same sentence, so a timer
     // matching on the words would let the first press clear the second refusal early.
     assert.match(

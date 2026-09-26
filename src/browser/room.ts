@@ -90,11 +90,11 @@ export interface PersonMenuView {
   fromList: boolean;
   renaming?: RenameEdit;
   /**
-   * The sentence a go-to was refused with, when it is about this person: a race — the peer
-   * closed the file, or the caret does not resolve here — and the press is where the answer
-   * belongs. The page stands it and takes it down (`main.ts`); it is not a state.
+   * The reason a go-to was refused, when it was about this person: a race — the peer closed the
+   * file, or the caret does not resolve here — and the press is where the answer belongs. The page
+   * stands it and takes it down (`main.ts`); it is not a state.
    */
-  goToRefusal?: { peerId: string; text: string };
+  goToRefusal?: { peerId: string; detail: string };
   onGoTo(peerId: string): void;
   onFollow(peerId: string): void;
   /** The press on the control already following: the toggle's own off. */
@@ -136,6 +136,13 @@ const EVERYONE_LABEL = 'Everyone in the room';
 
 /** Where a person is, when the answer is nowhere. */
 const NO_PATH = 'not in a file yet';
+
+/**
+ * The headline a refused go-to wears, over the room's own reason for it. The reason is the notice's
+ * — `<name> is not in a document`, `<name>'s caret does not resolve here` — and this is the part
+ * that is the page's, so the design's two lines are two elements.
+ */
+export const NOTHING_TO_GO_TO = 'Nothing to go to';
 
 /** The label a face and a row carry for one person, peers with one name told apart. */
 function personName(person: RoomPerson, all: readonly RoomPerson[]): string {
@@ -447,11 +454,16 @@ function personActs(person: RoomPerson, view: PersonMenuView): HTMLDivElement {
     acts.appendChild(go);
   }
   acts.appendChild(followButton(person, view));
-  // Under the verbs of the person it is about, the way the roster row carried it.
+  // Under the verbs of the person it is about, the way the roster row carried it: the headline, and
+  // the room's own reason for it on the line beneath.
   if (view.goToRefusal?.peerId === person.peerId) {
     const refusal = document.createElement('div');
     refusal.className = 'refusal';
-    refusal.textContent = view.goToRefusal.text;
+    refusal.append(labelSpan(NOTHING_TO_GO_TO));
+    const detail = document.createElement('span');
+    detail.className = 'detail';
+    detail.textContent = view.goToRefusal.detail;
+    refusal.appendChild(detail);
     acts.appendChild(refusal);
   }
   return acts;

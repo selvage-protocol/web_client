@@ -9,7 +9,7 @@
  */
 
 export interface ShareBoxOptions {
-  /** The confirmation the bar morphs to; defaults to `Link copied`. */
+  /** The confirmation the bar morphs to; defaults to `Copied`. */
   confirmLabel?: string;
   /** How long the confirmation stands before the bar reverts. */
   confirmMs?: number;
@@ -29,8 +29,8 @@ export function wireShareBox(
   copy: () => unknown,
   options: ShareBoxOptions = {},
 ): ShareBox {
-  const confirmLabel = options.confirmLabel ?? 'Link copied';
-  const confirmMs = options.confirmMs ?? 1500;
+  const confirmLabel = options.confirmLabel ?? 'Copied';
+  const confirmMs = options.confirmMs ?? 1800;
   const schedule = options.schedule ?? ((run, ms) => setTimeout(run, ms));
   const cancel =
     options.cancel ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));

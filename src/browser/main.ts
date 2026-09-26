@@ -70,6 +70,7 @@ import { wireSidebar } from './sidebar.ts';
 import {
   FACE_LIMIT,
   MORE_ANCHOR,
+  NOTHING_TO_GO_TO,
   PHONE_FACE_LIMIT,
   focusInto,
   placeMenu,
@@ -1378,8 +1379,10 @@ async function copyShareLink(): Promise<void> {
     }
     shareGroup.classList.remove('hand-copy');
   }
-  // The bar's brief morph is the whole confirmation: nothing is announced.
+  // The design's confirmation, and the news for a screen reader: the morph says the copy landed
+  // to the eye, and the polite region says it to whoever did not see the pill change.
   shareBox.confirm();
+  announce('Invite link copied');
 }
 
 /** The room's people, this window's own seat first, which the room's peer list never carries. */
@@ -1725,29 +1728,33 @@ function followParticipant(peerId: string): void {
  * answer belongs where the press was. It is not a state: where a menu carries it, it stands
  * `GO_TO_REFUSAL_STAND_MS` and then goes, and the room's next presence frame does not re-raise it,
  * because nothing is wrong with the room. The sentence is announced once, from whichever home
- * takes it.
+ * takes it, and both homes carry the design's two parts: the headline, and the room's own reason
+ * on the line beneath it.
  */
-let goToRefusal: { peerId: string; text: string } | undefined;
+let goToRefusal: { peerId: string; detail: string } | undefined;
 /** The standing refusal's own clock. One at a time: a press replaces the sentence *and* the timer. */
 let goToRefusalTimer: number | undefined;
 
 /** How long a refused go-to stands in the menu it was pressed in. */
 const GO_TO_REFUSAL_STAND_MS = 4000;
 
-function showGoToRefusal(peerId: string | undefined, text: string): void {
-  // The menu of the person it is about is the only place the sentence is painted, so a refusal
+function showGoToRefusal(peerId: string | undefined, detail: string): void {
+  // The one line the transient home and its announcement read: the same two parts the menu draws,
+  // in the order it draws them.
+  const sentence = `${NOTHING_TO_GO_TO}: ${detail}`;
+  // The menu of the person it is about is the only place the refusal is painted, so a refusal
   // with no such menu — the empty pane's own press, or one that names no peer — goes to the
   // page's transient line, the home it already has for a press that could not do what it said.
   // Nothing is stood or timed there: the sentence is the whole of it.
   if (peerId === undefined || menu?.view !== 'person' || menu.peerId !== peerId) {
-    failureAlert.show(text);
-    announce(text);
+    failureAlert.show(sentence);
+    announce(sentence);
     return;
   }
   if (goToRefusalTimer !== undefined) {
     window.clearTimeout(goToRefusalTimer);
   }
-  goToRefusal = { peerId, text };
+  goToRefusal = { peerId, detail };
   goToRefusalTimer = window.setTimeout(() => {
     goToRefusalTimer = undefined;
     goToRefusal = undefined;
@@ -1760,7 +1767,7 @@ function showGoToRefusal(peerId: string | undefined, text: string): void {
   }, GO_TO_REFUSAL_STAND_MS);
   // The press that earned it is where focus stays, so the sentence is drawn under it either way.
   renderMenu('[data-act="go"]');
-  announce(text);
+  announce(sentence);
 }
 
 /**
@@ -1896,7 +1903,7 @@ function peerInAFile(
 /**
  * What the empty pane's own controls do. The create opens the row in the tree, so it opens the panel
  * a phone keeps shut first: a field nobody can see is a control that does nothing. The invite is the
- * bar's own handler, so the confirmation is the pill's `Link copied` wherever the act was pressed.
+ * bar's own handler, so the confirmation is the pill's `Copied` wherever the act was pressed.
  */
 function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefined): void {
   switch (action) {

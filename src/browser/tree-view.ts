@@ -761,7 +761,7 @@ export class GrantTreeView {
    * Opens the row: an empty field with the kind's icon already drawn and the visible `✓` and `✕`.
    * No placeholder — a greyed example is the thing the owner read as a filled value — and no line
    * under it: the field, its two controls and the tree around them say what the row is for, and the
-   * line is for what a person cannot see, which is a refusal or the folder the commit will make.
+   * line is for what a person cannot see, which is why a name will not commit.
    */
   private openDraft(kind: NewEntryKind, parent: string): void {
     const same = this.draft !== undefined && this.draft.kind === kind && this.draft.parent === parent;
@@ -906,7 +906,7 @@ export class GrantTreeView {
     input.autocomplete = 'off';
     input.spellcheck = false;
     input.setAttribute('enterkeyhint', 'done');
-    input.setAttribute('aria-label', draft.kind === 'file' ? 'Name for the new file' : 'Name for the new folder');
+    input.setAttribute('aria-label', draftLabel(draft.kind, draft.parent));
     input.addEventListener('input', () => {
       // The row follows the name: a file tree lists by name, so the line moves to where the entry
       // will be rather than staying where it was pressed. The move is a DOM move, not a rebuild —
@@ -947,8 +947,8 @@ export class GrantTreeView {
     const commitButton = document.createElement('button');
     commitButton.type = 'button';
     commitButton.className = 'new-commit';
-    commitButton.setAttribute('aria-label', draft.kind === 'file' ? 'Create file' : 'Create folder');
-    commitButton.title = draft.kind === 'file' ? 'Create file' : 'Create folder';
+    commitButton.setAttribute('aria-label', 'Create');
+    commitButton.title = 'Create';
     commitButton.appendChild(iconSpan('check'));
     commitButton.addEventListener('mousedown', (event) => event.preventDefault());
     commitButton.addEventListener('click', () => void this.commit());
@@ -1031,6 +1031,15 @@ function parentOf(path: string): string {
 function leafOf(path: string): string {
   const segments = path.split('/');
   return segments[segments.length - 1] ?? '';
+}
+
+/**
+ * What the create row's field is called: the kind, and the folder it names when it is in one — the
+ * row appears inside the folder it creates in, so the name says which one.
+ */
+function draftLabel(kind: NewEntryKind, parent: string): string {
+  const name = kind === 'file' ? 'New file name' : 'New folder name';
+  return parent === '' ? name : `${name} in ${parent}`;
 }
 
 /**

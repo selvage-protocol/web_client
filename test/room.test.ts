@@ -418,9 +418,15 @@ describe('a person’s menu', () => {
   });
 
   it('stands the refusal in the menu of the peer it is about, and in no other', () => {
-    const text = 'nothing to go to: sam is not in a document';
-    const refused = renderMenu([SELF, SAM, MIRA], SAM, { goToRefusal: { peerId: 'peer-sam', text } });
-    assert.equal(withClass(refused.menu, 'refusal')[0].textContent, text);
+    // Two lines, the design's shape: the headline, and the room's own reason for it beneath, which
+    // is what tells the person whether the peer closed the file or their caret is somewhere else.
+    const detail = 'sam is not in a document';
+    const refused = renderMenu([SELF, SAM, MIRA], SAM, {
+      goToRefusal: { peerId: 'peer-sam', detail },
+    });
+    const refusal = withClass(refused.menu, 'refusal')[0];
+    assert.equal(refusal.children[0].textContent, 'Nothing to go to');
+    assert.equal(withClass(refusal, 'detail')[0].textContent, detail);
     assert.deepEqual(withClass(renderMenu([SELF, SAM, MIRA], MIRA).menu, 'refusal'), [], 'the refusal landed in another menu');
     assert.deepEqual(withClass(renderMenu([SELF, SAM, MIRA], SAM).menu, 'refusal'), []);
   });

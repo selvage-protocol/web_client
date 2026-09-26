@@ -626,7 +626,7 @@ export class MonacoBinding implements EditorHost {
           kind: 'status',
           topic: 'refusal',
           peerId,
-          text: `nothing to go to: ${this.displayLabel(peerId)}'s caret does not resolve here`,
+          text: `${this.displayLabel(peerId)}'s caret does not resolve here`,
         });
       }
       return 'refused';
