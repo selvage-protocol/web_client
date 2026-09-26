@@ -206,6 +206,8 @@ export class MonacoBinding implements EditorHost {
   /** The peer this window follows, by id: a local view state, never advertised. */
   private followingPeerId: string | undefined;
   private followingName = '';
+  /** The path the follow last landed on, which is what tells a document the follow's file went. */
+  private followingPath: string | undefined;
   /** A go-to whose document has not arrived yet: re-resolved on every room event. */
   private pendingGoTo: string | undefined;
   /** The room's listing and the tree derived from it, held until the set they come from moves. */
@@ -371,6 +373,38 @@ export class MonacoBinding implements EditorHost {
     }
     this.models.get(path)?.dispose();
     this.models.delete(path);
+  }
+
+  /**
+   * Ends every document among `paths`, and falls back to nothing in front of the editor.
+   *
+   * This is what a deletion does to the room. The files are gone from the folder and from the grant
+   * the host republished, so a document of one is a path the room no longer has: the hold is
+   * released (which is what takes the path out of the room's open set once no peer holds it), the
+   * buffer is dropped, and a window showing it goes back to the pane with no document in it rather
+   * than to a buffer nothing will ever write whole again.
+   *
+   * A follow whose subject was in one of the files ends here, because the file it was following has
+   * gone: the follow lands where a peer is, and there is nowhere to land.
+   */
+  dropDocuments(paths: readonly string[]): void {
+    const gone = new Set(paths);
+    if (gone.size === 0) {
+      return;
+    }
+    const followed = this.followingPath !== undefined && gone.has(this.followingPath);
+    const name = this.followingName;
+    if (followed) {
+      this.clearFollow();
+    }
+    for (const path of [...this.fronted]) {
+      if (gone.has(path)) {
+        this.closeDocument(path);
+      }
+    }
+    if (followed) {
+      this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} — the file went.` });
+    }
   }
 
   dispose(): void {
@@ -606,6 +640,10 @@ export class MonacoBinding implements EditorHost {
       return 'waiting';
     }
     await this.openDocument(path);
+    if (mode === 'follow') {
+      // What the follow is showing, so a deletion of that file can end it (`dropDocuments`).
+      this.followingPath = path;
+    }
     // A newer frame supersedes this one: placing now would land where the peer was.
     if (!valid()) {
       return 'waiting';
@@ -673,6 +711,7 @@ export class MonacoBinding implements EditorHost {
 
   private clearFollow(): void {
     this.followingPeerId = undefined;
+    this.followingPath = undefined;
     this.onNotice({ kind: 'follow', following: undefined });
   }
 
