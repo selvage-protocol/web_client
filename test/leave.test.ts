@@ -30,7 +30,6 @@ import {
   LEAVE_TITLE,
   wireLeave,
 } from '../src/browser/leave.ts';
-import { LEFT_SESSION_SENTENCE } from '../src/browser/ended.ts';
 import { forgetJoinUrl } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -279,13 +278,14 @@ describe('the way out of a session', () => {
     );
   });
 
-  it('ends the session in the desktop clients’ words, with the card’s own next step', () => {
-    assert.equal(LEFT_SESSION_SENTENCE, 'Left the session.');
+  it('ends the session, and a host ends the room for its guests first', () => {
     assert.match(
       main,
-      /leave: \(\) => leaveSession\(LEFT_SESSION_SENTENCE\)/,
+      /leave: \(\) => void leaveRoom\(\)/,
       'a leave reaches no teardown',
     );
+    assert.match(main, /engine\.closeRoom\(\)[\s\S]{0,200}?leaveSession\(''\)/,
+      'a host leaves its guests to wait out the grace');
   });
 });
 

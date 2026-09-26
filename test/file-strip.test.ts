@@ -205,15 +205,13 @@ describe('the homes a message can have', () => {
     assert.match(main, /sessionCard\.say\(hostBackSentence\(notice\.name\), HOST_BACK_STAND_MS\)/,
       'the host’s return has no home');
     assert.match(main, /setHealth\('reconnecting'\)/, 'the socket going down reaches no dot');
-    assert.match(main, /setHealth\('away'\)/, 'the host going away reaches no dot');
+    assert.doesNotMatch(main, /setHealth\('away'\)/, 'the host going away paints a pill beside its card');
     // The healthy room paints nothing: the green dot is the build's own and the design draws none,
     // and what the two states that change typing mean is still painted beside the dot's own colour.
     assert.match(rule("#health[data-health='ok']"), /display:\s*none/,
       'a healthy room still paints a dot');
     assert.match(style, /#health\[data-health='reconnecting'\] \{[^}]*var\(--warning\)/,
       'a re-dialling socket paints no amber');
-    assert.match(style, /#health\[data-health='away'\] \{[^}]*var\(--danger\)/,
-      'a host that is away paints no red');
   });
 
   it('keeps every failure the page can still state, on the page’s transient line', () => {

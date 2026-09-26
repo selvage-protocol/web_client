@@ -47,7 +47,7 @@ export type BindingNotice =
    * else says why.
    */
   | { kind: 'follow'; following: Following | undefined; ended?: string }
-  /** A go-to put the caret in `path`, which may be a file the page did not open itself. */
+  /** The editor put `path` in front by itself: a go-to landing, or a file following its move. */
   | { kind: 'landed'; path: string }
   | { kind: 'roomGone'; reason: string }
   /** The host's socket detached and the grace window is running, in milliseconds. */
@@ -229,6 +229,8 @@ export class MonacoBinding implements EditorHost {
    * documents, and only the grant may bring it back into the listing.
    */
   private readonly dropped = new Set<string>();
+  /** The grant as last read, so a path the host took out of it is noticed here (`followGrant`). */
+  private granted: Set<string>;
   /** The room-gone reason once the session has ended terminally, if it has. */
   private terminalReason: string | undefined;
   /** Whether this window has already been told it is a viewer (`§13.4`). */
@@ -239,6 +241,7 @@ export class MonacoBinding implements EditorHost {
   private landingCycle = 0;
   constructor(options: BindingOptions) {
     this.engine = options.engine;
+    this.granted = new Set(this.engine.grantedPaths());
     this.editor = options.editor;
     this.onNotice = options.onNotice;
     this.createModel = options.createModel;
@@ -288,6 +291,7 @@ export class MonacoBinding implements EditorHost {
           this.backgroundTick();
           break;
         case 'grantChanged':
+          this.followGrant();
           this.forgetListing();
           this.onNotice({ kind: 'grant', paths: this.grantListing() });
           break;
@@ -424,6 +428,39 @@ export class MonacoBinding implements EditorHost {
     }
     if (followed) {
       this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because the file is gone.` });
+    }
+  }
+
+  /**
+   * Ends the documents the host took out of the grant, in every window and not only the host's.
+   *
+   * A guest in a file the host moved or deleted would otherwise keep it listed and keep typing into
+   * a document no folder holds. A file in front that moved is reopened where it went, when the new
+   * grant holds exactly one new path with its name.
+   */
+  private followGrant(): void {
+    const before = this.granted;
+    const after = new Set(this.engine.grantedPaths());
+    this.granted = after;
+    const gone = [...before].filter((path) => !after.has(path));
+    if (gone.length === 0) {
+      return;
+    }
+    const current = this.path;
+    let movedTo: string | undefined;
+    if (current !== undefined && gone.includes(current)) {
+      const leaf = current.slice(current.lastIndexOf('/') + 1);
+      const arrived = [...after].filter(
+        (path) => !before.has(path) && path.slice(path.lastIndexOf('/') + 1) === leaf,
+      );
+      movedTo = arrived.length === 1 ? arrived[0] : undefined;
+    }
+    this.dropDocuments(gone);
+    if (movedTo !== undefined) {
+      const to = movedTo;
+      void this.openDocument(to)
+        .then(() => this.onNotice({ kind: 'landed', path: to }))
+        .catch(() => undefined);
     }
   }
 

@@ -333,11 +333,8 @@ describe('brand heading', () => {
       'the healthy state carries no name for a screen reader',
     );
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    for (const state of ["'reconnecting'", "'away'"]) {
-      assert.ok(main.includes(`setHealth(${state})`), `the ${state} state reaches no dot`);
-    }
+    assert.ok(main.includes(`setHealth('reconnecting')`), 'the reconnecting state reaches no dot');
     assert.match(main, /'Reconnecting…'/, 'the reconnecting state is wordless');
-    assert.match(main, /'Host away'/, 'the host-away state is wordless');
   });
 });
 

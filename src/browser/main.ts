@@ -30,7 +30,7 @@ import {
   showJoinFailure,
   showNameFailure,
   showCardIntent,
-  showRejoinCard,
+  showStartAgain,
   validateDisplayName,
 } from './join.ts';
 import type { CardIntent, JoinCardElements, JoinTarget } from './join.ts';
@@ -100,11 +100,9 @@ import {
   wireTapPeek,
 } from './notice.ts';
 import {
-  LEFT_SESSION_SENTENCE,
   SESSION_ENDED_MESSAGE,
   dropSession,
   roomGoneSentence,
-  sessionOverMessage,
 } from './ended.ts';
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
@@ -521,8 +519,6 @@ let republishGrant: ((paths: readonly string[]) => Promise<void>) | undefined;
 const madeFolders = new Set<string>();
 /** The directory the panel's create verbs last used, for the session. */
 let lastCreateParent: string | undefined;
-/** Whether the host's absence is being counted down. */
-let hostAway = false;
 /**
  * The host's display name, remembered while its seat is in the room.
  *
@@ -605,6 +601,21 @@ async function publishFolder(): Promise<string | undefined> {
   }
 }
 
+/**
+ * Keeps the folder a path left behind on screen once nothing listed is left in it. The folder is
+ * still on disk, and a listing of files alone would make it vanish.
+ */
+function keepEmptiedFolder(path: string): void {
+  const listing = binding?.grantListing() ?? [];
+  for (let slash = path.lastIndexOf('/'); slash !== -1; slash = path.lastIndexOf('/', slash - 1)) {
+    const folder = path.slice(0, slash);
+    if (listing.some((listed) => listed.startsWith(`${folder}/`))) {
+      return;
+    }
+    madeFolders.add(folder);
+  }
+}
+
 /** Forgets a folder this session made, and everything this session made under it. */
 function forgetMadeFolder(path: string): void {
   const under = `${path}/`;
@@ -647,6 +658,7 @@ async function removeEntry(path: string): Promise<RemoveResult> {
     forgetMadeFolder(gone);
   }
   const unpublished = await publishFolder();
+  keepEmptiedFolder(outcome.path);
   binding.dropDocuments(outcome.paths);
   syncGrant();
   if (unpublished !== undefined) {
@@ -684,6 +696,7 @@ async function moveEntry(path: string, into: string): Promise<MoveResult> {
     return { kind: 'refused', sentence: outcome.sentence };
   }
   const unpublished = await publishFolder();
+  keepEmptiedFolder(path);
   const showing = binding.currentPath() === path;
   if (live && outcome.kind !== 'partial') {
     binding.dropDocuments([path]);
@@ -1400,14 +1413,29 @@ const leaveControl = wireLeave({
     cancel: leaveCancel,
     go: leaveAnyway,
   },
-  leave: () => leaveSession(LEFT_SESSION_SENTENCE),
+  leave: () => void leaveRoom(),
 });
 leaveButton.addEventListener('click', () => {
   leaveControl.press();
 });
 
 /**
- * The panel's edge and its width: remembered per browser, draggable, keyed and resettable (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
+ * Leaving, from the bar. A host closes the room first (`§7.1`), so every guest is sent back at once
+ * rather than after the grace. The binding goes before the closing does, so this window's own copy
+ * of the closing does not end it with the guests' sentence, and the closing gets a second to go out.
+ */
+async function leaveRoom(): Promise<void> {
+  if (hostFolder !== undefined && engine !== undefined) {
+    binding?.dispose();
+    const closing = engine.closeRoom().catch(() => false);
+    await Promise.race([closing, new Promise((resolve) => window.setTimeout(resolve, 1000))]);
+  }
+  leaveSession('');
+}
+
+/**
+ * The panel's edge and its width: remembered per browser, draggable, keyed and resettable
+ * (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
  * another. A phone renders no separator and takes the panel whole, which the shell's own query does.
  */
 const sidebar = wireSidebar({
@@ -2322,7 +2350,6 @@ function leaveSession(sentence: string): void {
   treeActions.hidden = true;
   madeFolders.clear();
   lastCreateParent = undefined;
-  hostAway = false;
   sessionHostName = undefined;
   saidFetchCosts = false;
   setHealth('ok');
@@ -2349,11 +2376,11 @@ function leaveSession(sentence: string): void {
   sessionBar.hidden = true;
   workspacePane.hidden = true;
   linkIsTheInvite = false;
-  cardIntent = 'join';
+  cardIntent = 'start';
   // The room this tab was hosting is over cleanly, so the next load has nothing to explain.
   clearHostingMark(window.sessionStorage);
   syncStrip();
-  showRejoinCard(
+  showStartAgain(
     {
       pane: joinPane,
       startHeading,
@@ -2369,19 +2396,15 @@ function leaveSession(sentence: string): void {
       inviteInput,
       joinButton,
     },
-    sessionOverMessage(sentence),
+    sentence,
   );
-  // The card is the guest's now, and the host action is the card's own shape is what says so: the
-  // sentence about what a room costs belongs to the start card, and a button left standing here
-  // from a room whose page was bare is the other intent's. Nothing is asked of the page's origin
-  // again — the read the offer rested on stands (`showHosting`).
   if (lastServerRead !== undefined) {
     showHosting(folderPicker !== undefined, lastServerRead);
   }
   // The join gate was left settled by the join that just ended: another join
   // from this card has to start clean.
   joinGate.release();
-  inviteInput.focus();
+  (hostButton.hidden ? nameInput : hostButton).focus();
 }
 
 /**
@@ -2417,22 +2440,16 @@ function statusRoute(topic: StatusTopic): 'role' | 'refusal' | 'error' | undefin
  * is the strip below.
  */
 /**
- * The bar's dot, which is the glanceable half of room health: a healthy room paints the dot alone,
- * and the two states that change what typing means paint their own name beside it. The sentence
- * with the countdown in it is the strip below. The name is set in every state, the green one
+ * The bar's dot, which is the glanceable half of room health: a healthy room paints nothing, and a
+ * socket being re-dialled paints its name beside the dot. A host that is away is the session card's
+ * alone, with its countdown. The name is set in every state, the green one
  * included: there it is clipped out of the paint, so a screen reader has it and the eye does not.
  */
-function setHealth(state: 'ok' | 'reconnecting' | 'away'): void {
+function setHealth(state: 'ok' | 'reconnecting'): void {
   health.dataset.health = state;
-  const label =
-    state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'Host away' : 'Connected';
+  const label = state === 'reconnecting' ? 'Reconnecting…' : 'Connected';
   healthLabel.textContent = label;
-  health.title =
-    state === 'reconnecting'
-      ? 'Reconnecting…'
-      : state === 'away'
-        ? 'The host is away'
-        : 'Connected';
+  health.title = label;
 }
 
 /**
@@ -2483,7 +2500,7 @@ function onNotice(notice: BindingNotice): void {
       // because the set can be exactly what it was before the drop — so either one ends the
       // dropped line a retry put up.
       sessionCard.endDropped();
-      setHealth(hostAway ? 'away' : 'ok');
+      setHealth('ok');
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself. Nothing is opened: opening a file is the person's act, and
       // the one open the page makes for them is the room's own seat (`openFirst`). A room that
@@ -2503,10 +2520,8 @@ function onNotice(notice: BindingNotice): void {
         // card is the only place the guest reads it.
         if (hostPresent(present)) {
           sessionCard.endAway();
-          hostAway = false;
         }
-        // The dot and the dimming are one fact: green and legible together, red and dimmed together.
-        setHealth(hostAway ? 'away' : 'ok');
+        setHealth('ok');
         drawRoom(present);
         // The bar's identity names the host's session, which the room's peers are where the host appears.
         setSessionIdentity();
@@ -2517,9 +2532,8 @@ function onNotice(notice: BindingNotice): void {
     case 'roster':
       if (hostPresent(notice.participants)) {
         sessionCard.endAway();
-        hostAway = false;
       }
-      setHealth(hostAway ? 'away' : 'ok');
+      setHealth('ok');
       drawRoom(notice.participants);
       setSessionIdentity();
       // Where someone is reads on the tree, so presence moves re-render it.
@@ -2531,9 +2545,7 @@ function onNotice(notice: BindingNotice): void {
       rememberHostName();
       sessionCard.away(sessionHostName ?? '', notice.graceMs);
       // No row draws a state while the host is away: no text can arrive until it is back, and the
-      // card above carries that news. What is left of the fact is the health dot, and the rows.
-      hostAway = true;
-      setHealth('away');
+      // card above carries that news.
       setSessionIdentity();
       syncGrant();
       break;
@@ -2545,7 +2557,6 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'hostBack':
       sessionCard.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
-      hostAway = false;
       setHealth('ok');
       syncGrant();
       break;

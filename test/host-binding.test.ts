@@ -152,6 +152,7 @@ function makeEngine(role: Role, texts: Map<string, string>) {
     setAwareness: () => {},
     presence: () => [],
     resolveSelection: () => undefined,
+    grantedPaths: () => [],
     on: (listener: (event: { type: string; path?: string }) => void) => {
       listeners.add(listener);
       return () => void listeners.delete(listener);

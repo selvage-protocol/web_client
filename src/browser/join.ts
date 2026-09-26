@@ -465,14 +465,11 @@ export function showJoinFailure(target: JoinFailureTarget, message: string): voi
 }
 
 /**
- * The card in its rejoin shape, addressed the same structural way as the
- * pre-join wiring. The session is over, so the card comes back over the
- * blurred preview with one line saying what happened and the paste box open:
- * the link the address bar carried named the room that just closed, and only a
- * fresh link gets anyone in. The name is left as the guest typed it, so the
- * next join is one paste and Enter.
+ * The start card, shown again once a session is over: the same card a fresh page opens on, over the
+ * blurred preview. The name is left as it was typed. `message` is a short reason, or empty when the
+ * person left on purpose and needs none.
  */
-export interface RejoinCardElements extends CardIntentElements {
+export interface StartAgainElements extends CardIntentElements {
   /** The card itself: it is shown again, and its class is what decides the leading action. */
   pane: { className: string; hidden: boolean };
   preview: { hidden: boolean };
@@ -486,15 +483,14 @@ export interface RejoinCardElements extends CardIntentElements {
   joinButton: { disabled: boolean; textContent: string };
 }
 
-export function showRejoinCard(elements: RejoinCardElements, message: string): void {
-  // The card leads with the join again, and with the paste box open: the link the
-  // address bar carried is the room that just closed, so a fresh one is the way in.
-  showCardIntent(elements, 'join', true);
+export function showStartAgain(elements: StartAgainElements, message: string): void {
+  showCardIntent(elements, 'start');
+  elements.invitePath.open = false;
   elements.pane.hidden = false;
   elements.preview.hidden = false;
   elements.veil.hidden = false;
   elements.message.textContent = message;
-  elements.message.hidden = false;
+  elements.message.hidden = message === '';
   elements.joinError.textContent = '';
   elements.hostError.textContent = '';
   elements.inviteInput.value = '';

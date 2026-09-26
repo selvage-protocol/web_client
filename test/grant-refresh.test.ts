@@ -69,6 +69,7 @@ function makeEngine(texts, state) {
     text: (path) => texts.get(path) ?? '',
     has: (path) => texts.has(path),
     open: async (_path) => {},
+    close: async (_path) => {},
     openDocuments: () => [...texts.keys()],
     presence: () => [],
     resolveSelection: () => undefined,
@@ -118,6 +119,35 @@ describe('tree refresh on listing changes', () => {
     assert.deepEqual(binding.grantTree('docs'), [
       { name: 'notes.txt', path: 'docs/notes.txt', directory: false },
     ]);
+    binding.dispose();
+  });
+
+  it('ends a file the host took out of the grant, and follows one that moved', async () => {
+    const texts = new Map([['notes.txt', 'hi'], ['old.txt', 'x']]);
+    const state = { grant: ['notes.txt', 'old.txt'] };
+    const engine = makeEngine(texts, state);
+    const notices = [];
+    const binding = new MonacoBinding({
+      engine,
+      editor: makeEditor(),
+      onNotice: (notice) => void notices.push(notice),
+      createModel: (text, _language) => makeModel(text),
+    });
+    await binding.openDocument('notes.txt');
+
+    // A move: the room may still hold the old document, and the listing must not.
+    texts.set('docs/notes.txt', 'hi');
+    state.grant = ['docs/notes.txt', 'old.txt'];
+    engine.__emit({ type: 'grantChanged' });
+    assert.deepEqual(binding.grantListing(), ['docs/notes.txt', 'old.txt']);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(binding.currentPath(), 'docs/notes.txt', 'the moved file was not followed');
+    assert.ok(notices.some((notice) => notice.kind === 'landed' && notice.path === 'docs/notes.txt'));
+
+    // A deletion of a file somebody else has open: gone from this listing too.
+    state.grant = ['docs/notes.txt'];
+    engine.__emit({ type: 'grantChanged' });
+    assert.deepEqual(binding.grantListing(), ['docs/notes.txt']);
     binding.dispose();
   });
 });
