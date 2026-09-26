@@ -25,6 +25,10 @@
  * applied before anything is resolved, and a name the folder already holds is refused rather than
  * adopted. What it makes is a host-side act for the listing to publish: the walk that publishes is
  * the caller's, and it finds the new path because the folder now holds it.
+ *
+ * `remove` and `move` are the other two acts that change what the folder holds, and they are held to
+ * the same rule: every path is one the grant would publish, decided before anything is resolved, so
+ * none of the three can name a file the person did not hand over.
  */
 
 import {
@@ -101,6 +105,7 @@ export interface FolderDirectoryHandle {
     options?: FolderLookupOptions,
   ): Promise<FolderDirectoryHandle>;
   getFileHandle(name: string, options?: FolderLookupOptions): Promise<FolderFileHandle>;
+  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
 }
 
 /** The picker, as this module calls it. Injected so the suite needs no browser. */
@@ -171,6 +176,48 @@ export type FolderWrite =
 /** What a create makes: one file, or one directory, at a path a person typed. */
 export type NewEntryKind = 'file' | 'directory';
 
+/** Why nothing was removed. */
+export type FolderRemoveRefusal =
+  /** Not a path the grant would publish: outside the folder, or a name the grant excludes. */
+  | 'not-granted'
+  /** Nothing there: removed since the listing, or never there. */
+  | 'missing'
+  /** The person revoked write access, or the folder moved with the tab open. */
+  | 'not-permitted';
+
+/**
+ * What a removal took out: the path, and the listed files that went with it.
+ *
+ * The second is the page's, not the folder's: a document is a path, so the files a folder took with
+ * it are the paths whose text has to leave the room as well, and only the listing says which they
+ * were (a room's listing is files, so a folder is in it only through them).
+ */
+export type FolderRemove =
+  | { kind: 'removed'; path: string; paths: readonly string[] }
+  | { kind: 'refused'; cause: FolderRemoveRefusal; sentence: string };
+
+/** Why a move did not happen, or happened only halfway. */
+export type FolderMoveRefusal =
+  | FolderRemoveRefusal
+  | FolderCreateRefusal
+  | FolderWriteRefusal
+  /** A file over the size a room will carry. */
+  | 'too-large'
+  /** The two paths are one: there is nowhere to move it to. */
+  | 'same';
+
+/**
+ * What a move came to.
+ *
+ * `partial` is the one that needs saying out loud: a move in this client is a write at the new name
+ * and a removal at the old, and the folder can refuse the removal after the write has landed. The
+ * file is then at both paths, which is not a failed move and is not a finished one either.
+ */
+export type FolderMove =
+  | { kind: 'moved'; from: string; to: string }
+  | { kind: 'refused'; cause: FolderMoveRefusal; sentence: string }
+  | { kind: 'partial'; from: string; to: string; sentence: string };
+
 /** Why nothing was created. */
 export type FolderCreateRefusal =
   /** A name the grant's own rules refuse: an exclude, a key name, `..`, an absolute path. */
@@ -225,6 +272,54 @@ export interface FileLayout {
  * made, and where a person can act it names the next step. `exists` is the one that has to be said
  * rather than implied, because the API's own `create` would have opened what is there instead.
  */
+export function folderRemoveSentence(cause: FolderRemoveRefusal, path: string): string {
+  switch (cause) {
+    case 'not-granted':
+      return `${path} is not a path this room shares, so nothing was removed.`;
+    case 'missing':
+      return `${path} is not in the folder any more, so nothing was removed.`;
+    case 'not-permitted':
+      return `${path} could not be removed: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
+  }
+}
+
+/**
+ * What a refused or half-finished move says, per cause.
+ *
+ * Both paths are named, because a move is the one act here that is about two names at once and the
+ * answer to "what happened?" is a statement about each of them.
+ */
+export function folderMoveSentence(cause: FolderMoveRefusal, from: string, to: string): string {
+  switch (cause) {
+    case 'not-granted':
+      return `${from} or ${to} is not a path this room shares, so nothing was moved.`;
+    case 'missing':
+      return `${from} is not in the folder any more, so nothing was moved.`;
+    case 'not-a-file':
+      return `${from} is not a plain file in the folder, so nothing was moved.`;
+    case 'too-large':
+      return `${from} is larger than a room will carry, so nothing was moved.`;
+    case 'binary':
+      return `${from} is not text a room can carry, so nothing was moved.`;
+    case 'exists':
+      return `${to} is already in the folder, so nothing was moved. This page replaces and renames nothing the folder holds.`;
+    case 'unread':
+      return `${from} had not been read from the folder before this move, so it was left alone.`;
+    case 'stale':
+      return `${to} changed on disk while it was being moved, so it was left alone.`;
+    case 'not-permitted':
+      return `${from} could not be moved: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
+    case 'same':
+      return `${from} is already there, so nothing was moved.`;
+  }
+}
+
+/** What a move whose copy landed and whose removal did not says. */
+export function folderMovePartialSentence(from: string, to: string, reason: string): string {
+  return `${from} is now at ${to} as well, but the original was not removed: ${reason}`;
+}
+
+/** Why nothing was created. */
 export function folderCreateSentence(cause: FolderCreateRefusal, path: string): string {
   switch (cause) {
     case 'not-granted':
@@ -565,6 +660,133 @@ export class FolderWorkingCopy implements FolderWork {
       this.stamps.set(path, seen);
     }
     return { kind: 'written' };
+  }
+
+  /**
+   * Takes one entry out of the folder: a file, or a folder with everything inside it.
+   *
+   * The path is walked one segment at a time, as every other operation here walks it, and the shared
+   * rule decides the name before anything is resolved — so a `..`, an absolute path or an excluded
+   * name never reaches the API at all, and this cannot name anything outside the folder the person
+   * picked. What it does inside that folder is the API's own removal, with the recursive flag the
+   * only kind of removal a folder has.
+   *
+   * Recursion is the API's, and it cannot walk out of the grant through a link: the folder the
+   * person picked *is* the boundary (this module holds one directory handle and reaches nothing
+   * else), and Chromium does not list a symbolic link at all (see `refusalOf`), so there is no
+   * listed entry whose removal follows a path this page was never handed.
+   *
+   * What the removal takes out of this module's own memory is the stamp and the layout of every path
+   * that went, and those paths out of the set a read is served from: a stamp left behind would be a
+   * write guard comparing against a file that is not there.
+   */
+  async remove(path: string): Promise<FolderRemove> {
+    const refuse = (cause: FolderRemoveRefusal): FolderRemove => ({
+      kind: 'refused',
+      cause,
+      sentence: folderRemoveSentence(cause, path),
+    });
+    if (!isGrantedPath(path, FOLDER_PLATFORM)) {
+      return refuse('not-granted');
+    }
+    const dir = await this.directoryOf(path);
+    if ('cause' in dir) {
+      return refuse(dir.cause === 'not-granted' ? 'not-permitted' : 'missing');
+    }
+    try {
+      await dir.handle.removeEntry(leafOf(path), { recursive: true });
+    } catch (error: unknown) {
+      if (permissionRefusal(error)) {
+        return refuse('not-permitted');
+      }
+      const cause = refusalOf(error);
+      if (cause === undefined) {
+        throw error;
+      }
+      return refuse(cause === 'not-granted' ? 'not-permitted' : 'missing');
+    }
+    return { kind: 'removed', path, paths: this.forget(path) };
+  }
+
+  /**
+   * Moves one file to another name: a write at the new path, then a removal at the old.
+   *
+   * That is the whole of what a move is here, and the order is what makes each step honest. The old
+   * text is read first, so a file that is not there, is not text or is over the bound is refused
+   * before anything is made. The new name is created, which refuses a name the folder already holds
+   * rather than merging the two. Then the text is written, and only then is the old path removed — a
+   * removal first would lose a file whose write was refused.
+   *
+   * What this is not: a rename. The file's identity is its path in this client too, and the caller is
+   * the one that decides a path may change at all (the page refuses a move of a path the room holds
+   * open, because the room keys a document by its path).
+   *
+   * What it cannot promise: the write and the removal are two steps, so a removal refused after the
+   * write landed leaves the file at both names, reported as `partial` rather than as a move that did
+   * not happen or one that did.
+   */
+  async move(from: string, to: string): Promise<FolderMove> {
+    const refuse = (cause: FolderMoveRefusal): FolderMove => ({
+      kind: 'refused',
+      cause,
+      sentence: folderMoveSentence(cause, from, to),
+    });
+    if (!isGrantedPath(from, FOLDER_PLATFORM) || !isGrantedPath(to, FOLDER_PLATFORM)) {
+      return refuse('not-granted');
+    }
+    if (from === to) {
+      return refuse('same');
+    }
+    const source = await this.read(from);
+    if (source.kind === 'refused') {
+      return refuse(source.cause);
+    }
+    const made = await this.create(to, 'file');
+    if (made.kind === 'refused') {
+      return refuse(made.cause);
+    }
+    // The layout travels with the text. `create` stamped the new file and knows nothing about how the
+    // old one's bytes were laid out, so the byte order mark has to be carried here or the move would
+    // quietly strip it (`write` puts it back only for a path this module has a layout for).
+    const layout = this.layouts.get(from);
+    if (layout !== undefined) {
+      this.layouts.set(to, layout);
+    }
+    const written = await this.write(to, source.text);
+    if (written.kind === 'refused') {
+      // The copy never landed, and the create above made an empty file: it goes, so the folder is as
+      // it was and the refusal is a refusal and not a half-move.
+      await this.remove(to);
+      return refuse(written.cause);
+    }
+    const gone = await this.remove(from);
+    if (gone.kind === 'refused') {
+      return { kind: 'partial', from, to, sentence: folderMovePartialSentence(from, to, gone.sentence) };
+    }
+    return { kind: 'moved', from, to };
+  }
+
+  /**
+   * Forgets one path and everything under it: the stamps, the layouts, and the listed set.
+   *
+   * What it returns is the listed files that went, which is the page's answer to "which documents do
+   * I have that no longer exist". A folder is in a listing only through the files inside it, so a
+   * folder's own path is returned only when nothing had been listed — and then it names no document.
+   */
+  private forget(path: string): string[] {
+    const under = `${path}/`;
+    const known = this.listed;
+    const gone = known === undefined ? [path] : [...known].filter((seen) => seen === path || seen.startsWith(under));
+    this.stamps.delete(path);
+    this.layouts.delete(path);
+    if (known !== undefined) {
+      this.listed = new Set([...known].filter((seen) => seen !== path && !seen.startsWith(under)));
+    }
+    for (const seen of gone) {
+      this.stamps.delete(seen);
+      this.layouts.delete(seen);
+    }
+    return gone;
   }
 
   /**
