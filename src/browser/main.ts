@@ -56,7 +56,6 @@ import type { ServerRead } from './meta-read.ts';
 import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
-import { openInRoomMoveRefusal } from './tree-view.ts';
 import type { CreateResult, MoveResult, RemoveResult, RowFeedback } from './tree-view.ts';
 import {
   fetchAndSave,
@@ -246,7 +245,6 @@ const appPane = document.getElementById('app') as HTMLElement;
 const noticesPane = document.getElementById('notices') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
 const sideResizer = document.getElementById('side-resizer') as HTMLElement;
-const sideRail = document.getElementById('side-rail') as HTMLButtonElement;
 const sideFoot = document.getElementById('side-foot') as HTMLElement;
 const sideTerms = document.getElementById('side-terms') as HTMLAnchorElement;
 const fileStrip = document.getElementById('file-strip') as HTMLElement;
@@ -661,18 +659,19 @@ async function removeEntry(path: string): Promise<RemoveResult> {
  * Moves a file into a folder, or to the top level, as a write at the new name and a removal at the
  * old one.
  *
- * The refusal that is this client's own is the first one: the room keys an open document by its
- * path, and nothing here can re-key a live one, so a file the room holds open is refused rather than
- * moved out from under every seat that has it. The tree view refuses the same case before asking, so
- * this is the gate a caller that reached the act another way still passes.
+ * The room keys a document by its path, so a file the room holds open cannot keep its document
+ * across the move. Its pending edits are written first, so the new name carries the latest text,
+ * and then the old document ends the way a deleted file's does. This window reopens it at the new
+ * name when it was the one in front of the editor.
  */
 async function moveEntry(path: string, into: string): Promise<MoveResult> {
   const folder = hostFolder;
   if (folder === undefined || binding === undefined) {
     return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
   }
-  if (binding.isOpenInRoom(path)) {
-    return { kind: 'refused', sentence: openInRoomMoveRefusal(path) };
+  const live = binding.isOpenInRoom(path) || binding.currentPath() === path;
+  if (live) {
+    await binding.settle(path);
   }
   const to = into === '' ? leafOf(path) : `${into}/${leafOf(path)}`;
   let outcome: FolderMove;
@@ -685,7 +684,14 @@ async function moveEntry(path: string, into: string): Promise<MoveResult> {
     return { kind: 'refused', sentence: outcome.sentence };
   }
   const unpublished = await publishFolder();
+  const showing = binding.currentPath() === path;
+  if (live && outcome.kind !== 'partial') {
+    binding.dropDocuments([path]);
+  }
   syncGrant();
+  if (showing && outcome.kind !== 'partial') {
+    void openPath(to);
+  }
   if (outcome.kind === 'partial') {
     // The file is at both names, which is not a move that did not happen: the page says so and the
     // tree draws both rows.
@@ -1401,12 +1407,11 @@ leaveButton.addEventListener('click', () => {
 });
 
 /**
- * The panel's edge and its width: remembered per browser, draggable, keyed, collapsible and
- * resettable (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
+ * The panel's edge and its width: remembered per browser, draggable, keyed and resettable (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
  * another. A phone renders no separator and takes the panel whole, which the shell's own query does.
  */
 const sidebar = wireSidebar({
-  elements: { side: sidePane, separator: sideResizer, rail: sideRail },
+  elements: { side: sidePane, separator: sideResizer },
   // A phone's panel is the full-width disclosure the shell queries for, and its `hidden` belongs to
   // `showPanel`: a separator that wrote it would reopen the panel on every resize.
   active: () => !phoneLayout.matches,

@@ -23,7 +23,7 @@ export function roomGoneMessage(reason: string): string {
  * settle, which the sentence's "had settled" allows for.
  */
 export const NOTHING_KEPT =
-  'Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.';
+  'This page keeps nothing. The host’s folder has the last text the room saved.';
 
 /** The room-gone card's sentence: what happened, and what became of everything in it. */
 export function roomGoneSentence(reason: string): string {

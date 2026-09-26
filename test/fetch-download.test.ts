@@ -149,7 +149,7 @@ describe('a path whose text has not been fetched', () => {
     assert.equal(outcome.kind, 'pending');
     assert.notEqual(outcome.kind, 'empty', 'silence was reported as the room’s empty answer');
     assert.deepEqual(silent.saved, [], 'a fetch that never landed saved something');
-    assert.match(stillAskingSentence('src/main.rs'), /^Still asking the host for src\/main\.rs — no answer yet\.$/);
+    assert.match(stillAskingSentence('src/main.rs'), /^Still asking the host for src\/main\.rs\. No answer yet\.$/);
     assert.doesNotMatch(stillAskingSentence('src/main.rs'), /empty/i, 'the wait was said as emptiness');
     // The room's own empty answer is the other state, and it is the one `Save empty file` is for.
     const answered = room('', { after: 0 });
@@ -160,7 +160,7 @@ describe('a path whose text has not been fetched', () => {
     assert.equal(empty.kind, 'empty');
     assert.match(
       stillEmptySentence('src/main.rs'),
-      /^src\/main\.rs is still empty — the host sent no text for it\.$/,
+      /^src\/main\.rs is still empty\. The host sent no text for it\.$/,
     );
   });
 

@@ -187,7 +187,7 @@ export function hostLeftSentence(name: string): string {
  */
 export function hostBackSentence(name: string): string {
   const who = name.trim() === '' ? 'the host' : name.trim();
-  return `${who} is back — the session continues.`;
+  return `${who} is back. The session continues.`;
 }
 
 /**

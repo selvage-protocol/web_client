@@ -53,16 +53,16 @@ describe('the words for the end of a session', () => {
     // told a host the opposite of what the page had been doing all session.
     assert.equal(
       NOTHING_KEPT,
-      'Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.',
+      'This page keeps nothing. The host’s folder has the last text the room saved.',
     );
     assert.ok(!/nothing in the room was saved/i.test(NOTHING_KEPT), `the card denies the write-back: ${NOTHING_KEPT}`);
     assert.equal(
       roomGoneSentence('host did not return'),
-      'The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.',
+      'The room is gone (host did not return). This page keeps nothing. The host’s folder has the last text the room saved.',
     );
     assert.equal(
       roomGoneSentence('  '),
-      'The room is gone (no reason given). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.',
+      'The room is gone (no reason given). This page keeps nothing. The host’s folder has the last text the room saved.',
     );
   });
 
@@ -70,7 +70,7 @@ describe('the words for the end of a session', () => {
     assert.equal(REJOIN_PROMPT, 'Paste a fresh invite link to join another session.');
     assert.equal(
       sessionOverMessage(roomGoneSentence('host did not return')),
-      'The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on. Paste a fresh invite link to join another session.',
+      'The room is gone (host did not return). This page keeps nothing. The host’s folder has the last text the room saved. Paste a fresh invite link to join another session.',
     );
     assert.equal(
       sessionOverMessage(SESSION_ENDED_MESSAGE),
@@ -218,7 +218,7 @@ describe('the card the page comes back to', () => {
 
   it('comes back as the join card, with the paste box open and the button ready', () => {
     const gone =
-      'The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on. Paste a fresh invite link to join another session.';
+      'The room is gone (host did not return). This page keeps nothing. The host’s folder has the last text the room saved. Paste a fresh invite link to join another session.';
     const elementsUnderTest = elements();
     showRejoinCard(elementsUnderTest, gone);
     assert.equal(elementsUnderTest.pane.hidden, false, 'the card never came back');

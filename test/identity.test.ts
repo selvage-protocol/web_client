@@ -108,7 +108,7 @@ describe('identity', () => {
     assert.match(html, /rel="apple-touch-icon" href="apple-touch-icon\.png"/);
     assert.match(html, /rel="manifest" href="site\.webmanifest"/);
     assert.match(html, /name="theme-color" content="#1e1e2e"/);
-    assert.match(html, /property="og:title" content="Selvage — shared editing in the browser"/);
+    assert.match(html, /property="og:title" content="Selvage: shared editing in the browser"/);
     assert.match(
       html,
       /property="og:description" content="Join a live editing session in your browser/,

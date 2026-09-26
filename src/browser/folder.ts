@@ -145,7 +145,7 @@ export const FOLDER_PICKER_OPTIONS = { mode: 'readwrite', id: PICKER_ID } as con
 export function folderPickSentence(cause: FolderPickRefusal, detail = ''): string {
   switch (cause) {
     case 'unsupported':
-      return 'This browser cannot hand a page a folder. Chrome and Edge can; Firefox and Safari cannot. Joining a room here still works.';
+      return 'This browser cannot hand a page a folder. Chrome and Edge can, but Firefox and Safari cannot. Joining a room here still works.';
     case 'refused':
       return `The browser would not hand over that folder${detail === '' ? '' : ` (${detail})`}. A system folder, or your home directory itself, cannot be shared.`;
   }
@@ -277,7 +277,7 @@ export function folderRemoveSentence(cause: FolderRemoveRefusal, path: string): 
     case 'not-granted':
       return `${path} is not a path this room shares, so nothing was removed.`;
     case 'missing':
-      return `${path} is not in the folder any more, so nothing was removed.`;
+      return `${path} is already gone from the folder.`;
     case 'not-permitted':
       return `${path} could not be removed: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
   }
@@ -358,7 +358,7 @@ export function folderWriteSentence(cause: FolderWriteRefusal, path: string): st
     case 'unread':
       return `${path} had not been read from the folder before this write, so it was left alone rather than overwritten with text this page never saw.`;
     case 'stale':
-      return `${path} changed on disk since the room read it, so it was left alone rather than overwritten. Something else wrote it (a formatter, a build, another editor, a checkout); the room still holds its text, and opening the file again brings it in.`;
+      return `${path} changed on disk since the room read it, so it was left alone rather than overwritten. Something else wrote to it, like a formatter, a build, another editor or a checkout. The room still holds its text, and opening the file again brings it in.`;
     case 'not-permitted':
       return `${path} could not be written: this page no longer has write access to the folder. Grant it again from the address bar, or keep the room\u2019s text with Download.`;
   }
@@ -689,9 +689,14 @@ export class FolderWorkingCopy implements FolderWork {
     if (!isGrantedPath(path, FOLDER_PLATFORM)) {
       return refuse('not-granted');
     }
+    // A path already gone is the end the person asked for, so it is removed like any other: the
+    // listing that still showed it is what is out of date.
     const dir = await this.directoryOf(path);
     if ('cause' in dir) {
-      return refuse(dir.cause === 'not-granted' ? 'not-permitted' : 'missing');
+      if (dir.cause === 'not-granted') {
+        return refuse('not-permitted');
+      }
+      return { kind: 'removed', path, paths: this.forget(path) };
     }
     try {
       await dir.handle.removeEntry(leafOf(path), { recursive: true });
@@ -703,7 +708,9 @@ export class FolderWorkingCopy implements FolderWork {
       if (cause === undefined) {
         throw error;
       }
-      return refuse(cause === 'not-granted' ? 'not-permitted' : 'missing');
+      if (cause === 'not-granted') {
+        return refuse('not-permitted');
+      }
     }
     return { kind: 'removed', path, paths: this.forget(path) };
   }

@@ -30,7 +30,7 @@ describe('what the pane says with nothing open', () => {
     const [block] = state.blocks;
     assert.equal(block.lead, 'Your folder “demo-app” is empty.');
     assert.match(block.text ?? '', /shared by name/);
-    assert.match(block.text ?? '', /text reaches the room when it is opened/);
+    assert.match(block.text ?? '', /text reaches the room when someone opens them/);
     assert.deepEqual(block.actions, ['new-file', 'copy-invite']);
   });
 

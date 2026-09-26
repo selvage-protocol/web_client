@@ -527,9 +527,9 @@ describe('the create row', () => {
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
     assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New folder name in src');
     assert.equal(withClass(pane, 'new-hint').textContent, '');
-    // The trailing slash is drawn outside the field rather than typed into it.
-    assert.equal(withClass(pane, 'new-slash').textContent, '/');
-    assert.equal(withClass(pane, 'new-slash').hidden, false);
+    // The folder it was opened in stands in front of the field rather than in it.
+    assert.equal(withClass(pane, 'new-in').textContent, 'src/');
+    assert.equal(withClass(pane, 'new-in').hidden, false);
   });
 
   it('validates as the person types, in the line under the field', async () => {
@@ -704,7 +704,7 @@ describe('the create row', () => {
     assert.equal(withClass(pane, 'new-name').selectionStart, 5);
   });
 
-  it('sits where the name will take it, and moves as the name is typed', () => {
+  it('leads its folder and stays put while the name is typed', () => {
     const { pane, view } = creating({ listing: ['aaa.md', 'zzz.md'] });
     view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
@@ -720,49 +720,53 @@ describe('the create row', () => {
       walk(pane);
       return found;
     };
-    // An empty field names nothing, so the row stands at the end of the level.
-    assert.deepEqual(names(), ['aaa.md', 'zzz.md', '<the create row>']);
+    assert.deepEqual(names(), ['<the create row>', 'aaa.md', 'zzz.md']);
+    input.focus();
     input.value = 'mmm.md';
     input.fire('input');
-    assert.deepEqual(names(), ['aaa.md', '<the create row>', 'zzz.md']);
-    input.value = 'zzz2.md';
-    input.fire('input');
-    assert.deepEqual(names(), ['aaa.md', 'zzz.md', '<the create row>']);
+    assert.deepEqual(names(), ['<the create row>', 'aaa.md', 'zzz.md']);
+    assert.equal(doc.activeElement, input, 'typing took the focus away');
   });
 
-  it('sorts the create row among folders by the name it is given', () => {
-    // A folder row is a `details` whose name lives inside its `summary`: reading only the direct
-    // children left every folder with the same empty name, and a folder draft always landed at the
-    // end of the folder group instead of where its name sorts. The slash a folder is drawn with is
-    // its mark and not part of the name, so a draft called `mike` still sorts between two folders.
-    const { pane, view } = creating({ listing: ['alpha/x.md', 'zulu/y.md'] });
-    view.beginCreate('directory', '');
+  it('moves a typed folder into the prefix, and the row into that folder', () => {
+    const { pane, view } = creating({ listing: ['src/main.ts', 'README.md'] });
+    view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
-    input.value = 'mike';
+    input.focus();
+    input.value = 'src/lib.ts';
+    input.setSelectionRange(10, 10);
     input.fire('input');
-    const order = [];
-    const walk = (node) => {
-      for (const child of node.children) {
-        if (child.classList.contains('new-row')) order.push('<the create row>');
-        else if (child.tag === 'details') {
-          const summary = child.children[0];
-          const label = summary === undefined ? undefined : nameIn(summary);
-          if (label !== undefined) order.push(label);
-        }
-        walk(child);
-      }
-    };
-    walk(pane);
-    assert.deepEqual(order, ['alpha/', '<the create row>', 'zulu/']);
+    assert.equal(withClass(pane, 'new-in').textContent, 'src/');
+    assert.equal(withClass(pane, 'new-name').value, 'lib.ts', 'the field kept the slash');
+    assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New file name in src');
+    assert.equal(view.creatingIn(), 'src');
+    assert.ok(
+      summaryFor(pane, 'src/').parentElement.children[1].children[0].classes.includes('new-row'),
+      'the row did not move into the folder it names',
+    );
+    assert.equal(doc.activeElement, withClass(pane, 'new-name'), 'the move dropped the cursor');
+    assert.equal(withClass(pane, 'new-name').selectionStart, 6);
   });
 
-  it('hides the slash on the file variant and its own folder’s slash on the directory one', () => {
+  it('eats the prefix back with Backspace at the front of the field', () => {
+    const { pane, view } = creating({ listing: ['src/main.ts'] });
+    view.beginCreate('file', 'src');
+    const input = withClass(pane, 'new-name');
+    input.value = 'x';
+    input.setSelectionRange(0, 0);
+    let prevented = 0;
+    input.fire('keydown', { key: 'Backspace', preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 1);
+    assert.equal(withClass(pane, 'new-in').hidden, true, 'the prefix is still drawn');
+    assert.equal(withClass(pane, 'new-name').value, 'srcx');
+    assert.equal(withClass(pane, 'new-name').selectionStart, 3);
+  });
+
+  it('draws no prefix at the top level, and names the field for its kind', () => {
     const { pane, view } = creating();
     view.beginCreate('file', '');
-    assert.equal(withClass(pane, 'new-slash').hidden, true, 'a file row draws a directory slash');
+    assert.equal(withClass(pane, 'new-in').hidden, true, 'a top-level row draws a prefix');
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
-    // The field is named for what it asks for, and for the folder the row stands in when it is in
-    // one: `New folder name in src` is a question about `src`, and nothing else on the row says so.
     assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New file name');
   });
 });
@@ -812,7 +816,7 @@ describe('a row’s own actions', () => {
     );
     feedback.idle();
     assert.equal(withClass(pane, 'download').attributes['aria-label'], 'Download notes.md');
-    feedback.note('notes.md is still empty — the host sent no text for it.', [
+    feedback.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => {} },
     ]);
     const note = withClass(pane, 'row-note');
@@ -846,7 +850,7 @@ describe('a row’s own actions', () => {
     view.render();
     withClass(pane, 'download').fire('click');
     const first: RowFeedback = calls[0].feedback;
-    first.note('notes.md is still empty — the host sent no text for it.', [
+    first.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => first.note('trying again') },
     ]);
     state.listing = ['notes.md', 'app.ts'];
@@ -869,7 +873,7 @@ describe('a row’s own actions', () => {
     const feedback = calls[0].feedback;
     const costs = 'Fetching opens notes.md in the room, so every peer receives it.';
     feedback.note(costs);
-    feedback.note('notes.md is still empty — the host sent no text for it.', [
+    feedback.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => {} },
     ]);
     feedback.clear(costs);
@@ -1136,7 +1140,7 @@ describe('the row that asks to be taken out', () => {
   });
 
   it('keeps the question open, with the folder’s own sentence, when the removal is refused', async () => {
-    const sentence = 'src is not in the folder any more, so nothing was removed.';
+    const sentence = 'src could not be removed: this page no longer has write access to the folder.';
     const refused = deletable({ remove: async () => ({ kind: 'refused', sentence }) });
     refused.view.render();
     labelled(refused.pane, 'Delete src/').fire('click');
@@ -1145,6 +1149,27 @@ describe('the row that asks to be taken out', () => {
     assert.equal(withClass(refused.pane, 'row-note').children[0], sentence);
     assert.equal(allWithClass(refused.pane, 'del-row').length, 1, 'a refusal closed the question');
     assert.deepEqual(refused.said, [], 'a refusal announced a deletion');
+  });
+
+  it('removes once, however often ✓ is pressed while the removal runs', async () => {
+    let removals = 0;
+    let finish: () => void = () => {};
+    const slow = deletable({
+      remove: () => {
+        removals += 1;
+        return new Promise((resolve) => {
+          finish = () => resolve({ kind: 'removed', path: 'src', paths: [] });
+        });
+      },
+    });
+    slow.view.render();
+    labelled(slow.pane, 'Delete src/').fire('click');
+    const yes = labelled(slow.pane, 'Delete src/ and its 3 files');
+    yes.fire('click');
+    yes.fire('click');
+    finish();
+    await until(() => slow.said.length === 1, 'the deletion');
+    assert.equal(removals, 1, 'a second press removed again');
   });
 
   it('names a file’s own row after its leaf and a folder’s after its path', () => {
@@ -1271,18 +1296,12 @@ describe('moving a file', () => {
     assert.equal(doc.activeElement, rowFor(pane, 'main.ts'), 'focus did not come back to the row');
   });
 
-  it('refuses to move a file the room holds open, and says why', () => {
-    const { pane, view, calls, said } = movable({ inRoom: ['src/main.ts'] });
+  it('picks up a file the room holds open, like any other', () => {
+    const { pane, view, said } = movable({ inRoom: ['src/main.ts'] });
     view.render();
-    // The pointer: the drag never begins, so nothing is dimmed and no folder is marked for a file
-    // that could not land in it.
     pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: dataTransfer() });
-    assert.equal(allWithClass(pane, 'dragging').length, 0, 'an open file was picked up');
-    assert.match(said[0], /is open in the room, so it cannot be moved/);
-    // The keyboard: Space answers the same way.
-    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: ' ' });
-    assert.match(said[1], /is open in the room, so it cannot be moved/);
-    assert.deepEqual(calls, [], 'an open file was moved');
+    assert.ok(rowFor(pane, 'main.ts').parentElement.classes.includes('dragging'), 'an open file was not picked up');
+    assert.match(said[0], /^Picked up main.ts/);
   });
 
   it('does not move a file into the folder it is already in', () => {

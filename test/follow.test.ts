@@ -307,7 +307,19 @@ describe('follow', () => {
       resolved: { anchor: 3, head: 5 },
     });
     assert.equal(await landed.binding.goTo('peer-sam'), 'landed');
+    // The page is told, so the strip and the tree show the file the press opened.
+    assert.ok(landed.notices.some((notice) => notice.kind === 'landed' && notice.path === 'notes.txt'));
     landed.binding.dispose();
+
+    // A peer in a file with no caret to read, as an empty one has: the file opening is the landing.
+    // Waiting on a frame an idle peer never sends left the menu standing over it.
+    const caretless = setup(new Map([['notes.txt', '']]), {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt' } }],
+    });
+    assert.equal(await caretless.binding.goTo('peer-sam'), 'landed');
+    assert.equal(caretless.binding.currentPath(), 'notes.txt');
+    caretless.binding.dispose();
 
     // A peer in a document the room holds, whose caret does not resolve here: the room answered,
     // and there is nowhere to land.
@@ -403,7 +415,7 @@ describe('a file the host deleted out of the room', () => {
     assert.ok(
       notices.some(
         (notice) =>
-          notice.kind === 'follow' && notice.following === undefined && notice.ended === 'Stopped following sam — the file went.',
+          notice.kind === 'follow' && notice.following === undefined && notice.ended === 'Stopped following sam because the file is gone.',
       ),
       `no reason for the follow ending in ${JSON.stringify(notices)}`,
     );

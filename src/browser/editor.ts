@@ -47,6 +47,8 @@ export type BindingNotice =
    * else says why.
    */
   | { kind: 'follow'; following: Following | undefined; ended?: string }
+  /** A go-to put the caret in `path`, which may be a file the page did not open itself. */
+  | { kind: 'landed'; path: string }
   | { kind: 'roomGone'; reason: string }
   /** The host's socket detached and the grace window is running, in milliseconds. */
   | { kind: 'grace'; graceMs: number }
@@ -222,6 +224,11 @@ export class MonacoBinding implements EditorHost {
   /** The room's listing and the tree derived from it, held until the set they come from moves. */
   private listing: string[] | undefined;
   private levels: Map<string, GrantChild[]> | undefined;
+  /**
+   * Paths this window took out of the room. A seat still holding one keeps it among the room's
+   * documents, and only the grant may bring it back into the listing.
+   */
+  private readonly dropped = new Set<string>();
   /** The room-gone reason once the session has ended terminally, if it has. */
   private terminalReason: string | undefined;
   /** Whether this window has already been told it is a viewer (`§13.4`). */
@@ -401,6 +408,10 @@ export class MonacoBinding implements EditorHost {
     if (gone.size === 0) {
       return;
     }
+    for (const path of gone) {
+      this.dropped.add(path);
+    }
+    this.forgetListing();
     const followed = this.followingPath !== undefined && gone.has(this.followingPath);
     const name = this.followingName;
     if (followed) {
@@ -412,7 +423,7 @@ export class MonacoBinding implements EditorHost {
       }
     }
     if (followed) {
-      this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} — the file went.` });
+      this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because the file is gone.` });
     }
   }
 
@@ -506,7 +517,10 @@ export class MonacoBinding implements EditorHost {
    * them.
    */
   grantListing(): string[] {
-    this.listing ??= grantUnion(this.engine.grantedPaths(), this.engine.documents());
+    if (this.listing === undefined) {
+      const held = this.engine.documents().filter((path) => !this.dropped.has(path));
+      this.listing = grantUnion(this.engine.grantedPaths(), held);
+    }
     return this.listing;
   }
 
@@ -682,9 +696,14 @@ export class MonacoBinding implements EditorHost {
       return 'waiting';
     }
     const selection = record.state?.selection;
-    // A path without a selection is a caret still unknown — an empty document
-    // publishes no anchors — and the next frame brings it.
+    // A path without a selection is a caret still unknown, as in an empty document, which
+    // publishes no anchors. A follow waits for the next frame to bring it, and a go-to has
+    // already arrived: the file is open.
     if (selection === undefined) {
+      if (mode === 'go') {
+        this.onNotice({ kind: 'landed', path });
+        return 'landed';
+      }
       return 'waiting';
     }
     const resolved = this.engine.resolveSelection(path, selection);
@@ -711,9 +730,7 @@ export class MonacoBinding implements EditorHost {
     this.scheduleSelection();
     // A follow re-landing says who and where: the strip's own segment carries both, so a sentence
     // here would be the same fact in a second place.
-    if (mode === 'follow') {
-      this.onNotice({ kind: 'follow', following: this.following() });
-    }
+    this.onNotice(mode === 'follow' ? { kind: 'follow', following: this.following() } : { kind: 'landed', path });
     return 'landed';
   }
 
@@ -739,7 +756,7 @@ export class MonacoBinding implements EditorHost {
     }
     const name = this.followingName;
     this.clearFollow();
-    this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} — you moved.` });
+    this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because you started typing.` });
   }
 
   private clearFollow(): void {
@@ -1203,6 +1220,15 @@ export class MonacoBinding implements EditorHost {
       cancel();
       this.writeTimers.delete(path);
     }
+  }
+
+  /** Writes one path's armed edits now, so what the folder holds is what the room holds. */
+  async settle(path: string): Promise<void> {
+    if (!this.writeTimers.has(path)) {
+      return;
+    }
+    this.cancelWrite(path);
+    await this.writeSettled(path);
   }
 
   /** Writes every armed document now, in place of the settle nobody is left to wait for. */

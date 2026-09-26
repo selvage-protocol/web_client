@@ -28,7 +28,7 @@ export const HOST_MARK_KEY = 'selvage.hosting';
 
 /** Why the host action is not offered: this browser has no directory picker. */
 export const HOST_NEEDS_A_BROWSER =
-  'This browser cannot hand a page a folder, so a room cannot be started from it. Chrome and Edge can; Firefox and Safari cannot. Joining a room here still works.';
+  'This browser cannot hand a page a folder, so a room cannot be started from it. Chrome and Edge can, but Firefox and Safari cannot. Joining a room here still works.';
 
 /**
  * Why the host action is not offered, and what the card says instead: nothing.
@@ -55,7 +55,7 @@ export const HOST_NEEDS_A_BROWSER =
  * belongs to a page that is not the server's.
  */
 export function hostUnreadNote(): string {
-  return 'This page\u2019s own address has not answered /meta, so whether it is a Selvage server is not known yet \u2014 starting a session here asks it again and the handshake reports the truth.';
+  return 'This page\u2019s server has not answered /meta yet, so it may not be a Selvage server. Starting a session here asks again.';
 }
 
 export const HOST_UNREAD_NOTE = hostUnreadNote();
@@ -112,7 +112,7 @@ export function takeHostingNotice(storage: HostStorage): string | undefined {
  * written to the folder, which is what the sentence says rather than the old claim that nothing was.
  */
 export function hostingOverSentence(): string {
-  return 'Reloading ended the room this tab was hosting; the invite link is dead, everything settled is already in your folder, and pick the folder again to start another.';
+  return 'Reloading ended the room this tab was hosting and its invite link, but everything you saved is in your folder, so pick it again to start a new room.';
 }
 
 /**

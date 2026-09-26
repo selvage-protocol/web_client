@@ -95,7 +95,7 @@ export function emptyEditorFor(facts: EmptyEditorFacts): EmptyEditorState {
   } else if (facts.host && facts.files === 0) {
     blocks.push({
       lead: `Your folder “${facts.folder}” is empty.`,
-      text: 'Files you create here are shared by name; a file\u2019s text reaches the room when it is opened.',
+      text: 'Files you create here are shared by name. Their text reaches the room when someone opens them.',
       actions: ['new-file', 'copy-invite'],
     });
   } else {

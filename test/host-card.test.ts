@@ -312,10 +312,10 @@ describe('what a reload leaves behind', () => {
     // that starts another. The page-hosted shape is what they just reloaded, and the guests'
     // countdown belongs to the room they are no longer in.
     assert.match(notice, /^Reloading ended the room this tab was hosting/);
-    assert.match(notice, /the invite link is dead/);
-    assert.match(notice, /everything settled is already in your folder/);
+    assert.match(notice, /and its invite link/);
+    assert.match(notice, /everything you saved is in your folder/);
     assert.ok(!/nothing in it was saved|not saved/i.test(notice), `the card still denies the write-back: ${notice}`);
-    assert.match(notice, /pick the folder again to start another/i);
+    assert.match(notice, /pick it again to start a new room/i);
     assert.ok(!/\.\s/.test(notice), `the card is a paragraph again: ${notice}`);
     assert.ok(!/\bcountdown\b|\bgrace\b/i.test(notice), `the reloaded host is told about a room they left: ${notice}`);
     // Taken, not repeated: the card goes back to being a card.

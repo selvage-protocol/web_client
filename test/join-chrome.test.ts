@@ -710,8 +710,8 @@ describe('the host leaving and coming back', () => {
     );
     // The engine's own validation accepts an empty display name, so the sentence names the
     // role rather than leaving a gap.
-    assert.equal(hostBackSentence(''), 'the host is back — the session continues.');
-    assert.equal(hostBackSentence('demo-host'), 'demo-host is back — the session continues.');
+    assert.equal(hostBackSentence(''), 'the host is back. The session continues.');
+    assert.equal(hostBackSentence('demo-host'), 'demo-host is back. The session continues.');
 
     // And the membership the page reads for the same news: the host's role.
     assert.equal(hostPresent(binding.participants()), true, 'the roster hid the host');

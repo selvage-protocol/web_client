@@ -257,13 +257,13 @@ describe('the way out of a session', () => {
   it('asks the question in the panel the page stands under the control', () => {
     assert.equal(
       HOST_LEAVE_QUESTION,
-      'Leaving ends the room for everyone in it; the invite link stops working, and the last keystrokes may not reach your folder.',
+      'Leaving ends the room for everyone and stops the invite link, and your last few keystrokes may not reach your folder.',
     );
     assert.ok(
       !/nothing in it is saved/i.test(HOST_LEAVE_QUESTION),
       'the question still says nothing is saved, which the page just spent the session doing',
     );
-    assert.match(HOST_LEAVE_QUESTION, /the invite link stops working/);
+    assert.match(HOST_LEAVE_QUESTION, /stops the invite link/);
     assert.ok(!/\.\s/.test(HOST_LEAVE_QUESTION), 'the question grew into a paragraph');
     assert.match(main, /'leave-confirm'/, 'the question has no panel on the page');
     assert.match(main, /surface: \{/, 'the control is wired to no surface');

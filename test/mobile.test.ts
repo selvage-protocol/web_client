@@ -80,6 +80,7 @@ describe('the editor a phone gets', () => {
     assert.deepEqual(editorOptionsFor(false), {
       minimap: { enabled: false },
       renderLineHighlight: 'none',
+      wordWrap: 'on',
     });
     // The minimap and the current-line highlight are the design's: it draws neither, at any width,
     // so a pointer device and a phone agree about them and differ only in what a small screen needs.

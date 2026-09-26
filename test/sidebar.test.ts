@@ -12,16 +12,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  COLLAPSE_BELOW_REM,
   wireSidebar,
   DEFAULT_WIDTH_REM,
   KEY_STEP_LARGE_PX,
   KEY_STEP_PX,
-  MIN_WIDTH_REM,
-  MAX_WIDTH_REM,
+  MIN_WIDTH_PX,
+  MAX_WIDTH_PX,
+  PANE_MIN_PX,
   SIDEBAR_STORAGE_KEY,
   clampWidth,
-  collapsesAt,
   nextWidth,
   readSidebar,
   sidebarStorageValue,
@@ -37,30 +36,21 @@ const REM = 14;
 const WIDE = 1280;
 
 describe('the bounds a window gives the panel', () => {
-  it('is never narrower than a column and never more than half the window or 40 rem', () => {
-    const wide = widthLimits(WIDE, REM);
-    assert.equal(wide.min, MIN_WIDTH_REM * REM);
-    assert.equal(wide.max, MAX_WIDTH_REM * REM);
-    // A window too narrow for 40 rem gives the panel half of itself, not the whole of it.
-    const narrow = widthLimits(600, REM);
-    assert.equal(narrow.max, 300);
+  it('is never narrower than a column, and never so wide the editor loses its own', () => {
+    const wide = widthLimits(WIDE);
+    assert.equal(wide.min, MIN_WIDTH_PX);
+    assert.equal(wide.max, MAX_WIDTH_PX);
+    // A narrow window keeps the editor its room before the panel gets more.
+    assert.equal(widthLimits(700).max, 700 - PANE_MIN_PX);
     // …and never less than the floor, whatever the window does.
-    assert.equal(widthLimits(200, REM).max, MIN_WIDTH_REM * REM);
+    assert.equal(widthLimits(200).max, MIN_WIDTH_PX);
   });
 
   it('clamps every width into them, including a nonsense one', () => {
-    assert.equal(clampWidth(50, WIDE, REM), MIN_WIDTH_REM * REM);
-    assert.equal(clampWidth(5000, WIDE, REM), MAX_WIDTH_REM * REM);
+    assert.equal(clampWidth(50, WIDE, REM), MIN_WIDTH_PX);
+    assert.equal(clampWidth(5000, WIDE, REM), MAX_WIDTH_PX);
     assert.equal(clampWidth(300, WIDE, REM), 300);
     assert.equal(clampWidth(Number.NaN, WIDE, REM), DEFAULT_WIDTH_REM * REM);
-  });
-});
-
-describe('a drag', () => {
-  it('snaps the panel shut below the threshold rather than taking a sliver of a column', () => {
-    assert.equal(collapsesAt(COLLAPSE_BELOW_REM * REM - 1, REM), true);
-    assert.equal(collapsesAt(COLLAPSE_BELOW_REM * REM, REM), false);
-    assert.equal(collapsesAt(MIN_WIDTH_REM * REM, REM), false);
   });
 });
 
@@ -74,28 +64,23 @@ describe('the keyboard', () => {
   });
 
   it('goes to the bounds with Home and End, and leaves other keys alone', () => {
-    assert.equal(nextWidth(300, 'Home', false, WIDE, REM), MIN_WIDTH_REM * REM);
-    assert.equal(nextWidth(300, 'End', false, WIDE, REM), MAX_WIDTH_REM * REM);
+    assert.equal(nextWidth(300, 'Home', false, WIDE, REM), MIN_WIDTH_PX);
+    assert.equal(nextWidth(300, 'End', false, WIDE, REM), MAX_WIDTH_PX);
     assert.equal(nextWidth(300, 'PageUp', false, WIDE, REM), undefined);
     assert.equal(nextWidth(300, 'a', false, WIDE, REM), undefined);
   });
 
   it('stops at the bounds rather than running past them', () => {
-    assert.equal(nextWidth(MIN_WIDTH_REM * REM, 'ArrowLeft', true, WIDE, REM), MIN_WIDTH_REM * REM);
-    assert.equal(nextWidth(MAX_WIDTH_REM * REM, 'ArrowRight', true, WIDE, REM), MAX_WIDTH_REM * REM);
+    assert.equal(nextWidth(MIN_WIDTH_PX, 'ArrowLeft', true, WIDE, REM), MIN_WIDTH_PX);
+    assert.equal(nextWidth(MAX_WIDTH_PX, 'ArrowRight', true, WIDE, REM), MAX_WIDTH_PX);
   });
 });
 
 describe('what is remembered', () => {
-  it('round-trips a width and whether the panel was shut', () => {
-    assert.deepEqual(readSidebar(sidebarStorageValue({ width: 301.6, collapsed: true })), {
-      width: 302,
-      collapsed: true,
-    });
-    assert.deepEqual(readSidebar(sidebarStorageValue({ width: 294, collapsed: false })), {
-      width: 294,
-      collapsed: false,
-    });
+  it('round-trips a width', () => {
+    assert.deepEqual(readSidebar(sidebarStorageValue({ width: 301.6 })), { width: 302 });
+    // A panel remembered as shut by an older page opens at its width.
+    assert.deepEqual(readSidebar('{"width":294,"collapsed":true}'), { width: 294 });
   });
 
   it('ignores anything else a browser may be holding under that key', () => {
@@ -137,9 +122,8 @@ describe('a device with no panel of its own width', () => {
     globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
     const side = element();
     const separator = element();
-    const rail = element();
     const sidebar = wireSidebar({
-      elements: { side, separator, rail },
+      elements: { side, separator },
       active: () => false,
       remPx: () => REM,
       viewportWidth: () => WIDE,
@@ -157,37 +141,24 @@ describe('a device with no panel of its own width', () => {
     assert.deepEqual(views, [true]);
   });
 
-  it('does not reopen a panel the person shut when the window merely resizes', () => {
-    const windowListeners = {};
-    globalThis.window = {
-      addEventListener: (type, run) => void ((windowListeners[type] ??= []).push(run)),
-      removeEventListener: () => {},
-    };
+  it('cannot be shut: a drag past the floor stops at it', () => {
+    globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
     const side = element();
-    const separator = element();
-    const rail = element();
-    const storage = new Map();
+    const separator = element({ setPointerCapture: () => {}, releasePointerCapture: () => {} });
     const sidebar = wireSidebar({
-      elements: { side, separator, rail },
-      storage: {
-        getItem: () => null,
-        setItem: (key, value) => void storage.set(key, value),
-      },
+      elements: { side, separator },
       remPx: () => REM,
       viewportWidth: () => WIDE,
       relayout: () => {},
       frame: (run) => run(),
     });
     sidebar.apply();
-    sidebar.toggle();
-    assert.equal(sidebar.collapsed(), true);
-    const shut = storage.get(SIDEBAR_STORAGE_KEY);
-    // A resize: the panel must stay shut, and stay remembered as shut.
-    assert.ok((windowListeners.resize ?? []).length > 0, 'nothing listens for a resize');
-    for (const run of windowListeners.resize) run();
-    assert.equal(sidebar.collapsed(), true, 'a resize reopened the panel');
-    assert.equal(side.hidden, true, 'a resize put the panel back on screen');
-    assert.equal(storage.get(SIDEBAR_STORAGE_KEY), shut, 'the collapsed state left storage');
+    for (const run of separator.listeners.pointerdown) run({ button: 0, clientX: 400, pointerId: 1, preventDefault: () => {} });
+    for (const run of separator.listeners.pointermove) run({ clientX: 0 });
+    assert.equal(sidebar.width(), MIN_WIDTH_PX);
+    assert.equal(side.hidden, false, 'the drag shut the panel');
+    for (const run of separator.listeners.keydown) run({ key: 'Enter', preventDefault: () => {} });
+    assert.equal(side.hidden, false, 'Enter shut the panel');
   });
 });
 
@@ -240,7 +211,7 @@ describe('the page’s own wiring', () => {
     );
     assert.match(
       source,
-      /side\.style\.width = collapsed \? '' : `\$\{rounded\}px`/,
+      /side\.style\.width = `\$\{rounded\}px`/,
       'the painted width is not the width the readout states',
     );
   });
@@ -251,8 +222,7 @@ describe('the page’s own wiring', () => {
     assert.match(sidebar, /pointermove/, 'the drag moves nothing');
     assert.match(sidebar, /setPointerCapture/, 'a fast drag would stop at the edge of the target');
     assert.match(sidebar, /'dblclick', onDoubleClick/, 'no way back to the width it starts at');
-    assert.match(sidebar, /collapsed = true;/, 'nothing can shut the panel');
-    assert.match(sidebar, /Show files and people/, 'the rail names nothing');
+    assert.doesNotMatch(sidebar, /collapsed/, 'the panel can still be shut');
   });
 
   it('is an 8 px hit area around a 1 px line, and no handle at all on a phone', () => {

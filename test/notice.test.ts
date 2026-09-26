@@ -194,11 +194,11 @@ describe('the session card', () => {
       cancel: timer.cancel,
     });
     session.say(hostBackSentence('Jo'), HOST_BACK_STAND_MS);
-    assert.equal(card.msg.textContent, 'Jo is back — the session continues.');
+    assert.equal(card.msg.textContent, 'Jo is back. The session continues.');
     assert.equal(card.element.dataset.tone, 'plain', 'news about the room wears the warning colour');
     assert.equal(card.when.hidden, true, 'a one-line sentence still draws the countdown line');
     assert.equal(card.bar.hidden, true, 'a one-line sentence still draws the bar');
-    assert.equal(card.sr.textContent, 'Jo is back — the session continues.');
+    assert.equal(card.sr.textContent, 'Jo is back. The session continues.');
     assert.deepEqual(timer.delays, [HOST_BACK_STAND_MS], 'the sentence never leaves on its own');
     timer.runs[0]?.();
     assert.equal(card.element.hidden, true, 'the sentence stood for ever');
@@ -222,7 +222,7 @@ describe('the session card', () => {
     session.away('Jo', 30_000);
     session.say(hostBackSentence('Jo'), HOST_BACK_STAND_MS);
     session.endAway();
-    assert.equal(card.msg.textContent, 'Jo is back — the session continues.');
+    assert.equal(card.msg.textContent, 'Jo is back. The session continues.');
     timer.runs.at(-1)?.();
     assert.equal(card.element.hidden, true, 'the return was left standing for ever');
   });
@@ -242,7 +242,7 @@ describe('the session card', () => {
     // sentence said into the same card — the host's return — is not the one it ends.
     session.say(hostBackSentence('Jo'), HOST_BACK_STAND_MS);
     session.endDropped();
-    assert.equal(card.msg.textContent, 'Jo is back — the session continues.');
+    assert.equal(card.msg.textContent, 'Jo is back. The session continues.');
     session.hide();
     session.dropped(RECONNECTING_NOTE);
     session.endDropped();
@@ -255,7 +255,7 @@ describe('the session card', () => {
     // A guest that joined after the host's socket dropped never saw a name: the sentence names the
     // role rather than leaving a gap.
     assert.equal(hostLeftSentence(''), 'The host left the session');
-    assert.equal(hostBackSentence(''), 'the host is back — the session continues.');
+    assert.equal(hostBackSentence(''), 'the host is back. The session continues.');
   });
 
   it('has no general-purpose news line', () => {

@@ -715,11 +715,11 @@ describe('taking an entry out of the folder', () => {
     assert.deepEqual(Object.keys(tree.children).sort(), ['.env', '.git', 'notes.md', 'sub']);
   });
 
-  it('says a path that is not there is not there, rather than refusing the name', async () => {
+  it('takes a path that is already gone as removed, since that is where the person wanted it', async () => {
     const { folder } = projection(dir({ 'notes.md': file('hi') }));
+    await folder.list();
     const outcome = await folder.remove('gone.md');
-    assert.equal(refusalCause(outcome), 'missing');
-    assert.match(outcome.sentence, /is not in the folder any more/);
+    assert.deepEqual(outcome, { kind: 'removed', path: 'gone.md', paths: [] });
   });
 
   it('forgets what it knew about a path that went', async () => {

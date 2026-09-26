@@ -119,12 +119,12 @@ export function fetchCostsSentence(path: string): string {
 
 /** What a fetch the room has not answered says: a wait, and not an emptiness it cannot know. */
 export function stillAskingSentence(path: string): string {
-  return `Still asking the host for ${path} — no answer yet.`;
+  return `Still asking the host for ${path}. No answer yet.`;
 }
 
 /** What a fetch the room answered with an empty document says, in the desktop clients' own words. */
 export function stillEmptySentence(path: string): string {
-  return `${path} is still empty — the host sent no text for it.`;
+  return `${path} is still empty. The host sent no text for it.`;
 }
 
 /** What a fetch that could not be asked for says. */

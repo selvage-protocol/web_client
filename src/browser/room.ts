@@ -317,7 +317,7 @@ function moreButton(hidden: number, view: RoomView): HTMLButtonElement {
   button.type = 'button';
   button.className = 'av more';
   button.setAttribute('data-anchor', MORE_ANCHOR);
-  button.setAttribute('aria-label', `${hidden} more \u2014 everyone in the room`);
+  button.setAttribute('aria-label', `${hidden} more. Show everyone in the room`);
   button.title = EVERYONE_LABEL;
   button.setAttribute('aria-haspopup', 'dialog');
   button.setAttribute('aria-expanded', String(view.openAnchor === MORE_ANCHOR));

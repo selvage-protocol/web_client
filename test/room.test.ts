@@ -339,7 +339,7 @@ describe('the cluster and the faces in it', () => {
     const more = verbs.find((face) => face.classes.includes('more'));
     assert.ok(more !== undefined, 'no +N over a room of six');
     assert.equal(textOf(more), '+2');
-    assert.equal(more.getAttribute('aria-label'), '2 more \u2014 everyone in the room');
+    assert.equal(more.getAttribute('aria-label'), '2 more. Show everyone in the room');
     assert.equal(more.title, 'Everyone in the room');
     assert.equal(more.getAttribute('data-anchor'), MORE_ANCHOR);
     more.fire('click');

@@ -85,17 +85,6 @@ export type MoveResult =
   | { kind: 'refused'; sentence: string };
 
 /**
- * Why a file the room holds open cannot be moved, in the client's own words.
- *
- * One constraint the prototype cannot have: the room keys a document by its path, so moving the file
- * underneath a live document would either orphan every seat's text or silently re-key it, and this
- * client has no way to re-key one. The move is refused, and this is what says so.
- */
-export function openInRoomMoveRefusal(path: string): string {
-  return `${path} is open in the room, so it cannot be moved: the room keys an open document by its path. Close it, move it, and open it again.`;
-}
-
-/**
  * What a row's own work can say while it runs and when it fails.
  *
  * The row is where the person's finger is, so it is where the answer belongs: a progress state in
@@ -160,6 +149,8 @@ interface DeleteAsk {
 interface Move {
   path: string;
   into: string;
+  /** Whether the pointer holds it, whose drag a rebuild would end. */
+  pointer: boolean;
 }
 
 /** How long a typed name is left alone before the live checks read it. */
@@ -176,29 +167,34 @@ export class GrantTreeView {
   private readonly hosts = new Map<string, HTMLElement>();
   /** What each row's badges were last drawn with. */
   private readonly badges = new Map<string, string>();
-  /** The create row's state: the kind and the directory it will be created in. */
-  private draft: { kind: NewEntryKind; parent: string } | undefined;
+  /**
+   * The create row's state: the kind, and the folders typed so far with their trailing slash. The
+   * field holds only the name after the last slash, so the two together are the path.
+   */
+  private draft: { kind: NewEntryKind; prefix: string } | undefined;
   /** The create row's element, kept across rebuilds so a listing change does not take the cursor. */
   private draftRow: HTMLElement | undefined;
   private draftInput: HTMLInputElement | undefined;
   private draftIcon: HTMLElement | undefined;
   private draftHint: HTMLElement | undefined;
   private draftCommit: HTMLButtonElement | undefined;
-  private draftSlash: HTMLElement | undefined;
+  private draftPrefix: HTMLElement | undefined;
   private draftCheck: NewEntryCheck | undefined;
   private draftBusy = false;
   private pendingCheck: unknown;
   /** The row asking to be taken out, if one is, and the ✓ its focus lands on. */
   private asking: DeleteAsk | undefined;
   private askYes: HTMLButtonElement | undefined;
+  /** A removal on its way, so a second press of ✓ is not a second removal. */
+  private deleting = false;
   /** The file picked up for a move, if one is, and where it would land. */
   private holding: Move | undefined;
   /** The row a render owes focus to once it exists: a file this page just made, or one that moved. */
   private focusAfter: string | undefined;
   /** Whether the create row found its directory in the walk that just ran. */
   private draftPlaced = false;
-  /** The create row's own list item, which is what moves as the name is typed. */
-  private draftItem: HTMLElement | undefined;
+  /** Set while a rebuild has the create row's field out of the page, whose blur is not the person's. */
+  private rebuilding = false;
   /**
    * The inline line a row is showing, by path.
    *
@@ -243,11 +239,14 @@ export class GrantTreeView {
     const rows = rowsKey(listing, {
       current,
       touch: this.touch(),
-      draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draft.parent}`,
+      draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draftHome()}`,
       local: this.local().join('\n'),
       asking:
         this.asking === undefined ? '' : `${this.asking.directory ? 'dir' : 'file'}:${this.asking.path}`,
-      moving: this.holding === undefined ? '' : `${this.holding.path}\u0000${this.holding.into}`,
+      moving:
+        this.holding === undefined || this.holding.pointer
+          ? ''
+          : `${this.holding.path}\u0000${this.holding.into}`,
       marks: this.markKey(listing, current),
     });
     if (rows === this.drawnRows) {
@@ -265,7 +264,6 @@ export class GrantTreeView {
     this.badges.clear();
     this.draft = undefined;
     this.draftRow = undefined;
-    this.draftItem = undefined;
     this.notes.clear();
     this.busy.clear();
     this.actionHosts.clear();
@@ -292,9 +290,9 @@ export class GrantTreeView {
     return this.draft !== undefined;
   }
 
-  /** The directory the open create row is creating in. */
+  /** The folder the open create row names, which the commit makes if the tree does not have it. */
   creatingIn(): string | undefined {
-    return this.draft?.parent;
+    return this.draft?.prefix.replace(/\/+$/, '');
   }
 
   /** Takes the create row away, which is what Esc, `✕` and a blur of an empty field do. */
@@ -370,10 +368,19 @@ export class GrantTreeView {
   }
 
   private rebuild(listing: readonly string[], current: string | undefined): void {
+    this.rebuilding = true;
+    try {
+      this.rebuildRows(listing, current);
+    } finally {
+      this.rebuilding = false;
+    }
+  }
+
+  private rebuildRows(listing: readonly string[], current: string | undefined): void {
     // The create row is a live field: a listing that moved under a person's typing must not take
     // the text they have written or the cursor inside it. The element survives the rebuild; what it
     // may lose is focus, and that is put back.
-    const hadFocus = this.draftInput !== undefined && this.pane.ownerDocument.activeElement === this.draftInput;
+    const hadFocus = this.draftInput !== undefined && document.activeElement === this.draftInput;
     const caret = hadFocus ? [this.draftInput?.selectionStart, this.draftInput?.selectionEnd] : undefined;
     this.hosts.clear();
     this.badges.clear();
@@ -478,16 +485,12 @@ export class GrantTreeView {
         children.push({ name: leafOf(path), path, directory: true });
       }
     }
-    const draft = this.draft?.parent === directory ? this.draft : undefined;
-    const draftChild: GrantChild | undefined =
-      draft === undefined
-        ? undefined
-        : { name: draftPathName(this.draftInput?.value ?? ''), path: '', directory: draft.kind === 'directory' };
+    // The create row leads the folder it stands in, and stays put while a name is typed into it.
+    if (this.draft !== undefined && !this.draftPlaced && this.draftHome() === directory) {
+      list.appendChild(this.placeDraft());
+      this.draftPlaced = true;
+    }
     for (const child of sortChildren(children)) {
-      if (draftChild !== undefined && !this.draftPlaced && orderOf(child) > orderOf(draftChild)) {
-        list.appendChild(this.placeDraft());
-        this.draftPlaced = true;
-      }
       const item = document.createElement('li');
       if (child.directory) {
         item.appendChild(this.directory(child, depth, current, presence));
@@ -496,44 +499,7 @@ export class GrantTreeView {
       }
       list.appendChild(item);
     }
-    if (draftChild !== undefined && !this.draftPlaced) {
-      list.appendChild(this.placeDraft());
-      this.draftPlaced = true;
-    }
     return list;
-  }
-
-  /**
-   * Moves the row to the place its name now takes among its siblings.
-   *
-   * The row is already in the tree — it is drawn there when it opens — so this is a move and not a
-   * redraw: the listing has not changed, and only the name in the field has.
-   */
-  private placeDraftRow(): void {
-    const item = this.draftItem;
-    const list = item?.parentElement;
-    if (item === undefined || list === null || list === undefined) {
-      return;
-    }
-    const name = draftPathName(this.draftInput?.value ?? '');
-    const order = `${this.draft?.kind === 'directory' ? '0' : '1'}${name}`;
-    let before: Element | null = null;
-    for (const sibling of list.children) {
-      if (sibling === item) {
-        continue;
-      }
-      const row = sibling.children[0];
-      const isDirectory = row?.tagName === 'DETAILS';
-      const key = `${isDirectory ? '0' : '1'}${nameOf(row)}`;
-      if (key > order) {
-        before = sibling;
-        break;
-      }
-    }
-    if (before === null && list.lastElementChild === item) {
-      return;
-    }
-    list.insertBefore(item, before);
   }
 
   /** The create row's `<li>`, at the place the walk has reached. */
@@ -541,7 +507,6 @@ export class GrantTreeView {
     const item = document.createElement('li');
     item.className = 'new-row';
     item.appendChild(this.buildDraftRow());
-    this.draftItem = item;
     return item;
   }
 
@@ -558,8 +523,11 @@ export class GrantTreeView {
     details.dataset.dir = child.path;
     // Openness is the guest's pin, or an ancestor of the open file — never the open file alone, so
     // re-renders keep folders as the guest left them. The create row's own directory is always open.
+    const home = this.draft === undefined ? undefined : this.draftHome();
     details.open =
-      this.draft?.parent === child.path || dirOpen(child.path, this.pinned, current);
+      home === child.path ||
+      home?.startsWith(`${child.path}/`) === true ||
+      dirOpen(child.path, this.pinned, current);
     // Untrusted toggles are the render above, not the guest: only the guest's own opening and
     // shutting pins a directory.
     details.addEventListener('toggle', (event) => {
@@ -984,7 +952,16 @@ export class GrantTreeView {
       this.cancelDelete();
       return;
     }
-    const result = await remove(ask.path);
+    if (this.deleting) {
+      return;
+    }
+    this.deleting = true;
+    let result: RemoveResult;
+    try {
+      result = await remove(ask.path);
+    } finally {
+      this.deleting = false;
+    }
     if (result.kind === 'refused') {
       this.stand(ask.path, result.sentence);
       return;
@@ -1000,25 +977,27 @@ export class GrantTreeView {
   /**
    * Picks a file up: the pointer's drag and the keyboard's Space arrive here.
    *
-   * A file the room holds open is refused before anything is picked up. The room keys a document by
-   * its path, and this client has no way to re-key a live one — so a move that was allowed to start
-   * would have to end in a lie. The refusal is said, and nothing moves under the pointer.
+   * A pointer drag must not rebuild the tree: the browser drags the element the press landed on, and
+   * replacing it inside `dragstart` ends the drag before it begins. So the row is dimmed where it
+   * stands, and the rows' key leaves a pointer's hold out.
    */
-  private beginMove(path: string): boolean {
-    if (this.source.isOpenInRoom(path)) {
-      this.say(openInRoomMoveRefusal(path));
+  private beginMove(path: string, pointer: boolean): boolean {
+    if (pointer && this.asking !== undefined) {
       return false;
     }
     this.asking = undefined;
-    this.holding = { path, into: parentOf(path) };
-    this.render();
+    this.holding = { path, into: parentOf(path), pointer };
+    if (pointer) {
+      this.rowElement(path)?.parentElement?.classList.add('dragging');
+    } else {
+      this.render();
+    }
     this.say(
       `Picked up ${leafOf(path)}. Up and down choose a folder, Enter drops it, Escape leaves it where it is.`,
     );
     return true;
   }
 
-  /** Whether the held file could land in `into`, and why not when it could not. */
   /**
    * Whether the held file could land in `into`, and why not when it could not.
    *
@@ -1026,10 +1005,7 @@ export class GrantTreeView {
    * folder's own `create` would refuse the second, and saying so before the drop keeps the sentence
    * about the person's choice rather than about the folder's refusal.
    */
-  private landRefusal(path: string, into: string): 'same' | 'taken' | 'open' | undefined {
-    if (this.source.isOpenInRoom(path)) {
-      return 'open';
-    }
+  private landRefusal(path: string, into: string): 'same' | 'taken' | undefined {
     if (into === parentOf(path)) {
       return 'same';
     }
@@ -1096,9 +1072,6 @@ export class GrantTreeView {
     }
     const refusal = this.landRefusal(held.path, held.into);
     if (refusal !== undefined) {
-      if (refusal === 'open') {
-        this.say(openInRoomMoveRefusal(held.path));
-      }
       return;
     }
     const move = this.options.move;
@@ -1150,6 +1123,8 @@ export class GrantTreeView {
       return;
     }
     this.holding = undefined;
+    this.clearDropMark();
+    this.drawnRows = '';
     this.render();
   }
 
@@ -1159,7 +1134,7 @@ export class GrantTreeView {
     if (path === undefined || row?.draggable !== true) {
       return;
     }
-    if (!this.beginMove(path)) {
+    if (!this.beginMove(path, true)) {
       return;
     }
     event.dataTransfer?.setData('text/plain', path);
@@ -1245,7 +1220,7 @@ export class GrantTreeView {
     if (held === undefined) {
       if (event.key === ' ' && event.repeat !== true && this.canCreate() && this.options.move !== undefined) {
         event.preventDefault();
-        this.beginMove(path);
+        this.beginMove(path, false);
       }
       return;
     }
@@ -1299,13 +1274,13 @@ export class GrantTreeView {
 
   /**
    * Opens the row: an empty field with the kind's icon already drawn and the visible `✓` and `✕`.
-   * No placeholder — a greyed example is the thing the owner read as a filled value — and no line
-   * under it: the field, its two controls and the tree around them say what the row is for, and the
-   * line is for what a person cannot see, which is why a name will not commit.
+   * No placeholder, because a greyed example reads as a filled value. The folder it was opened in
+   * stands in front of the field as the prefix a typed path would make.
    */
   private openDraft(kind: NewEntryKind, parent: string): void {
-    const same = this.draft !== undefined && this.draft.kind === kind && this.draft.parent === parent;
-    this.draft = { kind, parent };
+    const prefix = parent === '' ? '' : `${parent}/`;
+    const same = this.draft !== undefined && this.draft.kind === kind && this.draft.prefix === prefix;
+    this.draft = { kind, prefix };
     if (!same) {
       // A different kind carries a different icon and a different label on `✓`, so the row is
       // rebuilt; the same kind and destination keeps the element (and whatever is typed in it).
@@ -1327,18 +1302,75 @@ export class GrantTreeView {
     this.draftIcon = undefined;
     this.draftHint = undefined;
     this.draftCommit = undefined;
-    this.draftSlash = undefined;
+    this.draftPrefix = undefined;
+  }
+
+  /**
+   * The folder the create row stands in: the deepest folder its prefix names that the tree has, and
+   * the top level otherwise. Typing or deleting the folder part moves the row.
+   */
+  private draftHome(): string {
+    const known = new Set(this.folders());
+    let at = (this.draft?.prefix ?? '').replace(/\/+$/, '');
+    while (at !== '' && !known.has(at)) {
+      at = parentOf(at);
+    }
+    return at;
+  }
+
+  /**
+   * Takes a typed path, with the caret's place in it, into the prefix and the field. Everything up to
+   * the last slash is the prefix, so the field never holds one. The row is rebuilt only when the
+   * folder it stands in changed.
+   */
+  private absorbTyped(path: string, caret: number): void {
+    const draft = this.draft;
+    const input = this.draftInput;
+    if (draft === undefined || input === undefined) {
+      return;
+    }
+    const [prefix, name] = splitTyped(path);
+    const at = Math.max(0, caret - prefix.length);
+    const home = this.draftHome();
+    draft.prefix = prefix;
+    if (input.value !== name) {
+      input.value = name;
+    }
+    input.setSelectionRange?.(at, at);
+    this.paintPrefix();
+    if (this.draftHome() !== home) {
+      this.render();
+    }
+    this.cancelPendingCheck();
+    this.pendingCheck = setTimeout(() => {
+      this.draftCheck = this.check();
+      this.applyCheck();
+    }, CHECK_DEBOUNCE_MS);
+  }
+
+  /** Draws the prefix in front of the field, and names the field after it. */
+  private paintPrefix(): void {
+    const draft = this.draft;
+    if (draft === undefined) {
+      return;
+    }
+    if (this.draftPrefix !== undefined) {
+      this.draftPrefix.textContent = draft.prefix;
+      this.draftPrefix.hidden = draft.prefix === '';
+    }
+    this.draftInput?.setAttribute('aria-label', draftLabel(draft.kind, draft.prefix.replace(/\/+$/, '')));
   }
 
   private check(): NewEntryCheck {
     const draft = this.draft;
-    if (draft === undefined) {
+    // A prefix alone names a folder, not the entry the field asks for.
+    if (draft === undefined || (this.draftInput?.value ?? '').trim() === '') {
       return { line: '', error: false, path: undefined };
     }
     const context: NewEntryContext = {
       kind: draft.kind,
-      raw: this.draftInput?.value ?? '',
-      parent: draft.parent,
+      raw: draft.prefix + (this.draftInput?.value ?? ''),
+      parent: '',
       listing: this.source.grantListing(),
       localFolders: this.options.localFolders?.() ?? new Set<string>(),
     };
@@ -1363,9 +1395,6 @@ export class GrantTreeView {
     this.draftInput?.classList.toggle('invalid', check.error);
     if (this.draftCommit !== undefined) {
       this.draftCommit.disabled = check.path === undefined || this.draftBusy;
-    }
-    if (this.draftSlash !== undefined) {
-      this.draftSlash.hidden = this.draft?.kind !== 'directory';
     }
   }
 
@@ -1455,20 +1484,24 @@ export class GrantTreeView {
     input.autocomplete = 'off';
     input.spellcheck = false;
     input.setAttribute('enterkeyhint', 'done');
-    input.setAttribute('aria-label', draftLabel(draft.kind, draft.parent));
     input.addEventListener('input', () => {
-      // The row follows the name: a file tree lists by name, so the line moves to where the entry
-      // will be rather than staying where it was pressed. The move is a DOM move, not a rebuild —
-      // the listing has not changed, and rebuilding the tree on every keystroke is the cost this
-      // module exists to avoid.
-      this.placeDraftRow();
-      this.cancelPendingCheck();
-      this.pendingCheck = setTimeout(() => {
-        this.draftCheck = this.check();
-        this.applyCheck();
-      }, CHECK_DEBOUNCE_MS);
+      const caret = input.selectionStart ?? input.value.length;
+      this.absorbTyped(draft.prefix + input.value, draft.prefix.length + caret);
     });
     input.addEventListener('keydown', (event) => {
+      // Backspace at the front of the field eats the prefix's slash and then its letters, as it
+      // would if the path were one string with the caret in it.
+      if (
+        event.key === 'Backspace' &&
+        draft.prefix !== '' &&
+        input.selectionStart === 0 &&
+        input.selectionEnd === 0
+      ) {
+        event.preventDefault();
+        const before = draft.prefix.slice(0, -1);
+        this.absorbTyped(before + input.value, before.length);
+        return;
+      }
       if (event.key === 'Enter') {
         event.preventDefault();
         void this.commit();
@@ -1482,17 +1515,17 @@ export class GrantTreeView {
     input.addEventListener('blur', () => {
       // A stray click must not throw away a typed name, and must not create either: only an empty
       // field closes on blur.
-      if ((this.draftInput?.value.trim() ?? '') === '') {
+      if (!this.rebuilding && (this.draftInput?.value.trim() ?? '') === '') {
         this.cancelCreate();
       }
     });
     this.draftInput = input;
-    row.appendChild(input);
-    const slash = document.createElement('span');
-    slash.className = 'new-slash';
-    slash.textContent = '/';
-    this.draftSlash = slash;
-    row.appendChild(slash);
+    const prefix = document.createElement('span');
+    prefix.className = 'new-in';
+    prefix.setAttribute('aria-hidden', 'true');
+    this.draftPrefix = prefix;
+    row.append(prefix, input);
+    this.paintPrefix();
     const commitButton = document.createElement('button');
     commitButton.type = 'button';
     commitButton.className = 'new-commit';
@@ -1592,43 +1625,6 @@ interface TreeElement extends HTMLElement {
   dataset: Record<string, string | undefined>;
 }
 
-/**
- * The name a drawn row carries, for the order the create row places itself in.
- *
- * A file row holds its name directly; a directory row is a `<details>` whose name is inside the
- * `<summary>` it draws, one level down. Reading only the direct children left every folder with the
- * same empty name, and a folder draft then always landed at the end of the folder group rather than
- * where its name sorts. The slash a folder's name wears is its mark, not part of the name, so it is
- * taken off here: a draft called `src` belongs beside the folder `src`, not before it.
- */
-function nameOf(row: Element | undefined): string {
-  if (row === undefined) {
-    return '';
-  }
-  for (const child of row.children) {
-    if (child.classList.contains('label')) {
-      return (child.textContent ?? '').replace(/\/+$/, '');
-    }
-    const nested = nameOf(child);
-    if (nested !== '') {
-      return nested;
-    }
-  }
-  return '';
-}
-
-/**
- * Where the create row sorts among its siblings: the first segment of what is typed, or the end
- * while the field is empty — a name nobody has written yet is not one the tree can place.
- */
-function draftPathName(raw: string): string {
-  const typed = raw.trim().replace(/\/+$/, '');
-  if (typed === '') {
-    return '\uffff';
-  }
-  return typed.split('/')[0] ?? '\uffff';
-}
-
 /** The directory a path sits in, or `''` for a path at the root. */
 function parentOf(path: string): string {
   const slash = path.lastIndexOf('/');
@@ -1641,10 +1637,7 @@ function leafOf(path: string): string {
   return segments[segments.length - 1] ?? '';
 }
 
-/**
- * What the create row's field is called: the kind, and the folder it names when it is in one — the
- * row appears inside the folder it creates in, so the name says which one.
- */
+/** What the create row's field is called: the kind, and the folder its prefix names. */
 function draftLabel(kind: NewEntryKind, parent: string): string {
   const name = kind === 'file' ? 'New file name' : 'New folder name';
   return parent === '' ? name : `${name} in ${parent}`;
@@ -1663,8 +1656,10 @@ function sortChildren(children: readonly GrantChild[]): GrantChild[] {
   });
 }
 
-function orderOf(child: GrantChild): string {
-  return `${child.directory ? '0' : '1'}${child.name}`;
+/** A typed path as the folders up to its last slash, slash included, and the name after it. */
+function splitTyped(path: string): [string, string] {
+  const cut = path.lastIndexOf('/');
+  return cut === -1 ? ['', path] : [path.slice(0, cut + 1), path.slice(cut + 1)];
 }
 
 /**

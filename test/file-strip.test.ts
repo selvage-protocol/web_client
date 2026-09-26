@@ -183,7 +183,7 @@ describe('what the strip states', () => {
     // The ring vanishing with nothing said is the one way a person loses the thread of what just
     // happened. Both sentences are the desktop clients' own, they are raised by the binding, and the
     // page's transient line is where they stand — for the four seconds they always did.
-    assert.match(editor, /Stopped following \$\{name\} — you moved\./, 'a follow ended by typing says nothing');
+    assert.match(editor, /Stopped following \$\{name\} because you started typing\./, 'a follow ended by typing says nothing');
     assert.match(editor, /left the room, so following stopped\./, 'a follow ended by a departure says nothing');
     assert.match(main, /failureAlert\.show\(ended, FOLLOW_ENDED_STAND_MS\)/,
       'the reason does not reach the page’s transient line');
