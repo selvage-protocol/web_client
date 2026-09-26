@@ -47,7 +47,6 @@ import { createInFolder } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
   HOST_NEEDS_THE_SERVERS_PAGE,
-  HOST_SHARE_NOTE,
   clearHostingMark,
   hostAvailability,
   markHosting,
@@ -229,7 +228,6 @@ const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostQuiet = document.getElementById('host-quiet') as HTMLButtonElement;
-const hostShare = document.getElementById('host-share') as HTMLElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
@@ -1098,11 +1096,11 @@ async function offerHosting(): Promise<void> {
  * there is an action at all.
  *
  * The two intents say it differently, and that is the whole of the collapse (design §7.1). On the
- * start card the action is the card's own — the button that says what happens next, the two lines
- * that say what the folder gives away and what the room costs — and on a guest's card hosting is the
- * alternative to the thing the person came for, so it is one quiet line and nothing else: pressing
- * it is what puts the start card in front of them (`swapCardToStart`). A page where hosting is not
- * on offer at all says why, in one line, wherever the action would have stood.
+ * start card the action is the card's own — the button that says what happens next — and on a
+ * guest's card hosting is the alternative to the thing the person came for, so it is one quiet
+ * line and nothing else: pressing it is what puts the start card in front of them
+ * (`swapCardToStart`). A page where hosting is not on offer at all says why, in one line, wherever
+ * the action would have stood.
  */
 function showHosting(picker: boolean, read: ServerRead): void {
   lastServerRead = read;
@@ -1117,16 +1115,14 @@ function showHosting(picker: boolean, read: ServerRead): void {
     hostQuiet.hidden = !offered;
     hostButton.hidden = true;
     hostNote.textContent = '';
-    hostShare.textContent = '';
     return;
   }
   hostWrap.hidden = false;
   hostQuiet.hidden = true;
-  hostNote.textContent = availability.note;
+  // The offered card says nothing: the action is the whole of it. Every other state stands its
+  // sentence where the action would have been.
+  hostNote.textContent = availability.kind === 'offered' ? '' : availability.note;
   hostButton.hidden = !offered;
-  // What the folder gives away stands with the button that asks for it, and only there: the person
-  // picking the folder is the only one who can act on it, and only before the click.
-  hostShare.textContent = offered ? HOST_SHARE_NOTE : '';
   // A page that cannot start a room leads with the way in it does have. The invite path opens —
   // joining was behind a 11.9 px summary and a four-line refusal led the card — and Join takes the
   // card's own action, because the one thing this card can do is the one thing it should offer.

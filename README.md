@@ -143,7 +143,7 @@ person picked can be named through the handle. The invite link is
 then the one the session bar carries, and it is the same link an editor host would have
 produced: whoever opens it joins as a guest and edits the folder with them.
 
-Four things that shape it:
+Five things that shape it:
 
 - **Chromium only, and only where the page's origin is the server.** `showDirectoryPicker`
   is Chrome and Edge; Firefox and Safari get a sentence where the button would be, and
@@ -160,16 +160,14 @@ Four things that shape it:
   watcher to do any other way. A path the page never read is refused the same way.
 - **The tab is the host, and a reload ends the room.** A host's invite link is not written
   into the address bar: reloading would rejoin its own room as a guest with no folder
-  while the room's grace ran out underneath it. The card warns before the click — what a
-  reload costs is the room, its invite link and the keystrokes still inside the settle, and
-  everything else is already in the folder — and the load after a reload says the same.
+  while the room's grace ran out underneath it. The card offers the action and says nothing
+  else, and the load after a reload says what the reload cost — the room, its invite link
+  and the keystrokes still inside the settle, and everything else is already in the folder.
   Reclaiming inside the grace is not built.
-- **What picking a folder gives away.** The card says it under the button, before the
-  click, because the person granting is the only one who can act on it: anyone with the
-  invite link can open and edit the files the page shares, and their edits — and yours —
-  are written back to those files on disk. Not every file in the folder: `.env`, `.git/**`
-  and the key names are excluded, a binary-named path is left out, and a file past the
-  size bound is refused.
+- **Not every file in the folder is shared.** Anyone with the invite link can open and edit
+  the files the page shares, and their edits — and yours — are written back to those files
+  on disk. `.env`, `.git/**` and the key names are excluded from the listing, a
+  binary-named path is left out, and a file past the size bound is refused.
 
 **Download** takes a document out of the room and onto the person's disk — for a guest
 who has just edited a file and cannot keep it, and for a host whose folder refused the
@@ -294,8 +292,8 @@ next room from there. A guest never claims host and never rebuilds a room on its
 only mint is the one behind the folder picker, and a test pins that the guest path never
 asks for the host role.
 
-A page-hosted room has one more thing to say. The room lives in its tab, so the card warns
-before the click, and a reload says `Reloading ended the room this tab was
+A page-hosted room has one more thing to say. The room lives in its tab, so a reload ends
+it, and the load after one says `Reloading ended the room this tab was
 hosting…` rather than offering a card that looks like the last one.
 
 ## What is in the tree

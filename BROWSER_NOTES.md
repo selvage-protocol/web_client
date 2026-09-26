@@ -3905,3 +3905,24 @@ else moved: the brand still truncates with its ellipsis, and the pill keeps its 
 `main.ts` (`drawRoom`, `openMenu`, `closeMenu`, `renderMenu`). `test/roster.test.ts`
 became `test/room.test.ts`, and `test/mobile.test.ts` now holds the phone's own two numbers: 34 px
 faces and a cap of three.
+
+## The card offers the action and says nothing else (2026-09-26)
+
+The start card's two sentences are gone at the owner's ask: `HOST_TAB_WARNING`, the cost of a room
+that lives in a tab, and `HOST_SHARE_NOTE`, what picking a folder gives away under the button. The
+card offers the action and says nothing else about the room it makes.
+
+`HostAvailability`'s `offered` arm carries no `note` field at all now, so a sentence has nowhere to
+stand on a card that offers the action, and `#host-note` is written only for the states that have
+no action to lead with: the browser without a picker, the page that is not the server's, and the
+`/meta` read that had not answered. That last note used to be two sentences, its own and the tab
+warning's; it is its own alone now — what was not read and what the click does about it.
+`#host-share`, its element and its rule are gone with the note they carried.
+
+What stayed, and why: `hostingOverSentence()`, the sentence the load after a reload says, is a
+different fact and was not part of the ask; `HOST_NEEDS_A_BROWSER` and
+`HOST_NEEDS_THE_SERVERS_PAGE` keep their notes and the `#host-note` element that carries them; and
+`HOST_LEAVE_QUESTION` still names the same cost, with the citation of `HOST_TAB_WARNING` in its doc
+comment gone with the constant. The grant's own shape is unchanged and `README.md` keeps it as a
+fact about the room rather than as copy the card says: `.env`, `.git/**` and the key names are
+excluded, and the write-back is still every settled edit into the file on disk.

@@ -1,5 +1,5 @@
 /**
- * The card's third action, and the reload it warns about.
+ * The card's third action, and the reload it leaves behind.
  *
  * Two things are pinned here. The shell's own markup: the host action is hidden, and it is a
  * `type="button"`, so it can neither submit the join form nor be armed by the pre-bundle hold
@@ -7,6 +7,10 @@
  * can hand it a folder *and* the page's own origin is a Selvage server, and what it says instead
  * when one of those is missing. A control that could only refuse is the defect both halves of
  * that are written against.
+ *
+ * The card offers the action and says nothing else, so the offered state carries no note at all:
+ * `#host-note` is for the states that have no action to lead with, and each of those still
+ * carries its own sentence.
  */
 
 import { readFileSync } from 'node:fs';
@@ -17,8 +21,6 @@ import {
   HOST_MARK_KEY,
   HOST_NEEDS_A_BROWSER,
   HOST_NEEDS_THE_SERVERS_PAGE,
-  HOST_SHARE_NOTE,
-  HOST_TAB_WARNING,
   HOST_UNREAD_NOTE,
   clearHostingMark,
   hostAvailability,
@@ -85,41 +87,26 @@ describe('the host action in the shell', () => {
     assert.ok(!form.includes('host-wrap'), 'the host action sits inside the join form');
   });
 
-  it('asks for a folder in three words, and says what the folder gives away before the click', () => {
+  it('asks for a folder in three words, and the card says nothing else', () => {
     // The ellipsis is the platform's own convention for "this opens a picker".
     assert.match(html, /Share a folder\u2026/, 'the button does not say what it does');
     assert.match(main, /HOST_BUTTON_LABEL = 'Share a folder\u2026'/, 'the label the bundle puts back differs from the shell');
     assert.ok(!html.includes('Choose a folder'), 'the long label survives in the shell');
     // The card carried a paragraph under the button saying what a guest gets — the names in the
     // folder, and a file's text only when it is opened. The grant already defines the listing
-    // (`DESIGN.md` §4.2), so the paragraph was cut — and the cut left the card saying nothing about
-    // the one thing the person granting is the only one who can act on, and only before the click:
-    // anyone with the invite link can open and edit the files this page shares, and an edit that
-    // settles is written into the file on disk. Two sentences, one job each.
-    assert.equal(
-      HOST_SHARE_NOTE,
-      'Anyone with the invite link can open and edit the files this page shares. Edits are written back to those files on disk.',
-    );
-    assert.match(HOST_SHARE_NOTE, /^Anyone with the invite link can open and edit the files/);
-    assert.match(HOST_SHARE_NOTE, /Edits are written back to those files on disk\.$/);
-    // It does not claim every path in the folder: the grant excludes `.env`, `.git/**` and the key
-    // names, and a binary-named or oversize file never reaches the listing (`folder.ts`).
-    assert.ok(!/every file/i.test(HOST_SHARE_NOTE), 'the card claims the whole folder is shared');
-    assert.ok(!/nothing is saved|not saved/i.test(HOST_SHARE_NOTE), 'the card denies the write-back again');
-    // It is on the card, under the button it is about, and the bundle is what writes it.
+    // (`DESIGN.md` §4.2), so the paragraph was cut. Then two lines took its place, saying what the
+    // folder gives away and what a room in a tab costs; both are gone now, and the card offers the
+    // action and says nothing else.
     const wrap = sliceBetween(html, '<div id="host-wrap"', '</div>');
-    const button = wrap.indexOf('id="host-button"');
-    const share = wrap.indexOf('id="host-share"');
-    assert.ok(share !== -1, 'the card has no line for what the folder gives away');
-    assert.ok(button !== -1 && button < share, 'the note about the folder is not under the button that asks for it');
-    assert.match(main, /hostShare\.textContent = offered \? HOST_SHARE_NOTE : ''/, 'the line is never written with the offer');
+    assert.ok(!wrap.includes('id="host-share"'), 'the card carries a line of copy beside the action');
     assert.ok(!main.includes('HOST_GUESTS_NOTE'), 'the old guests note survives in the bundle');
+    assert.ok(!main.includes('HOST_SHARE_NOTE'), 'the folder note survives in the bundle');
   });
 
-  it("says hosting in one quiet line on a guest's card, and the one sentence it costs on the start card", () => {
+  it("says hosting in one quiet line on a guest's card, and nothing else on the start card", () => {
     // Design §7.1: a guest arrived for the join, so hosting is one quiet line — pressing it is
-    // what puts the start card, the sentence and the picker in front of them — and the cost of the
-    // room is read where the decision to host is made.
+    // what puts the start card and the picker in front of them — and the decision to host is made
+    // there, on a card that offers the action and nothing else.
     assert.match(html, /<button id="host-quiet" type="button" hidden>Or start your own session<\/button>/,
       'the guest card carries no quiet line');
     const showing = sliceBetween(main, 'function showHosting', 'hostQuiet.addEventListener');
@@ -132,20 +119,15 @@ describe('the host action in the shell', () => {
     // worse than no verb.
     assert.match(showing, /hostWrap\.hidden = !offered/, 'a guest is read about hosting the card does not offer');
     assert.match(showing, /hostNote\.textContent = '';/, 'the guest card still explains a refusal it never asked for');
-    // And the sentence is the start card's own, once.
-    assert.match(showing, /hostNote\.textContent = availability\.note;/, 'the start card says nothing about what the room costs');
-    // One sentence, and it is the facts the person cannot see for themselves: the room and its
-    // invite link go with the tab, and only what has not settled yet is at risk — every settled edit
-    // is already in the folder, which is what the sentence before this one made the page do. That
-    // the tab is the host is what the press already said, the countdown is the room's own grace and
-    // to be read where it runs, and a number in it would go stale.
-    assert.match(HOST_TAB_WARNING, /^Closing or reloading this tab ends the room/, 'the sentence names some other cost');
-    assert.match(HOST_TAB_WARNING, /the invite link stops working/, 'the sentence does not say the link dies with the room');
-    assert.match(HOST_TAB_WARNING, /last keystrokes may not reach your folder/, 'the sentence does not say what is at risk');
-    assert.ok(!/nothing in it is saved|not saved/i.test(HOST_TAB_WARNING), `the sentence still denies the write-back: ${HOST_TAB_WARNING}`);
-    assert.ok(!/\.\s/.test(HOST_TAB_WARNING), `the card is a paragraph again: ${HOST_TAB_WARNING}`);
-    assert.ok(!/\bhost\b/i.test(HOST_TAB_WARNING), `the sentence tells a host that it is hosting: ${HOST_TAB_WARNING}`);
-    assert.ok(!/\bcountdown\b|\bseconds?\b|\bminutes?\b/i.test(HOST_TAB_WARNING), `the sentence carries a number that goes stale: ${HOST_TAB_WARNING}`);
+    // And the two intents are said the same way: the offered card writes no note at all — the
+    // action is the whole of what it says — and every state that has no action leads with its own
+    // sentence where the action would have been.
+    assert.match(
+      showing,
+      /hostNote\.textContent = availability\.kind === 'offered' \? '' : availability\.note;/,
+      'the offered card writes a sentence, or a card with no action writes none',
+    );
+    assert.ok(!/HOST_TAB_WARNING/.test(main), 'the tab warning survives on the card');
     assert.ok(!/hostWarningFor/.test(main), 'the scoped warning survived the collapse');
   });
 
@@ -175,13 +157,14 @@ describe('whether the card offers to start a room', () => {
   const server = (meta: Meta): ServerRead => ({ kind: 'server', meta });
 
   it('offers it only where a folder can be picked and the page is the server', () => {
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
-      kind: 'offered',
-      note: HOST_TAB_WARNING,
-    });
-    // One wording, whichever card is asking: a guest's card writes the sentence nowhere, and the
-    // start card that pressing its quiet line brings up is the only place it stands (`showHosting`).
-    assert.equal(hostAvailability({ picker: true, read: server(sealedMeta) }).note, HOST_TAB_WARNING);
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), { kind: 'offered' });
+    // The offered arm carries no note field at all, which is what makes "the card says nothing
+    // else" a property of the type rather than a string that happens to be empty: a sentence has
+    // nowhere to stand on a card that offers the action.
+    assert.ok(
+      !('note' in hostAvailability({ picker: true, read: server(sealedMeta) })),
+      'the offered state carries a sentence beside the action',
+    );
   });
 
   it('explains a browser that cannot hand over a folder, and says joining still works', () => {
@@ -217,12 +200,19 @@ describe('whether the card offers to start a room', () => {
       'a read that did not answer still says the page was not served by a Selvage server',
     );
     assert.match(availability.note, /has not answered \/meta/);
+    // And it is that sentence alone: the cost of a room in a tab belonged to a card that offered
+    // the action, and this one says what was not read and what the click does about it.
+    assert.ok(
+      !/closing or reloading this tab/i.test(availability.note),
+      `the unchecked state carries the tab warning: ${availability.note}`,
+    );
+    assert.ok(
+      !/invite link stops working/i.test(availability.note),
+      `the unchecked state carries what the room costs: ${availability.note}`,
+    );
     // A body that answered and is a Selvage server's is the offer, whatever it seats: there is
     // no version to decide and no control whose only outcome is a refusal.
-    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), {
-      kind: 'offered',
-      note: HOST_TAB_WARNING,
-    });
+    assert.deepEqual(hostAvailability({ picker: true, read: server(sealedMeta) }), { kind: 'offered' });
   });
 });
 
@@ -256,7 +246,11 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
   });
 
   it('draws the line and the note from the availability it just made', () => {
-    assert.match(main, /hostNote\.textContent = availability\.note/, 'the note is not what is written');
+    assert.match(
+      main,
+      /hostNote\.textContent = availability\.kind === 'offered' \? '' : availability\.note/,
+      'the note is not what is written',
+    );
     assert.match(
       main,
       /const offered = availability\.kind !== 'explained'/,

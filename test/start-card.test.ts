@@ -191,11 +191,11 @@ describe('the join card: what a person who followed a link reads', () => {
     assert.equal(wired.inviteWrap.hidden, true, 'the guest is asked to paste the link they followed');
   });
 
-  it('offers hosting as one quiet line, and says what it costs only on the start card', () => {
+  it('offers hosting as one quiet line, and the start card it opens is where the decision is made', () => {
     // Both intents are offered it: the read `/meta` answers is not skipped because the address
     // carried a link, so a guest holding one can still start a room. On that card it is one quiet
-    // line — design §7.1 — and the one sentence about what the room costs belongs to the start
-    // card the line opens, where the decision to host is actually made.
+    // line — design §7.1 — and the start card the line opens is where the decision to host is
+    // actually made. The card says nothing there beyond the action itself.
     const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
     assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');
     assert.ok(offering.includes('hostWrap.hidden = false'), 'the start action is never revealed');
@@ -384,12 +384,13 @@ describe('Enter and a refusal where the start card cannot host', () => {
   it('the standing sentence that explains it is on the card, not only in the bundle', () => {
     // The action Enter takes is the join; why starting a room is not offered stands in
     // `#host-note`, above the button that would be there, and it is visible in every one of
-    // these states.
+    // these states. The offered card writes nothing there, so the note is the empty string for
+    // the one state that has an action to lead with.
     const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
     assert.ok(offering.includes('showHosting('), 'the card is never told what to say about hosting');
     assert.match(
       main,
-      /hostNote\.textContent = availability\.note/,
+      /hostNote\.textContent = availability\.kind === 'offered' \? '' : availability\.note/,
       'the note standing where the button would be is not written',
     );
     assert.match(

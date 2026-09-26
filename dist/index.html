@@ -635,14 +635,10 @@
       /* The start action's own failure, under the button that asked for the name. */
       #host-error { margin: 0.6rem 0 0; color: var(--danger); font-size: 0.9em; }
       #host-error:empty { display: none; }
-      /* The one sentence the card carries about the room the start button makes: the cost of a
-         room that lives in a tab. Written by the bundle (it is copy with one home, `host.ts`),
-         so it is hidden while it is empty. */
+      /* The line the card stands where it has no action: a browser without a directory picker, a
+         page that is not a Selvage server's, or a `/meta` read that had not answered. Written by
+         the bundle (it is copy with one home, `host.ts`). */
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
-        line-height: 1.5; }
-      /* What picking a folder gives away, under the button that asks for it: two short sentences
-         with one job each, and the person granting is the only one who can act on them. */
-      #host-share { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
       /* The panel's contents at a narrow width: the panel is the same panel, and its rows give up
          their padding rather than wrapping an item out of its own column. */
@@ -1042,12 +1038,10 @@
              is the card's own action, and on a guest's it is one quiet line — pressing it is
              what puts the start card in front of the person (`main.ts`, `swapCardToStart`).
 
-             `#host-share` is what the folder gives away, and it stands with the button that
-             asks for it: the invite link reaches every file the room shares, and an edit that
-             settles is written into the file on disk. -->
+             The card offers the action and says nothing else: `#host-note` carries a sentence only
+             where there is no action to offer. -->
         <div id="host-wrap" hidden>
           <button id="host-button" type="button" hidden>Share a folder…</button>
-          <p id="host-share"></p>
           <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
           <p id="host-note"></p>
