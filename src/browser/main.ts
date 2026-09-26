@@ -1489,21 +1489,6 @@ function menuFocusSelector(): string | undefined {
 }
 
 /**
- * Whether the person's attention is in the dialog: focus inside it, or on the face it stands under.
- * Escape reads this before it decides whether closing should move focus.
- */
-function focusInMenu(): boolean {
-  const active = document.activeElement;
-  if (active === null) {
-    return false;
-  }
-  return (
-    menuElement?.contains(active) === true ||
-    (faceStrip.contains(active) && active.getAttribute('data-anchor') === menu?.anchor)
-  );
-}
-
-/**
  * A press on a face, or on the `+N`: the same face twice closes what it opened, another one
  * replaces it, and the `+N` opens the list of everyone.
  */
@@ -1589,15 +1574,10 @@ function renderMenu(focusSelector?: string): void {
       onGoTo: (peerId) => {
         void goToParticipant(peerId);
       },
-      onFollow: (peerId) => {
-        closeMenu();
-        void followParticipant(peerId);
-      },
-      // The same state from the other side: the menu's Stop is the strip's Stop.
-      onStopFollow: () => {
-        closeMenu();
-        binding?.stopFollowing();
-      },
+      // The same state from the other side, ended the same way: the menu's Stop is the face's Stop,
+      // and the face is where the person is left looking (`followParticipant`).
+      onFollow: (peerId) => followParticipant(peerId),
+      onStopFollow: (peerId) => stopFollowing(peerId),
       onRename: () => startRename(),
       onBack: () => void backToEveryone(),
     });
@@ -1667,17 +1647,17 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || menu === undefined) {
     return;
   }
-  // Closing takes focus back to the face only when the dialog is where the person's attention is:
-  // a stray Escape — one Monaco is dismissing — closes the menu without pulling focus out of the
-  // editor and back to the bar.
-  const inside = focusInMenu();
+  // Escape leaves the dialog the way the design does: the edit first, with the control that
+  // opened it under the caret, then the dialog, with focus back on the face it came from. The
+  // dialog is a thing the person opened and Escape is how it is given back, so where focus was
+  // when the key arrived does not decide where it ends up.
   if (renamingName !== undefined) {
     // The edit is what Escape leaves, and the dialog stays open on the control that opened it.
     // The field's own Escape never reaches here: it stops the key.
-    endRename(inside);
+    endRename();
     return;
   }
-  closeMenu(inside);
+  closeMenu();
 });
 
 // The dialog is placed against the face it came from, so a window that changed size under it has
@@ -1692,6 +1672,9 @@ window.addEventListener('resize', () => {
  *
  * A rejection is the room being unreachable, which is the alert's; a refusal the room answers with
  * is not a rejection at all, and lands on the row (`showGoToRefusal`).
+ *
+ * A landing that arrived is the menu's own end, and on a phone the panel's too: the file that opened
+ * is what the person asked to see, and the design shuts the panel over it.
  */
 function goToParticipant(peerId: string): void {
   const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
@@ -1705,6 +1688,7 @@ function goToParticipant(peerId: string): void {
       // who is no longer in the room.
       if (outcome === 'landed') {
         closeMenu();
+        collapsePanel();
       }
     })
     .catch((error: unknown) => {
@@ -1712,12 +1696,36 @@ function goToParticipant(peerId: string): void {
     });
 }
 
-/** Following a peer, from wherever the press came: a face's `Follow`, or the empty pane's own. */
+/**
+ * Following a peer, from wherever the press came: a face's `Follow`, or the empty pane's own.
+ *
+ * The press ends on the face it was made about, the way the design leaves it: the follow shows as
+ * that face's ring and eye, so a person picked from the `+N` list is looking straight at the thing
+ * that changed rather than at the control that listed them. A phone shuts the panel with it, since
+ * the peer's file is what a follow opens.
+ */
 function followParticipant(peerId: string): void {
   const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
-  void binding?.follow(peerId).catch((error: unknown) => {
-    failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
-  });
+  void binding
+    ?.follow(peerId)
+    .then(() => {
+      closeMenu(false);
+      anchorButton(peerId)?.focus();
+      collapsePanel();
+    })
+    .catch((error: unknown) => {
+      failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+    });
+}
+
+/**
+ * Stopping a follow, from the same menu: the ring going is the whole announcement, and the face it
+ * went from is where focus is left.
+ */
+function stopFollowing(peerId: string): void {
+  binding?.stopFollowing();
+  closeMenu(false);
+  anchorButton(peerId)?.focus();
 }
 
 /**
@@ -1811,13 +1819,13 @@ function startRename(): void {
 }
 
 /**
- * Drops the edit and leaves the menu open on the control that opened it. A press inside the menu
- * moves focus there; Escape with attention elsewhere leaves the focus where the person put it.
+ * Drops the edit and leaves the menu open on the control that opened it: the `Rename` control is
+ * where the edit began, so it is where the person is left, whatever else has focus.
  */
-function endRename(refocus = true): void {
+function endRename(): void {
   renamingName = undefined;
   renamingField = undefined;
-  renderMenu(refocus ? '[data-act="rename"]' : undefined);
+  renderMenu('[data-act="rename"]');
 }
 
 /**

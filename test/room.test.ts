@@ -689,20 +689,36 @@ describe('the page draws the dialog wherever it draws the faces', () => {
     );
   });
 
-  it('moves focus back to the face only when the dialog had the person’s attention', () => {
+  it('leaves focus on the face a follow was about, from wherever the press came', () => {
+    // The design's own rule: the follow shows as that face's ring and eye, so a person picked out of
+    // the `+N` list ends up looking at the face rather than at the control that listed them.
+    const follow = /function followParticipant\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.notEqual(follow, '', 'the page has no follow to read');
+    assert.match(follow, /closeMenu\(false\);/, 'closing the dialog pulls focus back to the control the press came from');
+    assert.match(follow, /anchorButton\(peerId\)\?\.focus\(\);/, 'the followed face is not where focus is left');
+    const stop = /function stopFollowing\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.notEqual(stop, '', 'the page has no stop-following to read');
+    assert.match(stop, /anchorButton\(peerId\)\?\.focus\(\);/, 'the face whose follow was stopped is not where focus is left');
+  });
+
+  it('gives the person back to the dialog\u2019s own faces when Escape closes it', () => {
+    // The design's behaviour, and the owner's call: Escape leaves the edit first with focus on the
+    // control that opened it, and then the dialog with focus on the face it came from — wherever
+    // the key arrived from.
     assert.match(
       main,
-      /const inside = focusInMenu\(\);/,
-      'Escape cannot tell a stray key from one aimed at the dialog',
+      /document\.addEventListener\('keydown'[\s\S]{0,900}?closeMenu\(\);/,
+      'Escape closes the dialog without taking focus back to the face',
     );
-    // The face counts as the dialog's own only when it is the face the dialog stands under: focus on
-    // another face is not attention the dialog has, and moving it would be the same theft.
+    assert.ok(
+      !main.includes('focusInMenu'),
+      'Escape still reads where focus was before it decides what to do with it',
+    );
     assert.match(
       main,
-      /active\.getAttribute\('data-anchor'\) === menu\?\.anchor\)/,
-      'Escape treats any face as the dialog’s own, and can move focus off the face the person is on',
+      /if \(renamingName !== undefined\) \{[\s\S]{0,300}?endRename\(\);/,
+      'Escape leaves the edit without putting focus back on the control that opened it',
     );
-    assert.match(main, /closeMenu\(inside\)/, 'Escape closes the dialog regardless of where the person was');
   });
 });
 

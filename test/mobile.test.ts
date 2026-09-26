@@ -467,6 +467,26 @@ describe('the panel on a phone', () => {
     assert.match(main, /stripDisclosure\?\.remove\(\)/, 'a pointer device carries the phone\u2019s mark');
   });
 
+  it('shuts the panel when Go to or Follow lands a file, and nowhere else', () => {
+    // The panel is a disclosure on a phone and the file that opened is what the press asked for, so
+    // both press paths hand the screen to the editor. `collapsePanel` is what makes that a phone's
+    // rule alone: a pointer device's panel is a column beside the editor and stays where it is.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /function collapsePanel\(\): void \{\n\s+if \(phoneLayout\.matches\) \{\n\s+showPanel\(false\);/,
+      'the panel shuts on a device that has room for it, or opens wider',
+    );
+    const goTo = /function goToParticipant\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.match(
+      goTo,
+      /if \(outcome === 'landed'\) \{\n\s+closeMenu\(\);\n\s+collapsePanel\(\);/,
+      'a go-to that landed leaves the phone’s panel over the file it opened',
+    );
+    const follow = /function followParticipant\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.match(follow, /collapsePanel\(\)/, 'a follow leaves the phone’s panel over the peer’s file');
+  });
+
   it('opens for a room that shares nothing, so the blank editor is explained', () => {
     // Nothing else on a phone says the room is empty: the editor shows line 1
     // and the panel, shut, holds the one sentence that does.
