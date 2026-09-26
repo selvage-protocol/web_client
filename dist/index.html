@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <title>Selvage — shared editing in the browser</title>
-    <meta name="description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share; their copy stays the source of truth." />
+    <title>Selvage: shared editing in the browser</title>
+    <meta name="description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share. Their copy stays the source of truth." />
     <meta name="theme-color" content="#1e1e2e" />
-    <meta property="og:title" content="Selvage — shared editing in the browser" />
-    <meta property="og:description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share; their copy stays the source of truth." />
+    <meta property="og:title" content="Selvage: shared editing in the browser" />
+    <meta property="og:description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share. Their copy stays the source of truth." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="mark-opaque.png" />
     <!-- app.css is the Monaco editor stylesheet only: the pre-join card is fully
@@ -227,8 +227,9 @@
         margin: 3px 4px 3px 2px; }
       #menu .list .label { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
       #menu .list .label .where { font-size: 0.8em; }
-      #menu .rename-edit { display: flex; align-items: center; gap: 0.3em; padding: 0.3em 0.35em; }
+      #menu .rename-edit { display: flex; align-items: center; gap: 0.5em; padding: 0.3em 0.35em; }
       #menu .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
+      #menu .rename:focus-visible { outline-offset: 0; }
       #menu .acts .rename-save, #menu .acts .rename-cancel { flex: none; width: auto;
         padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
       #menu .rename-save:hover:not(:disabled) { color: var(--ok); border-color: var(--border-strong); }
@@ -348,7 +349,7 @@
       #peek:empty { display: none; }
       #workspace { display: flex; flex: 1; min-height: 0; }
       /* The panel and the editor, and the panel's own edge between them: 1 px drawn, a wider
-         invisible hit area, and the rail the panel becomes when it is shut. The panel is a column:
+         invisible hit area. The panel is a column:
          the tree scrolls inside it and the create verbs stand in a bar at its foot. */
       #side { width: 24rem; flex: none; display: flex; flex-direction: column; background: var(--card);
         container-type: inline-size; container-name: side; box-sizing: border-box; }
@@ -360,15 +361,6 @@
       #side-resizer:hover::before, #side-resizer[data-dragging='true']::before,
       #side-resizer:focus-visible::before { background: var(--primary); width: 2px; left: 3px; }
       #side-resizer:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
-      #side-rail { display: none; }
-      #side-resizer[data-collapsed='true'] { width: 20px; margin-left: 0; cursor: default; }
-      #side-resizer[data-collapsed='true']::before { display: none; }
-      #side-resizer[data-collapsed='true'] #side-rail { display: flex; align-items: center;
-        justify-content: center; width: 100%; height: 100%; box-sizing: border-box;
-        background: var(--card); border-width: 0 1px 0 0; border-radius: 0;
-        color: var(--muted-foreground); padding: 0; }
-      #side-resizer[data-collapsed='true'] #side-rail:hover { color: var(--foreground);
-        background: var(--muted-hover); }
       #pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
       /* The open file's one line. It is also the phone's disclosure, where the panel has no other
          way to be reached and the row is the only thing on screen that says which file is open. */
@@ -384,7 +376,8 @@
          page's quiet chrome at rest and one colour each under a pointer. The menu's own edit wears
          the same pair, sized for the dialog it stands in (`#menu`). */
       #tree .new-commit, #tree .new-cancel {
-        flex: none; padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
+        flex: none; box-sizing: border-box; width: 26px; height: 26px; padding: 0;
+        justify-content: center; background: none; color: var(--muted-foreground); }
       #tree .new-commit:hover:not(:disabled) {
         color: var(--ok); border-color: var(--border-strong); }
       #tree .new-cancel:hover:not(:disabled) {
@@ -395,14 +388,18 @@
          no placeholder: a greyed example reads as a filled value. */
       #tree .new-row { list-style: none; margin: 2px 0; }
       #tree .new-row-body { padding: 0 0.55em 0.4em; }
-      #tree .new-line { display: flex; align-items: center; gap: 0.3em; }
+      #tree .new-line { display: flex; align-items: center; gap: 0.4em; }
       /* The kind's own icon, and only it: the two controls beside the field keep their own colour,
          which is what a pointer reads at the ✓ and the ✕. */
       #tree .new-line > .icon { color: var(--muted-foreground); flex: none; }
-      #tree .new-name { flex: 1 1 5em; min-width: 0; font-size: 0.85em; padding: 0.3em 0.45em; }
+      #tree .new-name { flex: 1 1 4em; min-width: 4em; box-sizing: border-box; height: 26px;
+        font-size: 0.85em; padding: 0 0.5em; }
+      #tree .new-name:focus-visible { outline-offset: 0; }
       #tree .new-name.invalid { border-color: var(--danger); }
-      #tree .new-slash { flex: none; color: var(--muted-foreground); }
-      #tree .new-slash[hidden] { display: none; }
+      /* The folders typed so far, which the name will land in. A deep one gives way to the name. */
+      #tree .new-in { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; font-size: 0.85em; color: var(--muted-foreground); }
+      #tree .new-in[hidden] { display: none; }
       /* The line under the field, which stands only when it has something to say: a refusal, or the
          folder the commit will also make. A name this room can take needs no line, and a hidden one
          keeps the tree from shifting as a person types. */
@@ -441,7 +438,11 @@
       #tree details[open] > summary .folder.closed { display: none; }
       /* A file row is a row and its own actions side by side, so the actions take no room inside the
          row's box: on a touch device a 44 px control inside a padded row made every row 57 px. */
-      #tree li.file { display: flex; align-items: center; }
+      #tree li.file { display: flex; flex-wrap: wrap; align-items: center; }
+      #tree li.file > button.row, #tree li.file > .del-row { flex-basis: 0; }
+      #tree li.file > .row-note { flex-basis: 100%; }
+      #tree .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; }
       #tree button.row, #tree .del-row { display: flex; align-items: center; gap: 0.45em; flex: 1 1 auto; min-width: 0;
         box-sizing: border-box; background: none; border: 1px solid transparent;
         text-align: left; color: var(--foreground); padding: 0.4em 0.55em; border-radius: var(--radius); }
@@ -785,6 +786,7 @@
            is asking to be taken out is the same pair in a file row's own slots. */
         #tree .new-commit, #tree .new-cancel, #tree .del-yes, #tree .del-no { min-width: 44px; }
         #tree .new-line, #menu .rename-edit { gap: 0.6em; }
+        #tree .new-name, #tree .new-commit, #tree .new-cancel { height: 44px; }
       }
       @media (any-hover: none) and (max-width: 640px), (any-hover: none) and (max-height: 480px) {
         /* A phone has no room beside the bar and its file strip runs the whole width, so the
@@ -1097,12 +1099,11 @@
           </div>
         </div>
         <!-- The panel's own edge: 1 px drawn, 8 px hit area, a pointer's col-resize and a keyboard's
-             arrow keys. It is also where the panel goes when it is shut. A phone renders none of
+             arrow keys. A phone renders none of
              it: width is not a thing a 390 px screen has room to negotiate (`sidebar.ts`). -->
         <div id="side-resizer" role="separator" aria-orientation="vertical" tabindex="0"
-          aria-label="Resize the files and people panel" aria-valuemin="196" aria-valuemax="560"
-          aria-valuenow="336"><button id="side-rail" type="button" aria-label="Show files and people"
-          title="Show files and people"><span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></button></div>
+          aria-label="Resize the files and people panel" aria-valuemin="224" aria-valuemax="512"
+          aria-valuenow="336"></div>
         <div id="pane">
           <!-- The open file's one line above the editor: which file, the directory muted and the leaf
                bold. On a phone the same row is the panel's own disclosure, which is what says which
