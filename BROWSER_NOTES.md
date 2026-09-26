@@ -3817,3 +3817,176 @@ call, and `test/file-strip.test.ts` pins the order, which is the only place the 
 **The follow segment's two comments sit over their own rules.** Both were stacked at
 `#file-strip-follow`, and the second described a zero basis — the rule below it, `flex: 1 1 0` on
 the name the segment carries — while the rule it stood over sets `flex-shrink: 8`.
+
+## The people are faces in the bar (2026-09-25)
+
+The People roster is gone. The sidebar is the tree, and who is here is a row of faces in the
+session bar, to the right of the invite pill and before the way out. The owner's prototype
+(`ai_notes/.tmp/presence-prototype/index.html`) is what this was built to, and the shipped page
+kept everything the prototype does not draw: the health dot, the leave question, the session note,
+the alert and the peek, the empty pane, the create row, `Shared` and its two buttons.
+
+**Why the panel went.** A roster is a permanent column of names for a fact that changes rarely and
+is read in a glance, and it was drawn above a tree that needs the room: on a phone it was the
+panel's own first screen (measured at 320x640 with five peers, five 44 px rows of it over the
+tree), and every row carried the same two or three verbs for every peer. The faces say the same
+thing in the bar's own row — who is here, who hosts, who you follow — one press away from going to
+someone, following them, or renaming yourself.
+
+**What the cluster costs the bar, measured against the same bar with the cluster hidden.** On a
+phone, nothing: 111 px either way, which is the design's own number and the one that matters, since
+the faces sit inside the 44 px row Leave already holds. On a pointer device it is 51 → 58 px: the
+faces' own strip is 40 px tall (a 30 px face, the 6 px above it that a crown and two rings paint
+into, and 4 px below) against a base bar whose content was 33. The design measures its desktop bar
+at 58 px with the cluster on it, so the two agree there as well; the 7 px is the crown's room above
+the circle, and zeroing that padding on a pointer device as the phone does would clip the crown
+against the top of `#app`.
+
+**The phone's faces cost the bar nothing, and that is the whole of the sizing.** `.av` is 34 px
+there against Leave's own 44 px row, the strip gives up the 6 px of padding it keeps above the
+circle on a wider screen, and the generic touch floor of 44 px cannot be a `min-height` on a face:
+the box *is* the circle, and a floor taller than the width draws an ellipse. The shape keeps its
+34 px and the target is 44 px tall from a pseudo-element laid 5 px above and below it — measured at
+390x844 with `elementFromPoint`, a point 3 px above a face lands on that face. It is not laid 5 px
+to the sides as well: the faces overlap by 8 px, so a horizontal extension would cover the
+neighbouring face, which is already a control, and a tap near an edge would open the wrong person.
+Measured against the same bar with the cluster hidden: 111 px both ways, and the RESTORE is
+checked too, so a measurement that left `display: none` behind cannot read as zero.
+
+**Three marks, and each of them a shape.** Your own seat wears a solid ring in the foreground
+colour, the person you follow a dashed mauve ring plus an eye pip, the host a crown. Colours were
+not enough for the first two: the caret palette is eight hues and a room of nine already repeats
+one, so two peers can share a fill, and a peer filled with `--primary` is a ring on their own
+colour. The followed face is also never counted into the `+N`: the ring is the one place a follow
+shows on the bar, so when it would be hidden it takes the last shown slot instead (`visibleFaces`).
+The crown is the design's glyph, not the outline this client used to draw — Phosphor
+`crown-simple`, the whole 256 box, filled, `--warning` — at half the avatar's padding box, its own
+top 0.41 of that box above the circle's. It is not on tree badges: a 17 px square is not a circle
+to sit on, and at a size that reads it pokes out of the row, so the host's badge says `Mira · Host`
+in its tooltip instead.
+
+**The menu is a snapshot, so the roster's hold is gone rather than translated.** A face opens a
+dialog anchored under itself (8 px below, right edges aligned, re-placed on a resize); it is drawn
+when its own state changes — opened, closed, a refusal raised or retired, the name edit opened,
+dropped or committed — and a presence frame redraws the cluster behind it and nothing else. That
+is the decision the old `renameHoldsTheList` was making the hard way: the roster had to be held
+still, and the bug that survived the hold (`0.4.6`'s "the roster is drawn the moment a typed edit
+is left open") was a list that stopped being true while a field nobody was in stood open. A dialog
+the person opened is a read of the room at the moment they asked for it, and the frames underneath
+it are not its business. What is kept from the roster is its own rule for a stray press: a name the
+person has typed stays where it is, and a field they have put nothing of their own in closes with
+the dialog.
+
+**The words did not move.** `Go to`, `Follow`, `Stop following`, `not in a file yet`, the rename
+intent and its two answers are the strings the two clients share (`docs/studies/client-command-parity.md`
+§5), so the menu is where they were, not what they became; `Everyone in the room` is the one string
+this round added. The go-to refusal keeps its sentence and its four seconds, in the menu of the
+person it is about. Duplicate display names still disambiguate through `rosterLabel` (`names.ts`) —
+the mock had no rule for them and the shipped one did.
+
+**The prototype draws `not in a file yet` twice** for a peer in no file: once as the header's
+`where` line and once where a `Go to` would stand. Both are in the design and both are in the
+shipped menu (`19`/`22` in the review shots), and it reads as the same sentence twice in a two-line
+dialog. It is left as the design has it, and flagged rather than quietly dropped.
+
+**The one thing the cluster costs on a phone is the session name's room.** The bar is the same
+111 px and the same two rows, but a face of 34 px and the `+N` take about 100 px of the row: at
+390x844 `In Ada's session` reads `In Ada's sessi…` with the faces on the bar and whole with them
+hidden (measured both ways in the same probe). The design's own bar keeps its name whole at 390 px
+with a room of nine, and it can: its way out is a bare icon and it draws no health dot, where
+the shipped bar spends that room on `Leave`'s own words and the connected dot. The truncation is
+the cost of keeping both, and it is the one place this bar is tighter than the design's. Nothing
+else moved: the brand still truncates with its ellipsis, and the pill keeps its own row.
+
+**The removal.** `src/browser/roster.ts`, its CSS block in the shell, `<h2>People</h2>` and
+`<ul id="roster">`, and the container query's two narrow-panel verb rules are gone; the sidebar is
+`#tree` under `Shared`. `src/browser/room.ts` replaces it — `visibleFaces`, `renderRoom`,
+`renderPersonMenu`, `renderEveryoneMenu`, `menuPlacement` and `focusInto` — with the state in
+`main.ts` (`drawRoom`, `openMenu`, `closeMenu`, `renderMenu`). `test/roster.test.ts`
+became `test/room.test.ts`, and `test/mobile.test.ts` now holds the phone's own two numbers: 34 px
+faces and a cap of three.
+
+## The card offers the action and says nothing else (2026-09-26)
+
+The start card's two sentences are gone at the owner's ask: `HOST_TAB_WARNING`, the cost of a room
+that lives in a tab, and `HOST_SHARE_NOTE`, what picking a folder gives away under the button. The
+card offers the action and says nothing else about the room it makes.
+
+`HostAvailability`'s `offered` arm carries no `note` field at all now, so a sentence has nowhere to
+stand on a card that offers the action, and `#host-note` is written only for the states that have
+no action to lead with: the browser without a picker, the page that is not the server's, and the
+`/meta` read that had not answered. That last note used to be two sentences, its own and the tab
+warning's; it is its own alone now — what was not read and what the click does about it.
+`#host-share`, its element and its rule are gone with the note they carried.
+
+What stayed, and why: `hostingOverSentence()`, the sentence the load after a reload says, is a
+different fact and was not part of the ask; `HOST_NEEDS_A_BROWSER` and
+`HOST_NEEDS_THE_SERVERS_PAGE` keep their notes and the `#host-note` element that carries them; and
+`HOST_LEAVE_QUESTION` still names the same cost, with the citation of `HOST_TAB_WARNING` in its doc
+comment gone with the constant. The grant's own shape is unchanged and `README.md` keeps it as a
+fact about the room rather than as copy the card says: `.env`, `.git/**` and the key names are
+excluded, and the write-back is still every settled edit into the file on disk.
+
+## The notices, and the copy the prototype draws (2026-09-26)
+
+**One notices column.** `#session-note`, the full-width strip under the bar that pushed the
+workspace down, is gone; `#notices` floats one column in the top-right corner instead, out of the
+flow and at `pointer-events: none`, so a sentence arriving moves nothing and takes no click.
+`#alert` and `#peek` moved into it and are no longer fixed at the bottom centre, which retired
+`--keyboard-inset` and `keyboardInsetFor` with them: nothing is parked under a soft keyboard any
+more. Its top is measured rather than declared (`placeNotices`), because the bar's height is what
+the faces make it and a phone's strip below it runs the full width and is not drawn at all while
+the panel is open — a CSS top would be a second guess at both. The prototype's own numbers are
+taken literally where it has them: `right: 12px`, `gap: 8px`, the card's 2 px bar, `22rem` wide.
+
+**The card.** The host's departure is the design's: `<Host> left the session` over
+`Disconnecting in Ns`, with the bar draining over the same window and the whole card turning red as
+`The session ended` / `Host disconnected` when the deadline passes. Two deviations, both because
+the build's window is the server's number and the mock's is a constant 30 s. The bar is drawn from
+each tick's own reading of the deadline rather than a CSS animation of a fixed length, so a
+backgrounded tab shows the room's real remaining time and the line and the bar cannot disagree. And
+a window of a minute or more is read in `graceWording`'s unit (`1 minute`) rather than `60s`: the
+prototype's `Ns` is kept for the windows a server actually sends, which are seconds.
+
+**The downloads became toasts.** A save is `Downloaded <leaf>`, two at a time with `+N more` and a
+2.2 s stand, in the same column. The row keeps the sentences the mock cannot draw — what a fetch
+costs, the wait, an empty file offered, a failure with `Try again` — because each is a decision a
+person has to make. Queue order is oldest-first rather than the newest, which is what the prototype
+*draws* (its comment says newest), so a burst cannot jump a toast out from under a reader.
+
+**Copy taken from the prototype.** The invite pill says `Copied` for 1.8 s (was `Link copied`,
+1.5 s) and announces `Invite link copied` through the page's polite region — the morph is the
+visible confirmation, and a copy with no words says nothing to a screen reader. The go-to refusal
+is the design's two lines, `Nothing to go to` over the room's own reason; both of the build's
+reasons are kept, because one of them is a peer in no document and the prototype's single caret
+sentence is wrong for that case. The create row asks for a `New file name` or a `New folder name`
+with ` in <dir>` where it stands in one, offers `Create` and `Cancel`, and refuses with
+`A path cannot go up a folder`, `That file is already in the tree` or `That folder is already in
+the tree`. The `Also creates the folders …` line went with them: what a path makes on the way is
+the commit's business, and the folder makes it either way.
+
+**Behaviour the audits drove.** On a phone, `Go to` and `Follow` both shut the panel, since the
+file that opens is what the press asked for. A follow ends with focus on the followed face (the
+design's rule: the follow *is* that face's ring), which fixes the `+N` case in particular. While the
+host is away the identity line keeps `In <host>'s session`: the roster drops the host the moment
+its socket detaches, so the name is taken while the room still carries it and cleared only by
+leaving.
+
+**Escape is a reversal, deliberately.** Escape now always returns focus to the dialog's own faces:
+the first press leaves the name edit with focus on `Rename`, the second closes the menu with focus
+back on the face. The branch had it the other way — a stray Escape, one Monaco is dismissing, closed
+the menu without pulling focus out of the editor — and the owner asked for the prototype's
+behaviour, which is this. The trade-off is real: an Escape meant for the editor now takes focus to
+the bar when a menu is standing. Focus never moves when no menu is open, and the field's own Escape
+still stops the key where it is typed.
+
+**Kept, and why.** The invite field's `••••` mask (the prototype shows the real link blurred, and
+a blur is readable; the mask is the only version that keeps the token out of the DOM), the editor's empty pane, the join and start cards, the end-of-room card's
+sentence, the read-only sentence for a screen reader, and the rule that a *document change* ends a
+follow rather than any printable key — a click in the editor produces a key event in Monaco, so the
+prototype's rule would end a follow on a click.
+
+**The host-away row state went.** The rows' `opacity: .55` and their `The host is away, so its text
+cannot arrive.` title are gone: the card carries that news now, and `markKey` stays for the one row
+chrome that does read the room's knowledge — a host's download control appears when the room holds
+the file open.

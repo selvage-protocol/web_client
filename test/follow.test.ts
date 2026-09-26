@@ -121,7 +121,7 @@ function makeEngine(texts, overrides = {}) {
     text: (path) => texts.get(path) ?? '',
     has: (path) => texts.has(path),
     open: async (path) => void (overrides.openPaths ?? []).push(path),
-    close: async (_path) => {},
+    close: async (path) => void (overrides.closedPaths ?? []).push(path),
     openDocuments: () => overrides.held ?? [],
     insert: () => {},
     delete: () => {},
@@ -151,6 +151,7 @@ function setup(texts, overrides = {}) {
   const opened = [];
   const models = [];
   overrides.openPaths = [];
+  overrides.closedPaths = [];
   const binding = new MonacoBinding({
     engine,
     editor,
@@ -162,9 +163,8 @@ function setup(texts, overrides = {}) {
       return model;
     },
   });
-  return { engine, editor, notices, opened, models, binding };
+  return { engine, editor, notices, opened, models, binding, closedPaths: overrides.closedPaths };
 }
-
 describe('roster and grant tree', () => {
   it('lists peers with the caret mapping colours and presence paths', () => {
     const { binding } = setup(new Map(), {
@@ -296,6 +296,53 @@ describe('follow', () => {
     binding.dispose();
   });
 
+  it('answers a go-to with what the attempt came to, not just whether it threw', async () => {
+    // The page reads this to know whether the press is over: a landing ends the menu it was
+    // pressed in, and anything else leaves it standing for the room's answer.
+
+    // A peer whose caret resolves here: the press landed.
+    const landed = setup(new Map([['notes.txt', 'ab\ncdef\ng']]), {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt', selection: selectionAt(5) } }],
+      resolved: { anchor: 3, head: 5 },
+    });
+    assert.equal(await landed.binding.goTo('peer-sam'), 'landed');
+    // The page is told, so the strip and the tree show the file the press opened.
+    assert.ok(landed.notices.some((notice) => notice.kind === 'landed' && notice.path === 'notes.txt'));
+    landed.binding.dispose();
+
+    // A peer in a file with no caret to read, as an empty one has: the file opening is the landing.
+    // Waiting on a frame an idle peer never sends left the menu standing over it.
+    const caretless = setup(new Map([['notes.txt', '']]), {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt' } }],
+    });
+    assert.equal(await caretless.binding.goTo('peer-sam'), 'landed');
+    assert.equal(caretless.binding.currentPath(), 'notes.txt');
+    caretless.binding.dispose();
+
+    // A peer in a document the room holds, whose caret does not resolve here: the room answered,
+    // and there is nowhere to land.
+    const unresolved = setup(new Map([['notes.txt', 'ab\ncdef\ng']]), {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt', selection: selectionAt(5) } }],
+      resolved: undefined,
+    });
+    assert.equal(await unresolved.binding.goTo('peer-sam'), 'refused');
+    unresolved.binding.dispose();
+
+    // A peer the room no longer lists anywhere: the same refusal, in the room's own words.
+    const nowhere = setup(new Map(), { peers: [], presence: [] });
+    assert.equal(await nowhere.binding.goTo('peer-sam'), 'refused');
+    nowhere.binding.dispose();
+
+    // A peer still listed as here with no document open yet: the room has not answered, and the
+    // next presence frame is what resolves it.
+    const waiting = setup(new Map(), { peers: [SAM], presence: [] });
+    assert.equal(await waiting.binding.goTo('peer-sam'), 'waiting');
+    waiting.binding.dispose();
+  });
+
   it('a peer leaving ends the follow with a sentence', async () => {
     const overrides = {
       peers: [SAM],
@@ -314,6 +361,61 @@ describe('follow', () => {
     assert.ok(
       notices.some(
         (notice) => notice.kind === 'follow' && notice.following === undefined && notice.ended === 'sam left the room, so following stopped.',
+      ),
+      `no reason for the follow ending in ${JSON.stringify(notices)}`,
+    );
+    binding.dispose();
+  });
+});
+
+describe('a file the host deleted out of the room', () => {
+  it('ends the document it was showing, and falls back to nothing in front of the editor', async () => {
+    const { binding, editor, closedPaths } = setup(
+      new Map([['notes.txt', 'hi'], ['main.ts', 'const x = 1;']]),
+      { grant: ['notes.txt', 'main.ts'] },
+    );
+    await binding.openDocument('notes.txt');
+    await binding.openDocument('main.ts');
+    assert.equal(binding.currentPath(), 'main.ts');
+
+    binding.dropDocuments(['main.ts']);
+    assert.equal(binding.currentPath(), undefined, 'the editor still shows the path that went');
+    assert.equal(editor.models.at(-1), null, 'the editor was not left with nothing in front of it');
+    // The hold goes with it: the room keys a document by its path, so a document nobody holds is not
+    // one the room keeps alive for a file that is not in the folder any more.
+    assert.deepEqual(closedPaths, ['main.ts']);
+    // The other file is untouched: a deletion lands on the paths that went and no others.
+    assert.equal(binding.grantListing().includes('notes.txt'), true);
+    binding.dispose();
+  });
+
+  it('leaves a document that did not go where it is', async () => {
+    const { binding, editor, closedPaths } = setup(
+      new Map([['notes.txt', 'hi']]),
+      { grant: ['notes.txt'] },
+    );
+    await binding.openDocument('notes.txt');
+    binding.dropDocuments(['somewhere/else.ts']);
+    assert.equal(binding.currentPath(), 'notes.txt');
+    assert.deepEqual(closedPaths, []);
+    binding.dispose();
+  });
+
+  it('ends a follow whose file went, and says why', async () => {
+    const overrides = {
+      peers: [SAM],
+      presence: [{ clientId: 7, peer: SAM, state: { path: 'notes.txt', selection: selectionAt(2) } }],
+      resolved: { anchor: 1, head: 2 },
+    };
+    const { binding, notices } = setup(new Map([['notes.txt', 'hi']]), overrides);
+    await binding.follow('peer-sam');
+    assert.equal(binding.following()?.name, 'sam');
+    binding.dropDocuments(['notes.txt']);
+    assert.equal(binding.following(), undefined, 'the follow outlived the file');
+    assert.ok(
+      notices.some(
+        (notice) =>
+          notice.kind === 'follow' && notice.following === undefined && notice.ended === 'Stopped following sam because the file is gone.',
       ),
       `no reason for the follow ending in ${JSON.stringify(notices)}`,
     );

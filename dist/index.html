@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <title>Selvage — shared editing in the browser</title>
-    <meta name="description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share; their copy stays the source of truth." />
+    <title>Selvage: shared editing in the browser</title>
+    <meta name="description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share. Their copy stays the source of truth." />
     <meta name="theme-color" content="#1e1e2e" />
-    <meta property="og:title" content="Selvage — shared editing in the browser" />
-    <meta property="og:description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share; their copy stays the source of truth." />
+    <meta property="og:title" content="Selvage: shared editing in the browser" />
+    <meta property="og:description" content="Join a live editing session in your browser. Paste the invite link the host sent you and edit the files they share. Their copy stays the source of truth." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="mark-opaque.png" />
     <!-- app.css is the Monaco editor stylesheet only: the pre-join card is fully
@@ -49,6 +49,10 @@
         --ok: #a6e3a1;
         --radius: 0.5rem;
         --shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.8);
+        /* The page's own typeface, named before the generic last: with a CJK locale in effect
+           `system-ui` and `sans-serif` resolve to a Noto CJK face, whose Latin is not this design's
+           and whose ellipsis sits mid-line rather than on the baseline. */
+        --ui: "Liberation Sans", "DejaVu Sans", system-ui, sans-serif;
       }
       [hidden] { display: none !important; }
       /* The page is a column so anything the deployment appends after `#app` — the demo's
@@ -56,7 +60,7 @@
          under a full-height app. `#app` keeps its own dynamic height as the flex basis and gives
          up exactly the room such a footer takes; with nothing after it, it is the whole viewport.
          `height: 100%` is what a browser without `dvh` falls back to. */
-      html, body { height: 100%; margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      html, body { height: 100%; margin: 0; font: 14px/1.5 var(--ui);
         background: var(--background); color: var(--foreground); }
       body { display: flex; flex-direction: column; min-height: 100%; min-height: 100dvh; }
       /* `dvh`, not `vh`: the dynamic viewport follows the browser chrome and, on
@@ -96,34 +100,32 @@
         flex: 0 1 auto; font-weight: 650; letter-spacing: -0.01em; }
       #brand .mark { width: 1.35em; height: 1.35em; flex: none; }
       #session-identity { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* The dot is the glanceable half of health: green and wordless while the room is fine, amber
-         with its own name while the socket is re-dialling, red while the host is away and the grace
-         is running. The sentence with the countdown is the strip below. */
+      /* Health is painted only where there is something to say: while the room is fine the bar says
+         nothing, and the dot with its own name stands for a socket being re-dialled. A host that is
+         away is the session card's, in the notices column, with the countdown and who left. */
       #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
         font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
+      #health[data-health='ok'] { display: none; }
       #health .dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex: none;
         background: var(--ok); }
       #health[data-health='reconnecting'] { color: var(--warning); }
       #health[data-health='reconnecting'] .dot { background: var(--warning);
         animation: health-pulse 1.4s ease-in-out infinite; }
-      #health[data-health='away'] { color: var(--danger); }
-      #health[data-health='away'] .dot { background: var(--danger); }
-      /* The green state is the dot alone. Its name is in the document for a screen reader and
-         clipped out of the paint, because a `title` is not an accessible name and a dot with
-         nothing beside it says nothing to one; the two states that change what typing means
-         paint theirs. */
-      #health[data-health='ok'] #health-label { position: absolute; width: 1px; height: 1px;
-        margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
-        border: 0; }
       @keyframes health-pulse { 50% { opacity: 0.35; } }
       @media (prefers-reduced-motion: reduce) {
         #health[data-health='reconnecting'] .dot { animation: none; }
       }
       /* The way out: the one destructive thing in the bar, at its far right, with a border so it
-         reads as the button it is — and never anything to its right. */
-      #leave-wrap { position: relative; flex: none; margin-left: auto; display: flex; }
-      #leave { flex: none; background: none; border-color: var(--border-strong);
+         reads as the button it is — and never anything to its right. It is the design's icon at
+         every width, sized to the faces beside it; the words are its accessible name and its
+         tooltip, and the span they live in is clipped out of the paint. */
+      #leave-wrap { position: relative; flex: none; display: flex; }
+      #leave { flex: none; box-sizing: border-box; width: 2.15em; height: 2.15em; padding: 0;
+        justify-content: center; margin-left: 0.9em;
+        background: none; border-color: var(--border-strong);
         color: var(--danger); font-weight: 600; }
+      #leave .label { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+        overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
       #leave:hover:not(:disabled) { background: rgba(243, 139, 168, 0.14);
         border-color: var(--danger); color: var(--danger); }
       /* The host's question, under the button that asked it: the two answers are one glance from
@@ -141,6 +143,94 @@
         border-color: var(--danger); color: #1e1e2e; font-weight: 700; }
       #leave-confirm .confirm-actions .danger:hover:not(:disabled) { background: #f7a8bf;
         border-color: #f7a8bf; }
+      /* The people, in the bar: a face per seat, and the menu a face opens. The strip takes the
+         bar's own right-hand push, so it stands to the right of the invite pill and Leave follows
+         it, and it is the last thing before the way out on every width. The padding is the room a
+         crown and two rings paint into above and beside the faces. */
+      #faces { display: inline-flex; align-items: center; padding: 6px 4px 4px; flex: none;
+        min-width: 0; margin-left: auto; }
+      /* The avatar is its own circle, rim and all: the box *is* the face, which is why an
+         overlapping strip is drawn with a negative margin on every face but the first. */
+      .av { position: relative; flex: none; width: 30px; height: 30px; padding: 0;
+        box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; border: 2px solid var(--input); background: var(--c);
+        color: var(--input); font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
+        margin-left: -8px; gap: 0; }
+      .av:first-child { margin-left: 0; }
+      .av:hover:not(:disabled) { background: var(--c); border-color: var(--input); z-index: 3; }
+      .av[aria-expanded="true"] { z-index: 3; }
+      /* You: a solid ring. Followed: a dashed ring and an eye. Both are shapes, so two faces in
+         one colour — or a face in the ring's own colour — still read apart. */
+      .av.me { z-index: 2; box-shadow: 0 0 0 2px var(--foreground); margin-right: 4px; }
+      .av.me:not(:first-child) { margin-left: 4px; }
+      .av.followed { z-index: 2; margin-left: 4px; margin-right: 4px; }
+      /* Drawn as a layer rather than an outline, so a host's crown can sit over it, not under it. */
+      .av.followed::after { content: ''; position: absolute; inset: -6px;
+        border: 2px dashed var(--primary); border-radius: 50%; pointer-events: none; }
+      .av.followed:first-child { margin-left: 0; }
+      .av:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+      .av .eye { position: absolute; z-index: 1; right: -6px; bottom: -6px; width: 15px;
+        height: 15px; border-radius: 50%; background: var(--primary); color: var(--primary-foreground);
+        display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--input); box-sizing: border-box; }
+      .av .eye svg { width: 9px; height: 9px; stroke-width: 2.2; }
+      /* The host's crown: Phosphor `crown-simple`, filled, the whole 256 box. The design draws it
+         half the circle wide, its box top 0.41 of it above the circle's top edge — and 100% here is
+         that same circle: the avatar's padding box inside its 2 px rim, which is also what `top`
+         measures from. Yellow is the one colour the caret palette leaves out, so a crown never sits
+         on a fill of its own colour. */
+      .av .crown { position: absolute; top: calc(100% * -0.41); left: 50%;
+        width: calc(100% * 0.5); transform: translateX(-50%); display: flex;
+        pointer-events: none; z-index: 1; color: var(--warning); }
+      .av .crown svg { width: 100%; height: auto; }
+      /* The faces the cluster could not show: one control, counted, where a face would be. It is the
+         interface's own sans, not the initials' monospace: two digits in a circle are a word, and
+         the design draws them in the face the room's own labels wear. */
+      .av.more { --c: var(--muted); color: var(--foreground);
+        font: 600 11px/1 var(--ui); }
+      .av.more:hover:not(:disabled) { background: var(--muted-hover); }
+      /* The person menu: the leave question's own card, anchored under the face that opened it,
+         and the list the `+N` opens. Its place is set by the bundle, so its own left and top are
+         only ever what `placeMenu` wrote. */
+      #menu { position: absolute; z-index: 10; box-sizing: border-box; width: max-content;
+        min-width: 15rem; max-width: min(20rem, calc(100% - 16px)); padding: 0.35em;
+        background: var(--card); border: 1px solid var(--border-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow); }
+      #menu .head { display: flex; gap: 0.6em; align-items: flex-start; padding: 0.45em 0.55em 0.55em; }
+      #menu .head .av { width: 26px; height: 26px; font-size: 10px; margin: 2px 0 0 2px;
+        cursor: default; }
+      #menu .who { min-width: 0; }
+      #menu .name { font-weight: 700; overflow-wrap: anywhere; }
+      #menu .marks { color: var(--muted-foreground); font-size: 0.85em; font-weight: 500;
+        margin-left: 0.3em; white-space: nowrap; }
+      #menu .where { color: var(--muted-foreground); font-size: 0.85em; overflow-wrap: anywhere; }
+      #menu .acts { display: flex; flex-direction: column; gap: 2px;
+        border-top: 1px solid var(--border); padding-top: 0.35em; }
+      #menu .acts button, #menu .list button { width: 100%; background: none;
+        border-color: transparent; text-align: left; }
+      #menu .acts button:hover:not(:disabled), #menu .list button:hover { background: var(--muted-hover);
+        border-color: var(--border-strong); }
+      #menu .waiting, #menu .refusal { font-size: 0.85em; color: var(--muted-foreground);
+        padding: 0.35em 0.7em; }
+      #menu .refusal { color: var(--warning); display: flex; flex-direction: column; }
+      /* The design's second line: the room's own reason, quieter than the headline over it. */
+      #menu .refusal .detail { color: var(--muted-foreground); }
+      #menu .back { background: none; border-color: transparent; font-size: 0.85em;
+        color: var(--muted-foreground); margin-bottom: 0.2em; }
+      #menu .list { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0;
+        padding: 4px 0 0; max-height: min(36rem, calc(100vh - 8rem)); overflow-y: auto; }
+      #menu .list button { gap: 0.6em; padding: 0.35em 0.55em; }
+      #menu .list .av { pointer-events: none; width: 26px; height: 26px; font-size: 10px;
+        margin: 3px 4px 3px 2px; }
+      #menu .list .label { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+      #menu .list .label .where { font-size: 0.8em; }
+      #menu .rename-edit { display: flex; align-items: center; gap: 0.5em; padding: 0.3em 0.35em; }
+      #menu .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
+      #menu .rename:focus-visible { outline-offset: 0; }
+      #menu .acts .rename-save, #menu .acts .rename-cancel { flex: none; width: auto;
+        padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
+      #menu .rename-save:hover:not(:disabled) { color: var(--ok); border-color: var(--border-strong); }
+      #menu .rename-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--border-strong); }
       /* The owner's mark, whose pixels are in this document: a 104 px render of
          the master the site owns (`public/mark-transparent.png`, resampled by
          the same renderer the build's icons use and worn as it was exported),
@@ -150,19 +240,39 @@
          the file. */
       .mark { flex: none; background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGgAAABoCAYAAAAdHLWhAAAMOUlEQVR42u2ZCVCU5xnHv28XdhfYBbkPuQREblDkEAQBWc7lWA45l5vlFOS+RBAVUUABQcUrUYwHxjun5mqSdlpzNMlMM52kTdNkJm2apEnH1GqMPH3endhJneEy08zaeX4z7wD7vd/Ht+//+7/v838/jiMIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAI7cIQm5zjhHUCTrxVh5du1RUYNYgExsligbH1POfqYovE5vQT/r8QWzi2ldj4RZ5rii0RT2rQ5QR9Ek6nx4DTrZJyonAZJ9J71IUJwPE4L+QltwxEZmAucwJ7cx9wsQkA16VB+DMQHC38vrc183rdxsQ903KJu+CB88XYfs3xPPAiyR0dQ5P1D3kfpzleALxYb0bHcMmOBZ4TjqJcFXHCO8Y6+mCvZwruRkvB19QRVpotAx8TB3AzWvoPV5n1EWep5fJHUZxuntP9XiaxAidrfwhyV0BsUDGkR9RDTkwb5Md1Qm5sO2RGNUBiSDms9UkHX+f11z0dw81/dA13NrAiYzMwc/MEW//AGysiIxfrgEBOIJyRmFuBpZcvLPUPeG+e/kuwPYHCzFiJjMDPdBnELVsFeV7roGp1PGwKTobGNSlQH5wEav9YyPYIA7mD7+0Qa7cefwsn4aMizkYBLwILQxcIcEuE9Mh6qErbBc15B77qKDr6weaS4x92l574Bhvg79BeeATqskYgL7YDogNU7631yZD+cB2BQN/wHXN3L/BJSYU1RUWsxS/qTnj+ssjUHBxD1kJgfj6sKS7unqP3UlT/dzKBGDyW2EKSSwBsDFTAjuh8GFOU/2syperTw8qavxxR1t49oqwB/BtGE8tga1QOVPjHQapr0EUUU6zt4uANCr80kTpAiFcqFCt6oVU1OYViePeWn/rPE7albEqHfYYCTWwpnbrbV3FGI5Y6tR9Sw2uy7vfTs1iajs6B0LIySNnaA4mbO34Z3dywUBf58WLJPUtvXwguLITkrT1fJfV2G83S1wAv+o6RUA9WWzhDoU8UbI/OmzmQXHnhWNrGyOMZ9XqP5dZxx9I38kfTao1RqOxDqdVvP5ZeBycyN8FBFGtLRBaU+kU/nusRxmuzQH4ioQw8HMLQEe2AIrzZV3lmzhuuzhiKRgd93Ko6BJuyxz4pSuyxv39Mam0vsPHzf5e5J2P3TsjaMwiKLV3yBbpnWs/SGtzjEyCxG6fU8ZHNc/QeMRCIwN/cGcpWymE4vuTbo8pa5VTapllP6JerdHbKVf3orpmTGxo0Qg3IC3AaTNqgxfrwwYYSa82agoMNw5uefmEhZ+XGdQjKUrbbVSoHRA8eM/fwTvNUKCCpZzPk7x+DtJ3bX41ra5vvKfXAwuJ7Sx9fWFteBll7B78omJyYzT3OOpzguxWGNpDvHcHEuYeOUSzkvjM9M7m6IMWegZgCYCI9saERdsUW/qk9PEOkpQLpGJsYONxZvzpfs7aMNV/7bqDmgqIqfd9DX3HJMleBfVDw22GVasgeGYLs0eEZFCtyHvdMSSyswD0uTuMeFLZrjt79pjoGEOPoB72R2XAio/7EYu5P6RqsV+gT+cfdsYVwNruZnQ+DsUWpWushc0Pnw+G+mdCYOwF7G56F7ZXTMzhtvYxrUrWDha+HsYH9oqsdcw8v5X0X5U2Moou2vRTf0jBbdxdeJL5r4eUDIaUlsGF4N3OP4ayPFMe/y9xTilPbZGoVnMtpWbXY+1tn69mgXhWDhUM1nM9rBSwiDmutQFZLXGX+rrGvFyR0Q1/FWRiovQRNufs1JXYgltuYg762MfF4CXPRDmN9uwhDsY3uvEnXyUVgFxj8VliFmk1X2IZmFN1dYbPY54jE3BLcYmIhoauDCdoxx6X19Hnd26HWbtAZngGnshq/uJjfLljsd8Y85CFHB/ZF5cJ0Tguczmq8odWl3KrlsRLMN72Vabu+wSoNetWnoCX/IJSnbNdkn9igIgj1VmL2iWKB9TMHC78eW1NPw3lclMJcpNiCLhofAWX/tudjWloe7ObA64pvm3t6Y0ldBJlDA1+oDo7L5risjQkG0Xgnf2BT1JO5rb99mO9rJpQa+GJ4xfUIprBYwOt8fDIvT/sDEWYbo+r0wRIU51JH4VHMQcdY2Q0NOfsAP9eU4ZlRjSAPKICAFQkf+bms95rVRcuWC+yCfnDRnt3MScxFwQ+sPeNiMwtwlcshvqMNcvftbZ9zqeI4RyuxEaS7hcA+RTmge955mO8p4QRSZ6kllPitx+mtFi7ktX38yG0t1G8YFTbl7XdtUU1mtRUcHsf2CRMMwyvg51CavA0UoRWfolgm87uoiw0+KHf0PR2x6YdSWCi24SUGt7CPJvdk7O7/W/7EmGyeTTpHW4kx5HiGabLMZVXH36ezW3UWXRpxnK+jvjkU+EQC5iMm9A3uUYcJhk4qbsmfvNmnPs2KCc00WJjQ3TtrRefoxNaiN8PU5WzxZ+1e4uauAM1TbGEzLLNbBivkMRDX1sKqvbb5B5Z3ZPts+d7r4KiyBp4p3MympzWLF4jvWC6z0mQoDLZwSdVx9P9mqxunwZLazGHorz4PQ/VPQWfRsV/MsxYleSYqsHzugpyxPcxFl72TUsztAtZ867R2HYSUlED6wI7PMZjKFiSQvqnmyT+eUQcvl/fh09/25GSSejFfQSrhdT5lIbcpJIUVGnBF1ZmlreNthq0PZ/etHKdrtZATVi6XuyesKdOsTaNN12Cw7upbc/U3cnJmLrrBAuiGoV2QvXfoXmxL85WgfBWEFJdgKd4NOaN7Whf45GschDkGQ2YDvFGzC66X9MwcTK5c6ArP4zp2zFJkCArn1bALAyuuP5+jQFr5KoJtFP6ebZRKxZaAeejPjpZ+IXOfosuZSh372aYqVnywB3PTvuYXpufPRZ4Kj4RETQhVHdiHVd0ouqYfMgd34d/jn2MzWMgNC38QqMg3CkNmE7y/aQTerRuGqYz6O62hyrJ09+C5diz08OAhtn8XbOXKtnjQhfVwVdVZq63uceI5IZgYOLBXBxDlnwuRq3LuBXkkXXS3X5tuY+y+VCqykgg5mZjnJCY8J16vI5CdRSFn2NYQm+ZYsB1veXHeFG7k5MLbBQb9hq1FeRMjUHXuFNRenMZ2Fqqmn2he6A3/WKBzOc3wYdM++KhlP7qoF/rlKsjxCn8lxNot20VqZWMmkIr1OKEeus4VW52Y1/kDcw4TR70qFvYnVcCl/PYXnlJ16WirQLyuQHbCycofEkPUUJ0xCI2541Ca1AdsCvN3jQNn69W3rY3dbjFRMNAC6xvsmQy5Me3A8tJo4/NXx1uuL2g32MzDM5FVdMr+Pth45Rx0/upFaH/t+l8bnr0kXaxAbIo7g2vH+w2jNz9oGh98uXwbVmM10BqWAVme4RBu6wneJva3nAwsbzvom4ELFgRszWGvJNg7IiYOTm1vP1XQZarVC76Rvi3vZh9akxxW9SUrnQdqLsLOmguaUrpSOQDZ8hZIXlulESwptAKyoptwahuA7tLjsLvuysWRxucWPLhG9k4aF62rqYLSE0eg9ZXnoP3Va02LrL7+I9BJDJhv1Oy++UbZAf58XnvFmKLi5vboAuhalwUNa1JB7R8Hheg0VlCUrYrBgiBVE25ZcYHinLla0GX4yFRmKWHVhurU/hqsyF7bUXXu9kDtRcCf0FN2EjqLj2k2UvEYbCmbuovl9at4XInFwaLfo1h4egfiWvQ1q+hKHj/01sbL0/qLFuh+FZdeB6+Ub7v5pnqv5tjmiBz7trDMic0R2V/14+I/HF8CIwllGGjVmsyE6813Z7Obn0dx5JcKOx7dMrqt4JAMHRLQqz6V2VdxWt1XcaYKm2pb5dnI7VXTZj/1+i6RUSbBRYX+iV2di36bed9BTKBjabVwraTn5kvq/y6xm0KVop7InNVDccW5E8mVVUeUtcUnMuqjT21oNOGI/y33BVKhQEdRoGeLum9OqtU0MNoq0DOFJBAJRJBAJBDx8wlkp9nNjoDDqdWAQZME0iaEGKVsxEvuZbqHwlhiOXtd/dn5tGYaGG3CRmy8M8Zx5d3O8Mx/7k+uLKER0TKcpZZcpJ23rNB3vT6NBkEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQBEEQPwv/BmYXK8j8HmWJAAAAAElFTkSuQmCC");
         background-repeat: no-repeat; background-position: center; background-size: contain; }
-      /* The strip is a flex row for the dot's sake, and the countdown substitutes its time into
-         the middle of one sentence: every child of a flex container wears the `gap` on both sides,
-         so a run left as its own child — the number's span, a lead text node — would space a
-         substituted number by `gap` rather than by a space, and differently from a substituted
-         word. `defaultCountParts` therefore builds the sentence inside one element (`notice.ts`). */
-      #session-note { display: flex; align-items: center; gap: 0.6em; padding: 0.7em 1.1em;
-        background: var(--card); border-bottom: 1px solid var(--border);
-        font-weight: 600; color: var(--warning); }
-      #session-note::before { content: ''; flex: none; width: 0.5em; height: 0.5em;
-        border-radius: 50%; background: currentColor; }
-      /* The countdown is the warning; the host's return is news, not a warning. */
-      #session-note[data-tone="plain"] { color: var(--foreground); }
-      #session-note:empty { display: none; }
+      /* The notices: one column over the workspace, in the top-right corner and out of the flow, so
+         a sentence arriving never moves the editor under it and the column takes no click from what
+         it covers. The bundle sets its top from the bar's own height (`placeNotices`) and the shell
+         stretches it under the bar and the file strip on a phone. */
+      #notices { position: absolute; z-index: 15; right: 12px; width: max-content;
+        max-width: calc(100% - 24px);
+        display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+        pointer-events: none; }
+      #toasts { display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+        max-width: 100%; }
+      /* The card and the toasts are one shape: the design's own, a card that floats over the
+         workspace. The card's colour is the state it is in — the warning while the grace runs, the
+         danger once it is out, plain for a sentence about the room that is not a warning. */
+      #session-card, .toast { position: relative; box-sizing: border-box; overflow: hidden;
+        display: flex; align-items: flex-start; gap: 0.6em; padding: 0.65em 0.85em;
+        width: max-content; max-width: 22rem; font-size: 0.9em;
+        background: var(--card); border: 1px solid; border-radius: var(--radius);
+        box-shadow: var(--shadow); }
+      #session-card { color: var(--warning); border-color: rgba(249, 226, 175, 0.4); }
+      #session-card[data-tone='over'] { color: var(--danger); border-color: rgba(243, 139, 168, 0.4); }
+      #session-card[data-tone='plain'] { color: var(--foreground); border-color: var(--border-strong); }
+      .toast { color: var(--mocha-sky); border-color: rgba(137, 220, 235, 0.4); }
+      #session-card .icon, .toast .icon { margin-top: 0.15em; }
+      #session-card .body { display: flex; flex-direction: column; min-width: 0; }
+      #session-card .msg, .toast .msg { color: var(--foreground); font-weight: 600; }
+      /* The bar is the window draining: its own width is the whole of the grace, and the bundle
+         draws it from the same reading the countdown is written from, so the two cannot disagree. */
+      #session-card .bar { position: absolute; left: 0; bottom: 0; width: 100%; height: 2px;
+        background: currentColor; opacity: 0.5; transform-origin: left;
+        transition: transform 1s linear; }
+      #toasts-more { align-self: flex-end; box-sizing: border-box; padding: 0.1em 0.6em;
+        font-size: 0.75em; color: var(--muted-foreground); background: var(--card);
+        border: 1px solid var(--border); border-radius: 999px; }
       /* The pill is a preview and not a field: it is sized to what it shows (below), and
          bounded to a share of the bar so a link longer than the display is built to show —
          a long host, a shape this module has not seen — cannot crowd what stands beside it.
@@ -218,13 +328,10 @@
         align-items: center; justify-content: center; gap: 0.45em;
         background: var(--input); border-radius: var(--radius);
         color: var(--primary); font-size: 0.9em; font-weight: 600; white-space: nowrap; }
-      /* `--keyboard-inset` is the distance from the layout viewport's floor up
-         to the visual viewport's, set from `fitVisualViewport`; a fixed line is
-         placed against the layout viewport, which the keyboard leaves alone. */
-      #alert { position: fixed; left: 50%; bottom: calc(1.25rem + var(--keyboard-inset, 0px));
-        transform: translateX(-50%);
-        /* Above `#peek`: a failure outranks the tap line when both stand. */
-        z-index: 6; box-sizing: border-box; max-width: min(34rem, calc(100vw - 2rem));
+      /* The failure alert and the tap-revealed line: the two sentences about something that just
+         happened, floating in the notices column. The alert is closer to the corner than the tap
+         line, because a failure outranks what a fingertip was told. */
+      #alert { box-sizing: border-box; max-width: min(34rem, calc(100vw - 2rem));
         padding: 0.7em 1em; background: var(--card); border: 1px solid var(--border-strong);
         border-left: 3px solid var(--danger); border-radius: var(--radius);
         box-shadow: var(--shadow); color: var(--foreground); }
@@ -232,19 +339,18 @@
       /* The tap-revealed line: what a `title` says to a pointer, said on screen
          to a finger. Same anatomy as the failure alert so the page has one
          voice for a transient line, and quiet enough to stand over the editor. */
-      #peek { position: fixed; left: 50%; bottom: calc(1.25rem + var(--keyboard-inset, 0px));
-        transform: translateX(-50%);
-        z-index: 5; box-sizing: border-box; max-width: min(30rem, calc(100vw - 2rem));
+      #peek { box-sizing: border-box; max-width: min(30rem, calc(100vw - 2rem));
         padding: 0.6em 0.9em; background: var(--card); border: 1px solid var(--border-strong);
         border-radius: var(--radius); box-shadow: var(--shadow); color: var(--foreground);
         font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #peek:empty { display: none; }
       #workspace { display: flex; flex: 1; min-height: 0; }
       /* The panel and the editor, and the panel's own edge between them: 1 px drawn, a wider
-         invisible hit area, and the rail the panel becomes when it is shut. */
-      #side { width: 21rem; flex: none; overflow-y: auto; background: var(--card);
-        padding: 0.9em 0.7em 1.2em; container-type: inline-size; container-name: side;
-        box-sizing: border-box; }
+         invisible hit area. The panel is a column:
+         the tree scrolls inside it and the create verbs stand in a bar at its foot. */
+      #side { width: 24rem; flex: none; display: flex; flex-direction: column; background: var(--card);
+        container-type: inline-size; container-name: side; box-sizing: border-box; }
+      #tree { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0.9em 0.7em 1.2em; }
       #side-resizer { position: relative; flex: none; width: 8px; margin-left: -4px;
         cursor: col-resize; touch-action: none; background: none; }
       #side-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3.5px;
@@ -252,15 +358,6 @@
       #side-resizer:hover::before, #side-resizer[data-dragging='true']::before,
       #side-resizer:focus-visible::before { background: var(--primary); width: 2px; left: 3px; }
       #side-resizer:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
-      #side-rail { display: none; }
-      #side-resizer[data-collapsed='true'] { width: 20px; margin-left: 0; cursor: default; }
-      #side-resizer[data-collapsed='true']::before { display: none; }
-      #side-resizer[data-collapsed='true'] #side-rail { display: flex; align-items: center;
-        justify-content: center; width: 100%; height: 100%; box-sizing: border-box;
-        background: var(--card); border-width: 0 1px 0 0; border-radius: 0;
-        color: var(--muted-foreground); padding: 0; }
-      #side-resizer[data-collapsed='true'] #side-rail:hover { color: var(--foreground);
-        background: var(--muted-hover); }
       #pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
       /* The open file's one line. It is also the phone's disclosure, where the panel has no other
          way to be reached and the row is the only thing on screen that says which file is open. */
@@ -272,92 +369,34 @@
       #file-strip-path .dir { color: var(--muted-foreground); }
       #file-strip-path .leaf { font-weight: 700; }
       #file-strip-path.none { color: var(--muted-foreground); }
-      #file-strip-chips { display: inline-flex; align-items: center; gap: 0.5em; flex: none;
-        font-size: 0.85em; color: var(--muted-foreground); }
-      #file-strip-chips .chip { border: 1px solid var(--border-strong); border-radius: 3px;
-        padding: 0 0.35em; white-space: nowrap; }
-      #file-strip-chips .chip.warn { color: var(--warning); border-color: var(--warning); }
-      #file-strip-follow { display: inline-flex; align-items: center; gap: 0.5em; min-width: 0;
-        font-weight: 600; border-radius: var(--radius); }
-      #file-strip-follow:empty { display: none; }
-      #file-strip-follow button { font-size: 0.85em; font-weight: normal; }
-      #file-strip .spacer { flex: 1 1 auto; }
-      #side h2 { font-size: 0.79em; text-transform: uppercase; letter-spacing: 0.08em;
-        color: var(--muted-foreground); margin: 1.5em 0 0.5em; padding: 0 0.55em; }
-      #side h2:first-child { margin-top: 0; }
-      /* The panel's second heading carries the two create verbs, always visible: the entry point to
-         making something is not something a person should have to hover to find. */
-      .panel-head { display: flex; align-items: center; justify-content: space-between;
-        gap: 0.5em; margin: 1.5em 0 0.5em; padding-right: 0.35em; }
-      .panel-head h2 { margin: 0; }
-      #shared-actions { display: inline-flex; gap: 0.25em; flex: none; }
-      #shared-actions button { padding: 0.25em; background: none; border-color: transparent;
-        color: var(--muted-foreground); }
-      #shared-actions button:hover:not(:disabled) { background: var(--muted-hover);
-        border-color: var(--border-strong); color: var(--foreground); }
-      #roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2em; }
-      #roster li { display: flex; gap: 0.5em; align-items: center; padding: 0.45em 0.55em;
-        border-radius: var(--radius); }
-      #roster li:hover { background: var(--muted); }
-      #roster li.following { background: var(--muted); outline: 1px solid var(--border-strong); }
-      #roster .swatch { flex: none; width: 0.75em; height: 0.75em; border-radius: 50%; align-self: center; }
-      #roster .who { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 0.4em; line-height: 1.3; }
-      /* A name is the one thing on a roster row that nobody can shorten, so it is the thing that
-         wraps: a name cut to `Francesca B…` is a row a reader cannot tell from another one, and
-         touch has no tooltip to read the rest from. The row's verbs keep the place they hold on
-         every other row, because it is the name's own box that takes the second line and not the
-         row, and a name that fits takes one line as it always did. */
-      #roster .name { font-weight: 700; color: var(--foreground); white-space: normal;
-        overflow-wrap: break-word; }
-      /* The crown a host's row wears: a mark with no words, sized to the row's own text and drawn
-         in the same quiet tone as the rest of a row's chrome. It carries its name for a screen
-         reader and for a pointer, because a picture cannot say `host` by itself. */
-      #roster .role { display: inline-flex; flex: none; color: var(--muted-foreground); }
-      #roster .role .icon svg { width: 1em; height: 1em; }
-      /* The own row's word for itself, beside the name it belongs to: the crown's own quiet tone, and
-         never wrapped away from the name it is about. */
-      #roster .you { flex: none; font-size: 0.85em; color: var(--muted-foreground); }
-      /* The own-name edit: the row's name becomes the field it is about, sized to the row
-         rather than to the card's field, and it takes the room the name had. */
-      #roster .rename-edit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.3em; }
-      #roster .rename { flex: 1 1 auto; min-width: 0; font-size: 0.95em; padding: 0.2em 0.45em; }
-      /* The two ways out of an edit, and the same two in both places an edit is made: the tree's
-         create row and the roster's own name. One pair of glyphs — `✓` keeps it, `✕` drops it — with
-         the page's quiet chrome at rest and one colour each under a pointer. */
-      #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
-        flex: none; padding: 0.25em 0.4em; background: none; color: var(--muted-foreground); }
-      #tree .new-commit:hover:not(:disabled), #roster .rename-save:hover:not(:disabled) {
+      /* The create row's two ways out: one pair of glyphs — `✓` keeps it, `✕` drops it — with the
+         page's quiet chrome at rest and one colour each under a pointer. The menu's own edit wears
+         the same pair, sized for the dialog it stands in (`#menu`). */
+      #tree .new-commit, #tree .new-cancel {
+        flex: none; box-sizing: border-box; width: 26px; height: 26px; padding: 0;
+        justify-content: center; background: none; color: var(--muted-foreground); }
+      #tree .new-commit:hover:not(:disabled) {
         color: var(--ok); border-color: var(--border-strong); }
-      #tree .new-cancel:hover:not(:disabled), #roster .rename-cancel:hover:not(:disabled) {
+      #tree .new-cancel:hover:not(:disabled) {
         color: var(--danger); border-color: var(--border-strong); }
-      #roster li.self .swatch { background: var(--primary); }
-      #roster .actions { display: flex; align-items: center; gap: 0.25em; flex: none; }
-      /* Quiet verbs: present at rest, no chrome to add up around two names. */
-      #roster .actions button { font-size: 0.8em; padding: 0.3em 0.6em; background: none;
-        border-color: transparent; color: var(--muted-foreground); }
-      #roster .actions button:hover:not(:disabled) { background: var(--muted-hover);
-        border-color: var(--border-strong); color: var(--foreground); }
-      /* Where a peer is, when the answer is nowhere: a quiet line where Go to would stand, rather
-         than a disabled verb and a sentence explaining it. */
-      #roster .waiting { flex: none; font-size: 0.8em; color: var(--muted-foreground); }
-      /* A go-to the room could not answer: the sentence the row was pressed for, on its own line
-         under it, standing the few seconds the page holds it (design §5.1). */
-      #roster .refusal { flex-basis: 100%; font-size: 0.8em; color: var(--muted-foreground);
-        line-height: 1.35; }
       .empty { color: var(--muted-foreground); font-size: 0.9em; padding: 0.5em 0.55em; margin: 0; }
       /* The editable row a browser host creates a file or a directory with, drawn where the entry
          will appear. The kind is the button's, so the field carries no convention of its own — and
          no placeholder: a greyed example reads as a filled value. */
       #tree .new-row { list-style: none; margin: 2px 0; }
       #tree .new-row-body { padding: 0 0.55em 0.4em; }
-      #tree .new-line { display: flex; align-items: center; gap: 0.3em; }
+      #tree .new-line { display: flex; align-items: center; gap: 0.4em; }
       /* The kind's own icon, and only it: the two controls beside the field keep their own colour,
          which is what a pointer reads at the ✓ and the ✕. */
       #tree .new-line > .icon { color: var(--muted-foreground); flex: none; }
-      #tree .new-name { flex: 1 1 5em; min-width: 0; font-size: 0.85em; padding: 0.3em 0.45em; }
+      #tree .new-name { flex: 1 1 4em; min-width: 4em; box-sizing: border-box; height: 26px;
+        font-size: 0.85em; padding: 0 0.5em; }
+      #tree .new-name:focus-visible { outline-offset: 0; }
       #tree .new-name.invalid { border-color: var(--danger); }
-      #tree .new-slash { flex: none; color: var(--muted-foreground); }
-      #tree .new-slash[hidden] { display: none; }
+      /* The folders typed so far, which the name will land in. A deep one gives way to the name. */
+      #tree .new-in { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; font-size: 0.85em; color: var(--muted-foreground); }
+      #tree .new-in[hidden] { display: none; }
       /* The line under the field, which stands only when it has something to say: a refusal, or the
          folder the commit will also make. A name this room can take needs no line, and a hidden one
          keeps the tree from shifting as a person types. */
@@ -365,7 +404,22 @@
         color: var(--muted-foreground); }
       #tree .new-hint:empty { display: none; }
       #tree .new-line .icon.busy { animation: health-pulse 1.1s ease-in-out infinite; }
-      #tree { margin: 0; padding: 0; }
+      /* The two create verbs, in a full-width bar at the panel's foot: the entry point to making
+         something is not something a person should have to hover to find. A button here is quiet at
+         rest — no chrome of its own — and its words are the verb. */
+      #tree-actions { flex: none; display: flex; gap: 0.4em; padding: 0.5em 0.55em; }
+      #tree-actions button { flex: 1 1 0; justify-content: center; gap: 0.4em; padding: 0.4em 0.5em;
+        font-size: 0.85em; font-weight: 500; background: none; border-color: transparent;
+        color: var(--muted-foreground); }
+      #tree-actions button .icon { font-size: 1.2em; }
+      #tree-actions button:hover:not(:disabled) { color: var(--foreground); }
+      /* The panel's foot: the one link the deployment put on the page, quiet and centred under the
+         create verbs. It draws nothing where there is no link to adopt — the href is written by the
+         page (`terms.ts`), and the foot stays hidden without one. */
+      #side-foot { flex: none; padding: 0.55em 0.7em; border-top: 1px solid var(--border);
+        text-align: center; font-size: 11px; }
+      #side-foot a { color: var(--muted-foreground); text-decoration: none; }
+      #side-foot a:hover { color: var(--foreground); text-decoration: underline; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
       #tree > ul { padding-left: 0; }
       #tree li { margin: 2px 0; }
@@ -373,55 +427,34 @@
         border-radius: var(--radius); cursor: pointer; list-style: none; font-weight: 600; }
       #tree summary::-webkit-details-marker { display: none; }
       #tree summary:hover { background: var(--muted); }
-      #tree summary .chev { color: var(--muted-foreground); transition: transform 0.12s ease; }
-      #tree details[open] > summary .chev { transform: rotate(90deg); }
-      #tree button.row { display: flex; align-items: center; gap: 0.45em; width: 100%;
+      /* The folder is the design's Phosphor glyph, filled in Mocha Blue, swapped for the open one
+         when the directory is expanded. There is no chevron: the glyph *is* the disclosure. */
+      #tree summary .folder { color: #89b4fa; }
+      #tree summary .folder.open { display: none; }
+      #tree details[open] > summary .folder.open { display: inline-flex; }
+      #tree details[open] > summary .folder.closed { display: none; }
+      /* A file row is a row and its own actions side by side, so the actions take no room inside the
+         row's box: on a touch device a 44 px control inside a padded row made every row 57 px. */
+      #tree li.file { display: flex; flex-wrap: wrap; align-items: center; }
+      #tree li.file > button.row, #tree li.file > .del-row { flex-basis: 0; }
+      #tree li.file > .row-note { flex-basis: 100%; }
+      #tree .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; }
+      #tree button.row, #tree .del-row { display: flex; align-items: center; gap: 0.45em; flex: 1 1 auto; min-width: 0;
         box-sizing: border-box; background: none; border: 1px solid transparent;
         text-align: left; color: var(--foreground); padding: 0.4em 0.55em; border-radius: var(--radius); }
       #tree button.row:hover { background: var(--muted); }
       #tree button.row.open { background: var(--muted); border-color: var(--border-strong); font-weight: 600; }
       #tree button.row .icon { color: var(--muted-foreground); }
-      /* Who is in a file, flush with the row's right edge — and the one auto margin in the row. It
-         sat half-way across because the actions after it carried `auto` as well, so the free space
-         was split between the two and the badges of a file stopped short of the buttons they belong
-         beside. */
-      #tree button.row .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
-      /* On a pointer device the row's own control is revealed by hover and holds its 24 px slot while
-         it is invisible, which held the marks that far off the row's edge — measured at 1280x900, the
-         badge ended at x=245 on a row ending at x=284, where the roster's own verbs end at 277. So the
-         marks take the edge and the control appears to their left, in the slot it had already
-         reserved: nothing moves when hover or focus brings it in. A touch device draws the control
-         always and keeps it on the edge, with the marks beside it.
-
-         The row's one auto margin belongs to the first thing in its right-hand group, and never to
-         two of them: two `auto` margins split the free space and stop the marks half-way across.
-         That group is the ⚠, the control and the badges, in that order, and the ⚠ owns the margin
-         when it is there — it is what the row says about a file the room refused a write to, and a
-         mark that belongs beside the badges sat out by the file's name instead. */
-      @media (any-hover: hover) {
-        #tree button.row .presence { order: 1; }
-        #tree button.row:has(.unsaved) .presence,
-        #tree button.row:has(.row-actions) .presence { margin-left: 0; }
-        #tree button.row:has(.unsaved) .unsaved,
-        #tree button.row:not(:has(.unsaved)) .row-actions { margin-left: auto; }
-      }
-      #tree button.row .badge { font: 700 0.68em/1.6 monospace; color: #000;
+      /* Who is in a file, or — while a folder is shut — who is inside it, flush with the row's right
+         edge. The row's one auto margin is this one. */
+      #tree .presence { display: inline-flex; gap: 0.2em; margin-left: auto; flex: none; }
+      #tree .presence:empty { display: none; }
+      #tree .badge { font: 700 0.68em/1.6 monospace; color: #000;
         border: 1px solid #000; border-radius: 3px; padding: 0 0.25em; }
-      /* What a row says about the room when it has something a person cannot see: the room sent
-         text and it is empty (`empty`), the room holds it open and nothing has arrived (`not fetched
-         yet`), or the folder refused a write to it (`⚠`). The two tags wear one chip: they are one
-         mark in two states, and the words are what tell them apart. The green dot that said the
-         text had reached the room is gone: it was drawn on every file the room held, and the one
-         thing it told a reader was a fact about a file they had opened themselves. */
-      #tree button.row .empty-tag, #tree button.row .pending-tag,
-      #tree button.row .unsaved { font-size: 0.68em; font-weight: 500;
-        white-space: nowrap; color: var(--muted-foreground); border: 1px solid var(--border-strong);
-        border-radius: 3px; padding: 0 0.3em; flex: none; }
-      #tree button.row .unsaved { color: var(--warning); border-color: var(--warning); }
-      #tree button.row.away { opacity: 0.55; }
-      #tree summary .local { font-size: 0.68em; font-weight: 500; white-space: nowrap;
-        color: var(--muted-foreground); border: 1px solid var(--border-strong);
-        border-radius: 3px; padding: 0 0.3em; margin-left: 0.4em; }
+      /* A folder's badges say who is inside it, so they stand only while it is shut: expanded, the
+         rows inside it carry the same badges where the person actually is. */
+      #tree details[open] > summary .presence { display: none; }
       /* A row's own actions: out of the way of a pointer's reading, and always there for a finger. */
       #tree .row-chrome { display: inline-flex; align-items: center; gap: 0.2em; margin-left: auto;
         flex: none; }
@@ -430,22 +463,52 @@
         color: var(--muted-foreground); }
       #tree .icon-button:hover:not(:disabled) { background: var(--muted-hover);
         border-color: var(--border-strong); color: var(--foreground); }
-      /* Revealed by a pointer's own hover or by the focus inside the row; on a touch device the
-         media query below shows them always, because there is no hover to reveal them with. */
-      #tree summary .icon-button, #tree button.row .row-actions { opacity: 0; }
-      #tree summary:hover .icon-button, #tree summary:focus-within .icon-button,
-      #tree button.row:hover .row-actions, #tree button.row:focus-within .row-actions,
-      #tree button.row .row-actions.busy { opacity: 1; }
+      /* An action takes no room and no hit area until its row is hovered or holds focus, so a name
+         runs to the edge of the panel and shortens only while the actions are on screen. Transparent
+         rather than hidden, because a hidden action cannot be reached by Tab. A touch device, which
+         has no hover, draws them always (the query below). */
+      #tree .row-actions .icon-button { box-sizing: border-box; width: 0; padding: 0.4em 0;
+        border-width: 0; overflow: hidden; justify-content: center; opacity: 0;
+        pointer-events: none;
+        transition: width 170ms ease, margin 170ms ease, opacity 130ms ease; }
+      #tree li.file:hover .row-actions .icon-button,
+      #tree li.file:focus-within .row-actions .icon-button,
+      #tree .row-actions.busy .icon-button {
+        width: 1.7em; opacity: 1; pointer-events: auto; margin-left: 0.5em; }
+      #tree summary .icon-button { opacity: 0; }
+      #tree summary:hover .icon-button, #tree summary:focus-within .icon-button { opacity: 1; }
       #tree .row-actions.busy { color: var(--primary); }
-      #tree button.row .row-actions.busy .icon { animation: health-pulse 1.1s ease-in-out infinite; }
+      #tree .row-actions.busy .icon { animation: health-pulse 1.1s ease-in-out infinite; }
+      /* The row asking to be taken out is the row itself: the name stays where it was and goes
+         through, the icon becomes the trash that is about to do it, and the two actions become
+         confirm and cancel in the very slots the download and the delete held, so nothing moves
+         under the pointer that just pressed. */
+      #tree .del-row { cursor: default; }
+      #tree .del-row .del-mark { flex: none; display: inline-flex; width: 1em; height: 1em;
+        color: var(--danger); }
+      #tree .del-name { text-decoration: line-through; }
+      #tree button.del-yes, #tree button.del-no { flex: none; box-sizing: border-box; width: 1.7em;
+        padding: 0.4em 0; justify-content: center; background: none; border-color: transparent; }
+      #tree button.del-yes { color: var(--ok); }
+      #tree button.del-no { color: var(--danger); }
+      #tree button.del-yes:hover, #tree button.del-no:hover { background: var(--muted);
+        border-color: var(--border-strong); }
+      #tree li.file > button.del-yes, #tree li.file > button.del-no { margin-left: 0.5em; }
+      /* A folder's row holds its own acts at the right edge, so the two answers take that edge back:
+         ✓ lands in the slot the New file held and ✕ in the slot the trash itself held. */
+      #tree summary.del-row button.del-yes { margin-left: auto; }
+      #tree summary.del-row button.del-no { margin-right: -0.55em; }
+      /* What a folder takes with it is shown struck rather than counted, all the way down. */
+      #tree .del-plain .del-plain-name, #tree li.sum .del-plain-name { text-decoration: line-through; }
+      #tree li.sum { display: flex; align-items: center; gap: 0.4em; padding: 0.4em 0.55em;
+        font-weight: 600; list-style: none; }
+      /* Where a file being moved would land: the folder it would join, marked as a whole, because
+         the order inside a folder is alphabetical and not the user's to set. */
+      #tree button.row[draggable="true"] { cursor: grab; }
+      #tree li.dragging { opacity: 0.45; }
+      #tree summary.drop-into, #tree button.row.drop-into, #tree ul.drop-into {
+        background: var(--muted); box-shadow: inset 0 0 0 1px var(--primary); }
       #tree li { position: relative; }
-      #tree .row-menu { position: absolute; right: 0.4em; top: 100%; z-index: 7;
-        display: flex; flex-direction: column; min-width: 11em; padding: 0.25em;
-        background: var(--card); border: 1px solid var(--border-strong);
-        border-radius: var(--radius); box-shadow: var(--shadow); }
-      #tree .row-menu button { background: none; border-color: transparent; text-align: left;
-        justify-content: flex-start; font-size: 0.85em; }
-      #tree .row-menu button:hover { background: var(--muted-hover); border-color: var(--border-strong); }
       /* A sentence that stands under the row it is about: a download that has not landed, and the
          two things a person may do about it. */
       #tree .row-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em;
@@ -471,32 +534,70 @@
       #editor-empty .empty-actions { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0.95em 0 0; }
       #live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
         overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-      /* The editor the card stands over: a file tree beside the code the tree
-         has open, in the page's own tokens. A picture, and nothing more: it
-         takes no pointer, no cursor and no selection, and holds nothing a
-         person could reach. It is drawn at 16 px — the size the editor gives
-         a document on a touch device, and 1.15em of the page's 14 px because
-         a shrunken fraction of the editor's own size is what the veil's blur
-         turns into an artifact. */
-      #preview { position: absolute; inset: 0; display: flex; min-height: 0;
+      /* The same shape for a sentence that belongs to a card rather than to the page: the session
+         card says one thing to a screen reader, from its own element, and changes it once. */
+      .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+        overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+      /* The room the card stands over, in the page's own tokens and the workspace's own shape. A
+         picture, and nothing more: it takes no pointer, no cursor and no selection. Faces, badges,
+         icons and the caret are shapes without text, which is all the veil's blur leaves of them.
+         The code is drawn at 16 px, 1.15em of the page's 14 px, because a shrunken fraction of the
+         editor's own size is what the blur turns into an artifact. */
+      #preview { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0;
         pointer-events: none; user-select: none; }
-      #preview .fake-side { width: 21rem; flex: none; background: var(--card);
-        border-right: 1px solid var(--border); padding: 0.7em 0 1.4em; overflow: hidden;
-        font: 1.15em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
-      #preview .fake-side .fake-dir { color: var(--foreground); font-weight: 600;
-        padding: 0 0.9em; }
-      #preview .fake-side .fake-file { color: var(--muted-foreground);
-        padding: 0 0.9em 0 2.05em; white-space: nowrap; overflow: hidden;
-        text-overflow: ellipsis; }
-      #preview .fake-side .fake-caret { color: var(--muted-foreground); margin-right: 0.35em; }
-      /* The one row an editor would have lit: the file the code pane shows. */
-      #preview .fake-side .fake-open { background: var(--muted); color: var(--foreground);
+      #preview .fake-top { display: flex; align-items: center; gap: 0.9em; flex: none;
+        padding: 0.6em 1.1em; min-height: 2.9em; background: var(--card);
+        border-bottom: 1px solid var(--border); color: var(--foreground); font-weight: 650; }
+      #preview .fake-mark { width: 1.35em; height: 1.35em; border-radius: 0.3em;
+        background: var(--muted-hover); }
+      #preview .fake-name { white-space: nowrap; }
+      #preview .fake-invite { padding: 0.3em 0.7em; border: 1px solid var(--border);
+        border-radius: var(--radius); background: var(--input); color: var(--muted-foreground);
+        white-space: nowrap; }
+      #preview .fake-faces { display: flex; margin-left: auto; }
+      #preview .fake-face { width: 1.9em; height: 1.9em; border-radius: 50%;
+        border: 2px solid var(--card); margin-left: -0.35em; }
+      #preview .fake-host { background: var(--primary); }
+      #preview .fake-guest { background: var(--ok); }
+      #preview .fake-third { background: var(--warning); }
+      #preview .fake-leave { width: 2.15em; height: 2.15em; box-sizing: border-box;
+        border: 1px solid var(--border-strong); border-radius: var(--radius); }
+      #preview .fake-body { display: flex; flex: 1; min-height: 0; }
+      #preview .fake-side { width: 24rem; flex: none; display: flex; flex-direction: column;
+        background: var(--card); border-right: 1px solid var(--border);
+        padding: 0.9em 0.7em 0; box-sizing: border-box; overflow: hidden;
+        font: 1.05em/2.4 var(--ui); }
+      #preview .fake-side .fake-dir { display: flex; align-items: center; gap: 0.45em;
+        padding: 0 0.6em; color: var(--foreground); font-weight: 600; }
+      #preview .fake-side .fake-file { display: flex; align-items: center; gap: 0.45em;
+        padding: 0 0.6em 0 2em; color: var(--foreground); white-space: nowrap;
+        border: 1px solid transparent; border-radius: var(--radius); }
+      #preview .fake-side .fake-root { padding-left: 0.6em; }
+      /* The one row the workspace would have lit: the file the code pane shows. */
+      #preview .fake-side .fake-open { background: var(--muted); border: 1px solid var(--border-strong);
         font-weight: 600; }
-      /* The code pane is the gutter against the text, which is the shape that
-         reads as an editor first, and a document longer than the window, so
-         the card is cutting lines rather than sitting under the last one. */
-      #preview .fake-main { flex: 1; min-width: 0; display: flex; gap: 1.2em;
-        padding: 0.7em 1.4em 1.4em; overflow: hidden; }
+      #preview .fake-side .fake-ico { width: 0.8em; height: 0.8em; flex: none; border-radius: 2px;
+        background: var(--primary); }
+      #preview .fake-side .fake-folder { width: 0.95em; height: 0.75em; flex: none;
+        border: 1.5px solid var(--muted-foreground); border-radius: 2px; }
+      #preview .fake-side .fake-shut { background: var(--muted-foreground); }
+      #preview .fake-side .fake-badge { width: 1.45em; height: 1.05em; margin-left: auto;
+        border-radius: 3px; }
+      #preview .fake-side .fake-foot { display: flex; justify-content: space-around; flex: none;
+        margin: auto -0.7em 0; padding: 0.3em 0; background: var(--card);
+        color: var(--muted-foreground); }
+      #preview .fake-side .fake-verb { white-space: nowrap; }
+      #preview .fake-main { flex: 1; min-width: 0; display: flex; flex-direction: column;
+        overflow: hidden; }
+      #preview .fake-main .fake-strip { flex: none; padding: 0.4em 0.9em; min-height: 2.2em;
+        box-sizing: border-box; background: var(--card); border-bottom: 1px solid var(--border);
+        color: var(--foreground); font-weight: 700; }
+      #preview .fake-main .fake-dirname { color: var(--muted-foreground); font-weight: 400; }
+      /* The gutter against the text, which is the shape that reads as an editor first, and a
+         document longer than the window, so the card is cutting lines rather than sitting under
+         the last one. */
+      #preview .fake-main .fake-editor { display: flex; gap: 1.2em; min-height: 0;
+        padding: 0.7em 1.4em 1.4em; }
       #preview .fake-main .fake-nums { flex: none; color: var(--muted-foreground);
         text-align: right; white-space: pre;
         font: 1.15em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -506,6 +607,9 @@
       #preview .fake-main .tok-key { color: var(--primary); }
       #preview .fake-main .tok-lit { color: var(--warning); }
       #preview .fake-main .tok-comment { color: var(--muted-foreground); }
+      /* A guest's caret, where the guest's badge in the tree says they are. */
+      #preview .fake-main .fake-peer { display: inline-block; width: 2px; height: 1.3em;
+        margin: 0 -1px; vertical-align: text-bottom; background: var(--ok); }
       #veil { position: absolute; inset: 0; background: rgba(17, 17, 27, 0.6);
         backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px); }
       #join { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -587,20 +691,17 @@
       /* The start action's own failure, under the button that asked for the name. */
       #host-error { margin: 0.6rem 0 0; color: var(--danger); font-size: 0.9em; }
       #host-error:empty { display: none; }
-      /* The one sentence the card carries about the room the start button makes: the cost of a
-         room that lives in a tab. Written by the bundle (it is copy with one home, `host.ts`),
-         so it is hidden while it is empty. */
+      /* The line the card stands where it has no action: a browser without a directory picker, a
+         page that is not a Selvage server's, or a `/meta` read that had not answered. Written by
+         the bundle (it is copy with one home, `host.ts`). */
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
-      /* What picking a folder gives away, under the button that asks for it: two short sentences
-         with one job each, and the person granting is the only one who can act on them. */
-      #host-share { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
-        line-height: 1.5; }
-      /* The panel's contents at a narrow width: the panel is the same panel, and its labels give
-         way to their tooltips rather than wrapping the tree out of its own column. */
+      /* A card with nothing to say leaves no room for a sentence either: the empty note was 0.75rem
+         of gap under the action. */
+      #host-note:empty { display: none; }
+      /* The panel's contents at a narrow width: the panel is the same panel, and its rows give up
+         their padding rather than wrapping an item out of its own column. */
       @container side (max-width: 18rem) {
-        #roster .actions button { padding: 0.3em 0.45em; }
-        #roster .actions button .label { display: none; }
         #tree button.row, #tree summary { padding-left: 0.35em; padding-right: 0.35em; }
       }
       #join-error { color: var(--danger); min-height: 1.4em; margin: 0.85rem 0 0;
@@ -653,7 +754,7 @@
          one row of controls — measured at 844x390 the whole bar is 62 px — and wrapping it onto
          three was 111 px of a 390 px screen, a quarter of the device. */
       @media (max-width: 640px) {
-        #session { flex-wrap: wrap; row-gap: 0.4em; }
+        #session { flex-wrap: wrap; row-gap: 0.4em; padding: 0.6em 0.75em; }
         #share-group { order: 3; flex-basis: 100%; max-width: none; }
         /* The readout goes and the words take the row: at this width the icon beside a
            hidden field was an empty box, and the words stand here for what they name
@@ -681,49 +782,53 @@
            root is 14 px, so the fields' own `1rem` never cleared the floor.
            `#share` is a readonly field the clipboard fallback focuses, and it
            is visible wherever the phone sheet that hides it does not apply. */
-        #join input, #join-message, #share, #new-name, #tree .new-name, #roster .rename {
+        #join input, #join-message, #share, #new-name, #tree .new-name, #menu .rename {
           font-size: 16px; }
         /* 44 px is the smallest a fingertip is expected to hit. The floor is on
            the box, not on the content: `min-height` sits inside the padding
            otherwise, which rendered the copy strip 63 px tall. */
-        button, summary, #tree button.row { min-height: 44px; }
-        #shared-actions button { min-width: 44px; }
+        button, summary, #tree button.row { min-height: 44px; box-sizing: border-box; }
+        #tree-actions button { min-width: 44px; }
         /* A touch device has no hover, so nothing a row holds back is reachable: the actions are
-           always drawn, and a directory's two-verb set is one visible `⋯`. */
-        #tree summary .icon-button, #tree button.row .row-actions { opacity: 1; }
+           always drawn, and a folder's own two — a new file and the trash — are drawn on the row
+           itself rather than behind a menu. A file row's own controls are drawn beside the row at
+           the width they wear under a pointer. */
+        #tree summary .icon-button { opacity: 1; }
+        #tree .row-actions .icon-button { width: 1.7em; opacity: 1; pointer-events: auto;
+          margin-left: 0.5em; }
         /* And they are a fingertip wide. Measured at 390x844: the download control and a folder's
-           `⋯` are both 24x44 — one glyph in a box a thumb is four times too wide for, on a row
+           trash are both 24x44 — one glyph in a box a thumb is four times too wide for, on a row
            whose own press opens the file, which for a guest opens it for every peer. */
         #tree .icon-button { min-width: 44px; }
         #share-group { min-height: 44px; box-sizing: border-box;
           padding: 0.6em 0.55em 0.6em 0.8em; }
-        #roster .actions button { min-width: 44px; font-size: 0.9em; padding: 0.5em 0.7em; }
+        /* A face is a circle and its box is that circle, so the fingertip floor above cannot be a
+           `min-height` on it: a floor taller than the width draws an ellipse, which is what the
+           face stops being. The floor the target clears is 44 px in the one dimension the bar has
+           room for: 34 px of circle plus the 5 px above and below it. It cannot be 44 px wide too —
+           the design's circles overlap by 8 px, so a horizontal 5 px would land on the neighbouring
+           face, which is already a control, and the tap would open the wrong person. */
+        #faces .av { min-height: 0; }
+        #faces .av::before { content: ''; position: absolute; inset: -5px 0; }
+        /* The menu's own controls are a column of full-width rows, so they take the floor as every
+           other control does; the pair beside the name field takes the width of one. */
+        #menu .acts button, #menu .list button { min-height: 44px; }
+        #menu .rename-save, #menu .rename-cancel { min-width: 44px; }
         /* The two ways out of an edit are one glyph each: 27 px wide, 4 px apart, measured on a
            390 px screen. That is a miss on the field or the name beside them, so on a touch device
-           both pairs take the width of a fingertip and the row opens up between them. The create
-           row and the roster's own name are the same pair, so they are sized together. */
-        #tree .new-commit, #tree .new-cancel, #roster .rename-save, #roster .rename-cancel {
-          min-width: 44px; }
-        #tree .new-line, #roster .rename-edit { gap: 0.6em; }
-        /* One alignment in one list. A row that wrapped took its verbs onto a line of their own —
-           left-aligned at the row's padding, 82 px tall — while a row that did not kept them
-           right-aligned on the name's line, 57 px: measured at 390x844 with five peers, the two
-           readings were x=17 and x=207 in the same list. So the row does not wrap: the verbs stay
-           on the name's line, and a name that does not fit takes a second line of its own
-           (`#roster .name`), which is the name's business and not the row's. */
-        #roster li { flex-wrap: nowrap; }
-        /* The verbs are their icons on a touch device, and their words are kept for the reader who
-           cannot see the icon: measured at 320x640, a 23-character name had 76 px beside the
-           labels and 109 px without them, and `display: none` would take the control's accessible
-           name away with the pixels. */
-        #roster .actions button .label {
-          position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
-          overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-        #alert, #peek {
-          bottom: calc(1.25rem + var(--keyboard-inset, 0px) + env(safe-area-inset-bottom));
-        }
+           both pairs take the width of a fingertip and the row opens up between them. The row that
+           is asking to be taken out is the same pair in a file row's own slots. */
+        #tree .new-commit, #tree .new-cancel, #tree .del-yes, #tree .del-no { min-width: 44px; }
+        #tree .new-line, #menu .rename-edit { gap: 0.6em; }
+        #tree .new-name, #tree .new-commit, #tree .new-cancel { height: 44px; }
       }
       @media (any-hover: none) and (max-width: 640px), (any-hover: none) and (max-height: 480px) {
+        /* A phone has no room beside the bar and its file strip runs the whole width, so the
+           column is stretched under both (`placeNotices` puts its top below the strip). */
+        #notices { left: 12px; right: 12px; width: auto; max-width: none;
+          align-items: stretch; }
+        #toasts { align-items: stretch; }
+        #session-card, .toast { width: auto; max-width: none; }
         /* The panel is a disclosure on a phone, not a permanent 42% cut: it is
            shut on join and a file open shuts it again (main.ts). */
         /* Width is not a phone's business: no separator is drawn, and the panel is today's
@@ -736,31 +841,23 @@
            an inner scroller with nothing to say it scrolled. Measured after: the panel is the
            whole 627 px and the first row is inside it. */
         #side { flex: 1 1 auto; min-height: 0; max-height: none; }
-        /* The panel is the screen here, and its own furniture took room the tree does not get: its
-           two headings stood 1.5em above each of them, and a roster row is 0.45em of padding
-           around a 44 px control — measured at 320x640 with five peers, the first file row was
-           166 px below the panel's own bottom edge before any of this. The rows keep their
-           fingertip-sized controls and lose the padding around them. */
-        #side h2, .panel-head { margin: 0.8em 0 0.35em; }
-        #roster li { padding: 0.3em 0.55em; }
+        /* The phone's faces: 34 px on the bar's own row, which is Leave's 44 px already — the strip
+           gives up the room it keeps above the circle on a wider screen, so a face adds nothing to
+           the height of a bar that has none to spare. Measured at 390x844: 0 px. */
+        #faces { padding-top: 0; padding-bottom: 0; }
+        .av { width: 34px; height: 34px; }
+        /* The way out is a 44 px square on a touch device. The words are not dropped — they live in
+           `#leave .label`, kept in the DOM for the screen reader and the pointer, and clipped out of
+           the paint at every width. */
+        #leave { min-width: 44px; min-height: 44px; margin-left: 0.25em; }
         body:has(#side:not([hidden])) #pane { flex: none; }
         body:has(#side:not([hidden])) #editor-area { display: none; }
-        #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.6em; min-height: 44px;
+        #file-strip { cursor: pointer; gap: 0.5em; padding: 0.55em 0.75em; min-height: 44px;
           box-sizing: border-box; }
-        #file-strip-path, #file-strip-path.none { font-weight: 600; color: var(--foreground); }
-        /* One line, whoever is being followed. Measured at 390x844: `Following Ada Lovelace-Byron
-           of Ockham` wrapped the strip to 72 px and left the file's own name 50 px wide (`REA…`);
-           at 320 it was five lines, a 109 px strip and `RE…`. The name gives way with the same
-           ellipsis the rest of the page uses, so the strip stays the 44 px row it is and the file
-           it is about keeps its name. The segment is the one that gives way first, and the name it
-           carries is the one inside it that is cut. */
-        #file-strip-follow { flex-shrink: 8; }
-        /* The file's own name keeps its room and the followed peer's gives way: the segment is the
-           strip's second fact, and the name it carries is on the roster too. A zero basis is what
-           says so — the label takes the room that is left over, and only the file's own name is
-           cut when even that is not enough. */
-        #file-strip-follow .follow-name { flex: 1 1 0; min-width: 0; overflow: hidden;
-          text-overflow: ellipsis; white-space: nowrap; }
+        #file-strip-path { font-weight: 600; color: var(--foreground); }
+        /* The line that says no file is open is not a file's name: it stays the quiet colour the
+           base rule gives it, at the weight a sentence wears rather than the weight a path does. */
+        #file-strip-path.none { font-weight: normal; color: var(--muted-foreground); }
         /* The strip is the only way to the panel and it said nothing about it: a line with the
            file's name and no mark, a chevron, an icon or an expanded state. The mark stands at the
            far right, where the strip's other control used to be, and turns as the panel opens. */
@@ -809,7 +906,7 @@
       }
       /* The reveal is a fade everywhere else; without motion it lands at once. */
       @media (prefers-reduced-motion: reduce) {
-        #share-group, #join-button, #host-button, #tree summary .chev, #join input {
+        #share-group, #join-button, #host-button, #join input {
           transition: none !important;
         }
         #join-button:active:not(:disabled), #host-button:active:not(:disabled) { transform: none; }
@@ -827,14 +924,20 @@
           <span class="share-label" aria-hidden="true">Copy invite link</span>
           <input id="share" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-label="Guest invite link" />
         </div>
-        <!-- The dot is the glanceable half of room health and the strip below is the sentence with
-             the countdown in it: a healthy room paints the dot alone, and the two states that change
-             what typing means add their name beside it. The name is in the markup in every state —
-             read by a screen reader, clipped out of the paint while the dot is green — because the
-             dot is `aria-hidden` and a `title` is not an accessible name. -->
+        <!-- The dot is the glanceable half of room health and the session card below is the
+             sentence with the countdown in it: a healthy room paints the dot alone, and the two
+             states that change what typing means add their name beside it. The name is in the
+             markup in every state — read by a screen reader, clipped out of the paint while the
+             dot is green — because the dot is `aria-hidden` and a `title` is not an accessible
+             name. -->
         <span id="health" data-health="ok" aria-live="polite" title="Connected">
           <span class="dot" aria-hidden="true"></span><span id="health-label">Connected</span>
         </span>
+        <!-- Who is here, as faces: one press per person, and the menu that person's acts are in.
+             The cluster is drawn by the bundle (`room.ts`) and it takes the bar's own right-hand
+             push — the way out stands at its right, where it always has. The element *is* the
+             strip: `renderRoom` names it and fills it. -->
+        <span id="faces"></span>
         <!-- Leaving closes the tab without closing the tab: the session is dropped and the card
              comes back with a fresh link as the way in. A host's press asks first — its leaving
              ends the room for everyone in it — and the question stands in the panel under its own
@@ -852,44 +955,69 @@
           </div>
         </div>
       </div>
-      <div id="session-note" aria-live="polite"></div>
-      <!-- A picture of an editor for the card to stand over: none of it is
-           real and nothing in it is reachable, so `inert` and `aria-hidden`
-           between them keep a screen reader from reading a file tree that
-           does not exist. The code block's own lines start at the margin of
-           this file, because a `<pre>` keeps the indentation it is written
-           with; the gutter is one source line of numbers. -->
-      <div id="preview" aria-hidden="true" inert>
-        <div class="fake-side">
-          <div class="fake-dir"><span class="fake-caret">▾</span>src/</div>
-          <div class="fake-file fake-open">main.rs</div>
-          <div class="fake-file">room.rs</div>
-          <div class="fake-file">session.rs</div>
-          <div class="fake-file">invite.rs</div>
-          <div class="fake-file">grant.rs</div>
-          <div class="fake-file">peers.rs</div>
-          <div class="fake-file">presence.rs</div>
-          <div class="fake-file">editor.rs</div>
-          <div class="fake-file">binding.rs</div>
-          <div class="fake-file">transport.rs</div>
-          <div class="fake-file">notice.rs</div>
-          <div class="fake-file">roster.rs</div>
-          <div class="fake-file">tree.rs</div>
-          <div class="fake-dir"><span class="fake-caret">▾</span>tests/</div>
-          <div class="fake-file">join.rs</div>
-          <div class="fake-file">session.rs</div>
-          <div class="fake-file">grant.rs</div>
-          <div class="fake-file">presence.rs</div>
-          <div class="fake-dir"><span class="fake-caret">▸</span>docs/</div>
-          <div class="fake-dir"><span class="fake-caret">▸</span>packaging/</div>
-          <div class="fake-file">Cargo.toml</div>
-          <div class="fake-file">README.md</div>
+      <div id="notices">
+        <!-- The room's own lifecycle line: the host leaving and the grace window, the host coming
+             back, a socket the engine is re-dialling. It is one more polite region, for the same
+             reason the others are, and the ticking line is hidden from assistive tech, so the card's
+             own sentence is what changes once. -->
+        <div id="session-card" aria-live="polite" data-tone="" hidden>
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2 14.6 13.6H1.4z"/><path d="M8 6.4v3.2"/><path d="M8 11.7h.01"/></svg></span>
+          <span class="body">
+            <span class="msg" aria-hidden="true"></span>
+            <span class="when" aria-hidden="true"></span>
+          </span>
+          <span class="sr"></span>
+          <span class="bar" aria-hidden="true"></span>
         </div>
-        <div class="fake-main">
-          <div class="fake-nums">1&#10;2&#10;3&#10;4&#10;5&#10;6&#10;7&#10;8&#10;9&#10;10&#10;11&#10;12&#10;13&#10;14&#10;15&#10;16&#10;17&#10;18&#10;19&#10;20&#10;21&#10;22&#10;23&#10;24&#10;25&#10;26&#10;27&#10;28&#10;29&#10;30&#10;31&#10;32&#10;33&#10;34&#10;35&#10;36</div>
-          <pre class="fake-code"><span class="tok-comment">// A guest opens the document the room shares.</span>
+        <div id="alert" role="alert"></div>
+        <div id="peek" aria-live="polite"></div>
+        <div id="toasts" aria-live="polite"></div>
+        <div id="toasts-more" hidden></div>
+      </div>
+      <!-- A picture of a room for the card to stand over, drawn as the workspace is: the session
+           bar, the file tree with its verbs at the foot, the file strip and the code. None of it is
+           real and nothing in it is reachable, so `inert` and `aria-hidden` between them keep a
+           screen reader from reading a file tree that does not exist. The code block's own lines
+           start at the margin of this file, because a `<pre>` keeps the indentation it is written
+           with, and the gutter is one source line of numbers. -->
+      <div id="preview" aria-hidden="true" inert>
+        <div class="fake-top">
+          <span class="fake-mark"></span><span class="fake-name">Sharing “selvage”</span>
+          <span class="fake-invite">Copy invite link</span>
+          <span class="fake-faces"><span class="fake-face fake-host"></span><span class="fake-face fake-guest"></span><span class="fake-face fake-third"></span></span>
+          <span class="fake-leave"></span>
+        </div>
+        <div class="fake-body">
+          <div class="fake-side">
+            <div class="fake-dir"><span class="fake-folder"></span>src/</div>
+            <div class="fake-file fake-open"><span class="fake-ico"></span>main.rs<span class="fake-badge fake-guest"></span></div>
+            <div class="fake-file"><span class="fake-ico"></span>room.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>session.rs<span class="fake-badge fake-third"></span></div>
+            <div class="fake-file"><span class="fake-ico"></span>invite.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>grant.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>peers.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>presence.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>editor.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>binding.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>transport.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>notice.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>tree.rs</div>
+            <div class="fake-dir"><span class="fake-folder"></span>tests/</div>
+            <div class="fake-file"><span class="fake-ico"></span>join.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>session.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>presence.rs</div>
+            <div class="fake-dir"><span class="fake-folder fake-shut"></span>docs/</div>
+            <div class="fake-file fake-root"><span class="fake-ico"></span>Cargo.toml</div>
+            <div class="fake-file fake-root"><span class="fake-ico"></span>README.md</div>
+            <div class="fake-foot"><span class="fake-verb">New file</span><span class="fake-verb">New folder</span></div>
+          </div>
+          <div class="fake-main">
+            <div class="fake-strip"><span class="fake-dirname">src/</span>main.rs</div>
+            <div class="fake-editor">
+              <div class="fake-nums">1&#10;2&#10;3&#10;4&#10;5&#10;6&#10;7&#10;8&#10;9&#10;10&#10;11&#10;12&#10;13&#10;14&#10;15&#10;16&#10;17&#10;18&#10;19&#10;20&#10;21&#10;22&#10;23&#10;24&#10;25&#10;26&#10;27&#10;28&#10;29&#10;30&#10;31&#10;32&#10;33&#10;34&#10;35&#10;36</div>
+              <pre class="fake-code"><span class="tok-comment">// A guest opens the document the room shares.</span>
 <span class="tok-key">fn</span> main() {
-    <span class="tok-key">let</span> invite = Invite::from_env();
+    <span class="tok-key">let</span> invite = Invite::<span class="fake-peer"></span>from_env();
     <span class="tok-key">let</span> <span class="tok-key">mut</span> room = Room::connect(invite);
 
     room.on_open(|path: &amp;str| {
@@ -923,6 +1051,8 @@
 
 <span class="tok-comment">// Nothing here reads the host's disk: the room holds the text, and the</span>
 <span class="tok-comment">// host's copy stays the truth.</span></pre>
+            </div>
+          </div>
         </div>
       </div>
       <div id="veil" aria-hidden="true"></div>
@@ -984,12 +1114,10 @@
              is the card's own action, and on a guest's it is one quiet line — pressing it is
              what puts the start card in front of the person (`main.ts`, `swapCardToStart`).
 
-             `#host-share` is what the folder gives away, and it stands with the button that
-             asks for it: the invite link reaches every file the room shares, and an edit that
-             settles is written into the file on disk. -->
+             The card offers the action and says nothing else: `#host-note` carries a sentence only
+             where there is no action to offer. -->
         <div id="host-wrap" hidden>
           <button id="host-button" type="button" hidden>Share a folder…</button>
-          <p id="host-share"></p>
           <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
           <p id="host-note"></p>
@@ -997,37 +1125,34 @@
       </div>
       <div id="workspace" hidden>
         <div id="side">
-          <h2>People</h2>
-          <ul id="roster"></ul>
-          <div class="panel-head">
-            <h2>Shared</h2>
-            <!-- A browser host may create a file or a directory in the folder it picked: a room's
-                 shape is what that folder holds, so an empty one is otherwise a dead end. The two
-                 verb icons are revealed only to the window that holds the folder, and the row they
-                 open appears in the tree where the entry will be (`tree-view.ts`). -->
-            <span id="shared-actions" hidden>
-              <button id="new-file" type="button" aria-label="New file" title="New file"></button>
-              <button id="new-folder" type="button" aria-label="New folder" title="New folder"></button>
-            </span>
-          </div>
           <div id="tree"></div>
+          <!-- The two create verbs, in a bar at the panel's foot and offered only to the window that
+               holds the folder: a room's shape is what that folder holds, so an empty one is
+               otherwise a dead end. The row a press opens appears in the tree where the entry will
+               be (`tree-view.ts`). -->
+          <div id="tree-actions" hidden>
+            <button id="new-file" type="button"></button>
+            <button id="new-folder" type="button"></button>
+          </div>
+          <!-- The panel's foot: the deployment's own terms link, adopted at load (`terms.ts`). The
+               href is the only thing that comes from the deployment, so no link is written here:
+               with none to adopt, this stays hidden and a self-hosted copy is given nothing. -->
+          <div id="side-foot" hidden>
+            <a id="side-terms" target="_blank" rel="noreferrer">Terms</a>
+          </div>
         </div>
         <!-- The panel's own edge: 1 px drawn, 8 px hit area, a pointer's col-resize and a keyboard's
-             arrow keys. It is also where the panel goes when it is shut. A phone renders none of
+             arrow keys. A phone renders none of
              it: width is not a thing a 390 px screen has room to negotiate (`sidebar.ts`). -->
         <div id="side-resizer" role="separator" aria-orientation="vertical" tabindex="0"
-          aria-label="Resize the files and people panel" aria-valuemin="196" aria-valuemax="560"
-          aria-valuenow="294"><button id="side-rail" type="button" aria-label="Show files and people"
-          title="Show files and people"><span class="icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></button></div>
+          aria-label="Resize the files and people panel" aria-valuemin="224" aria-valuemax="512"
+          aria-valuenow="336"></div>
         <div id="pane">
-          <!-- The open file's whole state, in one line above the editor: which file, whether it is
-               read-only, whether the folder refused the write, and who is being followed. On a
-               phone the same row is the panel's own disclosure, which is what says which file is
-               open when the panel is shut. -->
+          <!-- The open file's one line above the editor: which file, the directory muted and the leaf
+               bold. On a phone the same row is the panel's own disclosure, which is what says which
+               file is open when the panel is shut. -->
           <div id="file-strip">
             <span id="file-strip-path"></span>
-            <span id="file-strip-chips"></span>
-            <span id="file-strip-follow"></span>
           </div>
           <div id="editor-area">
             <div id="editor"></div>
@@ -1038,9 +1163,7 @@
           </div>
         </div>
       </div>
-      <div id="live" aria-live="polite"></div>
-      <div id="peek" aria-live="polite"></div>
-      <div id="alert" role="alert"></div>
+      <div id="live" class="sr" aria-live="polite"></div>
     </main>
     <script>
       // Pre-bundle guard, first so nothing below can disarm it: the card shell

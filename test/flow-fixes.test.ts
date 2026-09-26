@@ -15,7 +15,6 @@ import {
   EMPTY_FILE_TITLE,
   EMPTY_IN_ROOM_TITLE,
   IN_THE_ROOM_TITLE,
-  NOT_HERE_TAG,
   NOT_READ_TITLE,
   NOT_SENT_TITLE,
   dirOpen,
@@ -242,8 +241,6 @@ describe('what a row says about the room', () => {
   it('`empty` is kept for text the room sent and which is empty', () => {
     assert.equal(EMPTY_FILE_TITLE, 'The file is empty.');
     assert.equal(EMPTY_IN_ROOM_TITLE, 'The room sent its text, and it is empty.');
-    // The state that used to borrow the tag: the room holds the path open and nothing has arrived.
-    assert.equal(NOT_HERE_TAG, 'not fetched yet');
     assert.deepEqual(roomMark({ inRoom: true, textHere: true, textEmpty: true, host: false }), {
       kind: 'empty',
       title: EMPTY_IN_ROOM_TITLE,
@@ -333,8 +330,8 @@ describe('what a tree re-render reads', () => {
     touch: false,
     draft: '',
     local: '',
-    unsaved: '',
-    hostAway: false,
+    asking: '',
+    moving: '',
     marks: 'src/main.ts:in-room\nsrc/lib.ts:',
   };
 
@@ -347,15 +344,18 @@ describe('what a tree re-render reads', () => {
     assert.notEqual(rowsKey(['src/lib.ts', 'src/main.ts'], chrome), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, current: 'src/lib.ts' }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, touch: true }), key);
-    // The create row, the folders this session made, a refused write and the host's absence are all
-    // row chrome: a frame that changes one of them has to redraw the rows it changed.
+    // The create row and the folders this session made are row chrome too: a frame that changes one
+    // of them has to redraw the rows it changed.
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, draft: 'file:src' }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, local: 'docs' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, unsaved: 'src/main.ts' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, hostAway: true }), key);
-    // A row's own mark is chrome too: the room picking a document up changes what every row says
-    // while the listing reads the same.
+    // What the room knows about a document is chrome as well: a path is listed from the grant alone,
+    // so a document arriving changes it while the listing reads exactly the same — and that is what
+    // a host's row reads to offer its download.
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, marks: 'src/main.ts:empty' }), key);
+    // The two rows that are states of the tree are chrome as well: the row asking to be taken out,
+    // and the file a move is holding. Both are drawn in place and both move the marking.
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, asking: 'file:src/lib.ts' }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, moving: 'src/lib.ts\u0000src' }), key);
   });
 
   it('separates the row chrome from the listing', () => {

@@ -143,7 +143,7 @@ person picked can be named through the handle. The invite link is
 then the one the session bar carries, and it is the same link an editor host would have
 produced: whoever opens it joins as a guest and edits the folder with them.
 
-Four things that shape it:
+Five things that shape it:
 
 - **Chromium only, and only where the page's origin is the server.** `showDirectoryPicker`
   is Chrome and Edge; Firefox and Safari get a sentence where the button would be, and
@@ -160,16 +160,14 @@ Four things that shape it:
   watcher to do any other way. A path the page never read is refused the same way.
 - **The tab is the host, and a reload ends the room.** A host's invite link is not written
   into the address bar: reloading would rejoin its own room as a guest with no folder
-  while the room's grace ran out underneath it. The card warns before the click — what a
-  reload costs is the room, its invite link and the keystrokes still inside the settle, and
-  everything else is already in the folder — and the load after a reload says the same.
+  while the room's grace ran out underneath it. The card offers the action and says nothing
+  else, and the load after a reload says what the reload cost — the room, its invite link
+  and the keystrokes still inside the settle, and everything else is already in the folder.
   Reclaiming inside the grace is not built.
-- **What picking a folder gives away.** The card says it under the button, before the
-  click, because the person granting is the only one who can act on it: anyone with the
-  invite link can open and edit the files the page shares, and their edits — and yours —
-  are written back to those files on disk. Not every file in the folder: `.env`, `.git/**`
-  and the key names are excluded, a binary-named path is left out, and a file past the
-  size bound is refused.
+- **Not every file in the folder is shared.** Anyone with the invite link can open and edit
+  the files the page shares, and their edits — and yours — are written back to those files
+  on disk. `.env`, `.git/**` and the key names are excluded from the listing, a
+  binary-named path is left out, and a file past the size bound is refused.
 
 **Download** takes a document out of the room and onto the person's disk — for a guest
 who has just edited a file and cannot keep it, and for a host whose folder refused the
@@ -189,8 +187,9 @@ scripts/ci-local.sh checks   # what .github/workflows/ci.yml runs, in one comman
 `typecheck` covers `src/`, which is all `tsconfig.json` includes.
 
 `test` runs the suite with a fake editor standing in for Monaco: the adapter, languages,
-follow, roster, the empty pane, grants, tree refresh, share links, the join card, mobile,
-identity, and the serve-types contract. `identity` reads files outside this repository:
+follow, the room’s faces and the menu behind them, the empty pane, grants, tree refresh,
+share links, the join card, mobile, identity, and the serve-types contract.
+`identity` reads files outside this repository:
 one of its tests compares the marks with the `site` checkout beside this one, and it reads
 this repository's own git directory to find that sibling from a worktree as well as from a
 checkout. Where there is no sibling — a single-repository CI job — that one test skips
@@ -256,24 +255,44 @@ only.
 
 On a device with a pointer the first shared file opens focused, so typing starts at
 once. A phone focuses it on the first tap instead, so the soft keyboard does not stand
-over a room nobody has seen, and starts with the tree and roster behind the file strip, which
-carries a chevron for it and opens the panel under itself. The same layout answers for a phone
-on its side: a 844x390 touch device is the phone layout and not the desktop column. The People roster leads with your own name — one swatch and
-the one Rename control, which is what says the row is yours — and lists who else is here,
-never path text: a crown where the peer is hosting, a `Go to` where the peer is in a file
-and `not in a file yet` where it is not, and a `Follow` toggle that
-reads `Following` pressed and stops the follow when it is pressed. A go-to the room
-cannot answer — the peer closed the file, or its caret does not resolve here — says so
-under that row for four seconds. The tree lists what the room shares with a peer badge on
-whose file is whose, and a tag beside a file whose text the room sent empty or holds open
-with nothing arrived for it. An action that refuses says so beside its own control, or in the
-alert where it has none.
+over a room nobody has seen, and starts with the tree behind the file strip, which carries a
+chevron for it and opens the panel under itself. The same layout answers for a phone on its
+side: a 844x390 touch device is the phone layout and not the desktop column.
 
-Following shows a segment in the file strip, in the followed peer's colour, with the stop
-control on it, and ends when you type, navigate (open a file from the tree or go to
-someone), stop it, or the peer leaves. When the host's socket drops, the session note
-names the grace window and counts it down to the room's own deadline; when the host
-returns it says so for a few seconds and then clears. When the room ends, because the host does not return before the
+The people in the room are faces in the session bar, to the right of the invite pill and before
+the way out: your own seat first, always, then the room's peers, with the cluster capped at five
+controls on a pointer device or three on a phone — faces and the `+N` together. A room at or under
+the cap shows every face; over it the last slot is the `+N`, so six people on a pointer device read
+four faces and `+2`, and the `+N` opens the list of everyone. A face
+wears three marks, each a shape rather than a colour — a solid ring for your own seat, a dashed
+ring and an eye for the one you follow, a crown for the host — and the person you follow is never
+the one counted away, because that ring is the only place a follow shows on this bar. Pressing a
+face opens that person's menu under it, with `Go to` where they are in a file and `not in a file
+yet` where they are not, a `Follow` toggle that reads `Stop following` once it is on, and your own
+`Rename`, which edits the name in the menu itself. A go-to the room cannot answer — the peer
+closed the file, or its caret does not resolve here — says so in that menu for four seconds as
+two lines: `Nothing to go to` over the room's own reason. The empty pane's own `Go to`, which
+has no menu to stand it in, says the same sentence in the alert. The sidebar is the tree: what
+the room shares, with a peer badge on whose file is whose and, on a shut folder, the badges of
+the peers inside it. A row states nothing else about the room — the tags that said a document
+reads empty or had not arrived, and the mark a refused write put there, are gone — and an
+action that refuses says so beside its own control, or in the alert where it has none. The
+panel's create verbs stand in a bar at its foot, labelled `New file` and `New folder`, and the row a
+press opens asks for a `New file name` or a `New folder name` — ` in <dir>` where it stands in one —
+and offers `Create` and `Cancel`.
+
+Following shows on the followed face — a dashed ring and an eye — with `Stop following` in that
+person's menu, and ends when you type, navigate (open a file from the tree or go to someone),
+stop it, or the peer leaves. A follow that ended without a stop says why on the alert, for four
+seconds. Everything the page has to say over the workspace stands in one notices column in the
+top-right corner, floating above it: the session card, the failure alert, the line a tap
+reveals, and a toast per file saved. When the host's socket drops, the card names the host,
+counts the grace window down to the room's own deadline under a bar that drains with it, and
+turns red saying `The session ended` when the window is out; when the host returns it says so
+for a few seconds and then clears, and the bar's identity keeps naming the host's session
+throughout. A file saved out of the room — fetched first when this window has no text for it —
+is `Downloaded <leaf>`, two at a time with the rest counted. The column takes no click and
+moves nothing under it. When the room ends, because the host does not return before the
 grace expires, the page leaves the session: the socket closes, the binding and the editor
 are dropped, the chrome comes down, and the card returns over the blurred preview carrying
 `The room is gone (host did not return). Nothing is kept on this page; the folder the room
@@ -284,8 +303,8 @@ next room from there. A guest never claims host and never rebuilds a room on its
 only mint is the one behind the folder picker, and a test pins that the guest path never
 asks for the host role.
 
-A page-hosted room has one more thing to say. The room lives in its tab, so the card warns
-before the click, and a reload says `Reloading ended the room this tab was
+A page-hosted room has one more thing to say. The room lives in its tab, so a reload ends
+it, and the load after one says `Reloading ended the room this tab was
 hosting…` rather than offering a card that looks like the last one.
 
 ## What is in the tree
@@ -329,11 +348,11 @@ would be inventing a request the protocol does not have.
 
 The page's own modules:
 
-- `src/browser/main.ts`: the page. Display name, invite, the editable document, the
-  People roster with go-to and a follow toggle, the presence-badged grant tree, the file
-  strip above the editor (the open file's state, the follow's own stop, the chevron a phone
-  opens the panel with), the panel disclosure a phone gets, and the page-origin share link
-  whose whole bar copies.
+- `src/browser/main.ts`: the page. Display name, invite, the editable document, the faces
+  in the session bar with go-to and a follow toggle, the presence-badged grant tree, the
+  file strip above the editor (the open file, the directory muted and the leaf bold, and the
+  chevron a phone opens the panel with), the panel disclosure a phone gets, and the
+  page-origin share link whose whole bar copies.
 - `src/browser/transport.ts`: the engine's socket from the browser's own WebSocket. The
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
@@ -357,10 +376,11 @@ The page's own modules:
   and can carry no link, image or code span into a guest's browser.
 - `src/browser/icons.ts`: the inline-SVG set and the per-type tree icon, a solid page in
   the type's colour with a short label so it reads in a tree row.
-- `src/browser/roster.ts`: the People roster as a testable render, the own name first as
-  a full row (swatch, quiet `you`, the one verb the row can act on), one row per peer with
-  no path text, a `Go to` only where there is somewhere to go, a `Follow` toggle that
-  stops on its second press, and a refused go-to's sentence on the row that asked for it.
+- `src/browser/room.ts`: the room's faces as a testable render — the cap and who is
+  showing, the marks on each face, and the dialog a face opens: `Go to` only where there is
+  somewhere to go, a `Follow` toggle that stops on its second press, the own name's edit in
+  place, a refused go-to's sentence in the menu that asked for it, and the list of everyone
+  the `+N` opens.
 - `src/browser/empty-editor.ts`: the editor pane with no document in front of it — a host
   whose folder is empty, a host with files to pick from, a guest whose host has shared
   nothing, a guest with files to pick from — each naming the next act and putting its
@@ -368,21 +388,27 @@ The page's own modules:
   On a phone the act is `Browse files`, since the panel starts shut and nothing else opens
   it.
 - `src/browser/share-box.ts`: the share bar as one copy control. Click anywhere, or
-  focus and press Enter, to copy; an overlay inside the bar names the `Link copied`
-  confirmation briefly and hides, and the readout never leaves, so no layout shifts.
+  focus and press Enter, to copy; an overlay inside the bar names the `Copied`
+  confirmation briefly and hides, and the readout never leaves, so no layout shifts. The copy is
+  announced once, through the page's polite region, because the morph says nothing to a screen
+  reader.
 - `src/browser/presence.ts`: initials, one badge per line, the badge CSS.
 - `src/browser/mobile.ts`: what a touch-only browser is given, the phone query's two arms
   (upright and on its side) and the touch query it is narrowed by, the editor options a phone
-  needs (no minimap, wrapped lines, 16 px, a 55 px gutter), and how tall the app is when a soft
-  keyboard shrinks the visual viewport.
-- `src/browser/notice.ts`: the two message homes the page keeps: the session note in the
-  chrome (the host-leave warning while the grace runs, counting its window down to the
-  room's deadline, the dropped socket's line while the engine re-dials, and the host's
-  return for a few seconds), and the failure alert — an action that refused with no control
-  to sit beside, and an error the room reports about the session — plus the line a tap
-  reveals where a `title` would have shown a pointer. The countdown's number is an element of its own with the live region off, so
-  the sentence is announced once and the count never is; the alert and the tap line are
-  one mechanism, standing a few seconds and leaving on their own.
+  needs (wrapped lines, 16 px, a 55 px gutter), and how tall the app is when a soft
+  keyboard shrinks the visual viewport. The minimap and the caret's line highlight are off for
+  every device, because the design draws neither.
+- `src/browser/notice.ts`: the notices column, which is every sentence the page has over the
+  workspace. The session card is the room's own lifecycle: the host-leave warning while the grace
+  runs, counting its window down to the room's deadline under a 2 px bar that drains with it and
+  turning red when the window is out, the host's return for a few seconds, and the dropped socket's
+  line while the engine re-dials. The ticking line is hidden from assistive tech and the card carries
+  its own sentence, so the news is announced once rather than once a second. The same column holds
+  the download toasts (`Downloaded <leaf>`, two at a time with `+N more`), the failure alert — an
+  action that refused with no control to sit beside, a write the folder refused, a follow that ended,
+  an error the room reports about the session — and the line a tap reveals where a `title` would have
+  shown a pointer. The column takes no pointer at all, and its top is measured from the bar and the
+  phone's strip so it clears both.
 - `src/browser/ended.ts`: the end of a session, the sentences for it (the desktop clients'
   `The room is gone (<reason>).` plus what a page cannot keep) and the one next step, and
   `dropSession`, the order in which the page leaves a dead room.
@@ -464,8 +490,9 @@ scheme: nothing on the page's own path completes a bare domain, because a page r
 link's base or its own origin and both always carry one.
 
 `prove` mints a room with this checkout's own engine, joins the way the page does with
-the default `/meta` check, and walks the roster, the grant tree, a jump, a follow,
-convergence both ways, a reconnect, and the degraded `/meta` a cross-origin page sees.
+the default `/meta` check, and walks the room’s participants, the grant tree, a jump, a
+follow, convergence both ways, a reconnect, and the degraded `/meta` a cross-origin page
+sees.
 `prove:fb2` covers tree-only open, create and move tree refresh, and the share-link shape
 with a round trip back into a join. `prove:flow2` re-walks the three headline flows of the
 flow review. `prove:tls` hosts and joins on the demo origin and asserts that every

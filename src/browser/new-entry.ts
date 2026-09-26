@@ -73,9 +73,8 @@ export function createdFileNotOpenedSentence(path: string, reason: string): stri
  *
  * A typed path may carry its own directories (`createDirectories`), for both kinds: an empty folder is
  * in nobody's listing, so `docs/intro.md` is how a person puts a folder into the room — and `docs/api`
- * is how they make one the same way their file explorer's own New Folder does. The row previews what
- * the commit will make, so the two layers tell one story: a promise the folder then refused would be
- * the row lying about what it was about to do.
+ * is how they make one the same way their file explorer's own New Folder does. What the path also
+ * makes is the folder's business: the row names the entry and nothing else.
  *
  * The two refusals are the folder's own sentence, returned untouched so the row says what the layer
  * said; a failure thrown by `create` is the layer's own and is left to the caller to word. The steps
@@ -152,8 +151,8 @@ export interface NewEntryContext {
 /** What the row shows under its field, and what a commit would make. */
 export interface NewEntryCheck {
   /**
-   * The line under the field: why the name will not commit, or what a commit would also make.
-   * Empty — no line at all — while the name is one this room can take.
+   * The line under the field: why the name will not commit. Empty — no line at all — while the name
+   * is one this room can take.
    */
   line: string;
   /** Whether the line is a refusal. The field turns destructive and `✓` disables. */
@@ -170,9 +169,9 @@ export interface NewEntryCheck {
  * can see and this cannot (a directory that is not in the listing, a permission that has gone) are
  * reported in this same line with the folder's own sentence when the commit lands.
  *
- * The checks are ordered so the most specific true thing is said: what may not be shared at all,
- * then a format the room cannot carry, then the name being taken, then the path going through a
- * file, and last the neutral note that the path will make its own directories.
+ * The checks are ordered so the most specific true thing is said: a path that steps out of the tree,
+ * then what may not be shared at all, then a format the room cannot carry, then the name being
+ * taken, and last the path going through a file.
  */
 export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
   const typed = newEntryPath(context.raw);
@@ -182,6 +181,12 @@ export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
   const path = context.parent === '' ? typed : `${context.parent}/${typed}`;
   const refuse = (line: string): NewEntryCheck => ({ line, error: true, path: undefined });
 
+  // Stepping out of the tree is refused rather than guessed at: `docs/../src` names a folder this
+  // room does not have, and the folder layer's own rule refuses what is left of it as a path it
+  // does not share.
+  if (path.split('/').includes('..')) {
+    return refuse('A path cannot go up a folder');
+  }
   if (!isGrantedPath(path, FOLDER_PLATFORM)) {
     return refuse(`${path} is not a path this room shares.`);
   }
@@ -189,20 +194,15 @@ export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
     return refuse(`${path} declares a format a room cannot carry. Name a text file.`);
   }
   if (isTaken(path, context)) {
-    return refuse(`${path} is already in the folder. Pick another name.`);
+    return refuse(
+      context.kind === 'file'
+        ? 'That file is already in the tree'
+        : 'That folder is already in the tree',
+    );
   }
   const through = fileOnTheWay(path, context.listing);
   if (through !== undefined) {
     return refuse(`${through} is a file, not a folder.`);
-  }
-  const missing = missingFolders(path, context);
-  if (missing.length > 0) {
-    const named = missing.map((folder) => `${folder}/`).join(' and ');
-    return {
-      line: `Also creates the ${missing.length === 1 ? 'folder' : 'folders'} ${named}.`,
-      error: false,
-      path,
-    };
   }
   return { line: '', error: false, path };
 }
@@ -242,34 +242,3 @@ function fileOnTheWay(path: string, listing: readonly string[]): string | undefi
   return undefined;
 }
 
-/**
- * The directories a path will make on its way to the entry, outermost first.
- *
- * "Not there" is asked of the listing and of what this session made: a directory the room knows is
- * one a listed path goes through, and one this session made is in `localFolders`. A name typed into
- * the wrong folder is a typo far more often than an intention, so the line says what the commit will
- * do rather than refusing it — the person reads `Also creates the folder docs/.` before pressing
- * anything.
- */
-export function missingFolders(path: string, context: NewEntryContext): string[] {
-  const parent = parentOf(path);
-  if (parent === '') {
-    return [];
-  }
-  const known = new Set<string>(context.localFolders);
-  for (const listed of context.listing) {
-    const segments = listed.split('/');
-    for (let index = 1; index < segments.length; index += 1) {
-      known.add(segments.slice(0, index).join('/'));
-    }
-  }
-  const missing: string[] = [];
-  const segments = parent.split('/');
-  for (let index = 1; index <= segments.length; index += 1) {
-    const prefix = segments.slice(0, index).join('/');
-    if (!known.has(prefix)) {
-      missing.push(prefix);
-    }
-  }
-  return missing;
-}

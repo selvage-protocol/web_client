@@ -18,11 +18,10 @@ import { MonacoBinding } from '../src/browser/editor.ts';
 import { peerColour } from '../src/bridge/index.ts';
 import {
   RECONNECTING_NOTE,
-  graceWording,
   hostBackSentence,
   hostPresent,
   wireFailureAlert,
-  wireSessionNote,
+  wireSessionCard,
   wireTapPeek,
 } from '../src/browser/notice.ts';
 import { displayShareLink } from '../src/browser/share.ts';
@@ -176,21 +175,25 @@ describe('the status element is gone for good', () => {
   });
 
   it('messages with homes of their own have them in the shell', () => {
-    // The note is the grace warning, not an interruption: polite, like the
-    // status line it replaced — `role="status"` would put the forbidden word
-    // back in the shell. The failure alert stays assertive.
+    // The page has one notices home now, floating over the workspace: the session card, the two
+    // transients, and the toasts. The card is a live region of its own — polite, and the ticking
+    // line inside it is hidden from assistive tech — and the failure alert stays assertive.
+    assert.ok(/<div id="notices">/.test(html), 'the notices column is not in the shell');
     assert.ok(
-      /<div id="session-note" aria-live="polite"><\/div>/.test(html),
-      'no session note in the chrome',
+      /<div id="session-card" aria-live="polite"[^>]*hidden>/.test(html),
+      'no session card in the chrome',
     );
-    assert.ok(!/role="alert"[^>]*session-note|session-note"[^>]*role="alert"/.test(html));
     assert.ok(/<div id="alert" role="alert"><\/div>/.test(html), 'no failure alert in the shell');
-    assert.ok(style.includes('#session-note'), 'the session note is unstyled');
-    assert.ok(style.includes('#alert'), 'the failure alert is unstyled');
-    assert.ok(
-      /#session-note:empty/.test(style) && /#alert:empty/.test(style),
-      'an empty live region still paints its box',
-    );
+    assert.ok(/<div id="peek" aria-live="polite"><\/div>/.test(html), 'no tap line in the shell');
+    assert.ok(/<div id="toasts" aria-live="polite"><\/div>/.test(html), 'no toasts in the shell');
+    for (const id of ['#notices', '#session-card', '#alert', '#peek', '#toasts']) {
+      assert.ok(style.includes(id), `${id} is unstyled`);
+    }
+    assert.ok(/#alert:empty/.test(style), 'an empty live region still paints its box');
+    // Nothing is anchored to the bottom centre any more: the column is the one home, and it is out
+    // of the flow and takes no click.
+    assert.ok(!/#alert\s*\{[^}]*position:\s*fixed/.test(style), 'the alert is pinned to the page again');
+    assert.ok(!/#peek\s*\{[^}]*position:\s*fixed/.test(style), 'the tap line is pinned to the page again');
   });
 });
 
@@ -474,114 +477,6 @@ describe('the message homes', () => {
     assert.equal(element.textContent, '', 'the peek never left the screen');
   });
 
-  it('the session note carries the host-leave warning and nothing else', () => {
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      // The clock the note reads is a stub, as it is in the tests around this one: with the
-      // real one the reading is `graceMs` minus however many milliseconds elapsed between the
-      // deadline being set and the first draw, which is 29 whenever the clock ticks in between.
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    assert.equal(element.textContent, '', 'an untouched note paints nothing');
-    note.countdown(30_000);
-    assert.match(element.textContent, /^The host left\. The room closes in 30 seconds/);
-    // The host's return replaces the countdown and leaves on its own, the way a notice does.
-    note.say('demo-host is back — the session continues.', 5000);
-    assert.equal(element.textContent, 'demo-host is back — the session continues.');
-    timer.runs.at(-1)?.();
-    assert.equal(element.textContent, '', 'the return stood for ever');
-    note.hide();
-  });
-
-  it('a sentence that stands takes itself down, and the countdown is not one', () => {
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.say('demo-host is back — the session continues.', 5000);
-    assert.equal(timer.runs.length, 1, 'the return never leaves on its own');
-    timer.runs[0]?.();
-    assert.equal(element.textContent, '', 'the return stood for ever');
-  });
-
-  // The attach frame and the membership report that names the host arrive in the same burst,
-  // and the report used to take the whole line down: the sentence the guest has to read was
-  // written and wiped in the same millisecond, so no one could see it. The all-clear ends the
-  // countdown; a sentence standing in its place is what the guest is owed.
-  it("the membership all-clear leaves the host's return standing", () => {
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.countdown(30_000);
-    assert.match(element.textContent, /^The host left\./, 'the countdown never stood');
-    note.say('demo-host is back — the session continues.', 5000);
-    note.endCountdown();
-    assert.equal(
-      element.textContent,
-      'demo-host is back — the session continues.',
-      'the all-clear took the host-is-back sentence down with the countdown',
-    );
-    // The all-clear did not cancel the sentence's own clock either, so it still leaves.
-    timer.runs.at(-1)?.();
-    assert.equal(element.textContent, '', 'the return was left standing for ever');
-  });
-
-  it('the all-clear takes down a countdown and nothing else', () => {
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.endCountdown();
-    assert.equal(element.textContent, '', 'an untouched line was left dirty');
-    note.countdown(30_000);
-    note.endCountdown();
-    assert.equal(element.textContent, '', 'the countdown survived the all-clear');
-    assert.equal(element.dataset.tone, '', 'the countdown left its tone on the line');
-  });
-
-  it('has no general-purpose news line: the strip is room health and nothing else', () => {
-    // Design §6.2: `SessionNote.status` went with the four sentences that found other homes. What
-    // is left of the line is what changes what typing means — the countdown, the dropped socket —
-    // and the host's return, which is the reason the countdown vanishing has one.
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    assert.equal(note.status, undefined, 'the strip took back a line for anything the page wants to say');
-    const source = readFileSync(new URL('../src/browser/notice.ts', import.meta.url), 'utf8');
-    assert.ok(!/status\(text: string\)/.test(source), 'the note carries a status method again');
-    // What is left is reachable: the countdown, the dropped line and the host's own sentence.
-    note.countdown(30_000);
-    assert.match(element.textContent, /^The host left\./, 'the countdown has no home');
-    note.hide();
-    note.dropped(RECONNECTING_NOTE);
-    assert.equal(element.textContent, RECONNECTING_NOTE, 'the dropped line has no home');
-    note.endDropped();
-    note.say('demo-host is back — the session continues.', 5000);
-    assert.equal(element.textContent, 'demo-host is back — the session continues.');
-  });
-
   it('the page routes the status topics with no other surface, and only those', () => {
     // The owner's own pass: the follow banner already reads "Following vscodium" with a Stop
     // control, and the notice bar was saying "Following vscodium in test" right above it — the
@@ -597,9 +492,14 @@ describe('the message homes', () => {
       'the routed topics are not the three with no other surface',
     );
     assert.ok(!main.includes('SHOWN_STATUS_TOPICS'), 'the shown-topics set survived the routing');
-    // Each one goes where its fact belongs: the role is the strip's chip, the refusal is the row
-    // that asked for the go-to, and a session error is the alert's.
-    assert.match(main, /readOnly = true;\n\s+syncStrip\(\);/, 'the read-only state reaches no chip');
+    // Each one goes where its fact belongs: the role is announced rather than painted — the strip
+    // is the open file and nothing else — the refusal is the row that asked for the go-to, and a
+    // session error is the alert's.
+    assert.match(
+      main,
+      /case 'role':[\s\S]{0,400}?announce\(VIEWER_SENTENCE\);/,
+      'the read-only state is said nowhere',
+    );
     assert.match(
       main,
       /case 'refusal':\n\s+showGoToRefusal\(notice\.peerId, notice\.text\);/,
@@ -623,20 +523,33 @@ describe('the message homes', () => {
     assert.match(editor, /topic: 'terminal'/g, 'the binding stopped raising the terminal sentence');
   });
 
-  it('a refused go-to lands on the row that asked, not in the chrome', () => {
+  it('a refused go-to lands in the menu that asked, and on the alert when none stands', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const editor = readFileSync(new URL('../src/browser/editor.ts', import.meta.url), 'utf8');
-    // The sentence the binding raises carries the peer it is about, or the page has nothing to
-    // hang it on.
+    // The sentence the binding raises carries the peer it is about, so the page can hang it on that
+    // peer's menu whenever one is standing.
     assert.match(editor, /topic: 'refusal',\n\s+peerId,/, 'a refusal reaches the page without its peer');
+    const refusal = /function showGoToRefusal\([\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.notEqual(refusal, '', 'the page has no home for a refusal');
+    assert.match(refusal, /goToRefusal = \{ peerId, detail \}/, 'a refusal has no state to stand in');
+    // With no menu to carry it — the empty pane's own press, or a refusal with no peer — it is the
+    // alert's, the page's transient line for a press that could not do what it said.
+    assert.match(
+      refusal,
+      /if \(peerId === undefined \|\| menu\?\.view !== 'person' \|\| menu\.peerId !== peerId\) \{\n\s+failureAlert\.show\(sentence\);/,
+      'a refusal with no menu to paint it in goes nowhere',
+    );
+    // The design's two parts, and the room's own reason in the one line the other home reads.
+    assert.match(refusal, /const sentence = `\$\{NOTHING_TO_GO_TO\}: \$\{detail\}`/, 'the refusal is one flat line');
     assert.match(
       main,
-      /function showGoToRefusal\([\s\S]{0,400}?goToRefusal = \{ peerId, text \}/,
-      'a refusal has no state to stand in',
+      /case 'refusal':\n\s+showGoToRefusal\(notice\.peerId, notice\.text\);/,
+      'a refusal reaches no place to stand',
     );
-    assert.match(main, /goToRefusal,/, 'the roster is never told about a refusal');
+    assert.match(refusal, /renderMenu\('\[data-act="go"\]'\)/, 'a refusal is painted in no menu');
+    assert.match(main, /goToRefusal,/, 'the menu is never told about a refusal');
     assert.match(main, /GO_TO_REFUSAL_STAND_MS = 4000/, 'a refusal stands for ever, or for a guessed number');
-    assert.match(main, /announce\(text\)/, 'a refusal is never announced');
+    assert.match(refusal, /announce\(sentence\)/, 'a refusal is never announced');
     // Its own clock, and only one: two presses on one row produce the same sentence, so a timer
     // matching on the words would let the first press clear the second refusal early.
     assert.match(
@@ -648,9 +561,25 @@ describe('the message homes', () => {
     // frame: a follow that opened no document leaves the pane showing.
     assert.match(
       main,
-      /syncRoster\(binding\.participants\(\)\);\n\s+syncEmptyEditor\(\);/,
+      /drawRoom\(binding\.participants\(\)\);\n\s+syncEmptyEditor\(\);/,
       'the empty pane’s follow toggle waits for an unrelated room event',
     );
+  });
+
+  it('a go-to press leaves the menu standing until the room answers', () => {
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    // The refusal is raised later, through the binding's own notice, so a press that took the menu
+    // down first would have nothing left to stand the sentence in: exactly the case the sentence
+    // exists for. The press goes somewhere; the outcome decides what happens to the menu, and only
+    // a landing ends it.
+    const press = /onGoTo: \(peerId\) => \{([\s\S]*?)\n      \},/.exec(main)?.[1] ?? '';
+    assert.notEqual(press, '', 'the person menu has no go-to press to read');
+    assert.ok(!press.includes('closeMenu'), 'the press takes the menu down before the room has answered');
+    assert.match(press, /void goToParticipant\(peerId\)/, 'the press never goes anywhere');
+    const goTo = /function goToParticipant[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+    assert.notEqual(goTo, '', 'the page has no go-to landing to read');
+    assert.match(goTo, /\.then\(/, 'the outcome of the press is never read');
+    assert.match(goTo, /if \(outcome === 'landed'\) \{\n\s+closeMenu\(\);/, 'a landed go-to does not end the menu it was pressed in');
   });
 
   it('the end of the room comes back as the card, not as a strip', () => {
@@ -691,38 +620,10 @@ describe('the message homes', () => {
   // the room: the line stands until the room answers, rather than for a guessed number of
   // seconds, and it is the reason `Connection dropped. Reconnecting…` is no longer on the list
   // above.
-  it('a dropped socket wears a line that stands until the room answers', () => {
-    const element = makeElement();
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => 0,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.dropped(RECONNECTING_NOTE);
-    assert.equal(element.textContent, RECONNECTING_NOTE);
-    assert.equal(element.dataset.tone, 'dropped');
-    assert.equal(timer.runs.length, 0, 'the dropped line armed a timer of its own');
-    note.endDropped();
-    assert.equal(element.textContent, '', 'the all-clear left the dropped line standing');
-    assert.equal(element.dataset.tone, '', 'the dropped line left its tone behind');
-    // The all-clear is the room's own reports, so it arrives whatever the line is showing: a
-    // sentence said into the same strip — the host's return — is not the one it takes down.
-    note.say('demo-host is back — the session continues.', 5000);
-    note.endDropped();
-    assert.equal(
-      element.textContent,
-      'demo-host is back — the session continues.',
-      'the all-clear took down a sentence that is not the dropped line',
-    );
-    note.hide();
-  });
-
   it('the page shows the dropped line and the all-clear that ends it', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(
-      main.includes('sessionNote.dropped(RECONNECTING_NOTE)'),
+      main.includes('sessionCard.dropped(RECONNECTING_NOTE)'),
       'a dropped socket reaches no line on the page',
     );
     // Both seat reports are the all-clear: the bridge forces them on a re-seat, because the set
@@ -733,7 +634,7 @@ describe('the message homes', () => {
       'the seat reports moved',
     );
     assert.equal(
-      [...main.matchAll(/sessionNote\.endDropped\(\)/g)].length,
+      [...main.matchAll(/sessionCard\.endDropped\(\)/g)].length,
       2,
       'a seat report no longer ends the dropped line',
     );
@@ -741,126 +642,6 @@ describe('the message homes', () => {
 });
 
 describe('the host leaving and coming back', () => {
-  it('the grace window reads in the largest whole unit the room still has', () => {
-    // The window is the server's number, so the sentence has to hold any of
-    // them without asking the guest to divide seconds. It rounds down: a
-    // countdown that said `2 minutes` over 60 seconds would hand the guest time
-    // the room does not have.
-    assert.equal(graceWording(30_000), '30 seconds');
-    assert.equal(graceWording(1_000), '1 second');
-    assert.equal(graceWording(59_999), '59 seconds');
-    assert.equal(graceWording(60_001), '1 minute');
-    assert.equal(graceWording(600_000), '10 minutes');
-    assert.equal(graceWording(60_000), '1 minute');
-    assert.equal(graceWording(90_000), '1 minute');
-    assert.equal(graceWording(119_000), '1 minute');
-    assert.equal(graceWording(3_600_000), '1 hour');
-    assert.equal(graceWording(3_599_999), '59 minutes');
-    assert.equal(graceWording(0), 'a moment');
-    assert.equal(graceWording(500), 'a moment');
-    for (const ms of [0, 500, 1_000, 30_000, 59_999, 60_001, 90_000, 599_999, 600_000, 3_600_000]) {
-      const shown = graceWording(ms);
-      assert.ok(!/\d+s\b/.test(shown), `a raw second count survives: ${shown}`);
-      assert.ok(!shown.includes('undefined'), `a unit went missing: ${shown}`);
-    }
-  });
-
-  it('the grace warning counts the window down against the room\'s deadline', () => {
-    const element = makeElement();
-    const timer = ticking();
-    let clock = 1_000_000;
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      countParts: countStub(),
-      now: () => clock,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.countdown(3000);
-    assert.equal(
-      element.textContent,
-      'The host left. The room closes in 3 seconds unless the host returns.',
-    );
-    // Every tick reads the clock again rather than lowering a value of its own, so the reading
-    // is the room's remaining time even for a tab that missed a hundred ticks.
-    clock += 1000;
-    timer.runs[0]?.();
-    assert.equal(
-      element.textContent,
-      'The host left. The room closes in 2 seconds unless the host returns.',
-    );
-    clock += 1000;
-    timer.runs[0]?.();
-    assert.equal(
-      element.textContent,
-      'The host left. The room closes in 1 second unless the host returns.',
-    );
-    clock += 1000;
-    timer.runs[0]?.();
-    assert.equal(
-      element.textContent,
-      'The host left. The room closes in a moment unless the host returns.',
-    );
-  });
-
-  it('the count is in an element of its own, which the live region does not announce', (t) => {
-    // Two elements are made now — the sentence's own wrapper and the number inside it (see
-    // `defaultCountParts`: the strip is a flex row, so the sentence has to be one of its runs) —
-    // and the assertions below are about the same one: the number is its own element, the strip's
-    // run does not change while its text does, and only the number carries the announcement
-    // attributes.
-    const made: Array<{
-      textContent: string;
-      attributes: Record<string, string>;
-      children: unknown[];
-      append: (...nodes: unknown[]) => void;
-      setAttribute: (name: string, value: string) => void;
-    }> = [];
-    (globalThis as { document?: unknown }).document = {
-      createElement: () => {
-        const element = {
-          textContent: '',
-          attributes: {} as Record<string, string>,
-          children: [] as unknown[],
-          append: (...nodes: unknown[]): void => void element.children.push(...nodes),
-          setAttribute: (name: string, value: string): void => void (element.attributes[name] = value),
-        };
-        made.push(element);
-        return element;
-      },
-      createTextNode: (text: string) => ({ textContent: text }),
-    };
-    t.after(() => {
-      delete (globalThis as { document?: unknown }).document;
-    });
-    const element = makeElement();
-    let clock = 0;
-    const timer = ticking();
-    const note = wireSessionNote(element as unknown as HTMLElement, {
-      now: () => clock,
-      schedule: timer.schedule,
-      cancel: timer.cancel,
-    });
-    note.countdown(2000);
-    const [sentence, number] = made;
-    assert.ok(sentence !== undefined && number !== undefined, 'the sentence and its number are built');
-    // The strip stays a polite region for the sentence; the number carries `role="timer"`,
-    // whose own live setting is off, so the count is never read out.
-    assert.deepEqual(number.attributes, { role: 'timer', 'aria-live': 'off' });
-    assert.deepEqual(sentence.attributes, {}, 'the sentence announces something of its own');
-    assert.deepEqual(element.replaced, [sentence], 'the strip was handed a run per part');
-    assert.deepEqual(
-      sentence.children,
-      [{ textContent: 'The host left. The room closes in ' }, number, { textContent: ' unless the host returns.' }],
-      'the sentence is not the lead, the number and the tail',
-    );
-    const runs = [...element.replaced];
-    assert.equal(number.textContent, '2 seconds');
-    clock += 1000;
-    timer.runs[0]?.();
-    assert.equal(number.textContent, '1 second', 'the number does not move');
-    assert.deepEqual(element.replaced, runs, 'the sentence around the number changed with it');
-  });
-
   it('a membership report that names the host is the all-clear too', () => {
     assert.equal(hostPresent([{ role: 'host' }]), true);
     assert.equal(hostPresent([{ role: 'guest' }, { role: 'host' }]), true);
@@ -929,8 +710,8 @@ describe('the host leaving and coming back', () => {
     );
     // The engine's own validation accepts an empty display name, so the sentence names the
     // role rather than leaving a gap.
-    assert.equal(hostBackSentence(''), 'the host is back — the session continues.');
-    assert.equal(hostBackSentence('demo-host'), 'demo-host is back — the session continues.');
+    assert.equal(hostBackSentence(''), 'the host is back. The session continues.');
+    assert.equal(hostBackSentence('demo-host'), 'demo-host is back. The session continues.');
 
     // And the membership the page reads for the same news: the host's role.
     assert.equal(hostPresent(binding.participants()), true, 'the roster hid the host');
@@ -938,21 +719,21 @@ describe('the host leaving and coming back', () => {
 
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(
-      main.includes('sessionNote.countdown(notice.graceMs)'),
-      'the grace window never reaches the clock',
+      main.includes("sessionCard.away(sessionHostName ?? '', notice.graceMs)"),
+      'the grace window never reaches the card',
     );
     assert.ok(
-      main.includes('sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS)'),
+      main.includes('sessionCard.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS)'),
       "the host's return is never said",
     );
-    assert.ok(main.includes('sessionNote.endCountdown()'), 'the grace warning never clears');
+    assert.ok(main.includes('sessionCard.endAway()'), 'the grace warning never clears');
     assert.ok(
-      main.includes('sessionNote.hide()'),
-      'leaving the session never takes the line down',
+      main.includes('sessionCard.hide()'),
+      'leaving the session never takes the card down',
     );
     // Both membership notices carry the host, so both are all-clears: the
     // attach sentence is not the only way the warning comes down. The
-    // all-clear ends the countdown and not the line (the host's return may be
+    // all-clear ends the countdown and not the card (the host's return may be
     // standing there), so the teardown is the one caller of `hide()` left.
     for (const kind of ["case 'peers':", "case 'roster':"]) {
       const at = main.indexOf(kind);
@@ -963,133 +744,13 @@ describe('the host leaving and coming back', () => {
         `${kind} does not clear the grace warning when the host is named`,
       );
       assert.ok(
-        branch.includes('sessionNote.endCountdown()'),
-        `${kind} still takes the whole line down, so the host's return is wiped`,
+        branch.includes('sessionCard.endAway()'),
+        `${kind} still takes the whole card down, so the host's return is wiped`,
       );
       assert.ok(
-        !branch.includes('sessionNote.hide()'),
+        !branch.includes('sessionCard.hide()'),
         `${kind} hides the host-is-back sentence with the countdown`,
       );
-    }
-  });
-});
-
-describe('the countdown is one sentence, whatever the number says', () => {
-  /**
-   * The strip is a flex row, so every child of it wears the row's `gap` on both sides. The
-   * countdown substitutes its time into the middle of one sentence, which means the default build
-   * has to hand the strip *one* run: three runs directly under it space `30 seconds` by the row's
-   * gap instead of by a space, and space `a moment` the same way — the spacing the owner read as
-   * too large, and different from the words around it. The stylesheet carries the same note.
-   */
-  function makeDocument() {
-    // `textContent` is derived from the children, the way a real element's is: the assertions below
-    // read the sentence as a reader of the strip would, so the fake has to compose it.
-    const make = (tag: string) => {
-      const children: unknown[] = [];
-      const element = {
-        tag,
-        nodeType: 1,
-        children,
-        attributes: {} as Record<string, string>,
-        append: (...nodes: unknown[]) => void children.push(...nodes),
-        setAttribute: (name: string, value: string) => void (element.attributes[name] = value),
-        get textContent(): string {
-          return children
-            .map((child) => String((child as { textContent: unknown }).textContent))
-            .join('');
-        },
-        set textContent(value: string) {
-          children.length = 0;
-          children.push({ nodeType: 3, textContent: value });
-        },
-      };
-      return element;
-    };
-    return {
-      createElement: make,
-      createTextNode: (text: string) => ({ nodeType: 3, textContent: text }),
-    };
-  }
-
-  it('hands the strip one run, with the number in an element of its own', () => {
-    const real = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = makeDocument();
-    try {
-      const element = makeElement();
-      const timer = ticking();
-      const note = wireSessionNote(element as unknown as HTMLElement, {
-        // No `countParts` stub: this is the page's own build, which is what the strip receives.
-        now: () => 0,
-        schedule: timer.schedule,
-        cancel: timer.cancel,
-      });
-      note.countdown(30_000);
-
-      const runs = element.replaced;
-      assert.equal(runs.length, 1, 'the strip was handed a run per part, so its gap spaces them');
-      const sentence = runs[0] as {
-        children: Array<{ textContent: string; attributes?: Record<string, string> }>;
-      };
-      assert.equal(sentence.children.length, 3, 'the sentence is not lead, number, tail');
-      assert.equal(sentence.children[0]?.textContent, 'The host left. The room closes in ');
-      assert.equal(sentence.children[1]?.textContent, '30 seconds');
-      assert.equal(sentence.children[2]?.textContent, ' unless the host returns.');
-      // The count is not announced: the sentence is, once, through the live region it sits in.
-      assert.equal(sentence.children[1]?.attributes?.['role'], 'timer');
-      assert.equal(sentence.children[1]?.attributes?.['aria-live'], 'off');
-      assert.equal(element.textContent, 'The host left. The room closes in 30 seconds unless the host returns.');
-      note.hide();
-    } finally {
-      (globalThis as { document?: unknown }).document = real;
-    }
-  });
-
-  it('keeps one run for every form of the reading, a word as well as a number', () => {
-    const real = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = makeDocument();
-    try {
-      const element = makeElement();
-      const timer = ticking();
-      const note = wireSessionNote(element as unknown as HTMLElement, {
-        now: () => 0,
-        schedule: timer.schedule,
-        cancel: timer.cancel,
-      });
-      // Every form `graceWording` can produce, including the branch that is a word rather than a
-      // number and the singular/plural pair: the run count and the spacing are the sentence's, and
-      // the reading only ever replaces the middle run's text.
-      for (const [graceMs, reading] of [
-        [500, 'a moment'],
-        [1000, '1 second'],
-        [2000, '2 seconds'],
-        [60_000, '1 minute'],
-        [3_600_000, '1 hour'],
-      ] as Array<[number, string]>) {
-        note.countdown(graceMs);
-        const runs = element.replaced;
-        assert.equal(runs.length, 1, `the run count for ${reading} is not the sentence's`);
-        const sentence = runs[0] as { children: Array<{ textContent: string }> };
-        assert.equal(sentence.children.length, 3, `${reading} is not lead, number, tail`);
-        assert.equal(sentence.children[1]?.textContent, reading);
-        assert.equal(
-          sentence.children[0]?.textContent,
-          'The host left. The room closes in ',
-          `${reading} changed the lead`,
-        );
-        assert.equal(
-          sentence.children[2]?.textContent,
-          ' unless the host returns.',
-          `${reading} changed the tail`,
-        );
-        assert.equal(
-          element.textContent,
-          `The host left. The room closes in ${reading} unless the host returns.`,
-        );
-      }
-      note.hide();
-    } finally {
-      (globalThis as { document?: unknown }).document = real;
     }
   });
 });

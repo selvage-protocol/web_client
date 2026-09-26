@@ -62,7 +62,7 @@ export interface EmptyEditorFacts {
   folder: string;
   /** How many files the room's listing carries. */
   files: number;
-  /** The host's display name, for the guest's sentence; empty before the roster arrives. */
+  /** The host's display name, for the guest's sentence; empty before the room's people arrive. */
   hostName: string;
   /** This device has no hover, so the panel is a disclosure to be offered where it is shut. */
   phone: boolean;
@@ -88,14 +88,14 @@ export function emptyEditorFor(facts: EmptyEditorFacts): EmptyEditorState {
   if (!facts.host && facts.files === 0) {
     blocks.push({
       lead: `${hostNameOf(facts)} hasn\u2019t shared any files yet.`,
-      text: 'They\u2019ll appear in Shared as soon as the host\u2019s folder has some.',
+      text: 'They\u2019ll appear in the panel as soon as the host\u2019s folder has some.',
       // Nothing is loading, so nothing spins: the room is empty and that is all the pane says.
       actions: panelActs(facts),
     });
   } else if (facts.host && facts.files === 0) {
     blocks.push({
       lead: `Your folder “${facts.folder}” is empty.`,
-      text: 'Files you create here are shared by name; a file\u2019s text reaches the room when it is opened.',
+      text: 'Files you create here are shared by name. Their text reaches the room when someone opens them.',
       actions: ['new-file', 'copy-invite'],
     });
   } else {
@@ -130,7 +130,7 @@ function panelActs(facts: EmptyEditorFacts): readonly EmptyEditorAction[] {
   return facts.phone && !facts.panelOpen ? [BROWSE_ACTION] : [];
 }
 
-/** The host's name, or the role, which is all a page knows before the roster arrives. */
+/** The host's name, or the role, which is all a page knows before the room's people arrive. */
 function hostNameOf(facts: EmptyEditorFacts): string {
   const name = facts.hostName.trim();
   return name === '' ? 'The host' : name;
@@ -198,7 +198,7 @@ export function renderEmptyEditor(
         button.className = action === 'new-file' ? 'primary' : '';
         button.dataset.action = action;
         if (action === 'follow' || action === 'stop-follow') {
-          // The same toggle the roster draws, in both states: a control that becomes a toggle on
+          // The same toggle the menu draws, in both states: a control that becomes a toggle on
           // its press is announced as one before the press too.
           button.setAttribute('aria-pressed', action === 'stop-follow' ? 'true' : 'false');
         }

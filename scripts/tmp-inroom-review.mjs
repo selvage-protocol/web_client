@@ -12,10 +12,12 @@
  * The same technique is what the project used before (`BROWSER_NOTES.md`, "Seen in a browser"),
  * and this file is the small, committed version of it for a visual review.
  *
- * With `--footer` (or `SELVAGE_FOOTER=1`) the demo deployment's footer — the non-commercial
- * notice and its terms link, injected before `</body>` by the demo's nginx — is appended to the
- * page, so the phone shot shows whether it is reachable without hunting, and the last run of the
- * empty room measures the same notice once a session is on screen.
+ * With `--footer` (or `SELVAGE_FOOTER=1`) the demo deployment's footer — the non-commercial notice
+ * and its terms link — is served inside the page's own bytes, before `</body>`, which is where that
+ * deployment's front puts it; the phone shot then shows whether it is reachable without hunting, and
+ * the last run of the empty room measures the same notice once a session is on screen. It also
+ * decides the panel's own foot: with a link in the page the foot is shown over it, and without one
+ * the foot stays hidden, which is the pair the run checks.
  *
  * The last pass photographs the room's two empty states, which need a folder with nothing in it:
  * the driver leaves the room it built, starts another from an empty folder and joins it as a
@@ -34,7 +36,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -108,7 +110,7 @@ function selvagedBinary() {
  * origin the guest's own page is served from, which is `PROTOCOL.md` §5.1's shape.
  */
 async function startServer() {
-  const page = resolve(ROOT, 'dist');
+  const page = servedPage();
   if (!existsSync(resolve(page, 'index.html'))) {
     throw new Error('dist/index.html is missing; run `npm run build` first');
   }
@@ -183,14 +185,43 @@ const PICKER_STAND_IN = `(() => {
   window.showDirectoryPicker = () => build();
 })();`;
 
-/** The demo's own footer, the shape its nginx injects before `</body>`. */
-const FOOTER_INJECTION = `(() => {
-  const aside = document.createElement('aside');
-  aside.id = 'demo-footer';
-  aside.style.cssText = 'box-sizing:border-box;padding:.65rem 1rem;font:14px/1.45 system-ui,sans-serif;text-align:center;color:#a6adc8;background:#181825;border-top:1px solid #313244';
-  aside.innerHTML = 'Demo instance: <strong style="color:#f9e2af">non-commercial use only.</strong> Not a hosted product; rooms are not persisted and may be reset at any time. <a id="terms-link" style="color:#cba6f7" href="/terms">Terms of use</a>';
-  document.body.appendChild(aside);
-})();`;
+/**
+ * The demo's own banner, byte for byte as its front serves it: the aside it substitutes for
+ * `</body>`, with no id on the aside and none on the link — which is why the page's foot finds it
+ * by shape rather than by name.
+ */
+const FOOTER_ASIDE =
+  '<aside style="box-sizing:border-box;padding:.65rem 1rem;' +
+  'font:14px/1.45 system-ui,sans-serif;text-align:center;color:#a6adc8;background:#181825;' +
+  'border-top:1px solid #313244">Demo instance: ' +
+  '<strong style="color:#f9e2af">non-commercial use only.</strong> Not a hosted product; ' +
+  'rooms are not persisted and may be reset at any time. ' +
+  '<a style="color:#cba6f7" href="/terms">Terms of use</a></aside>';
+
+/**
+ * The page the driver serves: `dist/` as it is, or — with `--footer` — a copy of `dist/` carrying the
+ * demo's banner in its bytes, where that deployment's front puts it.
+ *
+ * The aside is not appended by a script, because that is a different page from the one a visitor
+ * gets: the banner is in the response, so it is in the DOM before the bundle's own module runs, and a
+ * page that adopted the link on `DOMContentLoaded` would be reading a document no visitor has.
+ */
+function servedPage() {
+  const page = resolve(ROOT, 'dist');
+  if (!FOOTER) {
+    return page;
+  }
+  const served = resolve(OUT, 'served');
+  rmSync(served, { recursive: true, force: true });
+  cpSync(page, served, { recursive: true });
+  const index = resolve(served, 'index.html');
+  const html = readFileSync(index, 'utf8');
+  if (!html.includes('</body>')) {
+    throw new Error('dist/index.html has no </body>, so the banner has nowhere to land');
+  }
+  writeFileSync(index, html.replace('</body>', `  ${FOOTER_ASIDE}\n  </body>`));
+  return served;
+}
 
 /**
  * The smallest CDP driver this needs: one page, evaluate, screenshot, device metrics.
@@ -309,11 +340,6 @@ async function launchChromium({ pointer = 'mouse' } = {}) {
   // be the focused one.
   await psend('Emulation.setFocusEmulationEnabled', { enabled: true });
   await psend('Page.addScriptToEvaluateOnNewDocument', { source: PICKER_STAND_IN });
-  if (FOOTER) {
-    await psend('Page.addScriptToEvaluateOnNewDocument', {
-      source: `window.addEventListener('DOMContentLoaded', () => { ${FOOTER_INJECTION} });`,
-    });
-  }
 
   return {
     send: psend,
@@ -336,8 +362,13 @@ async function launchChromium({ pointer = 'mouse' } = {}) {
       }
       return result.result?.value;
     },
-    async shot(name) {
-      const { data } = await psend('Page.captureScreenshot', { format: 'png' });
+    async shot(name, clip) {
+      // A clip crops the shot to the control the run is about, so a reviewer reads the chrome
+      // rather than hunting for it in a 1280 px page.
+      const { data } = await psend(
+        'Page.captureScreenshot',
+        clip === undefined ? { format: 'png' } : { format: 'png', clip },
+      );
       const path = resolve(OUT, name);
       writeFileSync(path, Buffer.from(data, 'base64'));
       return path;
@@ -437,17 +468,13 @@ const CHROME = `(() => {
   const text = (id) => document.getElementById(id)?.textContent ?? '';
   const leaf = (element) => element !== null && element.getClientRects().length > 0;
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => row.textContent.trim());
-  // The host's marker is a crown and not a word, so a row's own text cannot say which seat hosts:
-  // the mark is read off the row, and the text is kept beside it.
-  const roster = [...document.querySelectorAll('#roster li')].map(
-    (row) => row.textContent.trim() + (row.querySelector('.role') === null ? '' : '[crown]'),
-  );
   const rect = (element) => {
     if (element === null) return null;
     const box = element.getBoundingClientRect();
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width), height: Math.round(box.height) };
   };
-  const terms = document.getElementById('terms-link');
+  const terms = document.querySelector('body > aside a[href$="/terms"]');
+  const health = document.getElementById('health');
   const share = document.getElementById('share');
   const shareStyle = share === null ? null : getComputedStyle(share);
   return {
@@ -477,35 +504,293 @@ const CHROME = `(() => {
     copyControl: leaf(document.getElementById('share-group')),
     copyLabel: text('share-group') || document.querySelector('.share-label')?.textContent || '',
     leave: visible('leave') ? text('leave') : '',
-    // The bar's own facts: which session it is, and what the health dot is saying.
+    // The bar's own facts: which session it is, and whether a health state is painted at all — a
+    // healthy room draws nothing, so this is null on a room that is fine.
     sessionIdentity: text('session-identity'),
-    health: document.getElementById('health')?.dataset.health ?? null,
+    health: health?.dataset.health ?? null,
     healthLabel: text('health-label'),
+    healthPainted: health !== null && getComputedStyle(health).display !== 'none',
     // The panel's own edge, and whether it is drawn at all on this device.
     resizer: rect(document.getElementById('side-resizer')),
     resizerCollapsed: document.getElementById('side-resizer')?.dataset.collapsed ?? null,
     sideWidth: Math.round(document.getElementById('side')?.getBoundingClientRect().width ?? 0),
-    // The file strip: the open file's whole state in one line. innerText collapses the shell's own
-    // indentation, which textContent would report as the line's content.
+    // The file strip: the open file, and nothing else — the directory muted, the leaf bold.
     fileStrip: document.getElementById('file-strip')?.innerText ?? '',
-    fileStripChips: document.getElementById('file-strip-chips')?.innerText ?? '',
-    fileStripFollow: document.getElementById('file-strip-follow')?.innerText ?? '',
-    hostRow: roster.find((row) => /\[crown\]/.test(row)) ?? '',
-    roster,
+    fileStripIds: [...(document.getElementById('file-strip')?.querySelectorAll('[id]') ?? [])].map((node) => node.id),
     treeRows: rows,
     createRow: document.querySelectorAll('#tree .new-row').length,
-    localFolders: [...document.querySelectorAll('#tree .local')].map((tag) => tag.textContent),
-    // A row says "not fetched yet" while the room holds a path open and this window has no text
-    // for it, so this is the count of rows still waiting on the room — what a row wears now that
-    // the dot for "the text is here" is gone. (No backticks here: this is inside a template.)
-    unfetchedTags: document.querySelectorAll('#tree .pending-tag').length,
-    sessionNote: text('session-note'),
+    // The panel's own footer bar, and the words on its two verbs.
+    treeActions: document.getElementById('tree-actions')?.hidden === false
+      ? [...document.querySelectorAll('#tree-actions button')].map((button) => button.textContent ?? '')
+      : [],
+    // The folder rows: the glyphs they wear, the name they carry, and the badges of the peers inside.
+    folders: [...document.querySelectorAll('#tree details[data-dir] > summary')].map((summary) => ({
+      name: summary.querySelector('.label')?.textContent ?? '',
+      icons: [...summary.querySelectorAll('.icon.folder')].map((icon) => icon.className),
+      chevron: summary.querySelector('.chev') !== null,
+      badges: [...summary.querySelectorAll('.presence .badge')].map((badge) => badge.title),
+      open: summary.parentElement?.open === true,
+    })),
+    // No row states anything about the room any more: the tags and the refused-write mark are gone.
+    rowTags: document.querySelectorAll('#tree .empty-tag, #tree .pending-tag, #tree .unsaved').length,
+    rowMarks: [...document.querySelectorAll('#tree .label')].map((label) => label.textContent ?? ''),
+    rowHeights: [...document.querySelectorAll('#tree li')].slice(0, 6).map((row) => Math.round(row.getBoundingClientRect().height * 10) / 10),
+    leaveBox: rect(document.getElementById('leave')),
+    barBox: rect(document.getElementById('session')),
+    barText: rect(document.getElementById('brand')),
+    stripBox: rect(document.getElementById('file-strip')),
+    stripText: rect(document.getElementById('file-strip-path')),
+    sideBox: rect(document.getElementById('side')),
+    treeBox: rect(document.getElementById('tree')),
+    treeActionsBox: rect(document.getElementById('tree-actions')),
+    workspaceBox: rect(document.getElementById('workspace')),
+    notices: (() => {
+      const column = document.getElementById('notices');
+      if (column === null) return null;
+      const box = column.getBoundingClientRect();
+      const card = document.getElementById('session-card');
+      const more = document.getElementById('toasts-more');
+      const centre = { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+      const under = document.elementFromPoint(centre.x, centre.y);
+      return {
+        box: rect(column),
+        top: Math.round(box.top),
+        pointerEvents: getComputedStyle(column).pointerEvents,
+        // The order the column draws its four homes in, read off the document rather than assumed.
+        children: [...column.children].map((child) => child.id),
+        card: {
+          hidden: card === null || card.hidden,
+          tone: card?.dataset.tone ?? '',
+          msg: card?.querySelector('.msg')?.textContent ?? '',
+          when: card?.querySelector('.when')?.textContent ?? '',
+          spoken: card?.querySelector('.sr')?.textContent ?? '',
+          bar: card?.querySelector('.bar')?.style.transform ?? '',
+          barHidden: card?.querySelector('.bar')?.hidden ?? null,
+        },
+        toasts: [...document.querySelectorAll('#toasts .toast')].map((toast) => toast.textContent ?? ''),
+        more: more !== null && more.hidden === false ? more.textContent : null,
+        alert: text('alert'),
+        peek: text('peek'),
+        // What a click at the column's own centre lands on. The column says something and takes no
+        // click from what it covers, so this can never name the column itself.
+        under: under === null
+          ? null
+          : under.closest('#notices') === null
+            ? under.tagName.toLowerCase() + (under.id === '' ? '' : '#' + under.id)
+            : 'itself',
+      };
+    })(),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
     phonePanelOpen: document.getElementById('side')?.hidden !== true,
     termsLink: terms === null ? null : rect(terms),
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight && terms.getBoundingClientRect().top >= 0,
-    footer: rect(document.getElementById('demo-footer')),
+    footer: rect(document.querySelector('body > aside')),
+    // The panel's own foot: the deployment's link where the page carries one, and nothing at all
+    // where it does not. Its href is the deployment's, read off the deployment's own aside here, so
+    // the two can be compared rather than assumed.
+    panelFoot: (() => {
+      const foot = document.getElementById('side-foot');
+      const link = document.getElementById('side-terms');
+      if (foot === null || link === null) return null;
+      const style = getComputedStyle(link);
+      const deployed = document.querySelector('body > aside a[href$="/terms"]');
+      return {
+        hidden: foot.hidden,
+        text: link.textContent,
+        href: link.getAttribute('href'),
+        deploymentHref: deployed === null ? null : deployed.getAttribute('href'),
+        colour: style.color,
+        fontSize: style.fontSize,
+        align: getComputedStyle(foot).textAlign,
+        box: rect(foot),
+      };
+    })(),
     joinCard: rect(document.getElementById('join')),
+  };
+})()`;
+
+/**
+ * The faces in the session bar: what each one is read by, which marks it wears, the fill it is drawn
+ * in, and the size it is actually drawn at. The label and the title are the two readings a person has
+ * — one for a screen reader and one for a pointer — and the crown and the eye are pictures, so they
+ * are counted rather than read.
+ */
+const FACES = `(() => {
+  const faces = [...document.querySelectorAll('#faces .av')].map((face) => {
+    const box = face.getBoundingClientRect();
+    return {
+      label: face.getAttribute('aria-label') ?? '',
+      title: face.getAttribute('title') ?? '',
+      classes: face.className,
+      colour: getComputedStyle(face).backgroundColor,
+      crown: face.querySelector('.crown') !== null,
+      eye: face.querySelector('.eye') !== null,
+      expanded: face.getAttribute('aria-expanded'),
+      size: Math.round(box.width) + 'x' + Math.round(box.height),
+    };
+  });
+  const bar = document.getElementById('session');
+  const strip = document.getElementById('file-strip');
+  return {
+    faces,
+    group: document.getElementById('faces')?.getAttribute('aria-label') ?? '',
+    barHeight: Math.round(bar.getBoundingClientRect().height),
+    chromeHeight: Math.round(bar.getBoundingClientRect().height + strip.getBoundingClientRect().height),
+  };
+})()`;
+
+/**
+ * What the cluster costs the bar, measured the only way it can be: the same bar with the cluster
+ * hidden. The design's number is 0 px on a phone, and a bar that grew would be a bar that took a
+ * line from the editor for a row of faces.
+ *
+ * The face's own box is 34 px there, and its hit area is not its box: the target is 44 px tall from
+ * the 5 px laid above and below it — not to the sides, where the overlapping circles would take a
+ * neighbour's edge — so the readings that say so are what a point 3 px above and 3 px beside the
+ * edge land on.
+ */
+const BAR_COST = `(() => {
+  const bar = document.getElementById('session');
+  const faces = document.getElementById('faces');
+  const strip = document.getElementById('file-strip');
+  const withFaces = bar.getBoundingClientRect().height;
+  const chrome = withFaces + strip.getBoundingClientRect().height;
+  const display = faces.style.display;
+  faces.style.display = 'none';
+  const withoutFaces = bar.getBoundingClientRect().height;
+  faces.style.display = display;
+  const face = document.querySelector('#faces .av');
+  const box = face === null ? null : face.getBoundingClientRect();
+  const at = (x, y) => {
+    const node = document.elementFromPoint(x, y);
+    if (node === null) return null;
+    return (node.className === '' ? node.tagName : String(node.className)).toString();
+  };
+  const identity = document.getElementById('session-identity');
+  const truncated = () => identity !== null && identity.scrollWidth > identity.clientWidth + 1;
+  const identityTruncatedWithFaces = truncated();
+  const identityWithFaces = identity === null ? null : { width: Math.round(identity.clientWidth), needs: Math.round(identity.scrollWidth) };
+  faces.style.display = 'none';
+  const identityTruncatedWithoutFaces = truncated();
+  const identityWithoutFaces = identity === null ? null : { width: Math.round(identity.clientWidth), needs: Math.round(identity.scrollWidth) };
+  faces.style.display = display;
+  return {
+    identityTruncatedWithFaces,
+    identityTruncatedWithoutFaces,
+    identityWithFaces,
+    identityWithoutFaces,
+    barWithFaces: Math.round(withFaces),
+    barWithoutFaces: Math.round(withoutFaces),
+    added: Math.round(withFaces - withoutFaces),
+    chrome: Math.round(chrome),
+    barAfterRestore: Math.round(bar.getBoundingClientRect().height),
+    face: box === null ? null : { width: Math.round(box.width), height: Math.round(box.height) },
+    // Where the fingertip's 44 px comes from: a point outside the circle that still lands on it.
+    hitAbove: box === null ? null : at(Math.round(box.left + box.width / 2), Math.round(box.top - 3)),
+    hitLeft: box === null ? null : at(Math.round(box.left - 3), Math.round(box.top + box.height / 2)),
+  };
+})()`;
+
+/**
+ * Where focus is: on a face (its peer anchor), on a control in the dialog, or nowhere (the body).
+ * A redraw that replaces the focused element leaves `#faces` with nothing in focus, which is the
+ * body — the state three findings were about.
+ */
+const FOCUS = `(() => {
+  const active = document.activeElement;
+  const faces = document.getElementById('faces');
+  const menu = document.getElementById('menu');
+  return {
+    tag: active === null ? 'none' : active.tagName,
+    anchor: active?.getAttribute?.('data-anchor') ?? null,
+    label: active?.getAttribute?.('aria-label') ?? null,
+    onAFace: active !== null && faces !== null && faces.contains(active),
+    inTheMenu: active !== null && menu !== null && menu.contains(active),
+    onTheBody: active === document.body,
+  };
+})()`;
+
+/**
+ * The tap area a phone face actually gets: the columns of the neighbour beside your own seat that
+ * land on that neighbour, on the bar, or on a face that has no business taking the tap. A face's
+ * box is 34 px; the design's circles overlap, so what matters is how much of that box answers for
+ * the face rather than for the one it overlaps.
+ */
+const TAP_WIDTH = `(() => {
+  const faces = [...document.querySelectorAll('#faces .av')];
+  const own = faces.find((face) => face.classList.contains('me')) ?? faces[0];
+  const peer = faces[faces.indexOf(own) + 1];
+  if (peer === undefined) return null;
+  const box = peer.getBoundingClientRect();
+  const y = Math.round(box.top + box.height / 2);
+  const owner = new Map();
+  for (let x = Math.round(box.left); x < Math.round(box.right); x += 1) {
+    const at = document.elementFromPoint(x, y);
+    const face = at === null ? null : at.closest('#faces .av');
+    let key = 'none';
+    if (face === peer) key = 'peer';
+    else if (face === own) key = 'own';
+    else if (face !== null && face.classList.contains('more')) key = 'more';
+    else if (face !== null) key = 'other';
+    owner.set(key, (owner.get(key) ?? 0) + 1);
+  }
+  return { width: Math.round(box.width), columns: Math.round(box.width), ...Object.fromEntries(owner) };
+})()`;
+
+/** The way out on a phone: its box, and the words it still carries out of the paint. */
+const LEAVE = `(() => {
+  const button = document.getElementById('leave');
+  if (button === null) return null;
+  const box = button.getBoundingClientRect();
+  const label = button.querySelector('.label');
+  const icon = button.querySelector('.icon');
+  return {
+    text: button.textContent,
+    ariaLabel: button.getAttribute('aria-label'),
+    title: button.getAttribute('title'),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+    iconDrawn: icon !== null && getComputedStyle(icon).display !== 'none',
+    labelInTheDom: label !== null,
+    labelClipped: label !== null && getComputedStyle(label).position === 'absolute',
+  };
+})()`;
+
+/**
+ * The open dialog: what it is read by, what it says about the person, the acts it offers, and where
+ * it stands against the face it came from.
+ */
+const MENU = `(() => {
+  const menu = document.getElementById('menu');
+  if (menu === null) return null;
+  const box = menu.getBoundingClientRect();
+  const anchor = document.querySelector('#faces [aria-expanded="true"]');
+  const at = anchor === null ? null : anchor.getBoundingClientRect();
+  const active = document.activeElement;
+  return {
+    label: menu.getAttribute('aria-label'),
+    role: menu.getAttribute('role'),
+    head: (menu.querySelector('.head')?.innerText ?? '').trim(),
+    where: (menu.querySelector('.where')?.textContent ?? '').trim(),
+    acts: [...menu.querySelectorAll('.acts button')].map((button) => ({
+      text: (button.textContent ?? '').trim(),
+      pressed: button.getAttribute('aria-pressed'),
+      title: button.getAttribute('title'),
+      disabled: button.disabled,
+    })),
+    waiting: (menu.querySelector('.waiting')?.textContent ?? '').trim(),
+    refusal: (menu.querySelector('.refusal')?.textContent ?? '').trim(),
+    back: (menu.querySelector('.back')?.textContent ?? '').trim(),
+    rows: [...menu.querySelectorAll('.list button')].map((row) => row.getAttribute('aria-label')),
+    focus:
+      active === null || active === document.body
+        ? null
+        : (active.getAttribute('aria-label') ?? (active.textContent ?? '').trim()).slice(0, 40) || active.tagName,
+    placement: {
+      gapUnderTheFace: at === null ? null : Math.round(box.top - at.bottom),
+      rightEdgeOnTheFace: at === null ? null : Math.round(box.right) === Math.round(at.right),
+      insideTheFrame: box.left >= 0 && box.right <= window.innerWidth,
+    },
   };
 })()`;
 
@@ -519,13 +804,13 @@ const PREJOIN = `(() => {
     const box = element.getBoundingClientRect();
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), height: Math.round(box.height) };
   };
-  const terms = document.getElementById('terms-link');
+  const terms = document.querySelector('body > aside a[href$="/terms"]');
   const card = document.getElementById('join');
   const atTerms = terms === null ? null : document.elementFromPoint(terms.getBoundingClientRect().left + 4, terms.getBoundingClientRect().top + 8);
   return {
     viewport: { width: window.innerWidth, height: window.innerHeight },
     card: rect(card),
-    footer: rect(document.getElementById('demo-footer')),
+    footer: rect(document.querySelector('body > aside')),
     termsLink: rect(terms),
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight,
     overTheTermsLink: atTerms === null ? null : atTerms.tagName + (atTerms.id === '' ? '' : '#' + atTerms.id),
@@ -563,11 +848,7 @@ const EMPTY_PANE = `(() => {
 const GUEST_ROWS = `(() => {
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => ({
     text: (row.textContent ?? '').trim(),
-    // The room holds the row open and this window has no text for it yet: the one state a fetch
-    // moves, and the row's reading of the dot this driver used to key on.
-    pending: row.querySelector('.pending-tag') !== null,
-    emptyTag: row.querySelector('.empty-tag') !== null,
-    download: row.querySelector('.download') !== null,
+    download: row.parentElement?.querySelector('.download') !== null && row.parentElement !== null,
   }));
   const strip = document.getElementById('file-strip')?.innerText ?? '';
   // The panel's own state, which is what tells a fetch that shut it from one that left it standing:
@@ -675,12 +956,233 @@ async function hostAndOpen(page, server) {
   return openedPath;
 }
 
+/**
+ * What the design fixes, in px, as the prototype draws it at this width. Every number here was
+ * measured off the prototype in a browser (`ai_notes/.tmp/presence-prototype/index.html`, 1280 wide)
+ * and is what a run of this driver checks the page against.
+ */
+const DESIGN_DESKTOP = {
+  bar: 57.8,
+  strip: 38.8,
+  side: 336,
+  leave: 30.1,
+  treeActions: 43.4,
+};
+
+/** The same, at 390x844: the phone's row, its bar, its strip, and the two text edges. */
+const DESIGN_PHONE = {
+  row: 44,
+  bar: 111.4,
+  strip: 44,
+  chrome: 155,
+  barText: 10.5,
+  stripText: 9.45,
+};
+
+/** Within half a pixel, which is all a layout can be compared at. */
+function near(measured, design, tolerance = 0.5) {
+  return typeof measured === 'number' && Math.abs(measured - design) <= tolerance;
+}
+
+/** Catppuccin Mocha's Mauve, as the browser reports a background colour. */
+const MOCHA_MAUVE = 'rgb(203, 166, 247)';
+
+/**
+ * The seats' fills, read off what the browser painted: the host's seat Mauve and no two faces sharing
+ * a fill. The prototype's own rule — the host takes Mauve, the seat beside it Teal, the rest the
+ * accents in order — is a fact about the pixels rather than about the stylesheet, and a room of six
+ * is where the old eight-colour hash showed three faces in one fill.
+ */
+function checkSeats(faces, failures) {
+  const seats = (faces ?? []).filter((face) => !face.classes.includes('more'));
+  const host = seats.find((face) => /, host|host$/.test(face.label));
+  if (host === undefined) {
+    failures.push('no face in the bar wears the host’s crown');
+    return;
+  }
+  if (host.colour !== MOCHA_MAUVE) {
+    failures.push(`the host’s face is filled ${host.colour}, and the design draws the host’s seat Mauve`);
+  }
+  const fills = seats.map((face) => face.colour);
+  if (new Set(fills).size !== fills.length) {
+    failures.push(`two faces share a fill: ${JSON.stringify(fills)}`);
+  }
+}
+
+/**
+ * The panel's foot: shown over the deployment's own link when the page carries one, and shown not at
+ * all when it does not — a self-hosted copy must not be handed a link to nowhere.
+ */
+function checkPanelFoot(chrome, failures) {
+  const foot = chrome.panelFoot;
+  if (foot === null || foot === undefined) {
+    failures.push('the panel draws no foot at all');
+    return;
+  }
+  if (foot.text !== 'Terms') {
+    failures.push(`the panel’s foot reads ${JSON.stringify(foot.text)}, and the design draws Terms`);
+  }
+  if (FOOTER) {
+    if (foot.hidden === true) {
+      failures.push('the panel’s foot is hidden over a deployment that carries a terms link');
+    }
+    if (foot.href !== foot.deploymentHref || foot.href === null) {
+      failures.push(`the panel’s foot points at ${foot.href}, and the deployment’s own link at ${foot.deploymentHref}`);
+    }
+  } else if (foot.hidden !== true) {
+    failures.push('the panel’s foot is shown on a page that carries no terms link');
+  }
+}
+
+/**
+ * The chrome the design fixes, checked against the prototype's own numbers. A shot shows a person
+ * whether it looks right; these say whether it measures right, and a miss is reported rather than
+ * left in a photograph nobody measures.
+ */
+function checkDesktopChrome(chrome, failures) {
+  const bar = chrome.barBox?.height;
+  const strip = chrome.stripBox?.height;
+  const side = chrome.sideBox?.width;
+  const leave = chrome.leaveBox;
+  const actions = chrome.treeActionsBox?.height;
+  const said = [
+    ['the session bar', bar, DESIGN_DESKTOP.bar],
+    ['the file strip', strip, DESIGN_DESKTOP.strip],
+    ['the panel', side, DESIGN_DESKTOP.side],
+    ['the way out', leave?.height, DESIGN_DESKTOP.leave],
+    ['the panel’s create bar', actions, DESIGN_DESKTOP.treeActions],
+  ];
+  for (const [what, measured, design] of said) {
+    if (!near(measured, design)) {
+      failures.push(`${what} measures ${measured} px, and the design draws ${design}`);
+    }
+  }
+  if (leave?.width !== leave?.height) {
+    failures.push(`the way out is ${leave?.width}x${leave?.height}, and the design draws a square`);
+  }
+  if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
+    failures.push(`the strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
+  }
+  if (chrome.rowTags !== 0) {
+    failures.push(`a tree row still wears a mark: ${chrome.rowTags} of them`);
+  }
+  if (chrome.healthPainted === true && chrome.health === 'ok') {
+    failures.push('a healthy room paints a health control');
+  }
+  for (const folder of chrome.folders ?? []) {
+    if (folder.chevron === true) failures.push(`${folder.name} still draws a chevron`);
+    if (!folder.name.endsWith('/')) failures.push(`${folder.name} is not named as a folder`);
+    if ((folder.icons ?? []).length !== 2) failures.push(`${folder.name} draws ${folder.icons?.length} folder glyphs`);
+  }
+  checkPanelFoot(chrome, failures);
+  checkNotices(chrome, failures, { phone: false });
+}
+
+/**
+ * The notices column: where it stands, that it takes no click, and that nothing under it moved.
+ *
+ * The design floats one column in the top-right corner over the workspace. Every number here is one
+ * the prototype itself sets: `top` is the bar's own height plus ten, the phone's is that plus the
+ * strip it stretches under, and the column never takes a pointer event from what it covers.
+ */
+function checkNotices(chrome, failures, { phone }) {
+  const notices = chrome.notices;
+  if (notices === null || notices === undefined) {
+    failures.push('the page has no notices column');
+    return;
+  }
+  const bar = chrome.barBox;
+  const strip = chrome.stripBox;
+  const expected = (bar?.bottom ?? 0) + (phone ? strip?.height ?? 0 : 0) + 10;
+  if (Math.abs((notices.top ?? 0) - expected) > 1) {
+    failures.push(`the notices column starts at ${notices.top} px, and the bar ${phone ? 'and strip ' : ''}end at ${expected} px`);
+  }
+  // The workspace begins where the bar ends: a column that pushed it down would show here.
+  if (chrome.workspaceBox !== null && chrome.workspaceBox !== undefined && Math.abs(chrome.workspaceBox.top - (bar?.bottom ?? 0)) > 1) {
+    failures.push(`the workspace starts at ${chrome.workspaceBox.top} px and the bar ends at ${bar?.bottom} px, so something is pushing it down`);
+  }
+  if (notices.pointerEvents !== 'none') {
+    failures.push(`the notices column answers ${notices.pointerEvents} to a pointer, and the design takes none`);
+  }
+  if (notices.under === 'itself') {
+    failures.push('a click at the notices column’s own centre lands on the column');
+  }
+  const order = (notices.children ?? []).join(',');
+  if (order !== 'session-card,alert,peek,toasts,toasts-more') {
+    failures.push(`the notices column draws ${order}, and the design puts the card, the two transients and the toasts in it`);
+  }
+  if (phone) {
+    const viewport = chrome.environment?.viewport?.width ?? 0;
+    if (Math.abs((notices.box?.left ?? 0) - 12) > 1 || Math.abs(viewport - (notices.box?.right ?? 0) - 12) > 1) {
+      failures.push(`the phone’s notices column runs ${notices.box?.left}..${notices.box?.right} of ${viewport} px, and the design stretches it to 12 px at either edge`);
+    }
+  } else if (Math.abs((chrome.environment?.viewport?.width ?? 0) - (notices.box?.right ?? 0) - 12) > 1) {
+    failures.push(`the notices column ends ${(chrome.environment?.viewport?.width ?? 0) - (notices.box?.right ?? 0)} px off the right edge, and the design puts it at 12`);
+  }
+}
+
+/** The phone's own numbers, from the same prototype at 390x844. */
+function checkPhoneChrome(chrome, failures) {
+  const rows = chrome.rowHeights ?? [];
+  const bar = chrome.barBox;
+  const strip = chrome.stripBox;
+  const barText = chrome.barText === null || chrome.barText === undefined ? null : chrome.barText.left - (bar?.left ?? 0);
+  const stripText = chrome.stripText === null || chrome.stripText === undefined ? null : chrome.stripText.left - (strip?.left ?? 0);
+  if (rows.length === 0) {
+    failures.push('the phone’s panel draws no rows to measure');
+  }
+  for (const height of rows) {
+    if (!near(height, DESIGN_PHONE.row, 1)) {
+      failures.push(`a phone tree row measures ${height} px, and the design draws ${DESIGN_PHONE.row}`);
+    }
+  }
+  if (!near(bar?.height, DESIGN_PHONE.bar, 1)) failures.push(`the phone bar measures ${bar?.height} px, not ${DESIGN_PHONE.bar}`);
+  if (!near(strip?.height, DESIGN_PHONE.strip, 1)) failures.push(`the phone strip measures ${strip?.height} px, not ${DESIGN_PHONE.strip}`);
+  if (!near(barText, DESIGN_PHONE.barText, 1)) failures.push(`the phone bar’s text starts ${barText} px in, not ${DESIGN_PHONE.barText}`);
+  if (!near(stripText, DESIGN_PHONE.stripText, 1)) failures.push(`the phone strip’s text starts ${stripText} px in, not ${DESIGN_PHONE.stripText}`);
+  if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
+    failures.push(`the phone’s strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
+  }
+  checkPanelFoot(chrome, failures);
+  checkNotices(chrome, failures, { phone: true });
+}
+
 /** The desktop shots, in the mouse browser: the layout a real pointer gets, and every new control. */
 async function reviewDesktop(page, server, written, failures) {
   const openedPath = await hostAndOpen(page, server);
   const chrome = await page.evaluate(CHROME);
   log('desktop chrome:', JSON.stringify(chrome));
+  checkDesktopChrome(chrome, failures);
+  log(
+    'the design’s numbers: bar',
+    chrome.barBox?.height,
+    'strip',
+    chrome.stripBox?.height,
+    'panel',
+    chrome.sideBox?.width,
+    'way out',
+    `${chrome.leaveBox?.width}x${chrome.leaveBox?.height}`,
+    'create bar',
+    chrome.treeActionsBox?.height,
+  );
+  log('the panel’s verbs:', JSON.stringify(chrome.treeActions), 'the folders:', JSON.stringify(chrome.folders));
   log('wrote', await record(written, page, '01-in-room-desktop.png'));
+  // And the two pieces of chrome this wave changed, cropped so they can be read: the panel with its
+  // folder rows and its create bar, and the session bar with the way out and no health dot.
+  for (const [name, box] of [
+    ['01b-panel.png', chrome.sideBox],
+    ['01c-session-bar.png', chrome.barBox],
+  ]) {
+    if (box === null || box === undefined) {
+      failures.push(`${name} has no box to crop to`);
+      continue;
+    }
+    written.push(name);
+    log(
+      'wrote the crop',
+      await page.shot(name, { x: box.left, y: box.top, width: box.width, height: box.height, scale: 1 }),
+    );
+  }
   const facts = { chrome };
 
   // The create row, refused and previewed. Two states of the same line: a name this room cannot
@@ -736,97 +1238,289 @@ async function reviewDesktop(page, server, written, failures) {
   // Cancel the create row before the rest, so nothing else photographs it.
   await page.evaluate(`document.querySelector('#tree .new-cancel')?.click()`);
 
-  // The own-name edit, asked for the way a person asks: the self row's Rename.
+  // The own-name edit, asked for the way a person asks: your own face in the bar, then Rename in
+  // the menu it opens.
+  await page.evaluate(`document.querySelector('#faces .av.me').click()`);
+  await waitFor(
+    page,
+    'the menu your own face opens',
+    `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+    (label) => label === 'Ada',
+  );
   await page.evaluate(`(() => {
-    const row = document.querySelector('#roster li.self');
-    // The own row's one control. Its label is a word and its aria-label is the sentence a screen
-    // reader reads, so it is found by its own text.
-    const button = [...row.querySelectorAll('button')].find((candidate) => /Rename/.test(candidate.textContent ?? ''));
+    const button = [...document.querySelectorAll('#menu button')].find((candidate) => /Rename/.test(candidate.textContent ?? ''));
     button.click();
     return button.textContent;
   })()`);
   await waitFor(
     page,
     'the rename field and its two controls',
-    `[document.querySelectorAll('#roster .rename').length, document.querySelectorAll('#roster .rename-save').length, document.querySelectorAll('#roster .rename-cancel').length].join(',')`,
+    `[document.querySelectorAll('#menu .rename').length, document.querySelectorAll('#menu .rename-save').length, document.querySelectorAll('#menu .rename-cancel').length].join(',')`,
     (counts) => counts === '1,1,1',
   );
   await delay(300);
+  facts.ownMenu = await page.evaluate(MENU);
+  log('your own menu, with the edit open:', JSON.stringify(facts.ownMenu));
   log('wrote', await record(written, page, '04-rename-field-open.png'));
-  await page.evaluate(`document.querySelector('#roster .rename-cancel')?.click()`);
+  await page.evaluate(`document.querySelector('#menu .rename-cancel')?.click()`);
   await delay(200);
+  // Escape closes the dialog and puts focus back on the face it came from: the menu is a dialog, and
+  // a dialog that closed onto nothing is a person who has to find their place again.
+  facts.afterEscape = await page.evaluate(`(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const face = document.querySelector('#faces .av.me');
+    return { menu: document.getElementById('menu') === null ? 'closed' : 'open', focused: document.activeElement === face };
+  })()`);
+  log('Escape on the menu:', JSON.stringify(facts.afterEscape));
 
-  // A second peer, the shape a guest has: the real engine over the real wire, one caret in the file
-  // the page has open, and a follow to watch the strip's follow segment.
+  // A press that lands outside the dialog takes it down, and it is the same press that moves the
+  // caret: the person asked for the editor, and the dialog is not between them and it.
+  await page.evaluate(`document.querySelector('#faces .av.me').click()`);
+  await waitFor(
+    page,
+    'your own menu again',
+    `document.getElementById('menu') === null ? null : 'open'`,
+    (open) => open === 'open',
+  );
+  const editorPoint = await page.evaluate(`(() => {
+    const box = document.querySelector('.monaco-editor')?.getBoundingClientRect();
+    return box === undefined ? null : { x: Math.round(box.left + 80), y: Math.round(box.top + 70) };
+  })()`);
+  if (editorPoint !== null) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: editorPoint.x, y: editorPoint.y, button: 'left', clickCount: 1 });
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: editorPoint.x, y: editorPoint.y, button: 'left', clickCount: 1 });
+    await delay(200);
+    facts.afterOutsidePress = await page.evaluate(`(() => ({
+      menu: document.getElementById('menu') === null ? 'closed' : 'open',
+      focused: document.activeElement === null ? 'none' : (document.activeElement.tagName + '.' + String(document.activeElement.className).split(' ')[0]),
+    }))()`);
+    log('a press outside the menu:', JSON.stringify(facts.afterOutsidePress));
+    if (facts.afterOutsidePress.menu !== 'closed') {
+      failures.push('a press outside the dialog left it open');
+    }
+  }
+
+  // The room fills: the real engines over the real wire, one caret each in the file the page has
+  // open. Five seats beside the host's own is one more than a desktop bar shows, which is what puts
+  // the `+N` on the bar — and what the followed face has to be pinned out from behind.
   const invite = await copyInvite(page, server.origin);
-  const guest = await PeerEngine.join({
-    invite,
-    displayName: 'Bob',
-    webSocketFactory: nativeWebSocketFactory,
-  });
+  const guests = [];
   try {
-    guest.setSelection(openedPath, { anchor: 0, head: 3 });
+    for (const displayName of ['Bob', 'Carla', 'Dee', 'Emil', 'Fay']) {
+      const engine = await PeerEngine.join({
+        invite,
+        displayName,
+        webSocketFactory: nativeWebSocketFactory,
+      });
+      guests.push(engine);
+      // Opened, not only selected: a path is what the room reads off the peer, and a menu with no
+      // `Go to` in it is a menu with nothing to photograph.
+      await engine.open(openedPath);
+      engine.setSelection(openedPath, { anchor: 0, head: 3 });
+    }
     await waitFor(
       page,
-      'the second peer in the roster',
-      `[...document.querySelectorAll('#roster li')].some((row) => /Bob/.test(row.textContent ?? ''))`,
-      (there) => there === true,
+      'four faces and the +N over the rest',
+      `document.querySelectorAll('#faces .av').length`,
+      (count) => count === 5,
     );
+    await delay(300);
+    facts.faces = await page.evaluate(FACES);
+    facts.hostFace = facts.faces.faces.find((face) => /, host/.test(face.label))?.label ?? '';
+    checkSeats(facts.faces.faces, failures);
+    // The same reading the phone takes, on a pointer device's bar: the cluster's own cost there.
+    facts.barCost = await page.evaluate(BAR_COST);
+    log('the faces in the bar:', JSON.stringify(facts.faces));
+    log('what the faces cost the bar:', JSON.stringify(facts.barCost));
+    log('wrote', await record(written, page, '16-faces-in-the-bar.png'));
+
+    // Bob's menu, from his own face: where he is, `Go to`, and `Follow`.
     await page.evaluate(`(() => {
-      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-      const button = [...row.querySelectorAll('button')].find((candidate) => /Follow/.test(candidate.textContent ?? ''));
-      button.click();
-      return button.textContent;
+      const face = [...document.querySelectorAll('#faces .av')].find((candidate) =>
+        (candidate.getAttribute('aria-label') ?? '').startsWith('Bob'),
+      );
+      face.click();
+      return true;
     })()`);
-    const followed = await waitFor(
+    await waitFor(
       page,
-      'the follow segment in the file strip',
-      `document.getElementById('file-strip-follow')?.innerText ?? ''`,
-      (text) => /Bob/.test(text),
+      'Bob’s menu',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Bob',
     );
-    facts.followSegment = followed;
-    // The same state from the other side: the roster row's toggle, pressed, and what pressing it
-    // again does. Read from the row rather than assumed, because the strip's segment is the two of
-    // them agreeing and only one of them is a control.
-    facts.rosterToggle = await page.evaluate(`(() => {
-      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-      const button = [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
-      if (button === undefined) return null;
-      return {
-        text: (button.textContent ?? '').trim(),
-        pressed: button.getAttribute('aria-pressed'),
-        title: button.getAttribute('title'),
-        disabled: button.disabled,
-      };
-    })()`);
-    log('following:', JSON.stringify(followed), 'the roster toggle:', JSON.stringify(facts.rosterToggle));
-    await delay(400);
-    log('wrote', await record(written, page, '05-following-a-peer.png'));
-    // Pressing the pressed toggle stops the follow, which is the whole of the toggle: the state is
-    // what the row reads, and the press is what it does.
-    facts.rosterToggleAfterPress = await page.evaluate(`(() => {
-      const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-      const button = [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
+    await delay(300);
+    facts.personMenu = await page.evaluate(MENU);
+    log('a person’s menu:', JSON.stringify(facts.personMenu));
+    log('wrote', await record(written, page, '17-person-menu.png'));
+
+    // Follow, from the menu. The state is the followed face's own ring and its eye — the strip's
+    // segment is gone, and the design draws the follow on the face — and the press takes the dialog
+    // down, so what follows is the bar showing the follow it turned on.
+    await page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('#menu button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
       button.click();
       return true;
     })()`);
-    facts.afterTogglePress = await waitFor(
+    const followed = await waitFor(
       page,
-      'the follow to end when the pressed toggle is pressed',
+      'the followed face to wear its ring and its eye',
       `(() => {
-        const row = [...document.querySelectorAll('#roster li')].find((candidate) => /Bob/.test(candidate.textContent ?? ''));
-        const button = row === undefined ? undefined : [...row.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-pressed') !== null);
-        return {
-          pressed: button === undefined ? null : button.getAttribute('aria-pressed'),
-          text: button === undefined ? '' : (button.textContent ?? '').trim(),
-          strip: document.getElementById('file-strip-follow')?.innerText ?? '',
+        const face = [...document.querySelectorAll('#faces .av')].find((candidate) => (candidate.getAttribute('aria-label') ?? '').startsWith('Bob'));
+        return face === undefined ? null : {
+          label: face.getAttribute('aria-label'),
+          classes: face.className,
+          eye: face.querySelector('.eye') !== null,
         };
       })()`,
-      (state) => state.pressed === 'false',
+      (read) => read !== null && read.classes.includes('followed') && read.eye === true,
     );
-    log('the toggle pressed again:', JSON.stringify(facts.afterTogglePress));
+    facts.followMark = followed;
+    facts.menuClosedOnFollow = await page.evaluate(`document.getElementById('menu') === null`);
+    facts.following = await page.evaluate(FACES);
+    log('following:', JSON.stringify(followed), 'the faces:', JSON.stringify(facts.following));
+    await delay(400);
+    log('wrote', await record(written, page, '05-following-a-peer.png'));
+
+    // A follow from the menu leaves focus on the followed face: the anchor face the press came
+    // from, which the follow pins into the strip. A redraw that replaced the faces without putting
+    // it back left focus on the body, and the next Tab started from the top of the page.
+    facts.followFocus = await page.evaluate(FOCUS);
+    log('focus after following from the menu:', JSON.stringify(facts.followFocus));
+    const followedFace = facts.following.faces.find((face) => face.classes.includes('followed'));
+    if (facts.followFocus.onAFace !== true || facts.followFocus.label !== followedFace?.label) {
+      failures.push(`following from the menu left focus on ${JSON.stringify(facts.followFocus)}, not the followed face ${JSON.stringify(followedFace?.label)}`);
+    }
+
+    // And a face keeps focus while somebody else types: a presence frame lands on every keystroke
+    // and every face is drawn again. Focus one, move a peer's caret, and read it back.
+    facts.carlaFocused = await page.evaluate(`(() => {
+      const face = [...document.querySelectorAll('#faces .av')].find((candidate) => (candidate.getAttribute('aria-label') ?? '').startsWith('Carla'));
+      face.focus();
+      return document.activeElement === face;
+    })()`);
+    guests[0].setSelection(openedPath, { anchor: 12, head: 13 });
+    await delay(700);
+    facts.focusWhileATypingPeer = await page.evaluate(FOCUS);
+    log('focus while a peer types:', JSON.stringify(facts.focusWhileATypingPeer));
+    if ((facts.focusWhileATypingPeer.label ?? '').startsWith('Carla') !== true) {
+      failures.push(`a peer's presence frame dropped focus to ${JSON.stringify(facts.focusWhileATypingPeer)}`);
+    }
+
+    // Everyone in the room: the `+N` opens the list, and a row opens that person's menu with the way
+    // back to the list in it. Fay is the last seat, so she is one of the faces the bar counted away.
+    await page.evaluate(`document.querySelector('#faces .av.more').click()`);
+    await waitFor(
+      page,
+      'the list of everyone',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Everyone in the room',
+    );
+    await delay(300);
+    facts.everyone = await page.evaluate(MENU);
+    log('everyone in the room:', JSON.stringify(facts.everyone));
+    log('wrote', await record(written, page, '18-everyone-in-the-room.png'));
+
+    await page.evaluate(`(() => {
+      const row = [...document.querySelectorAll('#menu .list button')].find((candidate) =>
+        (candidate.getAttribute('aria-label') ?? '').startsWith('Fay'),
+      );
+      row.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'Fay’s menu, opened from the list',
+      `document.getElementById('menu')?.querySelector('.back')?.textContent ?? null`,
+      (back) => back === 'Everyone in the room',
+    );
+    await delay(300);
+    facts.menuFromTheList = await page.evaluate(MENU);
+    log('a person’s menu, opened from the list:', JSON.stringify(facts.menuFromTheList));
+    log('wrote', await record(written, page, '19-menu-from-the-list.png'));
+
+    // The way back puts focus on the row the person was picked from, which is the row they are
+    // looking for when the list returns.
+    facts.backToList = await page.evaluate(`(() => {
+      document.querySelector('#menu .back').click();
+      const active = document.activeElement;
+      const rows = [...document.querySelectorAll('#menu .list button')];
+      const picked = rows.find((row) => (row.getAttribute('aria-label') ?? '').startsWith('Fay'));
+      return {
+        label: document.getElementById('menu')?.getAttribute('aria-label') ?? null,
+        rows: rows.map((row) => (row.getAttribute('aria-label') ?? '').split(',')[0]),
+        focusIsThePickedRow: active === picked,
+      };
+    })()`);
+    log('back to the list:', JSON.stringify(facts.backToList));
+
+    // Follow the seat the bar counted away: the ring is the one place a follow shows on the bar, so
+    // the face wearing it takes the last shown slot instead of staying behind the count.
+    await page.evaluate(`(() => {
+      const row = [...document.querySelectorAll('#menu .list button')].find((candidate) =>
+        (candidate.getAttribute('aria-label') ?? '').startsWith('Fay'),
+      );
+      row.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'Fay’s menu again',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Fay',
+    );
+    await page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('#menu button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
+      button.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'the followed face to be pinned onto the bar',
+      `document.querySelector('#faces .av[aria-label^="Fay"]') === null ? null : 'shown'`,
+      (shown) => shown === 'shown',
+    );
+    facts.pinnedFollowing = await page.evaluate(FACES);
+    log('following a face that was behind the count:', JSON.stringify(facts.pinnedFollowing));
+    // The last *face*, not the last button: the `+N` stands after every face it counts.
+    const shownNow = facts.pinnedFollowing.faces.filter((face) => !face.classes.includes('more'));
+    if (!/^Fay, following$/.test(shownNow.at(-1)?.label ?? '')) {
+      failures.push(
+        `the followed face is not the last one shown: ${JSON.stringify(facts.pinnedFollowing.faces.map((face) => face.label))}`,
+      );
+    }
+    await delay(400);
+    log('wrote', await record(written, page, '20-following-a-pinned-face.png'));
+
+    // One peer into the folder the run seeded, for the one thing a shot of the panel has to show: a
+    // shut folder wearing the badges of the peers inside it, which is what the design draws where
+    // this page used to draw nothing.
+    await guests[0].open('src/main.ts');
+    // The presence path is what the row is drawn from, and it is published with the caret: an open
+    // alone takes the hold and says nothing about where the peer is.
+    guests[0].setSelection('src/main.ts', { anchor: 0, head: 3 });
+    await waitFor(
+      page,
+      'the folder’s own badges',
+      `document.querySelectorAll('#tree details[data-dir="src"] summary .badge').length`,
+      (count) => count > 0,
+    );
+    await delay(400);
+    const panelBox = await page.evaluate(`(() => {
+      const box = document.getElementById('side').getBoundingClientRect();
+      return { x: box.left, y: box.top, width: box.width, height: box.height };
+    })()`);
+    facts.panelFolders = await page.evaluate(`[...document.querySelectorAll('#tree details[data-dir] > summary')].map((summary) => ({
+      name: summary.querySelector('.label')?.textContent ?? '',
+      open: summary.parentElement?.open === true,
+      badges: [...summary.querySelectorAll('.badge')].map((badge) => badge.title),
+    }))`);
+    log('the folder with a peer in it:', JSON.stringify(facts.panelFolders));
+    written.push('16b-panel-with-a-room.png');
+    log('wrote the panel with a room in it:', await page.shot('16b-panel-with-a-room.png', { ...panelBox, scale: 1 }));
   } finally {
-    await guest.disconnect();
+    for (const engine of guests) {
+      await engine.disconnect();
+    }
   }
 
   // The pill under a held hover, and what a pointer could read off it: the room key must not be
@@ -934,15 +1628,9 @@ async function reviewDesktop(page, server, written, failures) {
   const readEditor = `[...document.querySelectorAll('.monaco-editor .view-line')]
     .map((line) => (line.textContent ?? '').replace(/\\u00a0/g, ' '))
     .join('\\n')`;
-  // The row's own refusal mark, which is what the page shows when a write did not land.
-  const readWarned = `(() => {
-    const wanted = ${JSON.stringify(openedPath)};
-    const leaf = wanted.slice(wanted.lastIndexOf('/') + 1);
-    const row = [...document.querySelectorAll('#tree button.row')].find((candidate) =>
-      [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
-    );
-    return row !== undefined && row.querySelector('.unsaved') !== null;
-  })()`;
+  // The page's own transient line, which is where a refused write lands: the row wears no mark for
+  // it any more, and the sentence stands until its own clock takes it down.
+  const readWarned = `document.getElementById('alert')?.textContent ?? ''`;
   const editorBox = await page.evaluate(`(() => {
     const box = document.querySelector('.monaco-editor')?.getBoundingClientRect();
     return box === undefined || box === null
@@ -952,9 +1640,10 @@ async function reviewDesktop(page, server, written, failures) {
   const before = await page.evaluate(readFolder);
   const alreadyThere = before.includes(marker);
   // The precondition the check rests on: nothing else has written this file yet. The only other
-  // writer is the bridge's own save, which fires on an edit the *room* made, and this window's peer
-  // left before the typing started — so a file that no longer holds what the picker seeded it with
-  // would mean the change the check is about to see was not this window's own.
+  // writer is the bridge's own save, which fires on an edit the *room* made; the peers this run
+  // joined hold a selection each and type nothing. A file that no longer holds what the picker
+  // seeded it with is therefore caught here, before the check can mistake it for this window's own
+  // write.
   if (before !== SEED[openedPath]) {
     failures.push(
       `${openedPath} was already ${JSON.stringify(before)} before the host typed, so this check cannot tell the host\u2019s own write from another`,
@@ -988,7 +1677,7 @@ async function reviewDesktop(page, server, written, failures) {
         5_000,
       );
       // The write landed. What it landed is the whole of the claim: the file on disk is the text the
-      // editor holds, and the page did not mark the row as refused.
+      // editor holds, and the page said nothing about a refusal.
       const onDisk = await page.evaluate(readFolder);
       const inEditor = await page.evaluate(readEditor);
       const warned = await page.evaluate(readWarned);
@@ -998,7 +1687,7 @@ async function reviewDesktop(page, server, written, failures) {
         path: openedPath,
         reachedTheFolder: true,
         equalsEditor,
-        warnedOnRow: warned,
+        said: warned,
         alreadyThere,
       };
       if (!equalsEditor) {
@@ -1006,8 +1695,10 @@ async function reviewDesktop(page, server, written, failures) {
           `the host\u2019s own edit: ${openedPath} on disk is not what the editor holds (file ${JSON.stringify(onDisk)}, editor ${JSON.stringify(inEditor)})`,
         );
       }
-      if (warned) {
-        failures.push(`the host\u2019s own edit: ${openedPath} wears a refusal mark although its write landed`);
+      if (warned.includes(openedPath)) {
+        failures.push(
+          `the host\u2019s own edit: the page says ${JSON.stringify(warned)} about ${openedPath}, and the write landed`,
+        );
       }
     } catch (error) {
       facts.hostWriteBack = {
@@ -1021,11 +1712,11 @@ async function reviewDesktop(page, server, written, failures) {
     }
   }
   log('the host\u2019s own edit and the folder:', JSON.stringify(facts.hostWriteBack));
-  return { facts, invite };
+  return { facts, invite, openedPath };
 }
 
 /** The touch shots, in the touch browser: the phone's layout, and a guest fetching a file to save. */
-async function reviewTouch(page, server, invite, written, ...hostPages) {
+async function reviewTouch(page, server, invite, written, openedPath, failures) {
   const facts = {};
   if (FOOTER) {
     // The finding this stands for: the reviewer's phone shot of a guest card, with the notice the
@@ -1045,6 +1736,27 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
     log('wrote', await record(written, page, '03-prejoin-phone-with-footer.png'));
   }
 
+  // The phone as a host, before it joins anywhere as a guest: the session's own name is the host's
+  // `Sharing “project”`, and it is the bar's identity — whole, or cut by the faces and the way out
+  // beside it — that the way out's width decides. This is the state the design measures whole.
+  await page.setViewport(PHONE, { touch: true });
+  await hostAndOpen(page, server);
+  await delay(400);
+  facts.hostPhoneBar = await page.evaluate(BAR_COST);
+  facts.hostPhoneLeave = await page.evaluate(LEAVE);
+  facts.hostPhoneTap = await page.evaluate(TAP_WIDTH);
+  log('the host phone’s bar:', JSON.stringify(facts.hostPhoneBar));
+  log('the phone’s way out, as host:', JSON.stringify(facts.hostPhoneLeave));
+  if (facts.hostPhoneBar.identityTruncatedWithFaces === true) {
+    failures.push(`the host’s session name is cut at ${JSON.stringify(facts.hostPhoneBar.identityWithFaces)}`);
+  }
+  if (facts.hostPhoneBar.barWithFaces !== 111) {
+    failures.push(`the host’s phone session bar is ${facts.hostPhoneBar.barWithFaces} px, not 111`);
+  }
+  if (facts.hostPhoneLeave !== null && facts.hostPhoneLeave.width !== 44) {
+    failures.push(`the host’s way out is ${facts.hostPhoneLeave.width} px wide, not the design’s 44`);
+  }
+  log('wrote', await record(written, page, '24-phone-host-bar.png'));
   // The guest itself: the invite the host page copied, opened on a touch device. The panel is shut
   // there and the strip is the only thing on screen that says which file is open.
   await page.setViewport(PHONE, { touch: true });
@@ -1080,6 +1792,138 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   facts.settled = await page.evaluate(GUEST_ROWS);
   log('the guest, at rest:', JSON.stringify(facts.settled));
   log('wrote', await record(written, page, '02-in-room-phone.png'));
+
+  // The phone's own chrome, with the panel open: the tree rows the design draws at 44 px, the bar
+  // and the strip at their own heights, and the two text edges. The panel is shut again after it,
+  // because the rest of this pass photographs a guest at rest.
+  await page.evaluate(`(() => {
+    if (document.getElementById('side').hidden) document.getElementById('file-strip').click();
+    return true;
+  })()`);
+  await waitFor(
+    page,
+    'the phone’s panel to open on the tree',
+    `document.querySelectorAll('#tree li').length`,
+    (rows) => rows > 0,
+  );
+  await delay(400);
+  facts.phoneChrome = await page.evaluate(CHROME);
+  checkPhoneChrome(facts.phoneChrome, failures);
+  log(
+    'the phone’s chrome: bar',
+    facts.phoneChrome.barBox?.height,
+    'strip',
+    facts.phoneChrome.stripBox?.height,
+    'rows',
+    JSON.stringify(facts.phoneChrome.rowHeights),
+    'bar text',
+    facts.phoneChrome.barText?.left,
+    'strip text',
+    facts.phoneChrome.stripText?.left,
+    'verbs',
+    JSON.stringify(facts.phoneChrome.treeActions),
+  );
+  log('wrote', await record(written, page, '25-phone-panel-chrome.png'));
+  await page.evaluate(`document.getElementById('file-strip').click()`);
+  await delay(300);
+
+  // The bar's faces on a phone: your own seat, the host's crowned one, and the rest counted, with
+  // the cluster costing the bar nothing — measured against the same bar with the cluster hidden,
+  // which is the only reading that says "0 px" rather than "small".
+  const crowd = [];
+  try {
+    for (const displayName of ['Gus', 'Hal', 'Ivy']) {
+      const engine = await PeerEngine.join({
+        invite,
+        displayName,
+        webSocketFactory: nativeWebSocketFactory,
+      });
+      crowd.push(engine);
+      await engine.open(openedPath);
+      engine.setSelection(openedPath, { anchor: 0, head: 3 });
+    }
+    await waitFor(
+      page,
+      'two faces and the +N over the rest, on a phone',
+      `document.querySelectorAll('#faces .av').length`,
+      (count) => count === 3,
+    );
+    await delay(400);
+    facts.phoneFaces = await page.evaluate(FACES);
+    checkSeats(facts.phoneFaces.faces, failures);
+    facts.phoneBar = await page.evaluate(BAR_COST);
+    facts.phoneTap = await page.evaluate(TAP_WIDTH);
+    facts.phoneLeave = await page.evaluate(LEAVE);
+    log('the phone’s faces:', JSON.stringify(facts.phoneFaces));
+    log('what the faces cost the bar:', JSON.stringify(facts.phoneBar));
+    if (facts.phoneBar.added !== 0) {
+      failures.push(`the faces add ${facts.phoneBar.added} px to the phone’s session bar`);
+    }
+    log('the phone’s way out, as guest:', JSON.stringify(facts.phoneLeave));
+    log('the neighbour face’s tap area:', JSON.stringify(facts.phoneTap));
+    // The session's own name is whole with the faces beside it: the way out's 44 px is what gives
+    // the name the room the text verb took.
+    if (facts.phoneBar.identityTruncatedWithFaces === true) {
+      failures.push(`the guest’s session name is cut at ${JSON.stringify(facts.phoneBar.identityWithFaces)}`);
+    }
+    if (facts.phoneTap !== null && facts.phoneTap.columns - (facts.phoneTap.peer ?? 0) > 14) {
+      failures.push(`the face beside your own answers for ${facts.phoneTap.peer ?? 0} of its ${facts.phoneTap.columns} columns`);
+    }
+    log('wrote', await record(written, page, '21-phone-faces-in-the-bar.png'));
+
+    // A face's menu on a phone, and the follow that pins a counted-away face onto the bar.
+    facts.phoneMenu = await page.evaluate(`(() => {
+      document.querySelector('#faces .av:not(.me)').click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'a face’s menu on a phone',
+      `document.getElementById('menu') === null ? null : 'open'`,
+      (open) => open === 'open',
+    );
+    await delay(300);
+    facts.phonePersonMenu = await page.evaluate(MENU);
+    log('a person’s menu on a phone:', JSON.stringify(facts.phonePersonMenu));
+    log('wrote', await record(written, page, '22-phone-person-menu.png'));
+    await page.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await delay(200);
+
+    // Behind the count: the `+N` on a phone, the last face on the list, and the ring that brings it
+    // back onto the bar.
+    const last = facts.phoneFaces.faces.at(-1);
+    await page.evaluate(`document.querySelector('#faces .av.more').click()`);
+    await waitFor(
+      page,
+      'the list of everyone on a phone',
+      `document.getElementById('menu')?.getAttribute('aria-label') ?? null`,
+      (label) => label === 'Everyone in the room',
+    );
+    await page.evaluate(`(() => {
+      const row = document.querySelector('#menu .list li:last-child button');
+      row.click();
+      return true;
+    })()`);
+    await waitFor(
+      page,
+      'the last seat’s menu on a phone',
+      `document.getElementById('menu')?.querySelector('.back')?.textContent ?? null`,
+      (back) => back === 'Everyone in the room',
+    );
+    await page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('#menu .acts button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
+      button.click();
+      return true;
+    })()`);
+    await delay(400);
+    facts.phoneFollowing = await page.evaluate(FACES);
+    log('the phone following the last seat on the list:', JSON.stringify(facts.phoneFollowing), 'was:', JSON.stringify(last));
+    log('wrote', await record(written, page, '23-phone-follows-a-pinned-face.png'));
+  } finally {
+    for (const engine of crowd) {
+      await engine.disconnect();
+    }
+  }
   // Every directory open, so the row the fetch is about is on screen: a note inside a collapsed
   // folder is a note nobody can see.
   await page.evaluate(`(() => {
@@ -1097,8 +1941,8 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   // room does not hold look exactly alike now that the row draws no dot for "the text is here", and
   // a row whose text *is* here saves the file at once and says nothing about a fetch. So the row is
   // found by asking each one in turn and keeping the first that answers with the cost line.
-  const candidates = await page.evaluate(`[...document.querySelectorAll('#tree button.row')]
-    .map((row) => row.querySelector('.download'))
+  const candidates = await page.evaluate(`[...document.querySelectorAll('#tree li.file')]
+    .map((item) => item.querySelector('.download'))
     .filter((button) => button !== null)
     .map((button) => (button.getAttribute('aria-label') ?? '').replace(/^Download /, ''))`);
   facts.downloadCandidates = candidates;
@@ -1145,9 +1989,10 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
   // an empty file and the second says the wait is still running — and a run that recorded only the
   // words could not say which of the two it saw.
   //
-  // What is *not* read here is the `●` the row used to gain when the text landed. The row draws no
-  // dot for it now, and the busy mark is the page's own statement that the fetch has not settled.
-  // The tag is recorded beside it, because the fetch's own open is what puts it up.
+  // What is *not* read here is the `●` the row used to gain when the text landed, or the `not
+  // fetched yet` tag that replaced it. The row states nothing about the room now: the busy mark is
+  // the page's own statement that the fetch has not settled, and the line under the row says what
+  // became of it.
   // The path the driver clicked, and no other: a fetch of `notes.md` is not a fetch of `main.ts`.
   let sawBusy = false;
   const landed = async () => {
@@ -1159,15 +2004,15 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
           [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
         );
         if (found === undefined) return null;
-        return {
-          busy: found.querySelector('.row-actions.busy') !== null,
-          pending: found.querySelector('.pending-tag') !== null,
-        };
+        return { busy: found.querySelector('.row-actions.busy') !== null };
       })()`,
     );
     if (row === null) return false;
     sawBusy = sawBusy || row.busy;
-    return sawBusy && !row.busy && !row.pending;
+    // Settled means the row is not working: the busy mark is the page's only statement about a
+    // fetch in flight now that no row says what the room holds, and a fast answer can be over before
+    // the first read — which is why the mark is recorded rather than required.
+    return !row.busy;
   };
   let outcome = { landed: false, note: null, state: 'none' };
   const states = [];
@@ -1210,6 +2055,22 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
     facts.fetchStates = states;
     facts.fetchOutcome = { ...outcome, sawBusy };
   }
+  // The save itself, which the design draws as the notices column's toast: the row's own line is
+  // about the fetch (what it costs, what it is waiting for, what it refused), and a file that was
+  // written says so where a finished thing belongs. The stand is 2.2 s, so this polls from the
+  // moment the row settled rather than reading once and calling a missed toast a missing one.
+  const readToasts = `[...document.querySelectorAll('#toasts .toast')].map((toast) => toast.textContent ?? '')`;
+  const toastStandMs = 2200;
+  let toasts = [];
+  for (let tick = 0; tick < Math.ceil(toastStandMs / 250) + 2 && toasts.length === 0; tick += 1) {
+    toasts = await page.evaluate(readToasts);
+    if (toasts.length === 0) await delay(250);
+  }
+  facts.downloadToast = toasts;
+  log('the download toast, if the save landed:', JSON.stringify(toasts));
+  if (outcome.landed && toasts.length === 0) {
+    failures.push('a saved file said nothing: the design draws a `Downloaded` toast and none stood');
+  }
   facts.afterFetch = await page.evaluate(GUEST_ROWS);
   log('the guest, after the fetch:', JSON.stringify({ landed: outcome.landed, ...facts.afterFetch }));
   if (!outcome.landed) {
@@ -1220,10 +2081,6 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
     log(
       'the fetch did not land; the room still reads:',
       JSON.stringify(facts.afterFetch.rows),
-      'and the host page read:',
-      JSON.stringify(await arguments[4].evaluate(
-        `[...document.querySelectorAll('#tree button.row')].map((row) => (row.textContent ?? '').trim() + (row.querySelector('.pending-tag') === null ? '' : '[not fetched yet]'))`,
-      )),
     );
   }
   // The panel is where the row's own line lives, so a shot of a row has to be a shot of the panel.
@@ -1243,7 +2100,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
     // pre-join shot, with the rule the phone query applies to it while a session is up. The two
     // measurements are what say whether it shrank, and by how much (design §5 of the session pass).
     facts.footerInRoom = await page.evaluate(`(() => {
-      const aside = document.getElementById('demo-footer');
+      const aside = document.querySelector('body > aside');
       if (aside === null) return null;
       const box = aside.getBoundingClientRect();
       const style = getComputedStyle(aside);
@@ -1253,7 +2110,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
         height: Math.round(box.height * 100) / 100,
         fontSize: style.fontSize,
         padding: style.paddingTop,
-        termsVisible: document.getElementById('terms-link')?.getClientRects().length > 0,
+        termsVisible: aside.querySelector('a[href$="/terms"]')?.getClientRects().length > 0,
         text: aside.innerText,
       };
     })()`);
@@ -1274,7 +2131,7 @@ async function reviewTouch(page, server, invite, written, ...hostPages) {
  * from an empty folder, and the guest leaves its room and joins that one. Both leave by the control
  * a person uses, and the guest comes back in by pasting the link, which is the card's own way.
  */
-async function reviewEmptyRoom(hostPage, guestPage, server, written) {
+async function reviewEmptyRoom(hostPage, guestPage, server, written, failures) {
   const facts = {};
   await hostPage.setViewport(DESKTOP);
   // A host's press asks first: its leaving ends the room for everyone in it.
@@ -1364,6 +2221,74 @@ async function reviewEmptyRoom(hostPage, guestPage, server, written) {
   facts.guest = await guestPage.evaluate(EMPTY_PANE);
   log('the guest in a room that shares nothing:', JSON.stringify(facts.guest));
   log('wrote', await record(written, guestPage, '14-editor-empty-guest.png'));
+
+  // The host's tab goes away without leaving the room: the socket closes, the server detaches the
+  // host and the grace window starts, which is the one way the design's card appears. The host page
+  // is this run's mouse browser and this is the last thing it is used for, so the whole browser goes.
+  await hostPage.stop();
+  const readCard = `(() => {
+    const card = document.getElementById('session-card');
+    if (card === null || card.hidden) return null;
+    const bar = card.querySelector('.bar');
+    const scale = bar === null || bar.hidden ? null : Number(/([0-9.]+)/.exec(bar.style.transform ?? '')?.[1] ?? 1);
+    return {
+      tone: card.dataset.tone,
+      msg: card.querySelector('.msg')?.textContent ?? '',
+      when: card.querySelector('.when')?.textContent ?? '',
+      spoken: card.querySelector('.sr')?.textContent ?? '',
+      barScale: scale,
+      identity: document.getElementById('session-identity')?.textContent ?? '',
+      workspace: document.getElementById('workspace')?.hidden === false,
+    };
+  })()`;
+  let card = null;
+  try {
+    await waitFor(guestPage, 'the host-away card', readCard, (state) => state !== null, 8_000);
+    card = await guestPage.evaluate(readCard);
+    log('the guest’s card when the host’s tab goes away:', JSON.stringify(card));
+    log('wrote', await record(written, guestPage, '15-host-away-card.png'));
+    // The column with something in it: the placement and the hit test are only worth anything
+    // against a box of its own, which an empty column has not got.
+    const standing = await guestPage.evaluate(CHROME);
+    facts.hostAwayColumn = standing.notices;
+    if ((standing.notices?.box?.height ?? 0) <= 0) {
+      failures.push('the notices column measures nothing while the host-away card stands in it');
+    }
+    checkNotices(standing, failures, { phone: true });
+    await delay(2_000);
+    const later = await guestPage.evaluate(readCard);
+    facts.hostAway = { at: card, after2s: later };
+    if (card.tone !== 'grace') {
+      failures.push(`the host-away card reads ${JSON.stringify(card.tone)} rather than the warning`);
+    }
+    if (!/left the session$/.test(card.msg ?? '')) {
+      failures.push(`the host-away card says ${JSON.stringify(card.msg)} rather than who left`);
+    }
+    if (!/^Disconnecting in \d+s$/.test(card.when ?? '')) {
+      failures.push(`the host-away card counts ${JSON.stringify(card.when)} rather than the seconds left`);
+    }
+    if (!/\d+ (second|minute|hour)s?\.$/.test(card.spoken ?? '')) {
+      failures.push(`the card announces ${JSON.stringify(card.spoken)}, which is not the window said once`);
+    }
+    // The bar drains with the count: two readings two seconds apart, both of a live window.
+    if (later !== null && later.tone === 'grace') {
+      if (!(later.barScale < card.barScale)) {
+        failures.push(`the countdown bar reads ${card.barScale} then ${later.barScale}, so it is not draining with the window`);
+      }
+    } else {
+      failures.push('the card did not stand for the two seconds its bar was measured over');
+    }
+    // The room stays drawn and the identity keeps the host's name, which is the design's rule.
+    if (card.workspace !== true) {
+      failures.push('the host going away took the workspace down with the card');
+    }
+    if (!/’s session$/.test(card.identity ?? '')) {
+      failures.push(`the identity reads ${JSON.stringify(card.identity)} while the host is away`);
+    }
+  } catch (error) {
+    facts.hostAway = { at: null, why: String(error) };
+    failures.push('the host-away card never stood');
+  }
   return facts;
 }
 
@@ -1392,10 +2317,10 @@ async function main() {
     facts.desktop = desktop.facts;
     const touch = await launchChromium({ pointer: 'touch' });
     browsers.push({ name: 'phone', page: touch });
-    facts.phone = await reviewTouch(touch, server, desktop.invite, written, mouse);
+    facts.phone = await reviewTouch(touch, server, desktop.invite, written, desktop.openedPath, failures);
     // Last, and in the two browsers already up: the empty room's two empty states need a folder with
     // nothing in it, which the seeded run never has (`reviewEmptyRoom`).
-    facts.empty = await reviewEmptyRoom(mouse, touch, server, written);
+    facts.empty = await reviewEmptyRoom(mouse, touch, server, written, failures);
   } finally {
     // Whatever happened — a `waitFor` that timed out, a browser that would not launch, the guest's
     // clipboard refusing — both browsers and the server are stopped and their logs collected. A
@@ -1418,6 +2343,8 @@ async function main() {
       facts.phone.prejoin?.termsLinkInViewport,
       '| in a room:',
       JSON.stringify(facts.phone.footerInRoom ?? null),
+      '| the panel’s foot:',
+      JSON.stringify(facts.desktop?.chrome?.panelFoot ?? null),
     );
   }
   log('the guest card’s other intent:', JSON.stringify(facts.phone.prejoin?.quietLineVisible), JSON.stringify(facts.phone.prejoin?.quietLine));

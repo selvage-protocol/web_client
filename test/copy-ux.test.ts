@@ -72,7 +72,7 @@ describe('copy morph stays inside the link control', () => {
     assert.ok(group.children.includes(icon), 'the morph moved the icon');
     assert.ok(group.children.includes(input), 'the morph removed the link readout');
     const overlay = group.children.find((child) => child !== icon && child !== input);
-    assert.ok(overlay && /Link copied/.test(textOf(overlay)), 'no confirmation overlay beside the link');
+    assert.ok(overlay && /Copied/.test(textOf(overlay)), 'no confirmation overlay beside the link');
     assert.equal(scheduled.length, 1);
     scheduled[0]();
     assert.ok(!group.classList.contains('copied'), 'the confirmation never reverted');
@@ -100,9 +100,11 @@ describe('copy cursor', () => {
 });
 
 describe('no top-right copy sentence', () => {
-  it('the page never confirms a copy outside the link control', () => {
+  it('the page confirms the copy on the bar and to a screen reader, and nowhere visible', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.ok(!main.includes('invite link copied'), 'a copy sentence survives in the page');
+    // The morph is the visible confirmation; the one sentence is announced, in the page's own
+    // polite region, which paints nothing.
+    assert.match(main, /announce\('Invite link copied'\)/, 'the copy is announced to nobody');
     assert.ok(!main.includes('anyone holding it'), 'a copy sentence survives in the page');
   });
 });

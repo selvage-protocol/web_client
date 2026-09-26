@@ -1,12 +1,13 @@
 /**
  * The end of a session: the words for it, and the teardown.
  *
- * The page does not stand on a dead session. When the room is gone it leaves —
- * the socket closed, the binding and the editor dropped, the chrome gone — and
- * says why on the card. So the copy here is the desktop clients' own sentence,
- * the one thing this client has to say which they do not, and the one next step;
- * `dropSession` is the order the page leaves in.
+ * The page does not stand on a dead session. When the room is gone it leaves,
+ * with the socket closed, the binding and the editor dropped and the chrome gone,
+ * and the start card says why in one short sentence. `dropSession` is the order
+ * the page leaves in.
  */
+
+import { endingReason } from '../engine/index.ts';
 
 /** The room is gone, in the desktop clients' words, naming the cause. */
 export function roomGoneMessage(reason: string): string {
@@ -14,42 +15,20 @@ export function roomGoneMessage(reason: string): string {
   return `The room is gone (${why}).`;
 }
 
-/**
- * What became of the room's content when it closed. The desktop clients keep the guest's copy and
- * say where it is; a page has no disk to leave a mirror on, so nothing of the room stays here. What
- * is *not* true is that nothing was saved: every settled edit was written into the folder the room
- * was hosted from, within the settle, and a host reading the old sentence was told the opposite of
- * what the page had just done. The one thing that can still be missing is a keystroke inside the
- * settle, which the sentence's "had settled" allows for.
- */
-export const NOTHING_KEPT =
-  'Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.';
-
-/** The room-gone card's sentence: what happened, and what became of everything in it. */
+/** The room-gone card's sentence: short, and in the person's words rather than the protocol's. */
 export function roomGoneSentence(reason: string): string {
-  return `${roomGoneMessage(reason)} ${NOTHING_KEPT}`;
+  const why = reason.trim();
+  if (why === endingReason('closing')) {
+    return 'The host ended the session.';
+  }
+  if (why === endingReason('host-away')) {
+    return 'The host was away too long, so the session ended.';
+  }
+  return why === '' ? SESSION_ENDED_MESSAGE : `The session ended (${why}).`;
 }
 
-/**
- * A terminal disconnect that carried no room-gone reason (reconnection gave
- * up) ends the session just the same, and the way back is the same fresh link.
- */
+/** A terminal disconnect that carried no room-gone reason: reconnection gave up. */
 export const SESSION_ENDED_MESSAGE = 'The session ended.';
-
-/**
- * Someone left on purpose, in the desktop clients' words (`docs/studies/client-command-parity.md`
- * §5 says `left the session`, which their wrappers carry in lower case). The card's sentences open
- * with a capital, as `The room is gone (…)` does for the desktop clients' own `the room is gone`.
- */
-export const LEFT_SESSION_SENTENCE = 'Left the session.';
-
-/** What the guest does next, on the card that comes back. */
-export const REJOIN_PROMPT = 'Paste a fresh invite link to join another session.';
-
-/** The one line the card carries when a session is over: what, then what now. */
-export function sessionOverMessage(sentence: string): string {
-  return `${sentence} ${REJOIN_PROMPT}`;
-}
 
 /** The handles a live session holds, as the teardown sees them. */
 export interface LiveSession {

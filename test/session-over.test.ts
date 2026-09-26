@@ -20,21 +20,19 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  NOTHING_KEPT,
-  REJOIN_PROMPT,
   SESSION_ENDED_MESSAGE,
   dropSession,
   roomGoneMessage,
   roomGoneSentence,
-  sessionOverMessage,
 } from '../src/browser/ended.ts';
-import { addressBarInvite, resolveJoin, showRejoinCard } from '../src/browser/join.ts';
+import { endingReason } from '../src/engine/index.ts';
+import { addressBarInvite, resolveJoin, showStartAgain } from '../src/browser/join.ts';
 import { displayShareLink, fitReadout } from '../src/browser/share.ts';
 
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
 const ended = readFileSync(new URL('../src/browser/ended.ts', import.meta.url), 'utf8');
 const shareBox = readFileSync(new URL('../src/browser/share-box.ts', import.meta.url), 'utf8');
-const roster = readFileSync(new URL('../src/browser/roster.ts', import.meta.url), 'utf8');
+const room = readFileSync(new URL('../src/browser/room.ts', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
@@ -46,37 +44,13 @@ describe('the words for the end of a session', () => {
     assert.equal(SESSION_ENDED_MESSAGE, 'The session ended.');
   });
 
-  it('says what became of the room, which is not that nothing was saved', () => {
-    // The desktop clients keep the guest's copy and name where it is; a page has no disk to leave a
-    // mirror on, so nothing of the room stays here. What it must not say is that nothing was saved:
-    // every settled edit was written into the folder the room was hosted from, and the old sentence
-    // told a host the opposite of what the page had been doing all session.
-    assert.equal(
-      NOTHING_KEPT,
-      'Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.',
-    );
-    assert.ok(!/nothing in the room was saved/i.test(NOTHING_KEPT), `the card denies the write-back: ${NOTHING_KEPT}`);
-    assert.equal(
-      roomGoneSentence('host did not return'),
-      'The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.',
-    );
-    assert.equal(
-      roomGoneSentence('  '),
-      'The room is gone (no reason given). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on.',
-    );
+  it('says why the session ended in one short sentence', () => {
+    assert.equal(roomGoneSentence(endingReason('closing')), 'The host ended the session.');
+    assert.equal(roomGoneSentence(endingReason('host-away')), 'The host was away too long, so the session ended.');
+    assert.equal(roomGoneSentence('host did not return'), 'The session ended (host did not return).');
+    assert.equal(roomGoneSentence('  '), 'The session ended.');
   });
 
-  it('carries the one next step on the card that comes back', () => {
-    assert.equal(REJOIN_PROMPT, 'Paste a fresh invite link to join another session.');
-    assert.equal(
-      sessionOverMessage(roomGoneSentence('host did not return')),
-      'The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on. Paste a fresh invite link to join another session.',
-    );
-    assert.equal(
-      sessionOverMessage(SESSION_ENDED_MESSAGE),
-      'The session ended. Paste a fresh invite link to join another session.',
-    );
-  });
 });
 
 describe('leaving the session', () => {
@@ -187,12 +161,11 @@ describe('leaving the session', () => {
       assert.ok(!ended.includes(gone), `${gone} still lives in ended.ts`);
     }
     assert.ok(!shareBox.includes('retire'), 'the share box can still retire a link');
-    // The roster still draws disabled actions of its own — the self row's, and
-    // a peer's Go to while they are in no document. They are reasoned, not
-    // dead (test/roster.test.ts pins every one's title); what the terminal
-    // state must not leave behind is its own dead-room vocabulary.
-    assert.ok(!roster.includes('disabledReason'), 'the roster can still draw terminal reasons');
-    assert.ok(!roster.includes('view.disabled'), 'the roster can still draw a dead-room flag');
+    // The menu draws the acts a person can press — Go to, Follow, the own name's edit — and a peer
+    // in no file is told so rather than offered a dead verb (test/room.test.ts pins every one's
+    // name). What the terminal state must not leave behind is its own dead-room vocabulary.
+    assert.ok(!room.includes('disabledReason'), 'the menu can still draw terminal reasons');
+    assert.ok(!room.includes('view.disabled'), 'the menu can still draw a dead-room flag');
     assert.ok(!style.includes('.retired'), 'the shell still styles a retired link');
   });
 });
@@ -217,27 +190,30 @@ describe('the card the page comes back to', () => {
     };
   }
 
-  it('comes back as the join card, with the paste box open and the button ready', () => {
-    const gone =
-      'The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on. Paste a fresh invite link to join another session.';
+  it('comes back as the start card, with one short line and the button ready', () => {
+    const gone = 'The host ended the session.';
     const elementsUnderTest = elements();
-    showRejoinCard(elementsUnderTest, gone);
+    showStartAgain(elementsUnderTest, gone);
     assert.equal(elementsUnderTest.pane.hidden, false, 'the card never came back');
-    assert.equal(elementsUnderTest.pane.className, 'card-join', 'the card came back leading with the start');
-    assert.equal(elementsUnderTest.startHeading.hidden, true, 'the start heading came back over a dead room');
-    assert.equal(elementsUnderTest.joinHeading.hidden, false, 'the join heading did not come back');
+    assert.equal(elementsUnderTest.pane.className, 'card-start', 'the card came back as the join card');
+    assert.equal(elementsUnderTest.startHeading.hidden, false, 'the start heading did not come back');
+    assert.equal(elementsUnderTest.joinHeading.hidden, true, 'the join heading came back');
     assert.equal(elementsUnderTest.preview.hidden, false, 'the blurred preview never came back');
     assert.equal(elementsUnderTest.veil.hidden, false, 'the veil never came back');
     assert.equal(elementsUnderTest.message.hidden, false, 'the reason never showed');
     assert.equal(elementsUnderTest.message.textContent, gone);
     assert.equal(elementsUnderTest.joinError.textContent, '', 'a stale failure stood on the card');
     assert.equal(elementsUnderTest.hostError.textContent, '', 'a stale hosting failure stood on the card');
-    assert.equal(elementsUnderTest.invitePath.open, true, 'the invite path came back shut over a dead room');
-    assert.equal(elementsUnderTest.inviteReveal.hidden, true, 'the card asks a dead room for a link');
-    assert.equal(elementsUnderTest.inviteWrap.hidden, false, 'the paste box stayed hidden in link mode');
+    assert.equal(elementsUnderTest.invitePath.open, false, 'the invite path came back open');
     assert.equal(elementsUnderTest.inviteInput.value, '', 'the dead link stayed in the paste box');
     assert.equal(elementsUnderTest.joinButton.disabled, false, 'Join stayed disabled');
     assert.equal(elementsUnderTest.joinButton.textContent, 'Join', 'Join still read Joining…');
+  });
+
+  it('says nothing when the person left on purpose', () => {
+    const elementsUnderTest = elements({ message: { hidden: false, textContent: 'old' } });
+    showStartAgain(elementsUnderTest, '');
+    assert.equal(elementsUnderTest.message.hidden, true, 'a leave explained itself');
   });
 
   it('the shell carries and styles that line', () => {

@@ -34,16 +34,19 @@ export const PHONE_QUERY =
 
 /**
  * The editor options for this device. A phone gets the settings its screen
- * argues for and a desktop is handed the options it has always had, so the two
+ * argues for and a pointer device gets the page's own base options, so the two
  * cannot drift apart by a later edit to one of them.
  *
- * The minimap is a grey texture on a 390 px screen, not a navigator; a line
- * wider than the phone scrolls sideways inside a vertically scrolling page
- * unless it wraps, which is a trap on touch; 16 px is the floor under which
- * iOS zooms a focused field, and the editor's own input is a focused field;
+ * Both wrap long lines, as the design does, so a line is read without scrolling sideways.
+ *
+ * The minimap is off on both, and the current line is unmarked on both: the
+ * design draws neither — its gutter is numbers and nothing else, in one colour
+ * — and the minimap this page used to turn on for a pointer was a grey texture
+ * beside the code. What is left is a phone's own three: 16 px is the floor under
+ * which iOS zooms a focused field, and the editor's own input is a focused field;
  * and a fingertip needs a scrollbar it can see, never the 10 px hairline.
  *
- * The gutter is the fourth. Monaco's own line-number column, its fold arrows and
+ * The gutter is the third. Monaco's own line-number column, its fold arrows and
  * its decoration width added up to 96 of 390 px — a quarter of the screen, and
  * 30 % at 320 — for numbers no phone document reaches and arrows a fingertip
  * cannot hit. Two characters of line number, no folding and 14 px of decoration
@@ -54,10 +57,11 @@ export function editorOptionsFor(
   touch: boolean,
 ): monaco.editor.IStandaloneEditorConstructionOptions {
   if (!touch) {
-    return { minimap: { enabled: true, side: 'right' } };
+    return { minimap: { enabled: false }, renderLineHighlight: 'none', wordWrap: 'on' };
   }
   return {
     minimap: { enabled: false },
+    renderLineHighlight: 'none',
     wordWrap: 'on',
     fontSize: 16,
     scrollbar: { verticalScrollbarSize: 14, horizontalScrollbarSize: 14 },
@@ -95,24 +99,6 @@ export function appHeightFor(
     return undefined;
   }
   return Math.round(viewport.height);
-}
-
-/**
- * How far the visual viewport's bottom edge sits above the layout viewport's,
- * in whole pixels: where a `position: fixed` line has to sit to stay above a
- * soft keyboard. The keyboard shrinks the visual viewport alone, and a fixed
- * line is placed against the layout viewport, so `bottom: 0` there is under
- * the keyboard; this is the distance back to the floor the guest can see. Zero
- * when nothing shrank, so the line sits where it always has.
- */
-export function keyboardInsetFor(
-  viewport: { height: number; scale: number; offsetTop?: number } | undefined,
-  layoutHeight: number,
-): number {
-  if (viewport === undefined || viewport.scale !== 1 || viewport.height >= layoutHeight) {
-    return 0;
-  }
-  return Math.max(0, Math.round(layoutHeight - (viewport.offsetTop ?? 0) - viewport.height));
 }
 
 /** The part of a live media query `watchTouchQuery` needs, so a test can fake one. */

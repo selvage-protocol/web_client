@@ -100,7 +100,7 @@ writeFileSync(
   resolve(root, 'dist/site.webmanifest'),
   JSON.stringify(
     {
-      name: 'Selvage — shared editing in the browser',
+      name: 'Selvage: shared editing in the browser',
       short_name: 'Selvage',
       display: 'standalone',
       background_color: '#1e1e2e',

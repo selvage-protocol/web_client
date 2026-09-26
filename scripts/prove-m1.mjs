@@ -5,7 +5,7 @@
  * factory, the session bridge, and the real `MonacoBinding` with a fake editor
  * standing in for Monaco — against a real `selvaged`: the room is minted by this
  * checkout's own engine, the guest joins the way the page does (with the default
- * `/meta` check, no skip), and the proof walks the roster, the grant tree, a
+ * `/meta` check, no skip), and the proof walks the room's participants, the grant tree, a
  * jump, a follow, convergence both ways, a reconnect, and the degraded `/meta`
  * a cross-origin page sees. What is not covered here is Monaco itself; the
  * adapter owns no protocol logic beyond offset mapping, which both sides count
@@ -23,6 +23,7 @@ import { PeerEngine } from '../src/bridge/index.ts';
 import { listingSource, pageEngine } from '../src/browser/relay.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
+import { seatColours } from '../src/browser/seats.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
@@ -273,9 +274,9 @@ const binding = new MonacoBinding({
 });
 guestEngine.setSelection(NOTES, { anchor: 0, head: 0 });
 
-// The roster names the host with the caret mapping's colour.
+// The room's participants name the host with the caret mapping's colour.
 const roster = await waitFor(
-  'roster to name the host',
+  'the room to name the host',
   () => {
     const participants = binding.participants();
     return participants.length > 0 ? participants : undefined;
@@ -283,10 +284,29 @@ const roster = await waitFor(
   10_000,
 );
 const hostRow = roster.find((row) => row.displayName === 'prove-host');
-check('roster names the host', hostRow !== undefined);
-check('roster colour reuses the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
-console.log(`roster: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
-// The role each side is seated with (`§13.4`), which the roster draws as its own marker and the
+check('the room names the host', hostRow !== undefined);
+// Two readings of a peer's colour, and this binding has been handed neither by the page: the
+// bridge's own derivation from the peer id, which is what the desktop client paints by.
+check('a participant with no seats handed in wears the caret mapping', hostRow.colour === peerColour(hostRow.peerId));
+// The seats the page hands in are what the participants wear (`seats.ts`): the host's seat first,
+// then your own, then the room's order. The guest is looking at somebody else's room, so its host
+// takes Mauve whatever seat it holds in the room's own list — and which seat that is is the room's
+// word, in the state it seals, which arrives after the roster does.
+const crowned = await waitFor(
+  'the room to name the seat that is hosting',
+  () => binding.participants().find((row) => row.role === 'host'),
+  10_000,
+);
+const seats = seatColours([
+  { peerId: guestEngine.session().peer.peer_id, role: guestEngine.session().role },
+  ...binding.participants().map((row) => ({ peerId: row.peerId, role: row.role })),
+]);
+binding.setSeatColours(seats);
+const seated = binding.participants().find((row) => row.peerId === crowned.peerId);
+check('the seats the page hands in are what the participants wear', seated.colour === seats.get(crowned.peerId));
+check('and the room’s host takes Mauve', seated.colour === '#cba6f7');
+console.log(`participants: ${roster.map((row) => `${row.displayName}@${row.path ?? '—'}`).join(', ')}`);
+// The role each side is seated with (`§13.4`), which a face wears as its own marker and the
 // room's peer list never carries for this connection: the page reads its own seat's role from the
 // session. Printed because it is the one fact a browser cannot be asked for here.
 console.log(

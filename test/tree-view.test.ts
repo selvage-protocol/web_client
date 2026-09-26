@@ -18,13 +18,6 @@ import assert from 'node:assert/strict';
 import { GrantTreeView } from '../src/browser/tree-view.ts';
 import type { CreateResult, RowFeedback } from '../src/browser/tree-view.ts';
 import { grantLevels } from '../src/browser/tree.ts';
-import {
-  EMPTY_FILE_TITLE,
-  EMPTY_IN_ROOM_TITLE,
-  NOT_HERE_TAG,
-  NOT_READ_TITLE,
-  NOT_SENT_TITLE,
-} from '../src/browser/tree-state.ts';
 
 /** A DOM that counts what it is asked to make, and keeps the children it is given. */
 const world = { created: 0 };
@@ -219,17 +212,22 @@ function makeView(state) {
     touch: () => state.touch ?? false,
     canCreate: () => state.canCreate ?? false,
     localFolders: () => state.local ?? new Set(),
-    room: () => state.room ?? 'demo-app',
-    unsaved: () => state.unsaved ?? new Map(),
-    hostAway: () => state.hostAway ?? false,
     create: state.create,
+    remove: state.remove,
+    move: state.move,
+    say: state.say,
     download: state.download,
     open: (path) => void state.opened.push(path),
   });
   return { pane, view };
 }
 
-/** The row a file path is drawn as. */
+/** The row a file path is drawn as, or `undefined` while the tree has not drawn it. */
+function rowOf(pane, path) {
+  return allWithClass(pane, 'row').find((candidate) => candidate.dataset.open === path);
+}
+
+/** The row a file path is drawn as, by the name it shows. */
 function rowFor(pane, name) {
   const row = allWithClass(pane, 'row').find((candidate) =>
     candidate.children.some((child) => child.textContent === name),
@@ -253,14 +251,20 @@ describe('the grant tree redraws what changed', () => {
     assert.ok(world.created > 100, 'the first render built the tree');
     world.created = 0;
 
-    // One peer's cursor moves to another file: the row it left and the row it entered.
+    // One peer's cursor moves to another file: the row it left and the row it entered, and the two
+    // folders those files sit in — a shut folder wears the badges of the peers inside it, so a peer
+    // moving between two of its files changes that row as well.
     state.participants = [participant('p-1', 'ada', '#112233', 'src/mod03/file033.ts')];
     view.render();
 
     assert.equal(pane.children[0], built, 'a presence move rebuilt the tree');
     assert.ok(world.created <= 2, `a presence move made ${world.created} elements`);
     const wearing = allWithClass(pane, 'presence').filter((span) => span.children.length === 1);
-    assert.equal(wearing.length, 1, 'the row the peer entered wears no badge');
+    assert.equal(wearing.length, 2, 'the rows the peer entered wear no badge');
+    const folder = allWithClass(pane, 'presence').find((span) => span.title === 'Inside src/mod03/');
+    assert.equal(folder?.children.length, 1, 'the folder the peer moved into wears no badge');
+    const left = allWithClass(pane, 'presence').find((span) => span.title === 'Inside src/mod00/');
+    assert.equal(left?.children.length, 0, 'the folder the peer left still wears their badge');
   });
 
   it('a listing that moved rebuilds the tree', () => {
@@ -274,7 +278,7 @@ describe('the grant tree redraws what changed', () => {
     assert.notEqual(pane.children[0], built, 'a new path did not redraw the tree');
   });
 
-  it('the open file, a refused write, the host being away and the session’s own folders redraw it', () => {
+  it('the open file and the session’s own folders redraw it', () => {
     const state = {
       listing: listing(4),
       current: undefined,
@@ -292,26 +296,13 @@ describe('the grant tree redraws what changed', () => {
     assert.ok(rowFor(pane, 'file000.ts').classes.includes('open'), 'the open row is not lit');
 
     const opened = pane.children[0];
-    state.unsaved = new Map([['src/mod00/file000.ts', 'the file changed on disk']]);
-    view.render();
-    assert.notEqual(pane.children[0], opened, 'a refused write did not redraw the tree');
-    const warn = withClass(rowFor(pane, 'file000.ts'), 'unsaved');
-    assert.equal(warn.textContent, '⚠');
-    assert.equal(warn.title, 'the file changed on disk');
-
-    const warned = pane.children[0];
-    state.hostAway = true;
-    view.render();
-    assert.notEqual(pane.children[0], warned, 'the host going away did not redraw the tree');
-    assert.ok(rowFor(pane, 'file000.ts').classes.includes('away'), 'a row is not dimmed');
-    // A row whose text is in the room stays legible: the host being away cannot cost it anything.
-    assert.equal(rowFor(pane, 'file000.ts').title, 'The host is away, so its text cannot arrive.');
-
-    const dimmed = pane.children[0];
     state.local = new Set(['docs']);
     view.render();
-    assert.notEqual(pane.children[0], dimmed, 'a folder this session made did not redraw the tree');
-    assert.equal(withClass(pane, 'local').textContent, 'only you');
+    assert.notEqual(pane.children[0], opened, 'a folder this session made did not redraw the tree');
+    assert.ok(
+      allWithClass(pane, 'label').some((span) => span.textContent === 'docs/'),
+      'the folder this session made is not drawn as a row of its own',
+    );
   });
 
   it('a row click opens the path the row names', () => {
@@ -338,75 +329,120 @@ describe('what a row says about the room', () => {
     return rowFor(pane, 'main.rs');
   }
 
-  it('gains its tag when the room sends an empty document, with the listing unchanged', () => {
-    // What a row says is about the text, and a path is in the listing from the grant alone: a
-    // document arriving can change the mark while the listing reads exactly the same.
+  it('draws no tag for what the page knows about a document', () => {
+    // `empty` and `not fetched yet` said what the page had been told about a document's text, on a
+    // row whose job is to be a name in a list of names. The design draws neither, and the row keeps
+    // no state for a host that is away either: the session card says that, where the countdown is.
+    const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
+    for (const gone of ['empty-tag', 'pending-tag', 'unsaved', 'in-room']) {
+      assert.equal(allWithClass(row, gone).length, 0, `a row still draws .${gone}`);
+    }
+    // And a refused write is not the row's either: the sentence the folder gave stands on the
+    // page's transient line (`main.ts`).
+    assert.equal(allWithClass(row, 'chip').length, 0, 'a row still carries a chip');
+  });
+
+  it('redraws the rows when a document arrives, which is what a host\u2019s download reads', () => {
+    // A path is in the listing from the grant alone, so a document arriving can change what the room
+    // knows about a row while the listing reads exactly the same. The one chrome that follows it is
+    // the download: a host's file is on its own disk until the room holds it open, and the row gains
+    // the control then, which is what the redraw key carries.
     const state = {
       listing: ['main.rs'],
       current: undefined,
       touch: false,
       opened: [],
       participants: [],
+      canCreate: true,
+      download: () => {},
     };
     const { pane, view } = makeView(state);
     view.render();
     const built = pane.children[0];
+    assert.equal(
+      allWithClass(pane, 'download').length,
+      0,
+      'a host is offered a download for a file the room does not hold',
+    );
+    // The room opens it: the row gains the control, and only a rebuild puts it there.
     state.inRoom = ['main.rs'];
-    state.textHere = ['main.rs'];
-    state.textEmpty = ['main.rs'];
     view.render();
-    assert.notEqual(pane.children[0], built, 'the room sending text redrew nothing');
-    assert.equal(withClass(rowFor(pane, 'main.rs'), 'empty-tag').textContent, 'empty');
+    assert.notEqual(pane.children[0], built, 'the room opening a document redrew nothing');
+    assert.equal(
+      allWithClass(pane, 'download').length,
+      1,
+      'the row the room holds open offers no download',
+    );
   });
 
-  it('draws no dot for a file the room holds with text in it', () => {
-    // The `●` stood on every such row: the room holds the text, which for a file this window
-    // opened is what opening it did. The row that says the text is here is the row the editor is
-    // showing, and it is dashed and bold; every other row has nothing to say.
-    const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'] });
-    assert.equal(allWithClass(row, 'in-room').length, 0, 'the in-room dot is back');
-    assert.equal(allWithClass(row, 'empty-tag').length, 0, 'a file with text reads as empty');
-    assert.equal(allWithClass(row, 'pending-tag').length, 0, 'a file with text waits on a fetch');
-  });
-
-  it('wears a tag of its own while the room holds the file and nothing has arrived', () => {
-    // The row used to say `empty` here, which claims a document nobody has read: the room holds the
-    // path open and not a byte has been sent, so the tag says exactly that. The two titles are what
-    // tell a guest's wait from a host's, and neither is only in a `title` — the tag carries it.
-    const guest = rowState({ inRoom: ['main.rs'] });
-    const pending = withClass(guest, 'pending-tag');
-    assert.equal(pending.textContent, NOT_HERE_TAG);
-    assert.equal(pending.title, NOT_SENT_TITLE);
-    assert.equal(allWithClass(guest, 'empty-tag').length, 0, 'an unfetched file still reads empty');
-    // A host fetches nothing: it has not read the file off its own disk yet.
-    const host = rowState({ inRoom: ['main.rs'], canCreate: true });
-    assert.equal(withClass(host, 'pending-tag').title, NOT_READ_TITLE);
-  });
-
-  it('wears `empty` only for text the room sent, and which is empty', () => {
-    // The text is here and it is empty: that is a fact the page was told.
-    const guest = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
-    assert.equal(withClass(guest, 'empty-tag').title, EMPTY_IN_ROOM_TITLE);
-    // A host read the file off its own disk, so it says the one true thing.
+  it('names the host on their badge, where a crown has no circle to sit on', () => {
+    // The crown a face wears is half the circle it is drawn on; a 17 px square badge is not one, and
+    // at a size that reads it pokes out of the row. The role goes in the tooltip instead — the same
+    // `name · Host` a face reads — and every other badge carries the bare name as it always has.
     const host = rowState({
-      inRoom: ['main.rs'],
-      canCreate: true,
-      textHere: ['main.rs'],
-      textEmpty: ['main.rs'],
+      participants: [
+        { ...participant('p-host', 'Mira', '#94e2d5', 'main.rs'), role: 'host' },
+        participant('p-guest', 'sam', '#e06c75', 'main.rs'),
+      ],
     });
-    assert.equal(withClass(host, 'empty-tag').title, EMPTY_FILE_TITLE);
+    const badges = allWithClass(host, 'badge');
+    assert.deepEqual(
+      badges.map((badge) => badge.title),
+      ['Mira \u00b7 Host', 'sam'],
+    );
+    assert.equal(allWithClass(host, 'crown').length, 0, 'a badge wears a crown it has no room for');
+  });
+});
+
+describe('a folder row', () => {
+  function tree(overrides = {}) {
+    const state = {
+      listing: ['src/main.ts', 'src/other.ts', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      ...overrides,
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    return pane;
+  }
+
+  it('is the design’s folder: filled, swapping when it opens, and named with its slash', () => {
+    const summary = withClass(tree(), 'folder').parentElement;
+    const glyphs = allWithClass(summary, 'folder');
+    assert.equal(glyphs.length, 2, 'the row draws one glyph, so it has nothing to swap to');
+    assert.deepEqual(
+      glyphs.map((glyph) => glyph.className),
+      ['icon folder closed', 'icon folder open'],
+      'the folder is not drawn closed and open',
+    );
+    assert.equal(allWithClass(summary, 'chev').length, 0, 'the folder still draws a chevron');
+    assert.equal(nameIn(summary), 'src/', 'the folder is not named as a folder');
   });
 
-  it('says nothing at all about a path the room does not hold', () => {
-    const row = rowState({});
-    assert.equal(allWithClass(row, 'in-room').length, 0);
-    assert.equal(allWithClass(row, 'empty-tag').length, 0);
-    assert.equal(allWithClass(row, 'pending-tag').length, 0);
+  it('wears the badges of the peers inside it, and no badge of its own', () => {
+    // A folder is not a document, so the room says nothing about it; the rows inside it say where
+    // each peer is, and while the folder is shut those rows are not on screen.
+    const pane = tree({
+      participants: [
+        participant('p-1', 'ada', '#112233', 'src/main.ts'),
+        participant('p-2', 'bob', '#445566', 'README.md'),
+      ],
+    });
+    const summary = withClass(pane, 'folder').parentElement;
+    assert.deepEqual(
+      allWithClass(summary, 'badge').map((badge) => badge.textContent),
+      ['ad'],
+      'the folder wears the wrong badges',
+    );
+    assert.equal(withClass(summary, 'presence').title, 'Inside src/');
   });
 });
 
 describe('a host’s own folders', () => {
-  it('draws a folder this session made as a row of its own, marked for the host only', () => {
+  it('draws a folder this session made as a row of its own', () => {
     // A room's listing is files, so an empty directory is in nobody's: without this row, the folder
     // a host just made would vanish and the next create into it would be refused as a path through
     // something that is not there.
@@ -421,24 +457,27 @@ describe('a host’s own folders', () => {
     };
     const { pane, view } = makeView(state);
     view.render();
-    const tag = withClass(pane, 'local');
-    assert.equal(tag.textContent, 'only you');
-    assert.equal(tag.title, 'Folders join the room with their first file.');
+    assert.equal(nameIn(withClass(pane, 'folder').parentElement), 'docs/');
   });
 
-  it('drops the marker once the room’s listing carries the folder', () => {
-    const state = {
-      listing: ['docs/intro.md'],
-      current: undefined,
-      touch: false,
-      opened: [],
-      participants: [],
-      canCreate: true,
-      local: new Set(['docs']),
-    };
-    const { pane, view } = makeView(state);
-    view.render();
-    assert.equal(allWithClass(pane, 'local').length, 0, 'a shared folder still reads `only you`');
+  it('draws it once, whether the listing carries it or not', () => {
+    // The listing is files: a folder this session made is drawn from the page's own memory until
+    // some path goes through it, and from the listing after that — never both.
+    for (const listing of [[], ['docs/intro.md']]) {
+      const state = {
+        listing,
+        current: undefined,
+        touch: false,
+        opened: [],
+        participants: [],
+        canCreate: true,
+        local: new Set(['docs']),
+      };
+      const { pane, view } = makeView(state);
+      view.render();
+      // Two glyphs per folder row: the closed one and the open one it swaps to.
+      assert.equal(allWithClass(pane, 'folder').length, 2, `the folder is not drawn once: ${listing}`);
+    }
   });
 });
 
@@ -474,7 +513,7 @@ describe('the create row', () => {
     assert.equal(input.attributes.placeholder, undefined, 'the field carries a greyed example');
     assert.equal(input.focused, true, 'the field does not take focus');
     assert.equal(commit.tag, 'button');
-    assert.equal(commit.attributes['aria-label'], 'Create file');
+    assert.equal(commit.attributes['aria-label'], 'Create');
     assert.equal(cancel.attributes['aria-label'], 'Cancel');
     // The row explains nothing: the field, the `✓` and the tree around them are the whole of what
     // it is for, so the line stands empty until there is something a person cannot see.
@@ -485,11 +524,12 @@ describe('the create row', () => {
   it('names the directory variant’s own kind', () => {
     const { pane, view } = creating({ listing: ['src/main.ts'] });
     view.beginCreate('directory', 'src');
-    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create folder');
+    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
+    assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New folder name in src');
     assert.equal(withClass(pane, 'new-hint').textContent, '');
-    // The trailing slash is drawn outside the field rather than typed into it.
-    assert.equal(withClass(pane, 'new-slash').textContent, '/');
-    assert.equal(withClass(pane, 'new-slash').hidden, false);
+    // The folder it was opened in stands in front of the field rather than in it.
+    assert.equal(withClass(pane, 'new-in').textContent, 'src/');
+    assert.equal(withClass(pane, 'new-in').hidden, false);
   });
 
   it('validates as the person types, in the line under the field', async () => {
@@ -542,6 +582,47 @@ describe('the create row', () => {
     assert.equal(allWithClass(pane, 'new-row').length, 0, 'the row is still drawn');
   });
 
+  it('makes the directories a typed path names, and puts focus on the row of the file it made', async () => {
+    // A path a person types is a path: `docs/intro.md` makes `docs` because a room’s listing is
+    // files, so an empty folder is in nobody’s listing and typing one through its file is how it
+    // gets into the room. The file that was made opens, and the row it was made as is where the
+    // person’s hands are, so focus lands there rather than back on the page body.
+    const created = [];
+    const state = {
+      listing: ['README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      create: async (path, entry) => {
+        created.push([path, entry]);
+        state.listing = [...state.listing, path];
+        return { kind: 'made', path, entry };
+      },
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    view.beginCreate('file', '');
+    const input = withClass(pane, 'new-name');
+    input.value = 'docs/intro.md';
+    input.fire('keydown', { key: 'Enter' });
+    await until(() => created.length === 1, 'the create');
+    assert.deepEqual(created, [['docs/intro.md', 'file']]);
+    await until(() => rowOf(pane, 'docs/intro.md') !== undefined, 'the row of the file that was made');
+    assert.equal(view.isCreating(), false, 'the row outlived the create');
+    assert.ok(
+      allWithClass(pane, 'label').some((span) => span.textContent === 'docs/'),
+      'the folder the typed path named is not drawn',
+    );
+    assert.equal(
+      summaryFor(pane, 'docs/').parentElement.open,
+      true,
+      'the folder the new file landed in is shut, so its row is behind a disclosure nobody opened',
+    );
+    assert.equal(doc.activeElement, rowOf(pane, 'docs/intro.md'), 'focus did not land on the new file’s row');
+  });
+
   it('keeps the field open with the folder’s own sentence when the commit is refused', async () => {
     const { pane, view } = creating({
       answer: { kind: 'refused', sentence: 'notes.md is already in the folder, so nothing was created.' },
@@ -575,7 +656,12 @@ describe('the create row', () => {
     assert.deepEqual(created, [['docs', 'directory']]);
     assert.equal(view.isCreating(), true, 'the row closed instead of offering the next step');
     assert.equal(view.creatingIn(), 'docs', 'the row opened somewhere other than the folder just made');
-    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create file');
+    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
+    assert.equal(
+      withClass(pane, 'new-name').attributes['aria-label'],
+      'New file name in docs',
+      'the row does not say which folder it is naming a file in',
+    );
     assert.equal(withClass(pane, 'new-hint').textContent, '');
     assert.equal(state.listing.length, 1);
   });
@@ -618,7 +704,7 @@ describe('the create row', () => {
     assert.equal(withClass(pane, 'new-name').selectionStart, 5);
   });
 
-  it('sits where the name will take it, and moves as the name is typed', () => {
+  it('leads its folder and stays put while the name is typed', () => {
     const { pane, view } = creating({ listing: ['aaa.md', 'zzz.md'] });
     view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
@@ -634,46 +720,54 @@ describe('the create row', () => {
       walk(pane);
       return found;
     };
-    // An empty field names nothing, so the row stands at the end of the level.
-    assert.deepEqual(names(), ['aaa.md', 'zzz.md', '<the create row>']);
+    assert.deepEqual(names(), ['<the create row>', 'aaa.md', 'zzz.md']);
+    input.focus();
     input.value = 'mmm.md';
     input.fire('input');
-    assert.deepEqual(names(), ['aaa.md', '<the create row>', 'zzz.md']);
-    input.value = 'zzz2.md';
-    input.fire('input');
-    assert.deepEqual(names(), ['aaa.md', 'zzz.md', '<the create row>']);
+    assert.deepEqual(names(), ['<the create row>', 'aaa.md', 'zzz.md']);
+    assert.equal(doc.activeElement, input, 'typing took the focus away');
   });
 
-  it('sorts the create row among folders by the name it is given', () => {
-    // A folder row is a `details` whose name lives inside its `summary`: reading only the direct
-    // children left every folder with the same empty name, and a folder draft always landed at the
-    // end of the folder group instead of where its name sorts.
-    const { pane, view } = creating({ listing: ['alpha/x.md', 'zulu/y.md'] });
-    view.beginCreate('directory', '');
+  it('moves a typed folder into the prefix, and the row into that folder', () => {
+    const { pane, view } = creating({ listing: ['src/main.ts', 'README.md'] });
+    view.beginCreate('file', '');
     const input = withClass(pane, 'new-name');
-    input.value = 'mike';
+    input.focus();
+    input.value = 'src/lib.ts';
+    input.setSelectionRange(10, 10);
     input.fire('input');
-    const order = [];
-    const walk = (node) => {
-      for (const child of node.children) {
-        if (child.classList.contains('new-row')) order.push('<the create row>');
-        else if (child.tag === 'details') {
-          const summary = child.children[0];
-          const label = summary === undefined ? undefined : nameIn(summary);
-          if (label !== undefined) order.push(label);
-        }
-        walk(child);
-      }
-    };
-    walk(pane);
-    assert.deepEqual(order, ['alpha', '<the create row>', 'zulu']);
+    assert.equal(withClass(pane, 'new-in').textContent, 'src/');
+    assert.equal(withClass(pane, 'new-name').value, 'lib.ts', 'the field kept the slash');
+    assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New file name in src');
+    assert.equal(view.creatingIn(), 'src');
+    assert.ok(
+      summaryFor(pane, 'src/').parentElement.children[1].children[0].classes.includes('new-row'),
+      'the row did not move into the folder it names',
+    );
+    assert.equal(doc.activeElement, withClass(pane, 'new-name'), 'the move dropped the cursor');
+    assert.equal(withClass(pane, 'new-name').selectionStart, 6);
   });
 
-  it('says `Create folder` on the folder variant and hides the slash on the file one', () => {
+  it('eats the prefix back with Backspace at the front of the field', () => {
+    const { pane, view } = creating({ listing: ['src/main.ts'] });
+    view.beginCreate('file', 'src');
+    const input = withClass(pane, 'new-name');
+    input.value = 'x';
+    input.setSelectionRange(0, 0);
+    let prevented = 0;
+    input.fire('keydown', { key: 'Backspace', preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 1);
+    assert.equal(withClass(pane, 'new-in').hidden, true, 'the prefix is still drawn');
+    assert.equal(withClass(pane, 'new-name').value, 'srcx');
+    assert.equal(withClass(pane, 'new-name').selectionStart, 3);
+  });
+
+  it('draws no prefix at the top level, and names the field for its kind', () => {
     const { pane, view } = creating();
     view.beginCreate('file', '');
-    assert.equal(withClass(pane, 'new-slash').hidden, true, 'a file row draws a directory slash');
-    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create file');
+    assert.equal(withClass(pane, 'new-in').hidden, true, 'a top-level row draws a prefix');
+    assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
+    assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New file name');
   });
 });
 
@@ -722,7 +816,7 @@ describe('a row’s own actions', () => {
     );
     feedback.idle();
     assert.equal(withClass(pane, 'download').attributes['aria-label'], 'Download notes.md');
-    feedback.note('notes.md is still empty — the host sent no text for it.', [
+    feedback.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => {} },
     ]);
     const note = withClass(pane, 'row-note');
@@ -756,7 +850,7 @@ describe('a row’s own actions', () => {
     view.render();
     withClass(pane, 'download').fire('click');
     const first: RowFeedback = calls[0].feedback;
-    first.note('notes.md is still empty — the host sent no text for it.', [
+    first.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => first.note('trying again') },
     ]);
     state.listing = ['notes.md', 'app.ts'];
@@ -779,7 +873,7 @@ describe('a row’s own actions', () => {
     const feedback = calls[0].feedback;
     const costs = 'Fetching opens notes.md in the room, so every peer receives it.';
     feedback.note(costs);
-    feedback.note('notes.md is still empty — the host sent no text for it.', [
+    feedback.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => {} },
     ]);
     feedback.clear(costs);
@@ -803,15 +897,13 @@ describe('a row’s own actions', () => {
     assert.equal(allHasDownload(pane), true, 'a host cannot save the room’s copy');
   });
 
-  it('puts the two create verbs on a directory row for a host, and a `⋯` where there is no hover', () => {
+  it('puts the folder’s own two acts on a directory row for a host, and a `⋯` nowhere', () => {
     const host = downloadable({ listing: ['src/main.ts'], canCreate: true });
     host.view.render();
     const newFile = labelled(host.pane, 'New file in src/');
-    const newFolder = labelled(host.pane, 'New folder in src/');
     assert.ok(newFile !== undefined, 'no New file on a directory row');
-    assert.ok(newFolder !== undefined, 'no New folder on a directory row');
     assert.equal(newFile.title, 'New file in src/', 'the verb names itself nowhere a pointer reads');
-    newFolder.fire('click');
+    newFile.fire('click');
     assert.equal(host.view.isCreating(), true, 'the directory verb opened no row');
     assert.equal(host.view.creatingIn(), 'src', 'the row opened somewhere else');
     // Neither verb is the directory's own toggle: preventDefault is what keeps the summary shut.
@@ -820,23 +912,24 @@ describe('a row’s own actions', () => {
     const again = labelled(host.pane, 'New file in src/');
     again.fire('click', { preventDefault: () => void (prevented += 1) });
     assert.equal(prevented, 1, 'a directory verb would have toggled the directory too');
+    // The folder's other act is the trash, in the summary beside it.
+    assert.ok(
+      labelled(host.pane, 'Delete src/') !== undefined,
+      'no Delete on a directory row',
+    );
+    assert.equal(
+      labelled(host.pane, 'New folder in src/'),
+      undefined,
+      'a per-folder New folder is still drawn',
+    );
 
+    // A finger has no hover, so both are drawn on the row itself rather than behind a menu: the
+    // design’s folder row holds the folder’s own acts and nothing else.
     const finger = downloadable({ listing: ['src/main.ts'], canCreate: true, touch: true });
     finger.view.render();
-    const menuButton = labelled(finger.pane, 'More actions for src/');
-    assert.ok(menuButton !== undefined, 'a touch row draws no `⋯`');
-    assert.equal(menuButton.attributes['aria-expanded'], 'false');
-    menuButton.fire('click');
-    const items = allWithClass(finger.pane, 'row-menu')[0];
-    assert.ok(items !== undefined, 'the `⋯` opens nothing');
-    assert.equal(items.children.length, 2, 'the menu holds the wrong number of actions');
-    assert.equal(items.children[0].textContent, 'New file in src/');
-    assert.equal(items.children[1].textContent, 'New folder in src/');
-    items.children[0].fire('click');
-    assert.equal(finger.view.isCreating(), true, 'the menu item opened no create row');
-    assert.equal(finger.view.creatingIn(), 'src');
-    assert.equal(allWithClass(finger.pane, 'row-menu').length, 0, 'the menu stayed open');
-    assert.equal(menuButton.attributes['aria-expanded'], 'false', 'the trigger stayed expanded');
+    assert.ok(labelled(finger.pane, 'New file in src/') !== undefined, 'a finger has no New file');
+    assert.ok(labelled(finger.pane, 'Delete src/') !== undefined, 'a finger has no Delete');
+    assert.equal(allWithClass(finger.pane, 'row-menu').length, 0, 'a `⋯` menu is still drawn');
   });
 });
 
@@ -887,5 +980,354 @@ describe('an empty listing', () => {
     host.view.beginCreate('file', '');
     assert.equal(allWithClass(host.pane, 'empty').length, 0, 'the empty line stands over the create row');
     assert.equal(allWithClass(host.pane, 'new-row').length, 1);
+  });
+});
+
+/**
+ * Waits for an effect rather than for a number of turns: the row's own work is a promise, and a
+ * fixed handful of microtasks is a test that passes before the thing happened. Bounded, and it says
+ * what it was waiting for when it gives up.
+ */
+async function until(predicate, what) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`timed out waiting for ${what}`);
+}
+
+/** The `summary` a folder row is drawn as, found by the name it shows. */
+function summaryFor(pane, name) {
+  const label = allWithClass(pane, 'label').find((span) => span.textContent === name);
+  assert.ok(label !== undefined, `no row for ${name}`);
+  return label.parentElement;
+}
+
+/** A drag's own data transfer, which is the one browser object the handlers read. */
+function dataTransfer() {
+  const written = [];
+  return { written, setData: (type, value) => void written.push([type, value]), effectAllowed: '', dropEffect: '' };
+}
+
+describe('the row that asks to be taken out', () => {
+  function deletable(overrides = {}) {
+    const calls = [];
+    const said = [];
+    const state = {
+      listing: ['src/main.ts', 'src/lib.ts', 'src/api/handler.ts', 'tests/join.rs', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      remove: async (path) => {
+        calls.push(path);
+        return { kind: 'removed', path, paths: [path] };
+      },
+      say: (text) => void said.push(text),
+      ...overrides,
+    };
+    const { pane, view } = makeView(state);
+    return { pane, view, calls, said, state };
+  }
+
+  it('draws a trash on every file and folder row for the host, and none of it for a guest', () => {
+    const host = deletable();
+    host.view.render();
+    for (const label of ['Delete main.ts', 'Delete lib.ts', 'Delete handler.ts', 'Delete join.rs', 'Delete README.md']) {
+      assert.ok(labelled(host.pane, label) !== undefined, `no ${label} on a file row`);
+    }
+    assert.ok(labelled(host.pane, 'Delete src/') !== undefined, 'no trash on a folder row');
+    assert.ok(labelled(host.pane, 'Delete src/api/') !== undefined, 'no trash on a nested folder row');
+
+    // A guest holds no folder and no listing: neither act is theirs, so neither control is drawn.
+    const guest = deletable({ canCreate: false });
+    guest.view.render();
+    for (const label of ['Delete main.ts', 'Delete src/', 'Delete src/api/']) {
+      assert.equal(labelled(guest.pane, label), undefined, `a guest is offered ${label}`);
+    }
+    assert.equal(allWithClass(guest.pane, 'del-row').length, 0, 'a guest is offered the question');
+    assert.equal(
+      allWithClass(guest.pane, 'row').some((row) => row.draggable === true),
+      false,
+      'a guest’s file row can be dragged',
+    );
+  });
+
+  it('asks in the row itself, in place, with focus on ✓', () => {
+    const { pane, view } = deletable();
+    view.render();
+    labelled(pane, 'Delete src/').fire('click');
+
+    // The row keeps its shape and its place: a `<details>` that is still open, whose summary is the
+    // row the person pressed, with the trash where the folder icon was.
+    const row = withClass(pane, 'del-row');
+    assert.equal(row.tagName, 'SUMMARY');
+    assert.equal(row.parentElement.dataset.dir, 'src');
+    assert.equal(row.parentElement.open, true, 'the folder shut under the person');
+    assert.equal(row.attributes['aria-label'], 'Delete src/ and its 3 files?');
+    assert.equal(row.attributes['aria-description'], 'Enter on Delete confirms, Escape leaves it');
+    const mark = withClass(row, 'del-mark');
+    assert.equal(mark.attributes['aria-hidden'], 'true');
+    assert.ok(mark.innerHTML.includes('<svg'), 'the mark is not the trash');
+    assert.equal(withClass(row, 'del-name').textContent, 'src/');
+    assert.ok(withClass(row, 'del-name').classes.includes('del-name'), 'the name is not struck through');
+
+    // The two answers stand where the download and the delete were, and ✓ holds focus.
+    const yes = labelled(pane, 'Delete src/ and its 3 files');
+    const no = labelled(pane, 'Keep src/');
+    assert.ok(yes !== undefined, 'no ✓ on the row');
+    assert.ok(no !== undefined, 'no ✕ on the row');
+    assert.equal(yes.parentElement, row, '✓ is not in the row it belongs to');
+    assert.equal(doc.activeElement, yes, 'focus did not land on the deletion');
+
+    // What goes with the folder is drawn struck and nested under it: the folder inside it, and the
+    // files inside that.
+    const nested = allWithClass(pane, 'del-plain');
+    assert.ok(
+      nested.some((line) => nameIn(line) === 'main.ts'),
+      'the folder’s own files are not drawn as going with it',
+    );
+    assert.ok(
+      allWithClass(pane, 'sum').some((line) => (line.children[1]?.textContent ?? '') === 'api/'),
+      'a folder inside the folder is not drawn as going with it',
+    );
+    assert.ok(
+      nested.some((line) => nameIn(line) === 'handler.ts'),
+      'the nested folder’s contents are not drawn as going with it',
+    );
+    // A struck line is a picture, not a row: nothing in what goes with the folder can be opened.
+    assert.equal(
+      nested.some((line) => line.dataset.open !== undefined),
+      false,
+      'a row that is going is still a control',
+    );
+  });
+
+  it('takes it out on ✓, says what went, and puts the row back on ✕', async () => {
+    const { pane, view, calls, said } = deletable();
+    view.render();
+    labelled(pane, 'Delete src/').fire('click');
+    labelled(pane, 'Delete src/ and its 3 files').fire('click');
+    await until(() => calls.length === 1, 'the removal');
+    assert.deepEqual(calls, ['src']);
+    assert.deepEqual(said, ['Deleted src/ and its 3 files']);
+    assert.equal(allWithClass(pane, 'del-row').length, 0, 'the row is still asking after the removal');
+
+    // ✕ keeps it, and the row is a row again — downloadable, openable, its name unbroken.
+    labelled(pane, 'Delete main.ts').fire('click');
+    assert.equal(allWithClass(pane, 'del-row').length, 1);
+    // ✓ names the file it would remove by its path and ✕ the file it would keep, the same way a
+    // folder's do: the row is the one that was pressed, and what the two answers say has to name the
+    // file wherever it is.
+    labelled(pane, 'Keep src/main.ts').fire('click');
+    assert.equal(allWithClass(pane, 'del-row').length, 0, '✕ left the row asking');
+    assert.ok(labelled(pane, 'Delete main.ts') !== undefined, 'the row never came back');
+    assert.equal(rowFor(pane, 'main.ts').tagName, 'BUTTON', 'the row is not the row again');
+  });
+
+  it('leaves it on Escape, wherever focus is in the row', () => {
+    const { pane, view, calls, said } = deletable();
+    view.render();
+    labelled(pane, 'Delete src/').fire('click');
+    pane.fire('keydown', { key: 'Escape' });
+    assert.equal(allWithClass(pane, 'del-row').length, 0, 'Escape left the row asking');
+    assert.deepEqual(calls, [], 'Escape removed something');
+    assert.deepEqual(said, [], 'Escape said something');
+    assert.equal(view.isCreating(), false);
+  });
+
+  it('keeps the question open, with the folder’s own sentence, when the removal is refused', async () => {
+    const sentence = 'src could not be removed: this page no longer has write access to the folder.';
+    const refused = deletable({ remove: async () => ({ kind: 'refused', sentence }) });
+    refused.view.render();
+    labelled(refused.pane, 'Delete src/').fire('click');
+    labelled(refused.pane, 'Delete src/ and its 3 files').fire('click');
+    await until(() => allWithClass(refused.pane, 'row-note').length === 1, 'the refusal');
+    assert.equal(withClass(refused.pane, 'row-note').children[0], sentence);
+    assert.equal(allWithClass(refused.pane, 'del-row').length, 1, 'a refusal closed the question');
+    assert.deepEqual(refused.said, [], 'a refusal announced a deletion');
+  });
+
+  it('removes once, however often ✓ is pressed while the removal runs', async () => {
+    let removals = 0;
+    let finish: () => void = () => {};
+    const slow = deletable({
+      remove: () => {
+        removals += 1;
+        return new Promise((resolve) => {
+          finish = () => resolve({ kind: 'removed', path: 'src', paths: [] });
+        });
+      },
+    });
+    slow.view.render();
+    labelled(slow.pane, 'Delete src/').fire('click');
+    const yes = labelled(slow.pane, 'Delete src/ and its 3 files');
+    yes.fire('click');
+    yes.fire('click');
+    finish();
+    await until(() => slow.said.length === 1, 'the deletion');
+    assert.equal(removals, 1, 'a second press removed again');
+  });
+
+  it('names a file’s own row after its leaf and a folder’s after its path', () => {
+    const { pane, view } = deletable({ listing: ['src/main.ts'] });
+    view.render();
+    // A file’s control is read by its leaf; a folder’s by the path, with the slash that says folder.
+    assert.ok(labelled(pane, 'Delete main.ts') !== undefined);
+    labelled(pane, 'Delete main.ts').fire('click');
+    assert.ok(labelled(pane, 'Delete src/main.ts') !== undefined, '✓ does not name the file it would remove');
+    assert.ok(labelled(pane, 'Keep src/main.ts') !== undefined, '✕ does not name the file it would keep');
+    assert.equal(
+      allWithClass(pane, 'del-row')[0].tagName,
+      'DIV',
+      'a file’s asking row is not the row itself',
+    );
+  });
+});
+
+describe('moving a file', () => {
+  function movable(overrides = {}) {
+    const calls = [];
+    const said = [];
+    const state = {
+      listing: ['src/main.ts', 'src/lib.ts', 'tests/join.rs', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      say: (text) => void said.push(text),
+      ...overrides,
+    };
+    // The page republishes the walk and redraws the tree while the move is still in flight, so the
+    // stub does too: the drawing and the act are one sequence in the real page, and a view that only
+    // ever renders after the move resolves would not be the one that ships.
+    let live;
+    state.move =
+      overrides.move ??
+      (async (path, into) => {
+        const leaf = path.split('/').pop();
+        const to = into === '' ? leaf : `${into}/${leaf}`;
+        if (state.listing.includes(to)) {
+          return { kind: 'refused', sentence: `${to} is already in the folder, so nothing was moved.` };
+        }
+        state.listing = state.listing.filter((known) => known !== path).concat(to);
+        calls.push([path, into]);
+        live.view.render();
+        return { kind: 'moved', to };
+      });
+    const { pane, view } = makeView(state);
+    live = { view };
+    return { pane, view, calls, said, state };
+  }
+
+  it('drags a file onto a folder, marks the folder as a whole, and speaks the move', async () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    const transfer = dataTransfer();
+
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: transfer });
+    assert.equal(
+      said[0],
+      'Picked up main.ts. Up and down choose a folder, Enter drops it, Escape leaves it where it is.',
+    );
+    assert.deepEqual(transfer.written, [['text/plain', 'src/main.ts']]);
+    assert.equal(transfer.effectAllowed, 'move');
+    assert.ok(rowFor(pane, 'main.ts').parentElement.classes.includes('dragging'), 'the row it came from is not dimmed');
+
+    // The folder a drop would land in is marked as a whole: the pointer is over `tests/`.
+    const tests = summaryFor(pane, 'tests/');
+    let prevented = 0;
+    pane.fire('dragover', { target: tests, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 1, 'a drop on a folder was not accepted');
+    assert.ok(tests.classes.includes('drop-into'), 'the folder is not marked as where it lands');
+
+    pane.fire('drop', { target: tests, dataTransfer: transfer });
+    await until(() => calls.length === 1, 'the move');
+    assert.deepEqual(calls, [['src/main.ts', 'tests']]);
+    assert.equal(said.at(-1), 'Moved main.ts into tests');
+  });
+
+  it('walks the folders from the keyboard and drops the file where the choice is', async () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    const row = () => rowFor(pane, 'main.ts');
+
+    // Space picks it up: the sentence is the whole instruction, because the keys are not on screen.
+    pane.fire('keydown', { target: row(), key: ' ' });
+    assert.equal(
+      said[0],
+      'Picked up main.ts. Up and down choose a folder, Enter drops it, Escape leaves it where it is.',
+    );
+    assert.ok(row().parentElement.classes.includes('dragging'), 'the picked-up row is not dimmed');
+
+    // The choice walks every folder the listing has, in order, and the top level last.
+    pane.fire('keydown', { target: row(), key: 'ArrowUp' });
+    assert.equal(said[1], 'Already into src', 'the folder it is in is not read as where it already is');
+    pane.fire('keydown', { target: row(), key: 'ArrowDown' });
+    assert.equal(said[2], 'Drops into tests');
+    assert.ok(summaryFor(pane, 'tests/').classes.includes('drop-into'), 'the choice is not marked');
+    pane.fire('keydown', { target: row(), key: 'ArrowDown' });
+    assert.equal(said[3], 'Drops at the top level');
+    assert.ok(withClass(pane, 'drop-into').tagName === 'UL', 'the top level is not marked as a whole');
+    pane.fire('keydown', { target: row(), key: 'ArrowUp' });
+    assert.equal(said[4], 'Drops into tests');
+
+    pane.fire('keydown', { target: row(), key: 'Enter' });
+    await until(() => calls.length === 1, 'the move');
+    assert.deepEqual(calls, [['src/main.ts', 'tests']]);
+    assert.equal(said.at(-1), 'Moved main.ts into tests');
+    // The row moved with the file, so focus is on the row at its new path.
+    assert.equal(doc.activeElement, rowFor(pane, 'main.ts'), 'focus did not return to the file’s row');
+    assert.equal(summaryFor(pane, 'tests/').parentElement.open, true, 'the folder it landed in is shut');
+  });
+
+  it('leaves the file where it is on Escape, and says which file', () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: ' ' });
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'Escape' });
+    assert.deepEqual(calls, [], 'Escape moved the file');
+    assert.equal(said.at(-1), 'Left main.ts where it is');
+    assert.equal(allWithClass(pane, 'dragging').length, 0, 'the row is still dimmed');
+    assert.equal(doc.activeElement, rowFor(pane, 'main.ts'), 'focus did not come back to the row');
+  });
+
+  it('picks up a file the room holds open, like any other', () => {
+    const { pane, view, said } = movable({ inRoom: ['src/main.ts'] });
+    view.render();
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: dataTransfer() });
+    assert.ok(rowFor(pane, 'main.ts').parentElement.classes.includes('dragging'), 'an open file was not picked up');
+    assert.match(said[0], /^Picked up main.ts/);
+  });
+
+  it('does not move a file into the folder it is already in', () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: ' ' });
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'ArrowUp' });
+    assert.equal(allWithClass(pane, 'drop-into').length, 0, 'the folder it is already in is marked');
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'Enter' });
+    assert.deepEqual(calls, [], 'the file was moved into the folder it was already in');
+    assert.equal(said.at(-1), 'Already into src');
+  });
+
+  it('does not move a file onto a name the folder already holds', () => {
+    // `tests/main.ts` is already there: the folder would refuse the write, so the drop is refused
+    // before it is made, and no folder is marked for it.
+    const { pane, view, calls } = movable({ listing: ['src/main.ts', 'tests/main.ts', 'tests/join.rs'] });
+    view.render();
+    const transfer = dataTransfer();
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: transfer });
+    const tests = summaryFor(pane, 'tests/');
+    let prevented = 0;
+    pane.fire('dragover', { target: tests, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 0, 'a name the folder holds was accepted as a drop');
+    assert.equal(tests.classes.includes('drop-into'), false, 'a folder that holds the name is marked');
+    pane.fire('drop', { target: tests, dataTransfer: transfer });
+    assert.deepEqual(calls, [], 'the file was moved onto a name the folder holds');
   });
 });

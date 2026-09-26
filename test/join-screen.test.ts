@@ -267,8 +267,36 @@ describe('brand heading', () => {
     assert.match(main, /`Sharing “\$\{hostFolder\.name\}”`/, 'a host cannot read which folder it exposes');
     // The apostrophe is the page's: the pre-join card and the room's own copy use the typographic
     // one (`host.ts`), so a straight one here is the same phrase spelled two ways.
-    assert.match(main, /`In \$\{host\.displayName\}\\u2019s session`/, 'a guest cannot read whose room it is');
+    assert.match(
+      main,
+      /`In \$\{sessionHostName\}\\u2019s session`/,
+      'a guest cannot read whose room it is',
+    );
     assert.match(main, /'In a shared session'/, 'a guest before the roster arrives reads nothing');
+  });
+
+  it('keeps the host’s name while its socket is away', () => {
+    // A room's roster stops carrying the host the moment its socket detaches, and the bar would read
+    // as a room with nobody in charge of it. The name is taken while the room still has it and kept
+    // through the grace — the same name the session card puts on its line — and nothing but leaving
+    // the room clears it.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /function rememberHostName\(\): void \{[\s\S]*?sessionHostName = host\.displayName;/,
+      'the host’s name is never remembered',
+    );
+    assert.match(
+      main,
+      /case 'grace':[\s\S]{0,400}?rememberHostName\(\);/,
+      'the name is not taken while the room still names the host',
+    );
+    assert.match(
+      main,
+      /sessionHostName === undefined \? 'In a shared session'/,
+      'the line does not fall back for a room whose host was never seen',
+    );
+    assert.match(main, /sessionHostName = undefined;/, 'the name outlives the room it was about');
   });
 
   it('gives the card and the workspace one main landmark', () => {
@@ -282,33 +310,31 @@ describe('brand heading', () => {
     assert.ok(!/<main[^>]*>[\s\S]*<main/.test(html), 'the page has more than one landmark');
   });
 
-  it('shows room health as a dot, with its words only when there is something to say', () => {
+  it('shows room health as a dot only when there is something to say', () => {
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
     assert.match(
       html,
       /<span id="health" data-health="ok" aria-live="polite" title="Connected">/,
-      'no health dot in the bar',
+      'no health element in the bar',
     );
-    // The dot is `aria-hidden` and a `title` is not an accessible name, so the healthy state's
-    // name is in the document and clipped out of the paint: a screen reader reads it and the eye
-    // does not. The two other states paint theirs beside the dot.
+    // A healthy room paints nothing at all: the green dot was the build's own, and the design draws
+    // the bar with no health control on it. The name stays in the document for the moment one of the
+    // other two states arrives — the element is the live region that announces them — and the two
+    // states that change what typing means paint their own colour and their own words.
+    assert.match(
+      style,
+      /#health\[data-health='ok'\] \{ display: none; \}/,
+      'a healthy room paints a dot the design does not draw',
+    );
     assert.match(
       html,
       /<span class="dot" aria-hidden="true"><\/span><span id="health-label">Connected<\/span>/,
       'the healthy state carries no name for a screen reader',
     );
-    assert.match(
-      style,
-      /#health\[data-health='ok'\] #health-label \{[^}]*clip-path: inset\(50%\)/,
-      'a healthy room paints its own name',
-    );
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    for (const state of ["'reconnecting'", "'away'"]) {
-      assert.ok(main.includes(`setHealth(${state})`), `the ${state} state reaches no dot`);
-    }
+    assert.ok(main.includes(`setHealth('reconnecting')`), 'the reconnecting state reaches no dot');
     assert.match(main, /'Reconnecting…'/, 'the reconnecting state is wordless');
-    assert.match(main, /'Host away'/, 'the host-away state is wordless');
   });
 });
 
@@ -567,13 +593,13 @@ describe('failure display and diagnostics', () => {
 });
 
 /**
- * The session bar's own markup: from the bar's opening tag to the health strip under it, which is
+ * The session bar's own markup: from the bar's opening tag to the notices column under it, which is
  * the next thing the shell draws. The bar used to end at the follow banner's id, and the banner is
  * gone — a slice that runs to a missing id silently reads the whole page instead.
  */
 function barOf(source: string): string {
   const from = source.indexOf('<div id="session"');
-  const to = source.indexOf('<div id="session-note"');
+  const to = source.indexOf('<div id="notices"');
   assert.ok(from !== -1 && to > from, 'the session bar is not in the shell');
   return source.slice(from, to);
 }
@@ -588,9 +614,11 @@ describe('joined chrome', () => {
     assert.ok(!html.includes('room-label'), 'room label still in the page shell');
   });
 
-  it('the roster heading reads People', () => {
-    assert.ok(html.includes('<h2>People</h2>'), 'People heading missing');
-    assert.ok(!html.includes('<h2>Here</h2>'), 'Here heading still on the page');
+  it('has no People roster: the people are the faces in the session bar', () => {
+    assert.ok(!html.includes('<h2>People</h2>'), 'the People heading is still in the shell');
+    assert.ok(!html.includes('id="roster"'), 'the roster list is still in the shell');
+    assert.ok(!main.includes('roster.ts'), 'the page still draws a roster');
+    assert.match(html, /<span id="faces"><\/span>/, 'the bar carries no room for the faces');
   });
 
   it('the whole link bar copies — no separate Copy button', () => {
@@ -601,8 +629,8 @@ describe('joined chrome', () => {
     assert.ok(/id="share-group"[^>]*tabindex="0"/.test(bar), 'the bar takes no focus');
     assert.ok(/id="share-group"[^>]*aria-label="Copy invite link"/.test(bar), 'the bar names no action');
     assert.ok(main.includes('wireShareBox'), 'the bar copies from its icon only');
-    // The confirmation is the words: `Link copied` is the whole of it, and the tick that stood
-    // beside them said nothing they did not.
+    // The confirmation is the words: `Copied` is the whole of it, and the tick that stood beside
+    // them said nothing they did not.
     assert.ok(!main.includes("iconSvg('check')"), 'the copied confirmation wears a tick again');
     assert.match(main, /wireShareBox\(shareGroup, \(\) => copyShareLink\(\)\)/, 'the bar morphs with something else in it');
   });
@@ -621,8 +649,13 @@ describe('joined chrome', () => {
     assert.ok(/await openFirst\(session\);[\s\S]*?editor\.focus\(\)/.test(main), 'join never focuses the editor');
   });
 
-  it('the roster owns no stop control', () => {
-    assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a roster stop survived beside the strip one');
-    assert.ok(main.includes("labelSpan('Stop following')"), 'the follow segment lost its stop');
+  it('the stop control lives in the person’s menu and nowhere else', () => {
+    // The roster used to carry a stop of its own beside the strip's segment; both are gone, and the
+    // one control that ends a follow is the toggle in the menu of the person being followed.
+    const room = readFileSync(new URL('../src/browser/room.ts', import.meta.url), 'utf8');
+    assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a stop survived on the page');
+    assert.match(room, /labelSpan\(follows \? 'Stop following' : 'Follow'\)/,
+      'the person’s menu lost its follow toggle',
+    );
   });
 });

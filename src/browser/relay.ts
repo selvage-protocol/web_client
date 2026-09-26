@@ -23,6 +23,8 @@ import type {
   SessionInfo,
 } from '../engine/index.ts';
 
+import { RelaySession } from '../engine/relay.ts';
+
 import { CLIENT_ID } from './client-id.ts';
 import { nativeWebSocketFactory } from './transport.ts';
 
@@ -40,6 +42,8 @@ export interface RoomEngine extends Engine {
   grant(paths: readonly string[]): Promise<void>;
   /** Changes the name the room sees (`PROTOCOL.md` §5), the page's own seat included. */
   rename(displayName: string): Promise<void>;
+  /** Ends the room for everyone, which only its host may do (`§7.1`). */
+  closeRoom(): Promise<boolean>;
   disconnect(): Promise<void> | void;
   inviteUrl(): string | undefined;
 }
@@ -67,21 +71,26 @@ export function listingSource(paths: readonly string[] = []): ListingSource {
   };
 }
 
-/** Opens a room as its host, with the listing the folder had when this was called. */
+/**
+ * Opens a room as its host, with the listing the folder had when this was called.
+ *
+ * The relay is seated here rather than by `PeerEngine.host` so the page keeps a hand on it: the
+ * closing that ends the room for its guests (`§7.1`) is the relay's, and the bridge has no word
+ * for it.
+ */
 export async function hostRoom(
   base: string,
   displayName: string,
   listing: ListingSource,
 ): Promise<RoomEngine> {
-  return pageEngine(
-    await PeerEngine.host({
-      baseUrl: base,
-      displayName,
-      listing,
-      webSocketFactory: nativeWebSocketFactory,
-      client: CLIENT_ID,
-    }),
-  );
+  const relay = await RelaySession.host({
+    baseUrl: base,
+    displayName,
+    listing: () => listing.current(),
+    webSocketFactory: nativeWebSocketFactory,
+    client: CLIENT_ID,
+  });
+  return pageEngine(new PeerEngine({ relay, displayName }), { relay, listing });
 }
 
 /**
@@ -116,7 +125,10 @@ export async function joinRoom(invite: string, displayName: string): Promise<Roo
  * engine as it stands and the held set — which belongs to this window and not to the connection —
  * outlives the re-seat.
  */
-export function pageEngine(engine: PeerEngine): RoomEngine {
+export function pageEngine(
+  engine: PeerEngine,
+  hosting?: { relay: RelaySession; listing: ListingSource },
+): RoomEngine {
   const held = new Set<string>();
   return {
     session: () => engine.session(),
@@ -150,8 +162,12 @@ export function pageEngine(engine: PeerEngine): RoomEngine {
     documents: () => engine.session().documents,
     openDocuments: () => [...held].sort(),
     grantedPaths: () => engine.grantedPaths(),
-    grant: (paths: readonly string[]) => engine.grant(paths),
+    grant: (paths: readonly string[]) => {
+      hosting?.listing.replace(paths);
+      return engine.grant(paths);
+    },
     rename: (displayName: string) => engine.rename(displayName),
+    closeRoom: async () => (await hosting?.relay.closeRoom()) ?? false,
     disconnect: () => engine.disconnect(),
     inviteUrl: () => engine.inviteUrl(),
   };

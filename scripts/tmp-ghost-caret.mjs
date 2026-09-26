@@ -115,7 +115,7 @@ const DOM = {
   state: `({
     tree: document.querySelector('#tree').textContent,
     viewText: document.querySelector('#editor .view-lines').innerText,
-    roster: [...document.querySelectorAll('#roster li')].map((li) => li.textContent),
+    faces: [...document.querySelectorAll('#faces .av')].map((face) => face.getAttribute('aria-label')),
     badges: [...document.querySelectorAll('.glyph-margin-widgets > div')].map((d) => ({
       line: Math.round(d.getBoundingClientRect().top),
       cls: d.className,
@@ -379,12 +379,23 @@ async function caretRoom() {
     );
     // Go to the peer: the local caret lands exactly at the peer's own offset, so the
     // Enters below are pressed at the peer's position — the owner's reproduction.
-    const row = await local.evaluate(
-      `[...document.querySelectorAll('#roster li')].findIndex((li) => (li.querySelector('.name')?.textContent ?? '').includes('peer'))`,
+    // The peer is a face in the bar: pressing it opens their menu, and `Go to` is the act in it.
+    const face = await local.evaluate(
+      `(() => {
+        const faces = [...document.querySelectorAll('#faces .av')];
+        const at = faces.findIndex((candidate) => (candidate.getAttribute('aria-label') ?? '').includes('peer'));
+        if (at === -1) return null;
+        faces[at].click();
+        return at;
+      })()`,
     );
-    check('caret: the peer is in the roster', row >= 0, `row ${row}`);
+    check('caret: the peer is a face in the bar', face !== null, `face ${face}`);
     await local.evaluate(
-      `[...document.querySelectorAll('#roster li')][${row}].querySelectorAll('button')[0].click()`,
+      `(() => {
+        const go = [...document.querySelectorAll('#menu button')].find((button) => /Go to/.test(button.textContent ?? ''));
+        go?.click();
+        return true;
+      })()`,
     );
     const landed = await waitFor(
       'the peer caret to be drawn on the peer line',

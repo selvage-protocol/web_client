@@ -5,7 +5,7 @@ import { hostRoom, joinRoom, listingSource } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
-import type { BindingNotice, Following, Participant, StatusTopic } from './editor.ts';
+import type { BindingNotice, Following, GoToOutcome, Participant, StatusTopic } from './editor.ts';
 import { handCopy, showDisplay } from './hand-copy.ts';
 import {
   SHARE_MASK,
@@ -30,7 +30,7 @@ import {
   showJoinFailure,
   showNameFailure,
   showCardIntent,
-  showRejoinCard,
+  showStartAgain,
   validateDisplayName,
 } from './join.ts';
 import type { CardIntent, JoinCardElements, JoinTarget } from './join.ts';
@@ -42,12 +42,10 @@ import {
   folderPickerOf,
   pickFolder,
 } from './folder.ts';
-import type { NewEntryKind } from './folder.ts';
-import { createInFolder } from './new-entry.ts';
+import type { FolderMove, FolderRemove, NewEntryKind } from './folder.ts';
+import { createInFolder, listingNotPublishedSentence } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
-  HOST_NEEDS_THE_SERVERS_PAGE,
-  HOST_SHARE_NOTE,
   clearHostingMark,
   hostAvailability,
   markHosting,
@@ -58,7 +56,7 @@ import type { ServerRead } from './meta-read.ts';
 import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
-import type { CreateResult, RowFeedback } from './tree-view.ts';
+import type { CreateResult, MoveResult, RemoveResult, RowFeedback } from './tree-view.ts';
 import {
   fetchAndSave,
   fetchCostsSentence,
@@ -68,10 +66,21 @@ import {
   stillEmptySentence,
 } from './fetch-download.ts';
 import { FETCH_COSTS_STAND_MS } from './fetch-download.ts';
-import { EMPTY_IN_ROOM_TITLE } from './tree-state.ts';
 import { wireSidebar } from './sidebar.ts';
-import { renameHoldsTheList, renderRoster } from './roster.ts';
-import type { RosterRename } from './roster.ts';
+import {
+  FACE_LIMIT,
+  MORE_ANCHOR,
+  NOTHING_TO_GO_TO,
+  PHONE_FACE_LIMIT,
+  focusInto,
+  placeMenu,
+  renameHoldsTheList,
+  renderEveryoneMenu,
+  renderPersonMenu,
+  renderRoom,
+  syncExpanded,
+} from './room.ts';
+import type { RenameEdit, RoomPerson } from './room.ts';
 import {
   emptyEditorFor,
   renderEmptyEditor,
@@ -85,27 +94,27 @@ import {
   RECONNECTING_NOTE,
   hostBackSentence,
   hostPresent,
+  wireDownloadToasts,
   wireFailureAlert,
-  wireSessionNote,
+  wireSessionCard,
   wireTapPeek,
 } from './notice.ts';
 import {
-  LEFT_SESSION_SENTENCE,
   SESSION_ENDED_MESSAGE,
   dropSession,
   roomGoneSentence,
-  sessionOverMessage,
 } from './ended.ts';
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
 import { schemeMatchBase, serverBaseOf } from './servers.ts';
+import { seatColours } from './seats.ts';
+import { adoptTermsFoot } from './terms.ts';
 import {
   PHONE_QUERY,
   TOUCH_QUERY,
   appHeightFor,
   editorOptionsFor,
-  keyboardInsetFor,
   watchTouchQuery,
 } from './mobile.ts';
 
@@ -142,8 +151,8 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
         inherit: true,
         rules: [
           // Mocha's overlay1 is 4.4:1 on the editor ground — under AA for the
-          // two dims a reader reads most (comments, line numbers) — so both
-          // step one shade lighter: 4.9:1, still quiet.
+          // dimmest token a reader reads most, the comment — so it steps one
+          // shade lighter: 4.9:1, still quiet.
           { token: 'comment', foreground: '868ca2' },
           { token: 'keyword', foreground: 'cba6f7' },
           { token: 'string', foreground: 'a6e3a1' },
@@ -153,9 +162,12 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
         colors: {
           'editor.background': '#1e1e2e',
           'editor.foreground': '#cdd6f4',
-          'editor.lineHighlightBackground': '#31324466',
-          'editorLineNumber.foreground': '#868ca2',
-          'editorLineNumber.activeForeground': '#cba6f7',
+          // The gutter is the design's: every line number in Mocha's Overlay 0
+          // (3.4:1 on the ground), and the line the caret is on no different from
+          // the rest — the mauve active number and the highlight band are Monaco's
+          // own, and the design draws neither.
+          'editorLineNumber.foreground': '#6c7086',
+          'editorLineNumber.activeForeground': '#6c7086',
           'editorCursor.foreground': '#cba6f7',
           'editor.selectionBackground': '#45475a',
           'editor.inactiveSelectionBackground': '#313244',
@@ -218,33 +230,37 @@ const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
 const hostQuiet = document.getElementById('host-quiet') as HTMLButtonElement;
-const hostShare = document.getElementById('host-share') as HTMLElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
 const editorEmpty = document.getElementById('editor-empty') as HTMLElement;
-const rosterList = document.getElementById('roster') as HTMLElement;
+const faceStrip = document.getElementById('faces') as HTMLElement;
 const treePane = document.getElementById('tree') as HTMLElement;
-const sharedActions = document.getElementById('shared-actions') as HTMLElement;
+const treeActions = document.getElementById('tree-actions') as HTMLElement;
 const newFileButton = document.getElementById('new-file') as HTMLButtonElement;
 const newFolderButton = document.getElementById('new-folder') as HTMLButtonElement;
 const appPane = document.getElementById('app') as HTMLElement;
+const noticesPane = document.getElementById('notices') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
 const sideResizer = document.getElementById('side-resizer') as HTMLElement;
-const sideRail = document.getElementById('side-rail') as HTMLButtonElement;
+const sideFoot = document.getElementById('side-foot') as HTMLElement;
+const sideTerms = document.getElementById('side-terms') as HTMLAnchorElement;
 const fileStrip = document.getElementById('file-strip') as HTMLElement;
 const fileStripPath = document.getElementById('file-strip-path') as HTMLElement;
-const fileStripChips = document.getElementById('file-strip-chips') as HTMLElement;
-const fileStripFollow = document.getElementById('file-strip-follow') as HTMLElement;
 /** The one polite region for the changes that no longer have a visible sentence of their own. */
 const live = document.getElementById('live') as HTMLElement;
 
 /**
- * The chrome's lifecycle line: the host-leave warning while the grace runs, counting its
- * window down. Every other transient sentence either has a home of its own or is dropped
- * (see `onNotice`).
+ * The chrome's lifecycle card: the host-leave warning while the grace runs, counting its window
+ * down with the bar that drains with it. Every other transient sentence either has a home of its
+ * own or is dropped (see `onNotice`).
  */
-const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
+const sessionCard = wireSessionCard(document.getElementById('session-card') as HTMLElement);
+/** The files this window saved, as the design's toasts in the same column. */
+const toasts = wireDownloadToasts(
+  document.getElementById('toasts') as HTMLElement,
+  document.getElementById('toasts-more') as HTMLElement,
+);
 /** Failures of an action the guest took: shown, then gone on their own. */
 const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLElement);
 /**
@@ -266,6 +282,17 @@ let binding: MonacoBinding | undefined;
  * dead zone — unbundled, the load would throw `Cannot access 'editorApi' before initialization`.
  */
 let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
+
+/**
+ * Where the notices column starts. It floats over the workspace rather than being laid out with
+ * it, so its top is measured from what it has to clear: the bar, whose height the faces change,
+ * and — on a phone, where the file strip runs the whole width — the strip below it. Measured
+ * rather than assumed, because a phone whose panel is open draws no strip at all.
+ */
+function placeNotices(): void {
+  const strip = phoneLayout.matches ? fileStrip.offsetHeight : 0;
+  noticesPane.style.top = `${sessionBar.offsetHeight + strip + 10}px`;
+}
 
 /**
  * The panel is a disclosure on a phone and a resizable column on anything else.
@@ -293,9 +320,15 @@ function showPanel(open: boolean): void {
   // The empty pane's own way into the panel is that state read back: the pane offers the panel only
   // where the panel is shut, and an act that opens what is already open does nothing visible.
   syncEmptyEditor();
+  // The workspace is a different height, and on a phone the strip the column clears may be gone.
+  placeNotices();
 }
 
-phoneLayout.addEventListener('change', () => showPanel(!phoneLayout.matches));
+phoneLayout.addEventListener('change', () => {
+  showPanel(!phoneLayout.matches);
+  // The cluster's own cap is a phone's, and the query that decided it has just changed.
+  drawRoom(binding?.participants() ?? []);
+});
 // The panel competes with the editor on a phone (a 42 % cut of a 844 px screen)
 // and starts shut there; every other device has the room for both.
 showPanel(!phoneLayout.matches);
@@ -303,8 +336,8 @@ showPanel(!phoneLayout.matches);
 /**
  * On a phone the whole strip is the panel's disclosure: with the panel shut — its state after every
  * open — nothing else on screen says which file is in the editor, and the panel is the only place
- * the tree can be reached from. A press that landed on one of the strip's own controls (the follow
- * stop) is not the disclosure's.
+ * the tree can be reached from. A press that landed on a control inside the strip is not the
+ * disclosure's.
  */
 fileStrip.addEventListener('click', (event) => {
   if (!phoneLayout.matches) {
@@ -317,8 +350,8 @@ fileStrip.addEventListener('click', (event) => {
 });
 fileStrip.addEventListener('keydown', (event) => {
   // The strip is the disclosure only where it *is* the target: a key that bubbled up from a control
-  // inside it — the follow segment's Stop — belongs to that control, and swallowing it here would
-  // make the stop unpressable by keyboard.
+  // inside it belongs to that control, and swallowing it here would make that control unpressable
+  // by keyboard.
   if (
     !phoneLayout.matches ||
     event.target !== fileStrip ||
@@ -457,7 +490,7 @@ let opening: string | undefined;
 let fullShareLink = '';
 /** The server the last join attempt reached for, for the unreachable-server copy. */
 let lastBase = '';
-/** The joined display name, for the roster's self row. */
+/** The joined display name, for this window's own face. */
 let selfName = '';
 /** The tree's guest-pinned directories, kept across re-renders. */
 const openDirs = new Set<string>();
@@ -484,19 +517,16 @@ let republishGrant: ((paths: readonly string[]) => Promise<void>) | undefined;
  * (`tree-view.ts`) and forgotten with the session.
  */
 const madeFolders = new Set<string>();
-/**
- * The paths the folder refused to write, with the sentence it refused with.
- *
- * The failure of a write belongs on the row it is about, not in a toast: the toast came and went
- * while the file on disk stayed behind the room, and the `⚠` stays until a write to that path lands.
- */
-const unsavedPaths = new Map<string, string>();
-/** The directory the header's create verbs last used, for the session. */
+/** The directory the panel's create verbs last used, for the session. */
 let lastCreateParent: string | undefined;
-/** Whether the host's absence is being counted down: a guest's rows dim while it is. */
-let hostAway = false;
-/** Whether this window is a viewer, which the file strip states as a chip. */
-let readOnly = false;
+/**
+ * The host's display name, remembered while its seat is in the room.
+ *
+ * A room's roster stops carrying the host the moment its socket detaches, and both the bar's
+ * identity line and the session card still have to name it: `In <host>'s session` is as true while
+ * the grace runs as it was a second before. Nothing clears it but leaving the room.
+ */
+let sessionHostName: string | undefined;
 /** Whether the cost of fetching has been said this session: it is said once. */
 let saidFetchCosts = false;
 
@@ -540,7 +570,9 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<CreateRes
     return { kind: 'refused', sentence: outcome.sentence };
   }
   if (outcome.kind === 'incomplete') {
-    unsavedPaths.set(path, outcome.sentence);
+    // The entry was made and its text did not reach the room. The row carries no mark for that any
+    // more, so the sentence the folder gave stands on the page's transient line.
+    failureAlert.show(outcome.sentence);
     syncGrant();
     return { kind: 'incomplete', path, entry, sentence: outcome.sentence };
   }
@@ -549,17 +581,152 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<CreateRes
 }
 
 /**
- * The two create verbs, offered only to a window that holds a folder: a guest has nothing to create
- * in, and the sentence the empty tree carries is its own answer. They stand in the panel's own
- * header, always visible, and they create where the person is looking — the directory of the open
- * file, or the folder they last created in, and the root when neither says otherwise.
+ * Re-walks the folder this window hosts and publishers the listing the room is drawn from.
+ *
+ * The walk is what a listing is, so a path is published because the folder holds it and not because
+ * this page names it — which is why a removal and a move go through the same step a create does. A
+ * failure here is the caller's to word: the folder has already changed, and what is left unsaid is
+ * that the room has not been told.
  */
-newFileButton.appendChild(iconSpan('file-add'));
-newFolderButton.appendChild(iconSpan('folder-add'));
+async function publishFolder(): Promise<string | undefined> {
+  const folder = hostFolder;
+  if (folder === undefined) {
+    return 'this window is not serving a folder any more';
+  }
+  try {
+    await republishGrant?.(await folder.list());
+    return undefined;
+  } catch (error: unknown) {
+    return describe(error);
+  }
+}
+
+/**
+ * Keeps the folder a path left behind on screen once nothing listed is left in it. The folder is
+ * still on disk, and a listing of files alone would make it vanish.
+ */
+function keepEmptiedFolder(path: string): void {
+  const listing = binding?.grantListing() ?? [];
+  for (let slash = path.lastIndexOf('/'); slash !== -1; slash = path.lastIndexOf('/', slash - 1)) {
+    const folder = path.slice(0, slash);
+    if (listing.some((listed) => listed.startsWith(`${folder}/`))) {
+      return;
+    }
+    madeFolders.add(folder);
+  }
+}
+
+/** Forgets a folder this session made, and everything this session made under it. */
+function forgetMadeFolder(path: string): void {
+  const under = `${path}/`;
+  for (const made of [...madeFolders]) {
+    if (made === path || made.startsWith(under)) {
+      madeFolders.delete(made);
+    }
+  }
+}
+
+/**
+ * Takes a path out of the folder this tab picked, and out of the room.
+ *
+ * The order is what makes each step true. The folder's own removal is the act, and its refusals are
+ * its own sentences. The re-walk publishes a listing that no longer names the path. And the documents
+ * that went with it leave this window: a room keys a document by its path, so a path the folder no
+ * longer has is a buffer nothing will ever be written from, and a window showing one falls back to
+ * the pane with no document in it.
+ *
+ * A guest never reaches this: the control that runs it is drawn only where this window holds a folder
+ * (`canCreate`), and this is the second half of that gate rather than a trust in the first.
+ */
+async function removeEntry(path: string): Promise<RemoveResult> {
+  const folder = hostFolder;
+  if (folder === undefined || binding === undefined) {
+    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+  }
+  let outcome: FolderRemove;
+  try {
+    outcome = await folder.remove(path);
+  } catch (error: unknown) {
+    return { kind: 'refused', sentence: `${path} was not deleted: ${describe(error)}` };
+  }
+  if (outcome.kind === 'refused') {
+    return { kind: 'refused', sentence: outcome.sentence };
+  }
+  // What this session made and what just went: a folder of its own rows, and the files inside it.
+  forgetMadeFolder(outcome.path);
+  for (const gone of outcome.paths) {
+    forgetMadeFolder(gone);
+  }
+  const unpublished = await publishFolder();
+  keepEmptiedFolder(outcome.path);
+  binding.dropDocuments(outcome.paths);
+  syncGrant();
+  if (unpublished !== undefined) {
+    failureAlert.show(listingNotPublishedSentence(path, unpublished));
+  }
+  return { kind: 'removed', path: outcome.path, paths: outcome.paths };
+}
+
+/**
+ * Moves a file into a folder, or to the top level, as a write at the new name and a removal at the
+ * old one.
+ *
+ * The room keys a document by its path, so a file the room holds open cannot keep its document
+ * across the move. Its pending edits are written first, so the new name carries the latest text,
+ * and then the old document ends the way a deleted file's does. This window reopens it at the new
+ * name when it was the one in front of the editor.
+ */
+async function moveEntry(path: string, into: string): Promise<MoveResult> {
+  const folder = hostFolder;
+  if (folder === undefined || binding === undefined) {
+    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+  }
+  const live = binding.isOpenInRoom(path) || binding.currentPath() === path;
+  if (live) {
+    await binding.settle(path);
+  }
+  const to = into === '' ? leafOf(path) : `${into}/${leafOf(path)}`;
+  let outcome: FolderMove;
+  try {
+    outcome = await folder.move(path, to);
+  } catch (error: unknown) {
+    return { kind: 'refused', sentence: `${path} was not moved: ${describe(error)}` };
+  }
+  if (outcome.kind === 'refused') {
+    return { kind: 'refused', sentence: outcome.sentence };
+  }
+  const unpublished = await publishFolder();
+  keepEmptiedFolder(path);
+  const showing = binding.currentPath() === path;
+  if (live && outcome.kind !== 'partial') {
+    binding.dropDocuments([path]);
+  }
+  syncGrant();
+  if (showing && outcome.kind !== 'partial') {
+    void openPath(to);
+  }
+  if (outcome.kind === 'partial') {
+    // The file is at both names, which is not a move that did not happen: the page says so and the
+    // tree draws both rows.
+    failureAlert.show(outcome.sentence);
+  } else if (unpublished !== undefined) {
+    failureAlert.show(listingNotPublishedSentence(to, unpublished));
+  }
+  return { kind: 'moved', to };
+}
+
+/**
+ * The two create verbs, offered only to a window that holds a folder: a guest has nothing to create
+ * in, and the sentence the empty tree carries is its own answer. They stand in a full-width bar at
+ * the panel's foot, always visible, and they create where the person is looking — the directory of
+ * the open file, or the folder they last created in, and the root when neither says otherwise.
+ */
+newFileButton.append(iconSpan('file-add'), labelSpan('New file'));
+newFolderButton.append(iconSpan('folder-add'), labelSpan('New folder'));
 newFileButton.addEventListener('click', () => beginCreate('file'));
 newFolderButton.addEventListener('click', () => beginCreate('directory'));
 
-/** The directory the header's verbs default to: the open file's, or the last one used, or the root. */
+/** The directory the panel's verbs default to: the open file's, or the last one used, or the root. */
 function createTarget(): string {
   const last = lastCreateParent;
   const current = binding?.currentPath();
@@ -793,7 +960,7 @@ interface Seat {
 
 /**
  * Everything a session has once the handshake is done and before anyone types: the share bar,
- * the editor and its binding, the tree, the roster, the first document and the focus.
+ * the editor and its binding, the tree, the faces in the bar, the first document and the focus.
  *
  * A join and a host differ in how the socket was opened and in what the bar's link means, and
  * in nothing else, so this is one function with one option that differs.
@@ -814,9 +981,8 @@ async function seatSession(seat: Seat): Promise<void> {
   leaveControl.showRole(seat.folder !== undefined);
   republishGrant = seat.republish;
   // The two create verbs are the window's that holds a folder, and no one else's.
-  sharedActions.hidden = seat.folder === undefined;
+  treeActions.hidden = seat.folder === undefined;
   madeFolders.clear();
-  unsavedPaths.clear();
   fullShareLink = seat.shareLink;
   // The readout carries the mask and nothing of the link, at a fixed size so the pill's width says
   // nothing about the link's length either. The clipboard is the one place the whole link goes.
@@ -833,6 +999,7 @@ async function seatSession(seat: Seat): Promise<void> {
     automaticLayout: true,
     glyphMargin: true,
     theme: 'selvage-mocha',
+    ...editorOptionsFor(false),
   });
   // Read the desktop options off the editor it just made rather than restating them: Monaco's
   // font size default is platform-dependent, and a pointer that arrives mid-session has to be
@@ -869,10 +1036,11 @@ async function seatSession(seat: Seat): Promise<void> {
     touch: () => touchOnly,
     canCreate: () => hostFolder !== undefined,
     localFolders: () => madeFolders,
-    unsaved: () => unsavedPaths,
-    hostAway: () => hostAway,
     create: (path, entry) => createEntry(path, entry),
+    remove: (path) => removeEntry(path),
+    move: (path, into) => moveEntry(path, into),
     download: (path, feedback) => startDownload(path, feedback),
+    say: (text) => announce(text),
     open: (path) => {
       binding?.stopFollowing();
       void openPath(path);
@@ -880,7 +1048,7 @@ async function seatSession(seat: Seat): Promise<void> {
   });
   // The bar's own line about *which* session this is: the folder exposed, or whose room.
   setSessionIdentity();
-  syncRoster(binding.participants());
+  drawRoom(binding.participants());
   syncGrant();
   await openFirst(session);
   // The first file opens focused on a desktop, where typing starts at once. A
@@ -929,8 +1097,8 @@ async function join(held: HeldJoin): Promise<void> {
   }
   // The joined name is the prefill next time: localStorage only, never the wire.
   saveDisplayName(window.localStorage, displayName);
-  // A name already in the room is allowed in, and the roster row carries the
-  // short id that tells the two apart, so no sentence is needed here.
+  // A name already in the room is allowed in, and the face carries the short
+  // id that tells the two apart, so no sentence is needed here.
 }
 
 /**
@@ -947,7 +1115,10 @@ async function join(held: HeldJoin): Promise<void> {
 async function host(folder: FolderWorkingCopy, displayName: string): Promise<void> {
   const base = fallbackBase();
   if (base === '') {
-    throw new Error(HOST_NEEDS_THE_SERVERS_PAGE);
+    // A page whose own address names no server at all. The card offers no start action there
+    // (`hostAvailability`), so this is the guard for a call that reached the folder picker anyway:
+    // a room minted against no server would be a room nobody could be seated on.
+    throw new Error('This page names no server of its own, so there is nothing to start a room on.');
   }
   lastBase = base;
   const monaco = await prepareEditor();
@@ -1059,8 +1230,8 @@ async function offerHosting(): Promise<void> {
   // The card's `/meta` read, and it is not made where no control could use its answer.
   const base = picker ? pageBase() : undefined;
   if (base === undefined) {
-    // A page whose own address names no server at all (a `file://` open) has no origin to ask,
-    // and it is not a server's own page either way: the answer is the sentence, not an offer.
+    // A page whose own address names no server at all (a `file://` open) has no origin to ask, and
+    // it is not a server's own page either way: no offer, and no sentence about it.
     showHosting(picker, { kind: 'not-a-server' });
     return;
   }
@@ -1083,16 +1254,17 @@ async function offerHosting(): Promise<void> {
  * there is an action at all.
  *
  * The two intents say it differently, and that is the whole of the collapse (design §7.1). On the
- * start card the action is the card's own — the button that says what happens next, the two lines
- * that say what the folder gives away and what the room costs — and on a guest's card hosting is the
- * alternative to the thing the person came for, so it is one quiet line and nothing else: pressing
- * it is what puts the start card in front of them (`swapCardToStart`). A page where hosting is not
- * on offer at all says why, in one line, wherever the action would have stood.
+ * start card the action is the card's own — the button that says what happens next — and on a
+ * guest's card hosting is the alternative to the thing the person came for, so it is one quiet
+ * line and nothing else: pressing it is what puts the start card in front of them
+ * (`swapCardToStart`). A page where hosting is not on offer says why, in one line, wherever the
+ * action would have stood — except the page that is not a Selvage server's own, which says nothing
+ * and leads with the way in it has (`host.ts`).
  */
 function showHosting(picker: boolean, read: ServerRead): void {
   lastServerRead = read;
   const availability = hostAvailability({ picker, read });
-  const offered = availability.kind !== 'explained';
+  const offered = availability.kind === 'offered' || availability.kind === 'unchecked';
   // A guest asked to join, and a page that cannot host has nothing to say to them: the four-line
   // refusal that stood under Join was about an action this card is not offering, on the card of
   // somebody who never asked for it. The quiet verb goes with it — a press that could only lead to
@@ -1102,16 +1274,18 @@ function showHosting(picker: boolean, read: ServerRead): void {
     hostQuiet.hidden = !offered;
     hostButton.hidden = true;
     hostNote.textContent = '';
-    hostShare.textContent = '';
     return;
   }
-  hostWrap.hidden = false;
   hostQuiet.hidden = true;
-  hostNote.textContent = availability.note;
+  // The offered card says nothing: the action is the whole of it. A state that cannot act stands its
+  // sentence where the action would have been, and the page that is not a Selvage server's own
+  // stands none: the way in it does have is the whole of what it can say.
+  hostNote.textContent =
+    availability.kind === 'offered' || availability.kind === 'silent' ? '' : availability.note;
+  // A state with neither an action nor a sentence takes no room either: the wrap is a hairline and
+  // 34 px of space around whatever it holds, and holding nothing it drew an empty rule under Join.
+  hostWrap.hidden = !offered && hostNote.textContent === '';
   hostButton.hidden = !offered;
-  // What the folder gives away stands with the button that asks for it, and only there: the person
-  // picking the folder is the only one who can act on it, and only before the click.
-  hostShare.textContent = offered ? HOST_SHARE_NOTE : '';
   // A page that cannot start a room leads with the way in it does have. The invite path opens —
   // joining was behind a 11.9 px summary and a four-line refusal led the card — and Join takes the
   // card's own action, because the one thing this card can do is the one thing it should offer.
@@ -1219,34 +1393,53 @@ const shareBox: ShareBox = wireShareBox(shareGroup, () => copyShareLink());
  * as the way in; a host's press asks first, because its connection is the room's (`leave.ts`). The
  * question stands in the panel anchored under the control, so the two answers are one glance from
  * the sentence that asks for them.
+ *
+ * The design's icon is the control at every width, sized to the faces beside it, and the words live
+ * in their own span: the span keeps the text in the DOM — a screen reader and a pointer read it —
+ * and the stylesheet clips it out of the paint. `showRole` rewrites the span, not the button, so the
+ * icon is not the thing it takes away.
  */
+const leaveLabel = document.createElement('span');
+leaveLabel.className = 'label';
+leaveLabel.textContent = leaveButton.textContent ?? '';
+leaveButton.replaceChildren(iconSpan('leave'), leaveLabel);
 const leaveControl = wireLeave({
   hosting: () => hostFolder !== undefined,
   surface: {
     panel: leaveConfirm,
     question: leaveQuestion,
     button: leaveButton,
+    label: leaveLabel,
     cancel: leaveCancel,
     go: leaveAnyway,
   },
-  leave: () => leaveSession(LEFT_SESSION_SENTENCE),
-  shortLabel: () => phoneLayout.matches,
+  leave: () => void leaveRoom(),
 });
 leaveButton.addEventListener('click', () => {
   leaveControl.press();
 });
-// A phone's bar is one row per control: the host's four-word verb wraps it onto a third row and
-// costs 138 px of an 844 px screen. The consequence is not dropped — it is the accessible name, the
-// tooltip and the question the press asks in full — and the device can change under it.
-phoneLayout.addEventListener('change', () => leaveControl.showRole(hostFolder !== undefined));
 
 /**
- * The panel's edge and its width: remembered per browser, draggable, keyed, collapsible and
- * resettable (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
+ * Leaving, from the bar. A host closes the room first (`§7.1`), so every guest is sent back at once
+ * rather than after the grace. The binding goes before the closing does, so this window's own copy
+ * of the closing does not end it with the guests' sentence, and the closing gets a second to go out.
+ */
+async function leaveRoom(): Promise<void> {
+  if (hostFolder !== undefined && engine !== undefined) {
+    binding?.dispose();
+    const closing = engine.closeRoom().catch(() => false);
+    await Promise.race([closing, new Promise((resolve) => window.setTimeout(resolve, 1000))]);
+  }
+  leaveSession('');
+}
+
+/**
+ * The panel's edge and its width: remembered per browser, draggable, keyed and resettable
+ * (`sidebar.ts`). Applied at load so the workspace never paints at one width and jumps to
  * another. A phone renders no separator and takes the panel whole, which the shell's own query does.
  */
 const sidebar = wireSidebar({
-  elements: { side: sidePane, separator: sideResizer, rail: sideRail },
+  elements: { side: sidePane, separator: sideResizer },
   // A phone's panel is the full-width disclosure the shell queries for, and its `hidden` belongs to
   // `showPanel`: a separator that wrote it would reopen the panel on every resize.
   active: () => !phoneLayout.matches,
@@ -1256,6 +1449,14 @@ const sidebar = wireSidebar({
   relayout: () => editorApi?.layout(),
 });
 sidebar.apply();
+
+/**
+ * The panel's foot, filled from the deployment's own terms link where it injected one (`terms.ts`),
+ * and left hidden where it did not — a self-hosted copy has no terms page to point at. Read once,
+ * here: the deployment's markup is part of the served page, so it is in the DOM before this bundle
+ * runs.
+ */
+adoptTermsFoot(document, { foot: sideFoot, link: sideTerms });
 
 /**
  * The strip's own chevron, drawn on a phone and taken down anywhere else. Declared before the
@@ -1293,13 +1494,10 @@ function applyStripRole(): void {
     fileStrip.appendChild(stripDisclosure);
   }
   // The name says the state as well as the act: on this width the strip is also the only thing that
-  // names the file in the editor, so `Files and people` alone would throw away the fact it is there
-  // for.
+  // names the file in the editor, so `Files, no file open` alone would throw away the fact it is
+  // there for.
   const path = binding?.currentPath();
-  fileStrip.setAttribute(
-    'aria-label',
-    path === undefined ? 'Files and people' : `Files and people, ${path} open`,
-  );
+  fileStrip.setAttribute('aria-label', path === undefined ? 'Files, no file open' : `Files, ${path} open`);
 }
 applyStripRole();
 phoneLayout.addEventListener('change', applyStripRole);
@@ -1340,133 +1538,453 @@ async function copyShareLink(): Promise<void> {
     }
     shareGroup.classList.remove('hand-copy');
   }
-  // The bar's brief morph is the whole confirmation: nothing is announced.
+  // The design's confirmation, and the news for a screen reader: the morph says the copy landed
+  // to the eye, and the polite region says it to whoever did not see the pill change.
   shareBox.confirm();
+  announce('Invite link copied');
+}
+
+/** The room's people, this window's own seat first, which the room's peer list never carries. */
+function roomPeople(participants: readonly Participant[]): RoomPerson[] {
+  const seated = engine?.session();
+  const peers = participants.map((participant) => ({
+    peerId: participant.peerId,
+    displayName: participant.displayName,
+    role: participant.role,
+    colour: participant.colour,
+    path: participant.path,
+    self: false,
+  }));
+  if (seated === undefined) {
+    return peers;
+  }
+  return [
+    {
+      peerId: seated.peer.peer_id,
+      displayName: selfName,
+      role: seated.role,
+      colour: peerColour(seated.peer.peer_id),
+      // Your own seat says nothing about where it is: the editor in front of the person is that
+      // answer, and the room's own path for it is not the only one this window has open.
+      path: undefined,
+      self: true,
+    },
+    ...peers,
+  ];
 }
 
 /**
- * Who is here: the own name first, then one row per peer. Where someone is
- * reads on the grant tree, not here; the strip's follow segment owns the one
- * stop and the row's own toggle is the same state from the other side.
+ * The room's people, each wearing the colour of the seat its person takes.
  *
- * An own-name edit holds the list still only while the person is in its field
- * (`renameHoldsTheList`): a presence frame lands every few hundred milliseconds
- * while anybody types, and a list redrawn under the field would take the cursor
- * with it. An edit left open with their attention elsewhere holds nothing, and
- * the rows keep up — a roster is a read of the room as it stands, and one that
- * stopped being true while a field nobody was in stood open was a wrong list.
- * What a redraw puts back is the name the person had typed, so the hold is not
- * what keeps their words.
+ * The seats are worked out here, once per presence frame, from the people the bar already draws:
+ * the host's seat first, then your own, then the room's order (`seats.ts`). Handing the same answer
+ * to the editor is what keeps the faces, the tree's badges and the carets one colour per peer rather
+ * than three that can disagree.
  */
-function syncRoster(participants: Participant[]): void {
-  if (renameHoldsTheList(renamingField, document.activeElement)) {
+function seatedRoom(participants: readonly Participant[]): RoomPerson[] {
+  const people = roomPeople(participants);
+  const colours = seatColours(people);
+  binding?.setSeatColours(colours);
+  return people.map((person) => ({
+    ...person,
+    colour: colours.get(person.peerId) ?? person.colour,
+  }));
+}
+
+/**
+ * Who is here, as the faces in the bar, and the menu the face that was pressed belongs to.
+ *
+ * The cluster and the dialog are both reads of the room as it stands, so both are drawn wherever a
+ * presence frame lands: a peer who leaves, or who opens a file, changes what their menu says, and a
+ * dialog drawn only when its own state changed would keep live verbs for someone gone, or say
+ * `not in a file yet` beside a `Go to` that had appeared. The design draws the menu on every render
+ * for the same reason.
+ *
+ * The one draw the dialog gives up is under the own-name field (`renameHoldsTheList`): a presence
+ * frame lands every few hundred milliseconds while anybody types, and a field replaced under the
+ * caret is a caret taken. The hold is the field's own group and nothing broader — the name typed
+ * into it is put back by the draw that follows — so the dialog is never stale while nobody types.
+ */
+function drawRoom(participants: Participant[]): void {
+  renderRoom(faceStrip, seatedRoom(participants), {
+    followedPeerId: binding?.following()?.peerId,
+    openAnchor: menu?.anchor,
+    limit: phoneLayout.matches ? PHONE_FACE_LIMIT : FACE_LIMIT,
+    onAnchor: (anchor) => void pressAnchor(anchor),
+  });
+  // The dialog follows the room under it, held only while somebody is in the name field. The
+  // control that had focus is carried across the rebuild, so a redraw does not drop the person off
+  // the `Go to` they were on.
+  if (menu !== undefined && !renameHoldsTheList(renamingField, document.activeElement)) {
+    renderMenu(menuFocusSelector());
+  }
+  // Every draw replaces the button the dialog came from, so the dialog is placed again against
+  // the one that stands there now.
+  placeOpenMenu();
+  // The faces are what makes a phone's bar tall, and the column clears the bar: it is placed here,
+  // where the cluster's own size can have changed.
+  placeNotices();
+}
+
+/**
+ * The dialog, and the face it was opened from. One at a time: a press on another face replaces
+ * it, and a press on the same one closes it.
+ */
+type MenuState =
+  | { view: 'person'; peerId: string; anchor: string; fromList: boolean }
+  | { view: 'everyone'; anchor: string };
+let menu: MenuState | undefined;
+/** The dialog element, which lives as long as the dialog does. */
+let menuElement: HTMLDivElement | undefined;
+
+/** The face a dialog was opened from, as it stands in the cluster now. */
+function anchorButton(anchor: string): HTMLElement | undefined {
+  for (const button of faceStrip.querySelectorAll<HTMLElement>('[data-anchor]')) {
+    if (button.dataset.anchor === anchor) {
+      return button;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The open dialog's own control that has focus, as a selector the redraw can put it back on: the
+ * act that was pressed, or the row of the list, so a room moving under the dialog does not take the
+ * person's place in it. Focus in the name field is the hold's, and never reaches here.
+ */
+function menuFocusSelector(): string | undefined {
+  const active = document.activeElement;
+  if (active === null || menuElement === undefined || !menuElement.contains(active)) {
+    return undefined;
+  }
+  const act = active.getAttribute('data-act');
+  if (act !== null) {
+    return `[data-act="${act}"]`;
+  }
+  const pick = active.getAttribute('data-pick');
+  return pick === null ? undefined : `[data-pick="${pick}"]`;
+}
+
+/**
+ * A press on a face, or on the `+N`: the same face twice closes what it opened, another one
+ * replaces it, and the `+N` opens the list of everyone.
+ */
+function pressAnchor(anchor: string): void {
+  if (menu?.anchor === anchor) {
+    closeMenu();
     return;
   }
-  drawRoster(participants);
+  openMenu(
+    anchor === MORE_ANCHOR
+      ? { view: 'everyone', anchor }
+      : { view: 'person', peerId: anchor, anchor, fromList: false },
+  );
 }
 
-/** The list as it stands, with the own-name edit open if one is. */
-function drawRoster(participants: Participant[]): void {
-  // What the field holds now rather than what it opened on: a redraw of a list nobody is typing in
-  // must not throw away a half-typed name.
-  const typed = renamingField?.value;
-  const renaming: RosterRename | undefined =
-    renamingName === undefined
-      ? undefined
-      : {
-          opened: renamingName,
-          value: typed ?? renamingName,
-          maxLength: MAX_DISPLAY_NAME_UNITS,
-          fresh: renamingField === undefined,
-          commit: (value) => void commitRename(value),
-          cancel: () => endRename(),
-          // The list was held for as long as the person was in the edit, and leaving it open with a
-          // typed name draws it now — nothing else will until the room's next presence frame. Drawn
-          // rather than re-checked: whether focus has already left by the time this runs is the
-          // browser's business, and the fact this callback carries is that the person has left.
-          leftOpen: () => drawRoster(binding?.participants() ?? []),
-        };
-  renderRoster(rosterList, participants, {
-    followedPeerId: binding?.following()?.peerId,
-    selfName,
-    selfColour: engine === undefined ? undefined : peerColour(engine.session().peer.peer_id),
-    selfRole: engine?.session().role,
-    goToRefusal,
-    renaming,
-    onRename: () => startRename(),
-    onGoTo: (peerId) => goToParticipant(peerId),
-    onFollow: (peerId) => followParticipant(peerId),
-    // The same state from the other side: the row's toggle pressed is the strip's Stop pressed.
-    onStopFollow: () => binding?.stopFollowing(),
-  });
-  renamingField = renaming?.field;
+function openMenu(state: MenuState): void {
+  menu = state;
+  renamingName = undefined;
+  renderMenu();
+  // Every face's state is read back from the one dialog that is open: a press on another face in a
+  // quiet room leaves the last face saying it is expanded unless the faces are told.
+  syncExpanded(faceStrip, menu?.anchor);
+  if (menuElement !== undefined) {
+    focusInto(menuElement);
+  }
 }
 
 /**
- * Landing on a peer, from wherever the press came: the roster's `Go to`, or the empty pane's own.
+ * Closes the dialog and, unless the press that closed it was somewhere else, puts focus back on
+ * the face it came from: a press that lands on nothing should not leave the person nowhere.
+ */
+function closeMenu(refocus = true): void {
+  const anchor = menu?.anchor;
+  menu = undefined;
+  renamingName = undefined;
+  renamingField = undefined;
+  menuElement?.remove();
+  menuElement = undefined;
+  syncExpanded(faceStrip, undefined);
+  if (refocus && anchor !== undefined) {
+    anchorButton(anchor)?.focus();
+  }
+}
+
+/**
+ * Draws the open dialog over the element it lives in, and moves focus into it when the press
+ * came to see something: the first control, or the one a selector names.
+ */
+function renderMenu(focusSelector?: string): void {
+  if (menu === undefined) {
+    return;
+  }
+  if (menuElement === undefined) {
+    menuElement = document.createElement('div');
+    menuElement.id = 'menu';
+    appPane.appendChild(menuElement);
+  }
+  const people = seatedRoom(binding?.participants() ?? []);
+  const anchor = menu.anchor;
+  const renaming = renameView();
+  if (menu.view === 'everyone') {
+    renderEveryoneMenu(menuElement, people, {
+      followedPeerId: binding?.following()?.peerId,
+      onPick: (peerId) => void openMenu({ view: 'person', peerId, anchor, fromList: true }),
+    });
+  } else {
+    const peerId = menu.peerId;
+    const person = people.find((candidate) => candidate.peerId === peerId);
+    if (person === undefined) {
+      // The peer left while their menu stood open: a menu about nobody is not drawn.
+      closeMenu(false);
+      return;
+    }
+    renderPersonMenu(menuElement, person, {
+      all: people,
+      followedPeerId: binding?.following()?.peerId,
+      fromList: menu.fromList,
+      renaming,
+      goToRefusal,
+      // The press leaves the menu standing: the room has not answered yet, and the answer — where
+      // the caret landed, or the sentence saying it could not — belongs in the menu it was pressed
+      // in. `goToParticipant` takes it down once the outcome is `landed`.
+      onGoTo: (peerId) => {
+        void goToParticipant(peerId);
+      },
+      // The same state from the other side, ended the same way: the menu's Stop is the face's Stop,
+      // and the face is where the person is left looking (`followParticipant`).
+      onFollow: (peerId) => followParticipant(peerId),
+      onStopFollow: (peerId) => stopFollowing(peerId),
+      onRename: () => startRename(),
+      onBack: () => void backToEveryone(),
+    });
+  }
+  if (focusSelector !== undefined) {
+    focusInto(menuElement, focusSelector);
+  }
+  renamingField = renaming?.field;
+  placeOpenMenu();
+}
+
+/** Back to the list the person was picked from, with the press back on the row it was made on. */
+function backToEveryone(): void {
+  const picked = menu?.view === 'person' ? menu.peerId : undefined;
+  const anchor = menu?.anchor;
+  if (anchor === undefined) {
+    return;
+  }
+  menu = { view: 'everyone', anchor };
+  // The pick is cleared before the draw that follows it, so the row the person came from is the
+  // one focus lands on.
+  renderMenu();
+  if (menuElement === undefined || picked === undefined) {
+    return;
+  }
+  for (const row of menuElement.querySelectorAll<HTMLElement>('.list button')) {
+    if (row.dataset.pick === picked) {
+      row.focus();
+      return;
+    }
+  }
+}
+
+/** Places the open dialog under the face it came from, measured as the two stand. */
+function placeOpenMenu(): void {
+  if (menu === undefined || menuElement === undefined) {
+    return;
+  }
+  const anchor = anchorButton(menu.anchor);
+  if (anchor !== undefined) {
+    placeMenu(menuElement, anchor, appPane);
+  }
+}
+
+/**
+ * The dialog's own two ways out: a press that lands on neither it nor a face, and Escape.
+ *
+ * A press outside keeps a name the person has typed and leaves the edit open — the rule both
+ * in-row edits follow — and everything else takes the dialog down.
+ */
+document.addEventListener('pointerdown', (event) => {
+  if (menu === undefined) {
+    return;
+  }
+  const target = event.target as Element | null;
+  if (target === null || target.closest('#menu') !== null || target.closest('[data-anchor]') !== null) {
+    return;
+  }
+  const typed = renamingField?.value.trim() ?? '';
+  if (renamingName !== undefined && typed !== '' && typed !== renamingName) {
+    return;
+  }
+  closeMenu(false);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || menu === undefined) {
+    return;
+  }
+  // Escape leaves the dialog the way the design does: the edit first, with the control that
+  // opened it under the caret, then the dialog, with focus back on the face it came from. The
+  // dialog is a thing the person opened and Escape is how it is given back, so where focus was
+  // when the key arrived does not decide where it ends up.
+  if (renamingName !== undefined) {
+    // The edit is what Escape leaves, and the dialog stays open on the control that opened it.
+    // The field's own Escape never reaches here: it stops the key.
+    endRename();
+    return;
+  }
+  closeMenu();
+});
+
+// The dialog is placed against the face it came from, so a window that changed size under it has
+// to be told rather than the two drifting apart.
+window.addEventListener('resize', () => {
+  placeOpenMenu();
+  placeNotices();
+});
+
+/**
+ * Landing on a peer, from wherever the press came: a face's `Go to`, or the empty pane's own.
  *
  * A rejection is the room being unreachable, which is the alert's; a refusal the room answers with
  * is not a rejection at all, and lands on the row (`showGoToRefusal`).
+ *
+ * A landing that arrived is the menu's own end, and on a phone the panel's too: the file that opened
+ * is what the person asked to see, and the design shuts the panel over it.
  */
 function goToParticipant(peerId: string): void {
   const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
-  void binding?.goTo(peerId).catch((error: unknown) => {
-    failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
-  });
-}
-
-/** Following a peer, from wherever the press came: the roster's `Follow`, or the empty pane's own. */
-function followParticipant(peerId: string): void {
-  const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
-  void binding?.follow(peerId).catch((error: unknown) => {
-    failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
-  });
+  void binding
+    ?.goTo(peerId)
+    .then((outcome: GoToOutcome) => {
+      // Only a press that landed somewhere is the menu's own end. The other outcomes leave it
+      // standing: `waiting` because the room has not answered yet (the next presence frame retries,
+      // and the refusal it may raise belongs in the menu), `refused` because its sentence stands
+      // there for its four seconds, and `gone` because the next draw takes down the menu of a person
+      // who is no longer in the room.
+      if (outcome === 'landed') {
+        closeMenu();
+        collapsePanel();
+      }
+    })
+    .catch((error: unknown) => {
+      failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+    });
 }
 
 /**
- * A go-to the room could not answer, under the row that asked for it (design §5.1).
+ * Following a peer, from wherever the press came: a face's `Follow`, or the empty pane's own.
+ *
+ * The press ends on the face it was made about, the way the design leaves it: the follow shows as
+ * that face's ring and eye, so a person picked from the `+N` list is looking straight at the thing
+ * that changed rather than at the control that listed them. A phone shuts the panel with it, since
+ * the peer's file is what a follow opens.
+ */
+function followParticipant(peerId: string): void {
+  const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
+  void binding
+    ?.follow(peerId)
+    .then(() => {
+      closeMenu(false);
+      anchorButton(peerId)?.focus();
+      collapsePanel();
+    })
+    .catch((error: unknown) => {
+      failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+    });
+}
+
+/**
+ * Stopping a follow, from the same menu: the ring going is the whole announcement, and the face it
+ * went from is where focus is left.
+ */
+function stopFollowing(peerId: string): void {
+  binding?.stopFollowing();
+  closeMenu(false);
+  anchorButton(peerId)?.focus();
+}
+
+/**
+ * A go-to the room could not answer: in the menu of the person it was asked for, or on the page's
+ * transient line when no such menu is standing (design §5.1).
  *
  * The refusal is a race — the peer closed the file, or its caret does not resolve here — and the
- * answer belongs where the press was. It is not a state: it stands
+ * answer belongs where the press was. It is not a state: where a menu carries it, it stands
  * `GO_TO_REFUSAL_STAND_MS` and then goes, and the room's next presence frame does not re-raise it,
- * because nothing is wrong with the room. The sentence is announced once, since the row is where the
- * eye already is and a screen reader has no hover to find a line under it.
+ * because nothing is wrong with the room. The sentence is announced once, from whichever home
+ * takes it, and both homes carry the design's two parts: the headline, and the room's own reason
+ * on the line beneath it.
  */
-let goToRefusal: { peerId: string; text: string } | undefined;
+let goToRefusal: { peerId: string; detail: string } | undefined;
 /** The standing refusal's own clock. One at a time: a press replaces the sentence *and* the timer. */
 let goToRefusalTimer: number | undefined;
 
-/** How long a refused go-to stands on its row. */
+/** How long a refused go-to stands in the menu it was pressed in. */
 const GO_TO_REFUSAL_STAND_MS = 4000;
 
-function showGoToRefusal(peerId: string | undefined, text: string): void {
-  if (peerId === undefined) {
+function showGoToRefusal(peerId: string | undefined, detail: string): void {
+  // The one line the transient home and its announcement read: the same two parts the menu draws,
+  // in the order it draws them.
+  const sentence = `${NOTHING_TO_GO_TO}: ${detail}`;
+  // The menu of the person it is about is the only place the refusal is painted, so a refusal
+  // with no such menu — the empty pane's own press, or one that names no peer — goes to the
+  // page's transient line, the home it already has for a press that could not do what it said.
+  // Nothing is stood or timed there: the sentence is the whole of it.
+  if (peerId === undefined || menu?.view !== 'person' || menu.peerId !== peerId) {
+    failureAlert.show(sentence);
+    announce(sentence);
     return;
   }
   if (goToRefusalTimer !== undefined) {
     window.clearTimeout(goToRefusalTimer);
   }
-  goToRefusal = { peerId, text };
+  goToRefusal = { peerId, detail };
   goToRefusalTimer = window.setTimeout(() => {
     goToRefusalTimer = undefined;
     goToRefusal = undefined;
-    syncRoster(binding?.participants() ?? []);
+    // The control the sentence stood under is where focus stays, and the menu is redrawn under it
+    // — but only while the person is still in the menu: taking focus back out of the editor to
+    // put it on a control they have left would be worse than the sentence going.
+    renderMenu(
+      menuElement?.contains(document.activeElement) === true ? '[data-act="go"]' : undefined,
+    );
   }, GO_TO_REFUSAL_STAND_MS);
-  syncRoster(binding?.participants() ?? []);
-  announce(text);
+  // The press that earned it is where focus stays, so the sentence is drawn under it either way.
+  renderMenu('[data-act="go"]');
+  announce(sentence);
 }
 
 /**
- * The own-name edit, open or not. The page owns it rather than the row: the
- * name the row shows and the name the room is told are both the page's, and
- * the row is drawn from this state (`drawRoster`).
+ * The own-name edit, open or not. The page owns it rather than the menu: the name the face shows
+ * and the name the room is told are both the page's, and the menu is drawn from this state.
  */
 let renamingName: string | undefined;
 /**
- * The field the open edit is in, for the draw that built it: what tells a presence frame whether the
- * person is still in the edit, and where the next draw reads the name they have typed.
+ * The field the open edit is in, for the draw that built it — what tells a press outside the menu
+ * whether the person has a name of their own in it, which a stray press keeps.
  */
 let renamingField: HTMLInputElement | undefined;
+
+/**
+ * The edit as the menu draws it, when one is open.
+ *
+ * It opens on the name in force and draws whatever the field holds now: a redraw of a dialog nobody
+ * is typing in must not throw away a half-typed name, which is what lets the presence-frame hold be
+ * about the caret alone.
+ */
+function renameView(): RenameEdit | undefined {
+  if (renamingName === undefined) {
+    return undefined;
+  }
+  return {
+    opened: renamingName,
+    value: renamingField?.value ?? renamingName,
+    maxLength: MAX_DISPLAY_NAME_UNITS,
+    commit: (value) => void commitRename(value),
+    cancel: () => endRename(),
+  };
+}
 
 function startRename(): void {
   if (renamingName !== undefined || binding === undefined) {
@@ -1474,24 +1992,26 @@ function startRename(): void {
   }
   renamingName = selfName;
   renamingField = undefined;
-  // Opening the field is the one drawing that happens while an edit is open, so it does
-  // not go through the hold `syncRoster` keeps.
-  drawRoster(binding.participants());
+  renderMenu('.rename');
 }
 
+/**
+ * Drops the edit and leaves the menu open on the control that opened it: the `Rename` control is
+ * where the edit began, so it is where the person is left, whatever else has focus.
+ */
 function endRename(): void {
   renamingName = undefined;
   renamingField = undefined;
-  syncRoster(binding?.participants() ?? []);
+  renderMenu('[data-act="rename"]');
 }
 
 /**
  * Sends the typed name and answers for it, over the page.
  *
- * `rename.ts` owns the order of the answers and the words; what is here is what
- * the page is: the row it redraws, the strip it says the confirmation in, the
- * alert a refusal stands on, and the two places the name in force lives — the
- * own row's `selfName` and the prefill the next join reads.
+ * `rename.ts` owns the order of the answers and the words; what is here is what the page is: the
+ * menu it redraws, the strip it says the confirmation in, the alert a refusal stands on, and the
+ * two places the name in force lives — the own face's `selfName` and the prefill the next join
+ * reads.
  */
 async function commitRename(raw: string): Promise<void> {
   endRename();
@@ -1505,11 +2025,12 @@ async function commitRename(raw: string): Promise<void> {
       selfName = name;
     },
     refused: (sentence) => failureAlert.show(sentence),
-    // The row already wears the new name, which is the confirmation; a sentence repeating what the
+    // The face already wears the new name, which is the confirmation; a sentence repeating what the
     // person can see would be the same fact twice.
     said: () => undefined,
   });
-  syncRoster(binding?.participants() ?? []);
+  drawRoom(binding?.participants() ?? []);
+  renderMenu('[data-act="rename"]');
 }
 
 /** The room's listing as a tree. Directories open and shut; files open and fetch. */
@@ -1553,7 +2074,7 @@ function syncEmptyEditor(): void {
 
 /**
  * The first peer that is in a file, as the pane's own block names one: a peer with no path has
- * nothing to go to, and the roster already says so (`roster.ts`).
+ * nothing to go to, and their menu says so (`room.ts`).
  */
 function peerInAFile(
   participants: readonly Participant[],
@@ -1567,7 +2088,7 @@ function peerInAFile(
 /**
  * What the empty pane's own controls do. The create opens the row in the tree, so it opens the panel
  * a phone keeps shut first: a field nobody can see is a control that does nothing. The invite is the
- * bar's own handler, so the confirmation is the pill's `Link copied` wherever the act was pressed.
+ * bar's own handler, so the confirmation is the pill's `Copied` wherever the act was pressed.
  */
 function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefined): void {
   switch (action) {
@@ -1598,17 +2119,15 @@ function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefi
 }
 
 /**
- * The file strip: the open file's whole state, in one line above the editor.
+ * The file strip: the open file, in one line above the editor — the directory muted, the leaf bold,
+ * and nothing else.
  *
- * It is where the things that used to be said elsewhere now live — which file is open (nothing
- * said it at all on a phone), whether it is read-only, and whether the folder refused the last write
- * to it. The follow segment is the third: the banner that used to stand
- * over the editor is this segment now, in the followed peer's own colour, with the stop control in it.
- *
- * What it no longer says is that the open file's text is in the room. Opening a file is what puts it
- * there, so for the file on screen the mark was always true: a fact the reader already has, said
- * again. The tree's `●` still carries it, where it is news — a file this window has not opened — and
- * the peers in a file are on that row's badges, where the fact is *who*.
+ * It is where the things that used to be said elsewhere now live, and which file is open is the one
+ * of them the design draws: nothing said it at all on a phone, where the same row is also the
+ * panel's disclosure. The read-only state, the empty document, the write the folder refused and the
+ * peer being followed all had a chip or a segment here; the design models none of them, and the
+ * four said what the reader could see for themselves or what a failure alert says better. A follow
+ * is the face's dashed ring and its eye, and `Stop following` is in that person's menu.
  *
  * It carried a `⤓` that saved the open file to the person's own disk, which the tree's per-row
  * download already does for every file the room holds — including the one on screen. Two controls
@@ -1619,11 +2138,7 @@ function syncStrip(): void {
   fileStripPath.replaceChildren();
   fileStripPath.classList.toggle('none', path === undefined);
   if (path === undefined) {
-    // On a phone the strip is also the panel's disclosure, and the only way to a shut panel's
-    // tree, so it names the panel rather than the absence of a file: `No file open` there is a
-    // dead end. A desktop has the tree standing beside the strip, so the strip is free to say what
-    // is not open.
-    fileStripPath.textContent = phoneLayout.matches ? 'Files and people' : 'No file open';
+    fileStripPath.textContent = 'No file open';
   } else {
     const slash = path.lastIndexOf('/');
     if (slash !== -1) {
@@ -1637,38 +2152,13 @@ function syncStrip(): void {
     leaf.textContent = slash === -1 ? path : path.slice(slash + 1);
     fileStripPath.appendChild(leaf);
   }
-  fileStripChips.replaceChildren();
-  if (path !== undefined) {
-    if (binding?.hasText(path) === true && binding.isTextEmpty(path)) {
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.textContent = 'empty';
-      chip.title = EMPTY_IN_ROOM_TITLE;
-      fileStripChips.appendChild(chip);
-    }
-    if (readOnly) {
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.textContent = 'Read-only';
-      chip.title = VIEWER_SENTENCE;
-      fileStripChips.appendChild(chip);
-    }
-    const refused = unsavedPaths.get(path);
-    if (refused !== undefined) {
-      const chip = document.createElement('span');
-      chip.className = 'chip warn';
-      chip.textContent = '⚠ Not saved to your folder';
-      chip.title = refused;
-      fileStripChips.appendChild(chip);
-    }
-  }
   // The disclosure's own name says which file is open, and this is where that changes: the strip is
   // re-read on every event that can move the open document (`syncGrant`), so its name moves with it
   // rather than standing as the load left it.
   applyStripRole();
 }
 
-/** The desktop clients' own sentence for the read-only state, which the strip's chip carries. */
+/** The desktop clients' own sentence for the read-only state, which the page announces. */
 const VIEWER_SENTENCE = 'you are a viewer in this room, so its documents are read-only.';
 
 /** One sentence for a screen reader, in the one region that carries the changes that say nothing. */
@@ -1696,7 +2186,9 @@ function awarenessRenewMs(): number | undefined {
  *
  * The fetch is the page's own open (`fetch-download.ts` says why it has to be the same call), and
  * the answer lands on the row that asked: progress in the action's own place, and a sentence under
- * the row when there is something to decide.
+ * the row while there is a decision in it — the cost of the fetch, a wait, an empty file offered, a
+ * failure with its retry. What the design draws and those states are not, is the save itself: it is
+ * a toast in the notices column, where a finished thing belongs.
  */
 function startDownload(path: string, feedback: RowFeedback): void {
   if (binding === undefined) {
@@ -1740,7 +2232,9 @@ function startDownload(path: string, feedback: RowFeedback): void {
     .then((outcome) => {
       feedback.idle();
       if (outcome.kind === 'saved') {
-        // Opening it is what put its text in the room, so the row's own mark moves: nothing is said.
+        // Opening it is what put its text in the room, so the row's own mark moves, and the save
+        // itself is the toast in the notices column.
+        toasts.downloaded(path);
         syncGrant();
         return;
       }
@@ -1762,6 +2256,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
           run: () => {
             feedback.clear();
             downloadDocument(path, '', downloadSink);
+            toasts.downloaded(path);
           },
         },
         again,
@@ -1794,77 +2289,38 @@ const downloadSink: DownloadSink = {
 };
 
 /**
- * The follow indicator, and the stop that goes with it: a segment of the file strip above the
- * editor, in the followed peer's colour — the mapping the caret wears, so the two cannot disagree.
+ * A follow, and the reason one ended.
  *
- * It is here rather than in a banner of its own because a follow is a state of the file in front of
- * the editor: who is being followed, and which file that has landed on, are the strip's two facts
- * already, and a second line about the same thing was one line too many.
+ * The follow itself is drawn nowhere here: it is the dashed ring and the eye on the followed face in
+ * the bar, and the control that stops it is `Stop following` in that person's menu. The strip used to
+ * carry a segment for it, which said a second time what the face already said, and the design draws
+ * the face alone.
  *
- * A follow that ends without the person pressing Stop leaves the reason standing four seconds, in
- * muted text: the segment vanishing with nothing said is the one way a person loses the thread of
+ * A follow that ends without the person pressing Stop leaves the reason on the page's transient line
+ * for four seconds: the ring vanishing with nothing said is the one way a person loses the thread of
  * what just happened.
  */
 function syncFollow(following: Following | undefined, ended?: string): void {
-  fileStripFollow.replaceChildren();
-  // The tint belongs to a live follow. The reason a follow ended is not the followed peer's news, and
-  // a segment left in their colour would read as if it still were one.
-  fileStripFollow.style.borderColor = '';
-  fileStripFollow.style.backgroundColor = '';
   if (binding !== undefined) {
-    // The toggle mirrors the indicator: a follow ended by typing or by the peer leaving re-renders
-    // here, not on the next room event. The pane's own toggle is the same state, so it is redrawn
-    // with it — a follow that opened no document leaves the pane showing.
-    syncRoster(binding.participants());
+    // The menu's toggle mirrors the follow: a follow ended by typing or by the peer leaving
+    // re-renders here, not on the next room event. The pane's own toggle is the same state, so it is
+    // redrawn with it — a follow that opened no document leaves the pane showing.
+    drawRoom(binding.participants());
     syncEmptyEditor();
   }
-  if (following === undefined) {
-    if (ended === undefined) {
-      return;
-    }
-    const line = document.createElement('span');
-    line.className = 'ended';
-    line.textContent = ended;
-    fileStripFollow.appendChild(line);
-    announce(ended);
-    window.setTimeout(() => {
-      if (fileStripFollow.textContent === ended) {
-        fileStripFollow.replaceChildren();
-      }
-    }, FOLLOW_ENDED_STAND_MS);
-    return;
+  if (following === undefined && ended !== undefined) {
+    failureAlert.show(ended, FOLLOW_ENDED_STAND_MS);
   }
-  fileStripFollow.style.borderColor = following.colour;
-  fileStripFollow.style.backgroundColor = `${following.colour}22`;
-  const label = document.createElement('span');
-  // Named so the stylesheet can hold it to one line on a phone, where a long name wrapped the
-  // segment to five lines and squeezed the file's own name out of the strip (`main.ts`'s own
-  // `syncStrip` is the other half of that line).
-  label.className = 'follow-name';
-  label.textContent = `Following ${following.name}`;
-  const stop = document.createElement('button');
-  stop.type = 'button';
-  stop.append(iconSpan('stop'), labelSpan('Stop following'));
-  stop.addEventListener('click', () => {
-    binding?.stopFollowing();
-  });
-  fileStripFollow.append(label, stop);
 }
 
-/** How long the reason a follow ended stands in the strip before it goes. */
+/** How long the reason a follow ended stands before it goes. */
 const FOLLOW_ENDED_STAND_MS = 4000;
 
-/**
- * Enters the terminal state: the session note carries this sentence to the
- * end, the roster clears with dead actions, the share link retires, and the
- * tree freezes on the snapshot taken here — the engine sheds its local grant
- * on the terminal close, so the snapshot must precede it.
- */
 /**
  * Leaves the session when it ends: the binding, the editor and the socket are
  * dropped, the session chrome and the tree come down, and the card returns over
  * the blurred preview carrying the reason and the next step. Nothing of the
- * dead room stays on screen — no frozen tree, no dead roster, no retired link —
+ * dead room stays on screen — no frozen tree, no dead faces, no retired link —
  * and the guest can join another room from here with one fresh link.
  *
  * The address-bar link named the room that just closed, so it stops being the
@@ -1891,12 +2347,10 @@ function leaveSession(sentence: string): void {
   // window is no longer serving.
   hostFolder = undefined;
   republishGrant = undefined;
-  sharedActions.hidden = true;
+  treeActions.hidden = true;
   madeFolders.clear();
-  unsavedPaths.clear();
   lastCreateParent = undefined;
-  hostAway = false;
-  readOnly = false;
+  sessionHostName = undefined;
   saidFetchCosts = false;
   setHealth('ok');
   editorApi = undefined;
@@ -1909,25 +2363,24 @@ function leaveSession(sentence: string): void {
   fullShareLink = '';
   shareGroup.classList.remove('hand-copy');
   shareInput.value = '';
-  rosterList.replaceChildren();
+  closeMenu(false);
+  faceStrip.replaceChildren();
   treePane.replaceChildren();
   fileStripPath.textContent = '';
-  fileStripChips.replaceChildren();
-  fileStripFollow.replaceChildren();
   renderEmptyEditor(editorEmpty, undefined, runEmptyEditorAction);
   // The question a host was reading goes with the room it was about, and the control that asked it
   // goes back to rest: one owner for that state, so the next session's first press raises a panel.
   leaveControl.close();
-  sessionNote.hide();
+  sessionCard.hide();
   peek.dismiss();
   sessionBar.hidden = true;
   workspacePane.hidden = true;
   linkIsTheInvite = false;
-  cardIntent = 'join';
+  cardIntent = 'start';
   // The room this tab was hosting is over cleanly, so the next load has nothing to explain.
   clearHostingMark(window.sessionStorage);
   syncStrip();
-  showRejoinCard(
+  showStartAgain(
     {
       pane: joinPane,
       startHeading,
@@ -1943,19 +2396,15 @@ function leaveSession(sentence: string): void {
       inviteInput,
       joinButton,
     },
-    sessionOverMessage(sentence),
+    sentence,
   );
-  // The card is the guest's now, and the host action is the card's own shape is what says so: the
-  // sentence about what a room costs belongs to the start card, and a button left standing here
-  // from a room whose page was bare is the other intent's. Nothing is asked of the page's origin
-  // again — the read the offer rested on stands (`showHosting`).
   if (lastServerRead !== undefined) {
     showHosting(folderPicker !== undefined, lastServerRead);
   }
   // The join gate was left settled by the join that just ended: another join
   // from this card has to start clean.
   joinGate.release();
-  inviteInput.focus();
+  (hostButton.hidden ? nameInput : hostButton).focus();
 }
 
 /**
@@ -1963,14 +2412,14 @@ function leaveSession(sentence: string): void {
  *
  * The binding raises every topic and this is where the page decides. Three of them have a surface of
  * their own and no case here at all: a follow's sentences are the file strip's own segment (who is
- * followed, and a Stop control in it), the roster is where a peer's arrival and departure read, and a
- * room that is over comes back as the card carrying the room's own sentence.
+ * followed, and a Stop control in it), the faces in the bar are where a peer's arrival and
+ * departure read, and a room that is over comes back as the card carrying the room's own sentence.
  *
  * - `role` is a state rather than a sentence: the strip's `Read-only` chip, which stays while it is
  *   true instead of a toast the person had to have caught. It is announced once, because a chip
  *   that appears with no words is a change a screen reader would otherwise miss.
- * - `refusal` is a go-to the room could not answer, and it stands under the roster row that asked
- *   (`showGoToRefusal`).
+ * - `refusal` is a go-to the room could not answer: the menu of the face that asked when one stands
+ *   for it, and the alert otherwise (`showGoToRefusal`).
  * - `error` is the room's own word about the session, and nothing on screen is about it: it is the
  *   alert's, the one home for a failure with no control to sit beside (design §6.1).
  */
@@ -1991,39 +2440,45 @@ function statusRoute(topic: StatusTopic): 'role' | 'refusal' | 'error' | undefin
  * is the strip below.
  */
 /**
- * The bar's dot, which is the glanceable half of room health: a healthy room paints the dot alone,
- * and the two states that change what typing means paint their own name beside it. The sentence
- * with the countdown in it is the strip below. The name is set in every state, the green one
+ * The bar's dot, which is the glanceable half of room health: a healthy room paints nothing, and a
+ * socket being re-dialled paints its name beside the dot. A host that is away is the session card's
+ * alone, with its countdown. The name is set in every state, the green one
  * included: there it is clipped out of the paint, so a screen reader has it and the eye does not.
  */
-function setHealth(state: 'ok' | 'reconnecting' | 'away'): void {
+function setHealth(state: 'ok' | 'reconnecting'): void {
   health.dataset.health = state;
-  const label =
-    state === 'reconnecting' ? 'Reconnecting…' : state === 'away' ? 'Host away' : 'Connected';
+  const label = state === 'reconnecting' ? 'Reconnecting…' : 'Connected';
   healthLabel.textContent = label;
-  health.title =
-    state === 'reconnecting'
-      ? 'Reconnecting…'
-      : state === 'away'
-        ? 'The host is away'
-        : 'Connected';
+  health.title = label;
 }
 
 /**
  * The bar's one fact about which session this is.
  *
- * A host reads the folder it is exposing — the name is the handle's, and it is worth the glance — and
- * a guest reads whose room it is, from the roster's own `host` seat. Before the roster has arrived
- * there is nothing to name but the shape: a guest in a session it does not yet know the host of.
+ * A host reads the folder it is exposing — the name is the handle's, and it is worth the glance —
+ * and a guest reads whose room it is, from the room's own `host` seat. Before the room's peers have
+ * arrived there is nothing to name but the shape: a guest in a session it does not yet know the
+ * host of.
+ *
+ * While the host is away its seat leaves the roster and this line would read as a room with nobody
+ * in charge of it. The name is kept from when the room still named it, so the guest keeps reading
+ * whose session they are in — the card above says the same name, and both are the same fact.
  */
+function rememberHostName(): void {
+  const host = binding?.participants().find((participant) => participant.role === 'host');
+  if (host !== undefined) {
+    sessionHostName = host.displayName;
+  }
+}
+
 function setSessionIdentity(): void {
   if (hostFolder !== undefined) {
     sessionIdentity.textContent = `Sharing “${hostFolder.name}”`;
     return;
   }
-  const host = binding?.participants().find((participant) => participant.role === 'host');
+  rememberHostName();
   sessionIdentity.textContent =
-    host === undefined ? 'In a shared session' : `In ${host.displayName}\u2019s session`;
+    sessionHostName === undefined ? 'In a shared session' : `In ${sessionHostName}\u2019s session`;
 }
 
 function onNotice(notice: BindingNotice): void {
@@ -2044,8 +2499,8 @@ function onNotice(notice: BindingNotice): void {
       // Both seat reports are the room answering again — the bridge forces them on a re-seat,
       // because the set can be exactly what it was before the drop — so either one ends the
       // dropped line a retry put up.
-      sessionNote.endDropped();
-      setHealth(hostAway ? 'away' : 'ok');
+      sessionCard.endDropped();
+      setHealth('ok');
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself. Nothing is opened: opening a file is the person's act, and
       // the one open the page makes for them is the room's own seat (`openFirst`). A room that
@@ -2055,22 +2510,20 @@ function onNotice(notice: BindingNotice): void {
       syncGrant();
       break;
     case 'peers':
-      sessionNote.endDropped();
+      sessionCard.endDropped();
       if (binding !== undefined) {
         const present = binding.participants();
         // The membership report is the room's own word on who is here, so a
         // report that names the host ends the warning the attach frame may
         // never have delivered (S1, 2026-09-18). It ends the countdown and
         // not the line: the host's return may be standing there, and the
-        // strip is the only place the guest reads it.
+        // card is the only place the guest reads it.
         if (hostPresent(present)) {
-          sessionNote.endCountdown();
-          hostAway = false;
+          sessionCard.endAway();
         }
-        // The dot and the dimming are one fact: green and legible together, red and dimmed together.
-        setHealth(hostAway ? 'away' : 'ok');
-        syncRoster(present);
-        // The bar's identity names the host's session, which the roster is where the host appears.
+        setHealth('ok');
+        drawRoom(present);
+        // The bar's identity names the host's session, which the room's peers are where the host appears.
         setSessionIdentity();
         // Where someone is reads on the tree, so presence moves re-render it.
         syncGrant();
@@ -2078,32 +2531,32 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'roster':
       if (hostPresent(notice.participants)) {
-        sessionNote.endCountdown();
-        hostAway = false;
+        sessionCard.endAway();
       }
-      setHealth(hostAway ? 'away' : 'ok');
-      syncRoster(notice.participants);
+      setHealth('ok');
+      drawRoom(notice.participants);
       setSessionIdentity();
       // Where someone is reads on the tree, so presence moves re-render it.
       syncGrant();
       break;
     case 'grace':
-      sessionNote.countdown(notice.graceMs);
-      // A guest's rows without `●` dim while the grace runs: no text can arrive until the host is
-      // back, which is the one moment the difference has a consequence before a click.
-      hostAway = true;
-      setHealth('away');
+      // The roster stops naming the host the moment its socket detaches, and the card says who
+      // left: the name is taken from the room while it is still there, and kept.
+      rememberHostName();
+      sessionCard.away(sessionHostName ?? '', notice.graceMs);
+      // No row draws a state while the host is away: no text can arrive until it is back, and the
+      // card above carries that news.
+      setSessionIdentity();
       syncGrant();
       break;
     case 'reconnecting':
       // The socket is down and the engine is re-dialling it: the line stands for as long as that
       // lasts, and the room's own reports are what take it down.
-      sessionNote.dropped(RECONNECTING_NOTE);
+      sessionCard.dropped(RECONNECTING_NOTE);
       setHealth('reconnecting');
       break;
     case 'hostBack':
-      sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
-      hostAway = false;
+      sessionCard.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
       setHealth('ok');
       syncGrant();
       break;
@@ -2111,9 +2564,9 @@ function onNotice(notice: BindingNotice): void {
       // Where each topic goes, and why: `statusRoute` and the two functions it names.
       switch (statusRoute(notice.topic)) {
         case 'role':
-          // The read-only state is a chip in the file strip, so the role is a state rather than a
-          // sentence: the person never has to have caught a toast to know it.
-          readOnly = true;
+          // A viewer's documents are read-only, and the page draws no chip for that any more: the
+          // strip is the open file and nothing else, so the role is announced and the editor's own
+          // refusal to type is what a person meets.
           syncStrip();
           announce(VIEWER_SENTENCE);
           break;
@@ -2135,20 +2588,11 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'failure':
       // Something the person asked for was refused, and the sentence says why. A write's refusal
-      // belongs on the row it is about and stays there until a write to that path lands; a failure
-      // with no row to sit on — a path this host cannot read out of its own folder — is the one kind
-      // that has nowhere but the alert.
-      if (notice.path !== undefined) {
-        unsavedPaths.set(notice.path, notice.text);
-        syncGrant();
-        break;
-      }
+      // used to stand on the row it was about, and no row carries a mark for it any more: the page's
+      // transient line is where a failure with no other home goes, and the folder's own words are the
+      // whole of what a person can act on. A write that lands afterwards has nothing to take down —
+      // the sentence went on the alert's own clock.
       failureAlert.show(notice.text);
-      break;
-    case 'saved':
-      // The write landed, so the mark the refusal left goes with it.
-      unsavedPaths.delete(notice.path);
-      syncGrant();
       break;
   }
 }
@@ -2167,6 +2611,12 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The last segment of a path, for the name a move keeps. */
+function leafOf(path: string): string {
+  const segments = path.split('/');
+  return segments[segments.length - 1] ?? '';
+}
+
 
 
 window.addEventListener('beforeunload', () => {
@@ -2182,26 +2632,17 @@ window.addEventListener('beforeunload', () => {
  * the element's own size — never hears about it. That is how a caret ends up
  * behind the keyboard. Following the visual viewport is the fix; `appHeightFor`
  * is the rule, and it declines a pinch-zoom, which is a visual-viewport shrink
- * too. A layout that did change gets its editor re-measured. The transient
- * lines are fixed against the layout viewport, which the keyboard leaves
- * alone, so they are told the distance up to the floor the guest can see.
+ * too. A layout that did change gets its editor re-measured.
  */
 function fitVisualViewport(): void {
   const height = touchOnly
     ? appHeightFor(window.visualViewport ?? undefined, window.innerHeight)
     : undefined;
   appPane.style.height = height === undefined ? '' : `${height}px`;
-  const inset = touchOnly
-    ? keyboardInsetFor(window.visualViewport ?? undefined, window.innerHeight)
-    : 0;
-  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
   editorApi?.layout();
 }
 
 window.visualViewport?.addEventListener('resize', fitVisualViewport);
-// A pan scrolls the visual viewport without resizing it, and the inset is
-// measured from its offset, so the same rule runs on the scroll too.
-window.visualViewport?.addEventListener('scroll', fitVisualViewport);
 
 /**
  * The decisions a stylesheet cannot restyle, replayed when a pointer is

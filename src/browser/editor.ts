@@ -2,7 +2,14 @@ import type * as monaco from 'monaco-editor';
 
 import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
-import { DEFAULT_SAVE_SETTLE_MS, grantUnion, peerColour, realTimers, render } from '../bridge/index.ts';
+import {
+  DEFAULT_SAVE_SETTLE_MS,
+  grantUnion,
+  peerColour,
+  realTimers,
+  render,
+  translucent,
+} from '../bridge/index.ts';
 import type { GrantRefusal, Timers } from '../bridge/index.ts';
 import type { FolderWork } from './folder.ts';
 import { grantLevels } from './tree.ts';
@@ -40,6 +47,8 @@ export type BindingNotice =
    * else says why.
    */
   | { kind: 'follow'; following: Following | undefined; ended?: string }
+  /** The editor put `path` in front by itself: a go-to landing, or a file following its move. */
+  | { kind: 'landed'; path: string }
   | { kind: 'roomGone'; reason: string }
   /** The host's socket detached and the grace window is running, in milliseconds. */
   | { kind: 'grace'; graceMs: number }
@@ -56,32 +65,32 @@ export type BindingNotice =
   | { kind: 'status'; text: string; topic: StatusTopic; peerId?: string }
   /**
    * Something the person asked for did not happen, and the sentence says why: a write the
-   * stale-file guard refused, or a path this host could not read out of its own folder. When the
-   * failure is about one path (`path`), the page marks that path's row with it rather than showing a
-   * sentence that comes and goes while the file on disk stays behind the room; a failure with no
-   * path to sit on is the alert's.
+   * stale-file guard refused, or a path this host could not read out of its own folder. The path the
+   * failure is about is carried for the record and for a caller that wants to name it; the page
+   * shows the sentence, on its transient line.
    */
   | { kind: 'failure'; text: string; path?: string }
-  /** A write to `path` landed, so the mark a refusal left on its row goes. */
+  /** A write to `path` landed, which is the answer to a refusal that came before it. */
   | { kind: 'saved'; path: string };
 
 /**
  * What a status sentence is about. The binding raises all of them; the page decides which ones it
- * shows, because a sentence whose fact is already on screen — under a control, in the roster, or
+ * shows, because a sentence whose fact is already on screen — under a control, in a menu, or
  * as the card that came back — is a second reading of the same thing rather than news.
  *
  * - `role`: this connection is a `viewer` (`§13.9`), so its documents take no edit. The editor is
  *   read-only and nothing else on the page says why.
  * - `refusal`: a go-to the room could not answer. The click had no other answer, and the sentence
- *   is carried with the peer it is about (`peerId`) so the page can put it under that row.
+ *   is carried with the peer it is about (`peerId`) so the page can stand it where that press was
+ *   made.
  * - `follow`: a follow landing and the end of a follow. The follow banner names who and offers
- *   Stop, the tree and the buffer show where, and the roster shows who left.
+ *   Stop, the tree and the buffer show where, and the faces show who left.
  * - `error`: what the room said about the session itself. Nothing else carries it.
  * - `terminal`: the room is over. The card comes back with the room's own sentence.
  */
 export type StatusTopic = 'role' | 'refusal' | 'follow' | 'error' | 'terminal';
 
-/** Another participant, as the roster draws one row. */
+/** Another participant, as the bar draws one face. */
 export interface Participant {
   peerId: string;
   displayName: string;
@@ -98,6 +107,19 @@ export interface Following {
   name: string;
   colour: string;
 }
+
+/**
+ * What a go-to attempt came to, which is what `landOn` decides.
+ *
+ * - `landed`: the caret is on the peer's position.
+ * - `waiting`: the room has not answered yet — the peer is here but their document, or their
+ *   caret, has not arrived — so the next presence frame resolves it again.
+ * - `refused`: the room answered and there is nowhere to land. The sentence went out as a
+ *   `refusal` notice; the caller decides where it stands.
+ * - `gone`: the peer is not in the room. A follow ends on it; a go-to never returns it, because
+ *   a go-to for a peer who is not here refuses instead.
+ */
+export type GoToOutcome = 'landed' | 'waiting' | 'refused' | 'gone';
 
 /**
  * How long a caret event waits before its position reaches the room. Monaco reports a
@@ -150,6 +172,8 @@ export class MonacoBinding implements EditorHost {
   private readonly stops: Array<() => void> = [];
   private readonly colours = new Map<string, string>();
   private readonly badges = new Map<string, string>();
+  /** The colour the page has given each seat, empty until it hands its room in (`setSeatColours`). */
+  private seatColours: ReadonlyMap<string, string> = new Map();
   private readonly cursors: monaco.editor.IEditorDecorationsCollection;
   private readonly style: HTMLStyleElement;
   /** The badge rules alone, so a cache restart can drop the rules it no longer names. */
@@ -193,11 +217,20 @@ export class MonacoBinding implements EditorHost {
   /** The peer this window follows, by id: a local view state, never advertised. */
   private followingPeerId: string | undefined;
   private followingName = '';
+  /** The path the follow last landed on, which is what tells a document the follow's file went. */
+  private followingPath: string | undefined;
   /** A go-to whose document has not arrived yet: re-resolved on every room event. */
   private pendingGoTo: string | undefined;
   /** The room's listing and the tree derived from it, held until the set they come from moves. */
   private listing: string[] | undefined;
   private levels: Map<string, GrantChild[]> | undefined;
+  /**
+   * Paths this window took out of the room. A seat still holding one keeps it among the room's
+   * documents, and only the grant may bring it back into the listing.
+   */
+  private readonly dropped = new Set<string>();
+  /** The grant as last read, so a path the host took out of it is noticed here (`followGrant`). */
+  private granted: Set<string>;
   /** The room-gone reason once the session has ended terminally, if it has. */
   private terminalReason: string | undefined;
   /** Whether this window has already been told it is a viewer (`§13.4`). */
@@ -208,6 +241,7 @@ export class MonacoBinding implements EditorHost {
   private landingCycle = 0;
   constructor(options: BindingOptions) {
     this.engine = options.engine;
+    this.granted = new Set(this.engine.grantedPaths());
     this.editor = options.editor;
     this.onNotice = options.onNotice;
     this.createModel = options.createModel;
@@ -230,10 +264,10 @@ export class MonacoBinding implements EditorHost {
     });
     this.stops.push(() => selection.dispose());
     // The follow and the pending go-to re-resolve on every room event: a caret move
-    // and a document arrival both land, and membership changes refresh the roster.
+    // and a document arrival both land, and membership changes refresh the faces.
     this.stopEngine = this.engine.on((event) => {
       // The role is re-read on every event: a room state can change this connection's own role
-      // without moving the roster or the listing, and neither of those is where this window's
+      // without moving the faces or the listing, and neither of those is where this window's
       // role is read from. `applyEditability` skips a state that changes nothing.
       this.roomRole();
       switch (event.type) {
@@ -257,6 +291,7 @@ export class MonacoBinding implements EditorHost {
           this.backgroundTick();
           break;
         case 'grantChanged':
+          this.followGrant();
           this.forgetListing();
           this.onNotice({ kind: 'grant', paths: this.grantListing() });
           break;
@@ -292,7 +327,7 @@ export class MonacoBinding implements EditorHost {
    * re-opened on every frame would answer its own open with the room event
    * that supersedes it, and follow could never land.
    */
-  /** Whether the room is over: the roster is empty, the editor read-only. */
+  /** Whether the room is over: the faces are empty, the editor read-only. */
   isTerminal(): boolean {
     return this.terminalReason !== undefined;
   }
@@ -360,6 +395,75 @@ export class MonacoBinding implements EditorHost {
     this.models.delete(path);
   }
 
+  /**
+   * Ends every document among `paths`, and falls back to nothing in front of the editor.
+   *
+   * This is what a deletion does to the room. The files are gone from the folder and from the grant
+   * the host republished, so a document of one is a path the room no longer has: the hold is
+   * released (which is what takes the path out of the room's open set once no peer holds it), the
+   * buffer is dropped, and a window showing it goes back to the pane with no document in it rather
+   * than to a buffer nothing will ever write whole again.
+   *
+   * A follow whose subject was in one of the files ends here, because the file it was following has
+   * gone: the follow lands where a peer is, and there is nowhere to land.
+   */
+  dropDocuments(paths: readonly string[]): void {
+    const gone = new Set(paths);
+    if (gone.size === 0) {
+      return;
+    }
+    for (const path of gone) {
+      this.dropped.add(path);
+    }
+    this.forgetListing();
+    const followed = this.followingPath !== undefined && gone.has(this.followingPath);
+    const name = this.followingName;
+    if (followed) {
+      this.clearFollow();
+    }
+    for (const path of [...this.fronted]) {
+      if (gone.has(path)) {
+        this.closeDocument(path);
+      }
+    }
+    if (followed) {
+      this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because the file is gone.` });
+    }
+  }
+
+  /**
+   * Ends the documents the host took out of the grant, in every window and not only the host's.
+   *
+   * A guest in a file the host moved or deleted would otherwise keep it listed and keep typing into
+   * a document no folder holds. A file in front that moved is reopened where it went, when the new
+   * grant holds exactly one new path with its name.
+   */
+  private followGrant(): void {
+    const before = this.granted;
+    const after = new Set(this.engine.grantedPaths());
+    this.granted = after;
+    const gone = [...before].filter((path) => !after.has(path));
+    if (gone.length === 0) {
+      return;
+    }
+    const current = this.path;
+    let movedTo: string | undefined;
+    if (current !== undefined && gone.includes(current)) {
+      const leaf = current.slice(current.lastIndexOf('/') + 1);
+      const arrived = [...after].filter(
+        (path) => !before.has(path) && path.slice(path.lastIndexOf('/') + 1) === leaf,
+      );
+      movedTo = arrived.length === 1 ? arrived[0] : undefined;
+    }
+    this.dropDocuments(gone);
+    if (movedTo !== undefined) {
+      const to = movedTo;
+      void this.openDocument(to)
+        .then(() => this.onNotice({ kind: 'landed', path: to }))
+        .catch(() => undefined);
+    }
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -386,15 +490,16 @@ export class MonacoBinding implements EditorHost {
     this.badgeStyle.remove();
   }
 
-  // -- roster, grant tree, follow --------------------------------------------
+  // -- the faces, the grant tree, the follow --------------------------------
 
   /**
    * The room's other participants, read at the moment it is asked for. A peer with
-   * no document is still listed: its colour derives from its id, so there is
-   * always a caret colour to look it up by.
+   * no document is still listed: it has a colour whether or not the page has handed
+   * its seats in — the bridge's own derivation from the peer id — so there is always
+   * a caret colour to look it up by.
    */
   participants(): Participant[] {
-    // Past the end nobody is here: the roster clears instead of lingering
+    // Past the end nobody is here: the faces clear instead of lingering
     // with live-looking actions.
     if (this.terminalReason !== undefined) {
       return [];
@@ -411,9 +516,32 @@ export class MonacoBinding implements EditorHost {
       peerId: peer.peer_id,
       displayName: peer.display_name === '' ? peer.peer_id : peer.display_name,
       role: peer.role,
-      colour: peerColour(peer.peer_id),
+      colour: this.seatColour(peer.peer_id, peerColour(peer.peer_id)),
       path: paths.get(peer.peer_id),
     }));
+  }
+
+  /**
+   * The colour each seat wears in this window, keyed by peer id, as the page worked it out from the
+   * room its own bar draws (`seats.ts`). Handed in rather than derived here, so the faces, the
+   * tree's badges and the carets are one answer instead of three that can disagree.
+   *
+   * A peer the map does not name keeps the bridge's colour — the hash of its id — which is also what
+   * a page that hands no seats in at all reads, owner and guest alike.
+   */
+  setSeatColours(colours: ReadonlyMap<string, string>): void {
+    if (this.disposed || sameColours(this.seatColours, colours)) {
+      return;
+    }
+    this.seatColours = colours;
+    // The carets and their badges are already drawn in the colours this replaces: a seat moves
+    // under them whenever somebody joins or leaves, and the frame that says so repaints here.
+    this.renderCursors(this.bridge.cursors());
+  }
+
+  /** The seat's colour where the page named one, and what the binding would have drawn otherwise. */
+  private seatColour(peerId: string, otherwise: string): string {
+    return this.seatColours.get(peerId) ?? otherwise;
   }
 
   /**
@@ -426,7 +554,10 @@ export class MonacoBinding implements EditorHost {
    * them.
    */
   grantListing(): string[] {
-    this.listing ??= grantUnion(this.engine.grantedPaths(), this.engine.documents());
+    if (this.listing === undefined) {
+      const held = this.engine.documents().filter((path) => !this.dropped.has(path));
+      this.listing = grantUnion(this.engine.grantedPaths(), held);
+    }
     return this.listing;
   }
 
@@ -494,7 +625,7 @@ export class MonacoBinding implements EditorHost {
     return {
       peerId: this.followingPeerId,
       name: this.followingName,
-      colour: peerColour(this.followingPeerId),
+      colour: this.seatColour(this.followingPeerId, peerColour(this.followingPeerId)),
     };
   }
 
@@ -503,8 +634,12 @@ export class MonacoBinding implements EditorHost {
    * one-shot follow: the hold taken by the open is what makes the room send the
    * text, so a document that has not arrived yet resolves again on every event.
    * A deliberate navigation stops following first, the same class as typing.
+   *
+   * The outcome is what the attempt came to, which is the caller's to answer for:
+   * the room's refusal is a notice, and whether the press landed is what tells the
+   * page whether the act is over.
    */
-  async goTo(peerId: string): Promise<void> {
+  async goTo(peerId: string): Promise<GoToOutcome> {
     if (this.terminalReason !== undefined) {
       throw new Error(roomGoneMessage(this.terminalReason));
     }
@@ -512,13 +647,14 @@ export class MonacoBinding implements EditorHost {
       this.clearFollow();
     }
     this.pendingGoTo = peerId;
-    await this.retryGoTo();
+    // The pending peer was just set, so the attempt is made rather than skipped.
+    return (await this.retryGoTo()) ?? 'waiting';
   }
 
-  private async retryGoTo(): Promise<void> {
+  private async retryGoTo(): Promise<GoToOutcome | undefined> {
     const peerId = this.pendingGoTo;
     if (peerId === undefined) {
-      return;
+      return undefined;
     }
     const cycle = (this.landingCycle += 1);
     const valid = (): boolean => cycle === this.landingCycle && this.pendingGoTo === peerId;
@@ -526,6 +662,7 @@ export class MonacoBinding implements EditorHost {
     if (outcome !== 'waiting' && this.pendingGoTo === peerId) {
       this.pendingGoTo = undefined;
     }
+    return outcome;
   }
 
   /**
@@ -562,7 +699,7 @@ export class MonacoBinding implements EditorHost {
     peerId: string,
     mode: 'go' | 'follow',
     valid: () => boolean,
-  ): Promise<'landed' | 'waiting' | 'refused' | 'gone'> {
+  ): Promise<GoToOutcome> {
     const record = this.engine.presence().find((candidate) => candidate.peer?.peer_id === peerId);
     if (record === undefined) {
       if (this.engine.peers().some((peer) => peer.peer_id === peerId)) {
@@ -587,14 +724,23 @@ export class MonacoBinding implements EditorHost {
       return 'waiting';
     }
     await this.openDocument(path);
+    if (mode === 'follow') {
+      // What the follow is showing, so a deletion of that file can end it (`dropDocuments`).
+      this.followingPath = path;
+    }
     // A newer frame supersedes this one: placing now would land where the peer was.
     if (!valid()) {
       return 'waiting';
     }
     const selection = record.state?.selection;
-    // A path without a selection is a caret still unknown — an empty document
-    // publishes no anchors — and the next frame brings it.
+    // A path without a selection is a caret still unknown, as in an empty document, which
+    // publishes no anchors. A follow waits for the next frame to bring it, and a go-to has
+    // already arrived: the file is open.
     if (selection === undefined) {
+      if (mode === 'go') {
+        this.onNotice({ kind: 'landed', path });
+        return 'landed';
+      }
       return 'waiting';
     }
     const resolved = this.engine.resolveSelection(path, selection);
@@ -607,7 +753,7 @@ export class MonacoBinding implements EditorHost {
           kind: 'status',
           topic: 'refusal',
           peerId,
-          text: `nothing to go to: ${this.displayLabel(peerId)}'s caret does not resolve here`,
+          text: `${this.displayLabel(peerId)}'s caret does not resolve here`,
         });
       }
       return 'refused';
@@ -621,9 +767,7 @@ export class MonacoBinding implements EditorHost {
     this.scheduleSelection();
     // A follow re-landing says who and where: the strip's own segment carries both, so a sentence
     // here would be the same fact in a second place.
-    if (mode === 'follow') {
-      this.onNotice({ kind: 'follow', following: this.following() });
-    }
+    this.onNotice(mode === 'follow' ? { kind: 'follow', following: this.following() } : { kind: 'landed', path });
     return 'landed';
   }
 
@@ -649,11 +793,12 @@ export class MonacoBinding implements EditorHost {
     }
     const name = this.followingName;
     this.clearFollow();
-    this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} — you moved.` });
+    this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because you started typing.` });
   }
 
   private clearFollow(): void {
     this.followingPeerId = undefined;
+    this.followingPath = undefined;
     this.onNotice({ kind: 'follow', following: undefined });
   }
 
@@ -952,14 +1097,17 @@ export class MonacoBinding implements EditorHost {
   }
 
   renderCursors(cursors: Cursor[]): void {
+    // The bridge's colours are the desktop client's, derived from the peer id. This window's seats
+    // are its own, so a cursor is repainted on the way to the screen — caret, fill and badge together.
+    const seated = cursors.map((cursor) => this.seatCursor(cursor));
     const model = this.path === undefined ? undefined : this.models.get(this.path);
     if (model === undefined) {
       this.cursors.clear();
       this.drawn = [];
       return;
     }
-    const here = cursors.filter((cursor) => cursor.path === this.path);
-    this.drawn = cursors;
+    const here = seated.filter((cursor) => cursor.path === this.path);
+    this.drawn = seated;
     // One glyph-margin badge per line: badges on one line share a lane and
     // would draw over one another, so the lowest peer id wins the lane.
     const badged = onePerLine(here, (cursor) => model.getPositionAt(cursor.head).lineNumber);
@@ -1111,6 +1259,15 @@ export class MonacoBinding implements EditorHost {
     }
   }
 
+  /** Writes one path's armed edits now, so what the folder holds is what the room holds. */
+  async settle(path: string): Promise<void> {
+    if (!this.writeTimers.has(path)) {
+      return;
+    }
+    this.cancelWrite(path);
+    await this.writeSettled(path);
+  }
+
   /** Writes every armed document now, in place of the settle nobody is left to wait for. */
   private flushWrites(): void {
     for (const [path, cancel] of this.writeTimers) {
@@ -1174,6 +1331,20 @@ export class MonacoBinding implements EditorHost {
     });
   }
 
+  /**
+   * One cursor in this window's own seat colour, fill and all. The bridge derives a peer's colour
+   * from its id — the desktop client's rule, so the same peer reads the same in every window of
+   * it — and the page's seats replace it wherever one is named.
+   */
+  private seatCursor(cursor: Cursor): Cursor {
+    const seat = this.seatColours.get(cursor.peerId);
+    if (seat === undefined) {
+      return cursor;
+    }
+    // The same quarter alpha the bridge fills a selection with.
+    return { ...cursor, colour: seat, fill: translucent(seat, 0.25) };
+  }
+
   private colourClass(name: string, rule: string): string {
     const known = this.colours.get(name);
     if (known !== undefined) {
@@ -1211,6 +1382,22 @@ export class MonacoBinding implements EditorHost {
 
 function peerName(displayName: string, peerId: string): string {
   return displayName === '' ? peerId : displayName;
+}
+
+/**
+ * Whether two seat maps name the same colour for the same peer, so a presence frame that moved
+ * nobody costs no repaint: the page hands its seats in on every frame the room reports.
+ */
+function sameColours(left: ReadonlyMap<string, string>, right: ReadonlyMap<string, string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const [peerId, colour] of left) {
+    if (right.get(peerId) !== colour) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

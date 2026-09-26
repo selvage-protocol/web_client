@@ -1,6 +1,5 @@
 /**
- * Starting a room from the page: what the card offers, what it warns about, and what a reload
- * leaves behind.
+ * Starting a room from the page: what the card offers and what a reload leaves behind.
  *
  * A page-hosted room lives in a tab, and the page's join flow is built the other way round: it
  * writes the invite link into the address bar so a reload rejoins. For a host that is exactly
@@ -13,8 +12,7 @@
  * Reclaiming is the other honest option and it is not built: it needs the handle kept in
  * IndexedDB, a *Resume hosting* click inside the grace, and a permission re-prompt, which is
  * the first thing the study would cut (`ai_notes/docs/studies/browser-hosted-rooms.md` §9). What
- * is left is honest instead of silent: the warning is on the card before the click, and the
- * load after a reload says what the reload cost.
+ * is left is honest instead of silent: the load after a reload says what the reload cost.
  *
  * Reading a room's *version* is not part of this: there is one wire, every client speaks it, and
  * a page that can mint does.
@@ -28,63 +26,25 @@ export type HostStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 /** The key the marker lives under. */
 export const HOST_MARK_KEY = 'selvage.hosting';
 
-/**
- * The one thing the start card says about the room the click makes: the cost of a room that lives
- * in a tab.
- *
- * The room's text is written into the folder this window was handed — every edit the room settles on,
- * the host's own keystrokes and every guest's alike, within `DEFAULT_SAVE_SETTLE_MS` — so closing or
- * reloading this tab costs the room, its invite link and whatever has not settled yet, and nothing
- * else. That is what the sentence says, and the folder note beside it (`HOST_SHARE_NOTE`) says what
- * the write-back is, because the person picking the folder is the only one who can act on it and
- * only before the click.
- *
- * The countdown a guest gets is the room's own grace (`DESIGN.md` §4.4), which the server states
- * and a desktop host has the same, so the sentence names the shape and not a number that would go
- * stale.
- *
- * One wording, and one card it stands on: a guest's card says `Or start your own session` and
- * nothing more, so a person reading about hosting has already asked for the start card by the
- * time this sentence is in front of them.
- */
-export const HOST_TAB_WARNING =
-  'Closing or reloading this tab ends the room for everyone in it; the invite link stops working, and the last keystrokes may not reach your folder.';
-
-/**
- * What picking a folder gives away, under the button that asks for it.
- *
- * Two sentences, one job each: who can reach the files, and where an edit lands. The grant of a
- * page-hosted room is the folder handle a person hands over, and anyone holding the invite link can
- * open any path the listing carries and edit it; every settled edit is then written into the file on
- * disk, which is the same fact `HOST_TAB_WARNING` reasons from.
- *
- * It says the files *this page shares* rather than every file in the folder, because it shares a
- * subset: the grant excludes `.env`, `.git/**` and the key names, leaves out a binary-named path and
- * refuses one past the size bound, and a file past the walk's budget never reaches the listing at
- * all (`folder.ts` applies the shared rule before it resolves anything).
- */
-export const HOST_SHARE_NOTE =
-  'Anyone with the invite link can open and edit the files this page shares. Edits are written back to those files on disk.';
-
 /** Why the host action is not offered: this browser has no directory picker. */
 export const HOST_NEEDS_A_BROWSER =
-  'This browser cannot hand a page a folder, so a room cannot be started from it. Chrome and Edge can; Firefox and Safari cannot. Joining a room here still works.';
+  'This browser cannot hand a page a folder, so a room cannot be started from it. Chrome and Edge can, but Firefox and Safari cannot. Joining a room here still works.';
 
 /**
- * Why the host action is not offered: this page is not the server's own page.
+ * Why the host action is not offered, and what the card says instead: nothing.
  *
  * The page's rule is that the link's own origin is the server, and a host has no link, so a host
- * needs a page its server is behind. The two-origin deployment whose agreement with the
- * one-address invite rule is an open item therefore gets a sentence rather than a guess.
+ * needs a page its server is behind. A page that answered with something else — a static host,
+ * another JSON API, a page — has no room to start and no sentence worth standing where the action
+ * would be: the card leads with the way in it does have, which is the invite path with `Join` as its
+ * action. That this page is not a Selvage server's is not a fact the person can act on, and the join
+ * attempt says what went wrong when they try.
  *
- * Two facts reach it, and neither of them is "`/meta` did not answer": an origin that answered
- * with something that is not a Selvage `/meta` (a static host, another JSON API, a page) and a
- * page whose own address names no server at all (a `file://` open). A read that timed out is the
- * third thing, and it is not this sentence — see `HOST_UNREAD_NOTE`.
+ * Two facts reach it, and neither of them is "`/meta` did not answer": an origin that answered with
+ * something that is not a Selvage `/meta`, and a page whose own address names no server at all (a
+ * `file://` open). A read that timed out is the third thing, and it keeps the offer with a note
+ * saying what was not read (`HOST_UNREAD_NOTE`).
  */
-export const HOST_NEEDS_THE_SERVERS_PAGE =
-  'This page was not served by a Selvage server, so there is nothing here to start a room on. Open the server\u2019s own page \u2014 the address a share link points at \u2014 to start a room from a browser.';
-
 /**
  * The warning beside the action where `/meta` had not answered by the time the card was built.
  *
@@ -95,10 +55,7 @@ export const HOST_NEEDS_THE_SERVERS_PAGE =
  * belongs to a page that is not the server's.
  */
 export function hostUnreadNote(): string {
-  return (
-    'This page\u2019s own address has not answered /meta, so whether it is a Selvage server is not known yet \u2014 starting a session here asks it again and the handshake reports the truth. ' +
-    HOST_TAB_WARNING
-  );
+  return 'This page\u2019s server has not answered /meta yet, so it may not be a Selvage server. Starting a session here asks again.';
 }
 
 export const HOST_UNREAD_NOTE = hostUnreadNote();
@@ -150,26 +107,32 @@ export function takeHostingNotice(storage: HostStorage): string | undefined {
  *
  * The page-hosted shape is not explained to this reader — they reloaded their own tab, and the
  * card in front of them is the explanation — and the guests' countdown is said where it runs rather
- * than to a host who is no longer in the room (`wireSessionNote`). What the reload cost is the room
+ * than to a host who is no longer in the room (`wireSessionCard`). What the reload cost is the room
  * and its invite link, and no more than the keystrokes still inside the settle: everything else was
  * written to the folder, which is what the sentence says rather than the old claim that nothing was.
  */
 export function hostingOverSentence(): string {
-  return 'Reloading ended the room this tab was hosting; the invite link is dead, everything settled is already in your folder, and pick the folder again to start another.';
+  return 'Reloading ended the room this tab was hosting and its invite link, but everything you saved is in your folder, so pick it again to start a new room.';
 }
 
 /**
  * Whether the card may offer to start a room, decided before the button is shown rather than
- * after a click that was never going to work. Each state carries the note the card reads beside
- * the action, or in its place.
+ * after a click that was never going to work. An offered card carries no note — the action is the
+ * whole of what it says — and a state that cannot act carries the sentence that stands in the
+ * action's place.
  */
 export type HostAvailability =
   /** The page's own origin is a Selvage server, and this page can host on what it seats. */
-  | { kind: 'offered'; note: string }
+  | { kind: 'offered' }
   /** Offered, and `/meta` had not answered: the note says what was not read and what the click does. */
   | { kind: 'unchecked'; note: string }
   /** No action: the note is the sentence that stands where it would be. */
-  | { kind: 'explained'; note: string };
+  | { kind: 'explained'; note: string }
+  /**
+   * No action and nothing to say: a page that is not a Selvage server's own. The card leads with the
+   * way in it has, and no sentence stands where the action would have been.
+   */
+  | { kind: 'silent' };
 
 /**
  * The decision, from the facts it rests on.
@@ -188,10 +151,10 @@ export function hostAvailability(options: {
     return { kind: 'explained', note: HOST_NEEDS_A_BROWSER };
   }
   if (options.read.kind === 'not-a-server') {
-    return { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE };
+    return { kind: 'silent' };
   }
   if (options.read.kind === 'no-answer') {
     return { kind: 'unchecked', note: hostUnreadNote() };
   }
-  return { kind: 'offered', note: HOST_TAB_WARNING };
+  return { kind: 'offered' };
 }

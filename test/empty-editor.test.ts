@@ -30,7 +30,7 @@ describe('what the pane says with nothing open', () => {
     const [block] = state.blocks;
     assert.equal(block.lead, 'Your folder “demo-app” is empty.');
     assert.match(block.text ?? '', /shared by name/);
-    assert.match(block.text ?? '', /text reaches the room when it is opened/);
+    assert.match(block.text ?? '', /text reaches the room when someone opens them/);
     assert.deepEqual(block.actions, ['new-file', 'copy-invite']);
   });
 
@@ -57,7 +57,7 @@ describe('what the pane says with nothing open', () => {
     const state = emptyEditorFor(facts({ hostName: 'vscodium' }));
     const [block] = state.blocks;
     assert.equal(block.lead, 'vscodium hasn\u2019t shared any files yet.');
-    assert.equal(block.text, 'They\u2019ll appear in Shared as soon as the host\u2019s folder has some.');
+    assert.equal(block.text, 'They\u2019ll appear in the panel as soon as the host\u2019s folder has some.');
     assert.deepEqual(block.actions, [], 'a desktop is offered an act it already has in the tree');
   });
 

@@ -191,14 +191,18 @@ describe('the join card: what a person who followed a link reads', () => {
     assert.equal(wired.inviteWrap.hidden, true, 'the guest is asked to paste the link they followed');
   });
 
-  it('offers hosting as one quiet line, and says what it costs only on the start card', () => {
+  it('offers hosting as one quiet line, and the start card it opens is where the decision is made', () => {
     // Both intents are offered it: the read `/meta` answers is not skipped because the address
     // carried a link, so a guest holding one can still start a room. On that card it is one quiet
-    // line — design §7.1 — and the one sentence about what the room costs belongs to the start
-    // card the line opens, where the decision to host is actually made.
+    // line — design §7.1 — and the start card the line opens is where the decision to host is
+    // actually made. The card says nothing there beyond the action itself.
     const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
     assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');
-    assert.ok(offering.includes('hostWrap.hidden = false'), 'the start action is never revealed');
+    assert.match(
+      offering,
+      /hostWrap\.hidden = !offered/,
+      'the start action is never revealed on the card that is offered it',
+    );
     assert.ok(!/scope/.test(offering), 'the offer is worded for a card it is not on');
     // The line is the guest's; the button keeps the join card's own leading rule.
     assert.match(html, /id="host-quiet"/, 'the guest card carries no quiet line');
@@ -381,16 +385,24 @@ describe('Enter and a refusal where the start card cannot host', () => {
     assert.match(primary, /attemptJoin\(\)[\s\S]*$/, 'the join is not what Enter runs');
   });
 
-  it('the standing sentence that explains it is on the card, not only in the bundle', () => {
+  it('the standing sentence that explains it is on the card, and a page with nothing to say stands none', () => {
     // The action Enter takes is the join; why starting a room is not offered stands in
-    // `#host-note`, above the button that would be there, and it is visible in every one of
-    // these states.
+    // `#host-note`, above the button that would be there, and it is visible in every state that has
+    // no action — except the page that is not a Selvage server's own, where there is no sentence
+    // worth reading and the way in the card does have is the whole of what it says.
     const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
     assert.ok(offering.includes('showHosting('), 'the card is never told what to say about hosting');
     assert.match(
       main,
-      /hostNote\.textContent = availability\.note/,
+      /hostNote\.textContent =\n\s*availability\.kind === 'offered' \|\| availability\.kind === 'silent' \? '' : availability\.note;/,
       'the note standing where the button would be is not written',
+    );
+    // And the element takes no room when it is empty: a card with nothing to say left 0.75rem of
+    // gap under its action.
+    assert.match(
+      html,
+      /#host-note:empty \{ display: none; \}/,
+      'an empty note still takes room under the action',
     );
     assert.match(
       HOST_NEEDS_A_BROWSER,

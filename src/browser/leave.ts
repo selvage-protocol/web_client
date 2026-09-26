@@ -30,16 +30,6 @@ export interface LeaveOptions {
    * is worse than one asked for a guest.
    */
   hosting(): boolean;
-  /**
-   * Whether the control has room for the host's four-word verb.
-   *
-   * A phone's session bar is one row per control, and `Leave and end the room` is 213 px of a
-   * 390 px bar: it wraps the bar onto a third row, which measured 138 px of an 844 px screen —
-   * a sixth of the phone, held for the whole session. The consequence is not lost with the words:
-   * it is this control's accessible name and its tooltip, and the question the press asks says it
-   * in full one tap later. Absent means there is room.
-   */
-  shortLabel?(): boolean;
   /** The control and the panel its question stands in. */
   surface: LeaveSurface;
   /** Leaves the session. */
@@ -54,6 +44,13 @@ export interface LeaveSurface {
   question: HTMLElement;
   /** The control in the bar, which asks the question. */
   button: HTMLElement;
+  /**
+   * The span the control's words live in, where the bar draws an icon over them (a phone). The
+   * words stay in the DOM there — they are what a pointer and a screen reader still read — and this
+   * is the element `showRole` rewrites rather than the button's whole content, which would take the
+   * icon with it. Absent where the control is text alone.
+   */
+  label?: HTMLElement;
   /** The quiet answer, and where focus lands. */
   cancel: HTMLButtonElement;
   /** The destructive answer: this is the press that ends the room. */
@@ -76,9 +73,6 @@ export interface LeaveControl {
   dispose(): void;
 }
 
-/** The verb at rest, for a guest: leaving costs nobody else anything. */
-export const LEAVE_LABEL = 'Leave';
-
 /** The control's name for a guest — the desktop clients' own `Leave the session`. */
 export const LEAVE_TITLE = 'Leave the session';
 
@@ -86,19 +80,10 @@ export const LEAVE_TITLE = 'Leave the session';
  * The verb for a host, whose connection is the room.
  *
  * The consequence used to be readable only in the confirmation: the control said `Leave` for both
- * roles, so a host pressed the same word a guest does and learned what it did afterwards. It says
- * what it does now, in the visible label, because the confirmation is one press too late and a
- * `title` is a thing a phone never shows.
+ * roles, so a host pressed the same word a guest does and learned what it did afterwards. It is the
+ * control's own name now, and the question the press opens says what the press costs in full.
  */
 export const LEAVE_HOST_LABEL = 'Leave and end the room';
-
-/**
- * The host's verb where the bar has no room for it, which is a phone (`LeaveOptions.shortLabel`).
- *
- * The guest's own word, because that is what the control says to a finger: what the press costs is
- * in the panel it opens, in `HOST_LEAVE_QUESTION`'s own sentence, and in the control's name.
- */
-export const LEAVE_HOST_SHORT_LABEL = LEAVE_LABEL;
 
 /** The answer that leaves: the words on the destructive button in the panel. */
 export const LEAVE_ASKING_LABEL = 'Leave anyway';
@@ -108,14 +93,14 @@ export const LEAVE_CANCEL_LABEL = 'Cancel';
 
 /**
  * The question a host's first press asks. It names the consequence rather than the countdown that
- * follows it: the host read the same consequence on the card before it ever started a room
- * (`HOST_TAB_WARNING`), and the grace is the room's number, not this panel's.
+ * follows it: the room and its invite link go with the host who leaves and the last keystrokes may
+ * not reach the folder, and the grace is the room's number, not this panel's.
  */
 export const HOST_LEAVE_QUESTION =
-  'Leaving ends the room for everyone in it; the invite link stops working, and the last keystrokes may not reach your folder.';
+  'Leaving ends the room for everyone and stops the invite link, and your last few keystrokes may not reach your folder.';
 
 export function wireLeave(options: LeaveOptions): LeaveControl {
-  const { panel, question, button, cancel, go } = options.surface;
+  const { panel, question, button, cancel, go, label } = options.surface;
   question.textContent = HOST_LEAVE_QUESTION;
   go.textContent = LEAVE_ASKING_LABEL;
   cancel.textContent = LEAVE_CANCEL_LABEL;
@@ -147,12 +132,18 @@ export function wireLeave(options: LeaveOptions): LeaveControl {
 
   /**
    * The control's own words, which are the role's: a host's press ends the room for everyone in
-   * it, and the verb says so before it is pressed rather than in the question that follows.
+   * it, and the name says so before it is pressed rather than in the question that follows.
+   *
+   * The icon is the control at every width, so these words are never painted: the span is where the
+   * bar would draw them, and the name is what a screen reader and a pointer read.
    */
   const showRole = (hosting: boolean): void => {
     const name = hosting ? LEAVE_HOST_LABEL : LEAVE_TITLE;
-    const short = options.shortLabel?.() === true;
-    button.textContent = hosting && !short ? LEAVE_HOST_LABEL : LEAVE_HOST_SHORT_LABEL;
+    if (label === undefined) {
+      button.textContent = name;
+    } else {
+      label.textContent = name;
+    }
     button.setAttribute('aria-label', name);
     button.title = name;
   };

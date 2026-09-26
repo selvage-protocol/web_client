@@ -22,7 +22,6 @@ import { grantUnion } from '../src/bridge/index.ts';
 import {
   checkNewEntry,
   createInFolder,
-  missingFolders,
   newEntryPath,
 } from '../src/browser/new-entry.ts';
 import type { NewEntryContext } from '../src/browser/new-entry.ts';
@@ -358,8 +357,8 @@ describe('the line under the field', () => {
 
   it('says nothing while the field is empty, and is not an error', () => {
     // The row does not explain itself: the field, the `✓` beside it and the tree it stands in say
-    // what pressing it makes. The line is for what a person cannot see — a refusal, or the folder
-    // the commit will also make.
+    // what pressing it makes. The line is for what a person cannot see: why the name will not
+    // commit.
     const check = checkNewEntry(context());
     assert.equal(check.line, '', `the empty row explains itself: ${check.line}`);
     assert.equal(check.error, false);
@@ -368,10 +367,19 @@ describe('the line under the field', () => {
 });
 
 describe('the live checks', () => {
+  it('refuses a path that steps out of the tree, before the grant rule even sees it', () => {
+    // `docs/../src` names a folder this room does not have, and the folder layer's own rule would
+    // refuse it as a path it does not share. The row says what happened rather than which rule.
+    const check = checkNewEntry(context({ raw: 'docs/../src/main.ts' }));
+    assert.equal(check.error, true);
+    assert.equal(check.line, 'A path cannot go up a folder');
+    assert.equal(check.path, undefined);
+  });
+
   it('refuses a name the room cannot share, in the grant rule’s own words', () => {
     // The same rule the folder applies on commit (`isGrantedPath`), called rather than copied: a
     // name the row takes is a name the folder takes.
-    for (const name of ['.env', 'a/../b', '/abs', 'src/.git/config']) {
+    for (const name of ['.env', '/abs', 'src/.git/config']) {
       const check = checkNewEntry(context({ raw: name }));
       assert.equal(check.error, true, `${name} was accepted`);
       assert.match(check.line, /is not a path this room shares\./, `wrong refusal for ${name}: ${check.line}`);
@@ -388,24 +396,24 @@ describe('the live checks', () => {
     assert.equal(checkNewEntry(context({ raw: 'assets.png', kind: 'directory' })).error, false);
   });
 
-  it('refuses a name that is already in the folder, file or directory', () => {
+  it('refuses a name that is already in the tree, in the kind’s own words', () => {
     const listing = ['README.md', 'src/main.ts'];
     assert.equal(
       checkNewEntry(context({ raw: 'README.md', listing })).line,
-      'README.md is already in the folder. Pick another name.',
+      'That file is already in the tree',
     );
     // A directory is taken by any listed path that goes through it, which is the only way a listing
     // of files can say a directory exists.
     assert.equal(
       checkNewEntry(context({ raw: 'src', kind: 'directory', listing })).line,
-      'src is already in the folder. Pick another name.',
+      'That folder is already in the tree',
     );
     // And by one this session made, which no listing carries.
     assert.equal(
       checkNewEntry(
         context({ raw: 'docs', kind: 'directory', localFolders: new Set(['docs']) }),
       ).line,
-      'docs is already in the folder. Pick another name.',
+      'That folder is already in the tree',
     );
   });
 
@@ -416,11 +424,11 @@ describe('the live checks', () => {
     const listing = ['src/main.ts'];
     assert.equal(
       checkNewEntry(context({ raw: 'src', kind: 'file', listing })).line,
-      'src is already in the folder. Pick another name.',
+      'That file is already in the tree',
     );
     assert.equal(
       checkNewEntry(context({ raw: 'src', kind: 'directory', listing })).line,
-      'src is already in the folder. Pick another name.',
+      'That folder is already in the tree',
     );
   });
 
@@ -430,26 +438,15 @@ describe('the live checks', () => {
     assert.equal(check.line, 'main.rs is a file, not a folder.');
   });
 
-  it('previews the directories a path will make, without calling it an error', () => {
+  it('says nothing about the directories a path will also make', () => {
+    // The row names the entry. What a path names on the way to it is the commit's own business —
+    // the folder makes them either way — so a name in a folder this session has not made is taken
+    // rather than explained.
     const check = checkNewEntry(context({ raw: 'docs/intro.md' }));
-    assert.equal(check.error, false, 'making a directory was refused rather than previewed');
-    assert.equal(check.line, 'Also creates the folder docs/.');
-    assert.equal(check.path, 'docs/intro.md', 'the preview took the path away');
-    // Deeper paths say every folder they will make, outermost first.
-    assert.deepEqual(missingFolders('docs/api/intro.md', context()), ['docs', 'docs/api']);
-    assert.equal(
-      checkNewEntry(context({ raw: 'docs/api/intro.md' })).line,
-      'Also creates the folders docs/ and docs/api/.',
-    );
-    // A directory the listing already implies is not one of them.
-    assert.deepEqual(missingFolders('src/app/intro.md', context({ listing: ['src/main.ts'] })), [
-      'src/app',
-    ]);
-    // Nor is one this session made.
-    assert.deepEqual(
-      missingFolders('docs/intro.md', context({ localFolders: new Set(['docs']) })),
-      [],
-    );
+    assert.equal(check.error, false, 'a path under a folder the room does not have was refused');
+    assert.equal(check.line, '', `the row explains what the commit will make: ${check.line}`);
+    assert.equal(check.path, 'docs/intro.md');
+    assert.equal(check.line, '', 'a deeper path is explained too');
   });
 
   it('is empty again as soon as the name is one the room can take', () => {
@@ -490,9 +487,10 @@ describe('the create the page runs for the row', () => {
   });
 
   it('makes the directories a folder path names, the way a file path does', async () => {
-    // The live line promises `Also creates the folders docs/ and docs/api/.`, so the commit has to
-    // make them: a preview the folder then refused would be the row lying about what it was about to
-    // do. A person's file explorer's New Folder accepts a path with separators for the same reason.
+    // A room's listing is files, so a folder this session made and never put a file in is in
+    // nobody's listing: the create is how a person puts one into the room, and the folder makes
+    // every segment the path names. A person's file explorer's New Folder accepts a path with
+    // separators for the same reason.
     const app = page(dirOf());
     const outcome = await createInFolder(
       { folder: app.folder, publish: async () => {}, open: async () => {} },
@@ -517,16 +515,24 @@ describe('the create the page runs for the row', () => {
 });
 
 describe('the page the row is drawn in', () => {
-  it('carries both create verbs, always visible, for the window that holds a folder', () => {
-    for (const id of ['shared-actions', 'new-file', 'new-folder']) {
+  it('carries both create verbs, labelled, in a bar at the panel’s foot', () => {
+    for (const id of ['tree-actions', 'new-file', 'new-folder']) {
       assert.ok(SHELL.includes(`id="${id}"`), `${id} is not in the shell`);
     }
     assert.ok(!SHELL.includes('id="new-entry"'), 'the old standing field is still in the shell');
     assert.ok(!SHELL.includes('id="new-message"'), 'the old refusal line is still in the shell');
     assert.ok(!SHELL.includes('placeholder="notes.md"'), 'the greyed example is still in the shell');
+    // The panel has no heading: the design's verbs stand in a full-width bar at its foot, each
+    // labelled with its own words beside the kind's icon.
+    assert.ok(!/<h2>Shared<\/h2>/.test(SHELL), 'the panel heading survived the footer bar');
+    assert.ok(!/class="panel-head"/.test(SHELL), 'the panel-head wrapper survived the footer bar');
+    assert.match(MAIN, /newFileButton\.append\(iconSpan\('file-add'\), labelSpan\('New file'\)\)/,
+      'the new-file verb has no words');
+    assert.match(MAIN, /newFolderButton\.append\(iconSpan\('folder-add'\), labelSpan\('New folder'\)\)/,
+      'the new-folder verb has no words');
     assert.match(MAIN, /newFileButton\.addEventListener\('click'/, 'the new-file verb does nothing');
     assert.match(MAIN, /newFolderButton\.addEventListener\('click'/, 'the new-folder verb does nothing');
-    assert.match(MAIN, /sharedActions\.hidden = seat\.folder === undefined/, 'a guest is offered a create');
+    assert.match(MAIN, /treeActions\.hidden = seat\.folder === undefined/, 'a guest is offered a create');
   });
 
   it('opens the editable row in the tree, where the entry will appear', () => {
