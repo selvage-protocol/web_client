@@ -980,6 +980,7 @@ async function seatSession(seat: Seat): Promise<void> {
     automaticLayout: true,
     glyphMargin: true,
     theme: 'selvage-mocha',
+    ...editorOptionsFor(false),
   });
   // Read the desktop options off the editor it just made rather than restating them: Monaco's
   // font size default is platform-dependent, and a pointer that arrives mid-session has to be
