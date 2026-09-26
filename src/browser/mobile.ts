@@ -34,14 +34,17 @@ export const PHONE_QUERY =
 
 /**
  * The editor options for this device. A phone gets the settings its screen
- * argues for and a desktop is handed the options it has always had, so the two
+ * argues for and a pointer device gets the page's own base options, so the two
  * cannot drift apart by a later edit to one of them.
  *
- * The minimap is a grey texture on a 390 px screen, not a navigator; a line
- * wider than the phone scrolls sideways inside a vertically scrolling page
- * unless it wraps, which is a trap on touch; 16 px is the floor under which
- * iOS zooms a focused field, and the editor's own input is a focused field;
- * and a fingertip needs a scrollbar it can see, never the 10 px hairline.
+ * The minimap is off on both, and the current line is unmarked on both: the
+ * design draws neither — its gutter is numbers and nothing else, in one colour
+ * — and the minimap this page used to turn on for a pointer was a grey texture
+ * beside the code. What is left is a phone's own four: a line wider than the
+ * screen scrolls sideways inside a vertically scrolling page unless it wraps,
+ * which is a trap on touch; 16 px is the floor under which iOS zooms a focused
+ * field, and the editor's own input is a focused field; and a fingertip needs a
+ * scrollbar it can see, never the 10 px hairline.
  *
  * The gutter is the fourth. Monaco's own line-number column, its fold arrows and
  * its decoration width added up to 96 of 390 px — a quarter of the screen, and
@@ -54,10 +57,11 @@ export function editorOptionsFor(
   touch: boolean,
 ): monaco.editor.IStandaloneEditorConstructionOptions {
   if (!touch) {
-    return { minimap: { enabled: true, side: 'right' } };
+    return { minimap: { enabled: false }, renderLineHighlight: 'none' };
   }
   return {
     minimap: { enabled: false },
+    renderLineHighlight: 'none',
     wordWrap: 'on',
     fontSize: 16,
     scrollbar: { verticalScrollbarSize: 14, horizontalScrollbarSize: 14 },

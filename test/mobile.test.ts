@@ -77,8 +77,28 @@ function mediaBlock(header: string): string {
 }
 
 describe('the editor a phone gets', () => {
-  it('hands a pointer device exactly the options it has always had', () => {
-    assert.deepEqual(editorOptionsFor(false), { minimap: { enabled: true, side: 'right' } });
+  it('hands a pointer device the page’s own editor options', () => {
+    assert.deepEqual(editorOptionsFor(false), {
+      minimap: { enabled: false },
+      renderLineHighlight: 'none',
+    });
+    // The minimap and the current-line highlight are the design's: it draws neither, at any width,
+    // so a pointer device and a phone agree about them and differ only in what a small screen needs.
+    assert.equal(editorOptionsFor(true).minimap?.enabled, false);
+    assert.equal(editorOptionsFor(true).renderLineHighlight, 'none');
+  });
+
+  it('draws every line number in the design’s own colour, the caret’s line included', () => {
+    // The design's gutter is one colour: Overlay 0 for every number, and no band on the line the
+    // caret is on. Monaco's own defaults painted the active number mauve over a Surface 0 band.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /'editorLineNumber\.foreground': '#6c7086'/, 'the numbers are not the design’s colour');
+    assert.match(
+      main,
+      /'editorLineNumber\.activeForeground': '#6c7086'/,
+      'the caret’s own line number is a different colour from the rest',
+    );
+    assert.ok(!/lineHighlightBackground/.test(main), 'the caret’s line is still painted a band');
   });
 
   it('drops the minimap, wraps lines and raises the type on a touch device', () => {
@@ -174,14 +194,19 @@ describe('the shell and the page agree on what a phone is', () => {
       'the phone\u2019s own block does not answer for a phone on its side');
   });
 
-  it('gives the bar’s own verb room by saying less of it, not by dropping it', () => {
+  it('is one size at every width, so the bar has no verb to shorten', () => {
     // Measured at 390x844: `Leave and end the room` is 213 px of a 390 px bar, so it wrapped onto
-    // a row of its own and the session bar took 138 px of the screen for the whole session. What
-    // the press costs is the control's accessible name, its tooltip, and the question it opens.
+    // a row of its own and the session bar took 138 px of the screen for the whole session. The
+    // icon is the control everywhere now, and what the press costs is the control's accessible
+    // name, its tooltip, and the question it opens — none of which changes with the device.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.match(main, /shortLabel: \(\) => phoneLayout\.matches/, 'the bar has no short verb on a phone');
-    assert.match(main, /phoneLayout\.addEventListener\('change', \(\) => leaveControl\.showRole/,
-      'a pointer arriving leaves the phone\u2019s verb behind');
+    assert.ok(!/shortLabel/.test(main), 'the page still decides a verb by width');
+    assert.ok(
+      !/phoneLayout\.addEventListener\('change', \(\) => leaveControl/.test(main),
+      'the control still changes its words with the device',
+    );
+    assert.match(main, /leaveControl\.showRole\(seat\.folder !== undefined\)/,
+      'the control is never named for the role it took');
   });
 
   it('keeps the safe-area inset inside the height it is measured against', () => {
@@ -311,16 +336,37 @@ describe('the sizes a finger needs', () => {
     // The menu's pair is the same two answers in the same shape: the field, then ✓ and ✕.
     assert.match(declarations(touch, '#menu .rename-edit'), /gap:\s*0\.6em/, 'the two answers abut');
   });
-  it('gives the phone a way out that is the design’s icon, and keeps its words', () => {
-    // The text verb measured 68 px of the bar and the session's own name needs 24 of them to stay
-    // whole beside the faces: the phone draws the design's icon in a 44 px box, and the words stay
-    // in `#leave .label` — clipped out of the paint but still in the DOM, so the control is named
-    // and tooltipped in full for a screen reader and a pointer. A pointer device keeps the verb.
+  it('is the design’s icon at every width, with the words kept as its name', () => {
+    // The text verb measured 213 px of a 390 px bar and 68 px of the desktop's, and the session's
+    // own name needs 24 of them to stay whole beside the faces: the design draws the icon in a
+    // 30 px square sized to the faces, and the words stay in `#leave .label` — clipped out of the
+    // paint but still in the DOM, so the control is named and tooltipped in full for a screen
+    // reader and a pointer. The phone's own square is the fingertip floor over it.
+    assert.match(declarations(style, '#leave'), /width:\s*2\.15em/, 'the way out is not the design’s square');
+    assert.match(declarations(style, '#leave'), /justify-content:\s*center/,
+      'the icon is not centred in its square',
+    );
+    assert.ok(
+      !/#leave \.icon \{/.test(style),
+      'the icon still needs a rule of its own, so some width still shows the words',
+    );
+    assert.match(declarations(style, '.icon'), /display:\s*inline-flex/,
+      'an icon is not drawn',
+    );
+    assert.match(declarations(style, '#leave .label'), /clip-path:\s*inset\(50%\)/,
+      'the words are dropped rather than clipped',
+    );
     const phone = mediaBlock(PHONE_QUERY);
     assert.match(declarations(phone, '#leave'), /min-width:\s*44px/, 'the phone’s way out is under a fingertip');
-    assert.match(declarations(phone, '#leave .icon'), /display:\s*inline-flex/, 'the phone draws no icon for the way out');
-    assert.match(declarations(phone, '#leave .label'), /clip-path:\s*inset\(50%\)/, 'the phone’s words are dropped rather than clipped');
-    assert.match(declarations(style, '#leave .icon'), /display:\s*none/, 'a pointer device draws the phone’s icon too');
+    assert.match(declarations(phone, '#leave'), /min-height:\s*44px/, 'the phone’s way out is under a fingertip');
+    // The markup carries the words the span is seeded from, and the control's name is the role's.
+    assert.match(
+      html,
+      /<button id="leave" type="button" aria-label="Leave the session"[^>]*>Leave<\/button>/,
+      'the shell carries no words for the span',
+    );
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /label: leaveLabel/, 'the icon has no span to keep its words in');
   });
 
   it('keeps the desktop density: the sizes above are behind the touch query', () => {
@@ -406,23 +452,25 @@ describe('the panel on a phone', () => {
     assert.match(declarations(narrow, '#side'), /order:\s*2/, 'the panel does not open under the strip');
   });
 
-  it('keeps the follow segment to one line, so the file it is about keeps its name', () => {
-    // Measured at 390x844 following a peer with a long name: the segment wrapped to three lines,
-    // the strip grew to 72 px and the file's own name was cut to 50 px (`REA…`); at 320 it was
-    // five lines, a 109 px strip and `RE…`. The strip is the phone's one row of state.
+  it('gives the strip one line, and the phone’s own padding at its edges', () => {
+    // Measured at 390x844 following a peer with a long name: the strip's follow segment wrapped to
+    // three lines and grew the strip to 72 px. The segment is gone — a follow is the followed
+    // face's ring — and what is left on the line is the file's own path, with the directory muted
+    // and the leaf bold, at the design's own edges: the bar's text starts 10.5 px in and the
+    // strip's 9.45 (0.75em of the strip's 12.6 px type), against 15 and 8 before.
     const phone = mediaBlock(PHONE_QUERY);
-    assert.match(
-      declarations(phone, '#file-strip-follow .follow-name'),
-      /text-overflow:\s*ellipsis/,
-      'the followed peer\u2019s name takes as many lines as it likes',
+    assert.match(declarations(phone, '#file-strip'), /padding:\s*0\.55em 0\.75em/,
+      'the strip’s text does not start where the design puts it',
     );
-    assert.match(
-      declarations(phone, '#file-strip-follow .follow-name'),
-      /min-width:\s*0/,
-      'the segment cannot shrink below the name it carries',
+    assert.match(declarations(mediaBlock(NARROW_ONLY_QUERY), '#session'), /padding:\s*0\.6em 0\.75em/,
+      'the bar’s text does not start where the design puts it',
     );
-    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.match(main, /label\.className = 'follow-name'/, 'the name the stylesheet holds is not on it');
+    assert.ok(!/follow-name/.test(style), 'the follow segment’s own rules survived the segment');
+    // And the line that says no file is open is a sentence, not a path: muted, at the sentence's
+    // weight, where an open file's name is the foreground and bold.
+    assert.match(declarations(phone, '#file-strip-path.none'), /color:\s*var\(--muted-foreground\)/,
+      'the phone says no file is open in the same colour a file’s name wears',
+    );
   });
 
   it('carries a mark of its own, and a state, on the line that opens the panel', () => {
