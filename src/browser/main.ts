@@ -901,7 +901,6 @@ async function seatSession(seat: Seat): Promise<void> {
     touch: () => touchOnly,
     canCreate: () => hostFolder !== undefined,
     localFolders: () => madeFolders,
-    hostAway: () => hostAway,
     create: (path, entry) => createEntry(path, entry),
     download: (path, feedback) => startDownload(path, feedback),
     open: (path) => {

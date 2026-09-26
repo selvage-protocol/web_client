@@ -330,7 +330,6 @@ describe('what a tree re-render reads', () => {
     touch: false,
     draft: '',
     local: '',
-    hostAway: false,
     marks: 'src/main.ts:in-room\nsrc/lib.ts:',
   };
 
@@ -343,13 +342,13 @@ describe('what a tree re-render reads', () => {
     assert.notEqual(rowsKey(['src/lib.ts', 'src/main.ts'], chrome), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, current: 'src/lib.ts' }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, touch: true }), key);
-    // The create row, the folders this session made and the host's absence are all row chrome: a
-    // frame that changes one of them has to redraw the rows it changed.
+    // The create row and the folders this session made are row chrome too: a frame that changes one
+    // of them has to redraw the rows it changed.
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, draft: 'file:src' }), key);
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, local: 'docs' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, hostAway: true }), key);
-    // What the room knows about a document is chrome too: it is what decides whether a guest's row
-    // is dimmed while the host is away, and the listing reads the same when a document arrives.
+    // What the room knows about a document is chrome as well: a path is listed from the grant alone,
+    // so a document arriving changes it while the listing reads exactly the same — and that is what
+    // a host's row reads to offer its download.
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, marks: 'src/main.ts:empty' }), key);
   });
 

@@ -212,9 +212,6 @@ function makeView(state) {
     touch: () => state.touch ?? false,
     canCreate: () => state.canCreate ?? false,
     localFolders: () => state.local ?? new Set(),
-    room: () => state.room ?? 'demo-app',
-    unsaved: () => state.unsaved ?? new Map(),
-    hostAway: () => state.hostAway ?? false,
     create: state.create,
     download: state.download,
     open: (path) => void state.opened.push(path),
@@ -273,7 +270,7 @@ describe('the grant tree redraws what changed', () => {
     assert.notEqual(pane.children[0], built, 'a new path did not redraw the tree');
   });
 
-  it('the open file, the host being away and the session’s own folders redraw it', () => {
+  it('the open file and the session’s own folders redraw it', () => {
     const state = {
       listing: listing(4),
       current: undefined,
@@ -291,16 +288,9 @@ describe('the grant tree redraws what changed', () => {
     assert.ok(rowFor(pane, 'file000.ts').classes.includes('open'), 'the open row is not lit');
 
     const opened = pane.children[0];
-    state.hostAway = true;
-    view.render();
-    assert.notEqual(pane.children[0], opened, 'the host going away did not redraw the tree');
-    assert.ok(rowFor(pane, 'file000.ts').classes.includes('away'), 'a row is not dimmed');
-    assert.equal(rowFor(pane, 'file000.ts').title, 'The host is away, so its text cannot arrive.');
-
-    const dimmed = pane.children[0];
     state.local = new Set(['docs']);
     view.render();
-    assert.notEqual(pane.children[0], dimmed, 'a folder this session made did not redraw the tree');
+    assert.notEqual(pane.children[0], opened, 'a folder this session made did not redraw the tree');
     assert.ok(
       allWithClass(pane, 'label').some((span) => span.textContent === 'docs/'),
       'the folder this session made is not drawn as a row of its own',
@@ -333,9 +323,8 @@ describe('what a row says about the room', () => {
 
   it('draws no tag for what the page knows about a document', () => {
     // `empty` and `not fetched yet` said what the page had been told about a document's text, on a
-    // row whose job is to be a name in a list of names. The design draws neither — the editor's own
-    // pane says what a room holds or withholds — so a row states nothing about the room but the
-    // dimming a guest's rows wear while the host is away.
+    // row whose job is to be a name in a list of names. The design draws neither, and the row keeps
+    // no state for a host that is away either: the session card says that, where the countdown is.
     const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
     for (const gone of ['empty-tag', 'pending-tag', 'unsaved', 'in-room']) {
       assert.equal(allWithClass(row, gone).length, 0, `a row still draws .${gone}`);
@@ -345,29 +334,37 @@ describe('what a row says about the room', () => {
     assert.equal(allWithClass(row, 'chip').length, 0, 'a row still carries a chip');
   });
 
-  it('redraws the rows when a document arrives, which is what the dimming reads', () => {
-    // A path is in the listing from the grant alone, so a document arriving can change what a row
-    // says about the room while the listing reads exactly the same: the row chrome is what the
-    // redraw key carries, and the dimming is decided from it.
+  it('redraws the rows when a document arrives, which is what a host\u2019s download reads', () => {
+    // A path is in the listing from the grant alone, so a document arriving can change what the room
+    // knows about a row while the listing reads exactly the same. The one chrome that follows it is
+    // the download: a host's file is on its own disk until the room holds it open, and the row gains
+    // the control then, which is what the redraw key carries.
     const state = {
       listing: ['main.rs'],
       current: undefined,
       touch: false,
       opened: [],
       participants: [],
-      hostAway: true,
+      canCreate: true,
+      download: () => {},
     };
     const { pane, view } = makeView(state);
     view.render();
     const built = pane.children[0];
-    assert.ok(rowFor(pane, 'main.rs').classes.includes('away'), 'a row with nothing in the room is dimmed');
-    // The room answers with the file's text: the host being away cannot cost that row anything now,
-    // and the row is redrawn without the dimming.
+    assert.equal(
+      allWithClass(pane, 'download').length,
+      0,
+      'a host is offered a download for a file the room does not hold',
+    );
+    // The room opens it: the row gains the control, and only a rebuild puts it there.
     state.inRoom = ['main.rs'];
-    state.textHere = ['main.rs'];
     view.render();
-    assert.notEqual(pane.children[0], built, 'the room sending text redrew nothing');
-    assert.equal(rowFor(pane, 'main.rs').classes.includes('away'), false, 'a row with its text is dimmed');
+    assert.notEqual(pane.children[0], built, 'the room opening a document redrew nothing');
+    assert.equal(
+      allWithClass(pane, 'download').length,
+      1,
+      'the row the room holds open offers no download',
+    );
   });
 
   it('names the host on their badge, where a crown has no circle to sit on', () => {

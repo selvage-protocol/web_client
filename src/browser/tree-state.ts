@@ -21,15 +21,13 @@ export interface RowChrome {
   draft: string;
   /** The directories this session made that no listing carries. */
   local: string;
-  /** Whether the host is away and the grace is running (a guest's dimming). */
-  hostAway: boolean;
   /**
    * What each row says about the room: its text is here, the room holds it, it reads empty.
    *
    * Part of the row chrome because the *listing* does not carry it. A path is in a listing from the
-   * grant alone, so a document arriving — which is what the `●` is about — can change every row on
-   * screen while the listing reads exactly the same, and a frame that redrew nothing would leave
-   * every mark stale.
+   * grant alone, so a document arriving can change what the room knows about a row while the
+   * listing reads exactly the same — and the row chrome that follows it is the download control a
+   * host's row offers only once the room holds the file open (`tree-view.ts`).
    */
   marks: string;
 }
@@ -40,7 +38,6 @@ export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
     chrome.touch ? '1' : '0',
     chrome.draft,
     chrome.local,
-    chrome.hostAway ? '1' : '0',
     chrome.marks,
     listing.join('\n'),
   ].join('\u0000');
@@ -66,10 +63,10 @@ export function dirOpen(path: string, pinned: ReadonlySet<string>, current: stri
  * `inRoom` is the room's own open-document set, which both roles receive, so the reading means the
  * same thing on both sides.
  *
- * A row draws nothing from it any more: the tags that said `empty` and `not fetched yet` were the
- * page's own account of a document, on rows whose job is to be names in a list of names, and the
- * design draws neither. What is left is the dimming a guest's rows wear while the host is away,
- * which is decided from this: a row whose text cannot arrive is the one that has to say so.
+ * The row draws nothing from the mark itself — the tags that said `empty` and `not fetched yet` were
+ * the page's own account of a document, on rows whose job is to be names in a list of names, and the
+ * design draws neither. What reads it is the row chrome's own key: whether the room holds a path
+ * open is what a host's row offers its download for (`tree-view.ts`).
  */
 export interface RoomRowState {
   /** The room holds this path open. */
@@ -104,9 +101,6 @@ export const NOT_SENT_TITLE =
 /** What it says to a host, which fetches nothing: this window has not read the file yet. */
 export const NOT_READ_TITLE =
   'The room holds it open, and this window has not read the file yet.';
-
-/** What a guest's row says while the host is away, since no text can arrive until it returns. */
-export const HOST_AWAY_ROW_TITLE = 'The host is away, so its text cannot arrive.';
 
 export function roomMark(state: RoomRowState): RoomMark {
   if (!state.inRoom) {

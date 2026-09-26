@@ -26,7 +26,6 @@ import type { NewEntryCheck, NewEntryContext } from './new-entry.ts';
 import { fileIcon, iconSpan, labelSpan } from './icons.ts';
 import { badgeSignature, changedBadgePaths, initials } from './presence.ts';
 import {
-  HOST_AWAY_ROW_TITLE,
   dirOpen,
   roomMark,
   rowsKey,
@@ -100,8 +99,6 @@ export interface TreeViewOptions {
   canCreate?: () => boolean;
   /** The directories this session made that no listing carries yet, drawn as rows of their own. */
   localFolders?: () => ReadonlySet<string>;
-  /** Whether the host is away and the grace is running: a guest's rows dim while it does. */
-  hostAway?: () => boolean;
   /** Runs the create the row asks for. */
   create?: (path: string, entry: NewEntryKind) => Promise<CreateResult>;
   /** Saves a path out of the room, fetching its text first when this window has none. */
@@ -187,7 +184,6 @@ export class GrantTreeView {
       touch: this.touch(),
       draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draft.parent}`,
       local: this.local().join('\n'),
-      hostAway: this.hostAway(),
       marks: this.markKey(listing, current),
     });
     if (rows === this.drawnRows) {
@@ -262,10 +258,6 @@ export class GrantTreeView {
 
   private local(): readonly string[] {
     return [...(this.options.localFolders?.() ?? new Set<string>())].sort();
-  }
-
-  private hostAway(): boolean {
-    return this.options.hostAway?.() ?? false;
   }
 
   /** Repaints the rows whose badges the room has moved, and nothing else. */
@@ -564,10 +556,6 @@ export class GrantTreeView {
     if (listedPath === current) {
       row.classList.add('open');
     }
-    if (this.hostAway() && this.markFor(listedPath).kind !== 'in-room') {
-      row.classList.add('away');
-      row.title = HOST_AWAY_ROW_TITLE;
-    }
     row.addEventListener('click', () => this.options.open(listedPath));
     item.appendChild(row);
     if (this.canDownload(listedPath)) {
@@ -580,8 +568,9 @@ export class GrantTreeView {
    * What every row's mark reads, as one string, so a mark that moves redraws the rows.
    *
    * The listing cannot carry this: a path is listed from the grant alone, so a document arriving can
-   * change what every row says about the room while the listing reads the same. What a row still
-   * draws from it is the dimming a guest's rows wear while the host is away.
+   * change what the room knows about a row while the listing reads the same — and the one row chrome
+   * that follows it is the download control, which a host's row offers only once the room holds the
+   * file open (`canDownload`).
    */
   private markKey(listing: readonly string[], current: string | undefined): string {
     const paths = current === undefined || listing.includes(current) ? listing : [...listing, current];
