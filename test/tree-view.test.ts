@@ -213,13 +213,21 @@ function makeView(state) {
     canCreate: () => state.canCreate ?? false,
     localFolders: () => state.local ?? new Set(),
     create: state.create,
+    remove: state.remove,
+    move: state.move,
+    say: state.say,
     download: state.download,
     open: (path) => void state.opened.push(path),
   });
   return { pane, view };
 }
 
-/** The row a file path is drawn as. */
+/** The row a file path is drawn as, or `undefined` while the tree has not drawn it. */
+function rowOf(pane, path) {
+  return allWithClass(pane, 'row').find((candidate) => candidate.dataset.open === path);
+}
+
+/** The row a file path is drawn as, by the name it shows. */
 function rowFor(pane, name) {
   const row = allWithClass(pane, 'row').find((candidate) =>
     candidate.children.some((child) => child.textContent === name),
@@ -574,6 +582,42 @@ describe('the create row', () => {
     assert.equal(allWithClass(pane, 'new-row').length, 0, 'the row is still drawn');
   });
 
+  it('makes the directories a typed path names, and puts focus on the row of the file it made', async () => {
+    // A path a person types is a path: `docs/intro.md` makes `docs` because a room’s listing is
+    // files, so an empty folder is in nobody’s listing and typing one through its file is how it
+    // gets into the room. The file that was made opens, and the row it was made as is where the
+    // person’s hands are, so focus lands there rather than back on the page body.
+    const created = [];
+    const state = {
+      listing: ['README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      create: async (path, entry) => {
+        created.push([path, entry]);
+        state.listing = [...state.listing, path];
+        return { kind: 'made', path, entry };
+      },
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    view.beginCreate('file', '');
+    const input = withClass(pane, 'new-name');
+    input.value = 'docs/intro.md';
+    input.fire('keydown', { key: 'Enter' });
+    await until(() => created.length === 1, 'the create');
+    assert.deepEqual(created, [['docs/intro.md', 'file']]);
+    await until(() => rowOf(pane, 'docs/intro.md') !== undefined, 'the row of the file that was made');
+    assert.equal(view.isCreating(), false, 'the row outlived the create');
+    assert.ok(
+      allWithClass(pane, 'label').some((span) => span.textContent === 'docs/'),
+      'the folder the typed path named is not drawn',
+    );
+    assert.equal(doc.activeElement, rowOf(pane, 'docs/intro.md'), 'focus did not land on the new file’s row');
+  });
+
   it('keeps the field open with the folder’s own sentence when the commit is refused', async () => {
     const { pane, view } = creating({
       answer: { kind: 'refused', sentence: 'notes.md is already in the folder, so nothing was created.' },
@@ -844,15 +888,13 @@ describe('a row’s own actions', () => {
     assert.equal(allHasDownload(pane), true, 'a host cannot save the room’s copy');
   });
 
-  it('puts the two create verbs on a directory row for a host, and a `⋯` where there is no hover', () => {
+  it('puts the folder’s own two acts on a directory row for a host, and a `⋯` nowhere', () => {
     const host = downloadable({ listing: ['src/main.ts'], canCreate: true });
     host.view.render();
     const newFile = labelled(host.pane, 'New file in src/');
-    const newFolder = labelled(host.pane, 'New folder in src/');
     assert.ok(newFile !== undefined, 'no New file on a directory row');
-    assert.ok(newFolder !== undefined, 'no New folder on a directory row');
     assert.equal(newFile.title, 'New file in src/', 'the verb names itself nowhere a pointer reads');
-    newFolder.fire('click');
+    newFile.fire('click');
     assert.equal(host.view.isCreating(), true, 'the directory verb opened no row');
     assert.equal(host.view.creatingIn(), 'src', 'the row opened somewhere else');
     // Neither verb is the directory's own toggle: preventDefault is what keeps the summary shut.
@@ -861,23 +903,24 @@ describe('a row’s own actions', () => {
     const again = labelled(host.pane, 'New file in src/');
     again.fire('click', { preventDefault: () => void (prevented += 1) });
     assert.equal(prevented, 1, 'a directory verb would have toggled the directory too');
+    // The folder's other act is the trash, in the summary beside it.
+    assert.ok(
+      labelled(host.pane, 'Delete src/') !== undefined,
+      'no Delete on a directory row',
+    );
+    assert.equal(
+      labelled(host.pane, 'New folder in src/'),
+      undefined,
+      'a per-folder New folder is still drawn',
+    );
 
+    // A finger has no hover, so both are drawn on the row itself rather than behind a menu: the
+    // design’s folder row holds the folder’s own acts and nothing else.
     const finger = downloadable({ listing: ['src/main.ts'], canCreate: true, touch: true });
     finger.view.render();
-    const menuButton = labelled(finger.pane, 'More actions for src/');
-    assert.ok(menuButton !== undefined, 'a touch row draws no `⋯`');
-    assert.equal(menuButton.attributes['aria-expanded'], 'false');
-    menuButton.fire('click');
-    const items = allWithClass(finger.pane, 'row-menu')[0];
-    assert.ok(items !== undefined, 'the `⋯` opens nothing');
-    assert.equal(items.children.length, 2, 'the menu holds the wrong number of actions');
-    assert.equal(items.children[0].textContent, 'New file in src/');
-    assert.equal(items.children[1].textContent, 'New folder in src/');
-    items.children[0].fire('click');
-    assert.equal(finger.view.isCreating(), true, 'the menu item opened no create row');
-    assert.equal(finger.view.creatingIn(), 'src');
-    assert.equal(allWithClass(finger.pane, 'row-menu').length, 0, 'the menu stayed open');
-    assert.equal(menuButton.attributes['aria-expanded'], 'false', 'the trigger stayed expanded');
+    assert.ok(labelled(finger.pane, 'New file in src/') !== undefined, 'a finger has no New file');
+    assert.ok(labelled(finger.pane, 'Delete src/') !== undefined, 'a finger has no Delete');
+    assert.equal(allWithClass(finger.pane, 'row-menu').length, 0, 'a `⋯` menu is still drawn');
   });
 });
 
@@ -928,5 +971,333 @@ describe('an empty listing', () => {
     host.view.beginCreate('file', '');
     assert.equal(allWithClass(host.pane, 'empty').length, 0, 'the empty line stands over the create row');
     assert.equal(allWithClass(host.pane, 'new-row').length, 1);
+  });
+});
+
+/**
+ * Waits for an effect rather than for a number of turns: the row's own work is a promise, and a
+ * fixed handful of microtasks is a test that passes before the thing happened. Bounded, and it says
+ * what it was waiting for when it gives up.
+ */
+async function until(predicate, what) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`timed out waiting for ${what}`);
+}
+
+/** The `summary` a folder row is drawn as, found by the name it shows. */
+function summaryFor(pane, name) {
+  const label = allWithClass(pane, 'label').find((span) => span.textContent === name);
+  assert.ok(label !== undefined, `no row for ${name}`);
+  return label.parentElement;
+}
+
+/** A drag's own data transfer, which is the one browser object the handlers read. */
+function dataTransfer() {
+  const written = [];
+  return { written, setData: (type, value) => void written.push([type, value]), effectAllowed: '', dropEffect: '' };
+}
+
+describe('the row that asks to be taken out', () => {
+  function deletable(overrides = {}) {
+    const calls = [];
+    const said = [];
+    const state = {
+      listing: ['src/main.ts', 'src/lib.ts', 'src/api/handler.ts', 'tests/join.rs', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      remove: async (path) => {
+        calls.push(path);
+        return { kind: 'removed', path, paths: [path] };
+      },
+      say: (text) => void said.push(text),
+      ...overrides,
+    };
+    const { pane, view } = makeView(state);
+    return { pane, view, calls, said, state };
+  }
+
+  it('draws a trash on every file and folder row for the host, and none of it for a guest', () => {
+    const host = deletable();
+    host.view.render();
+    for (const label of ['Delete main.ts', 'Delete lib.ts', 'Delete handler.ts', 'Delete join.rs', 'Delete README.md']) {
+      assert.ok(labelled(host.pane, label) !== undefined, `no ${label} on a file row`);
+    }
+    assert.ok(labelled(host.pane, 'Delete src/') !== undefined, 'no trash on a folder row');
+    assert.ok(labelled(host.pane, 'Delete src/api/') !== undefined, 'no trash on a nested folder row');
+
+    // A guest holds no folder and no listing: neither act is theirs, so neither control is drawn.
+    const guest = deletable({ canCreate: false });
+    guest.view.render();
+    for (const label of ['Delete main.ts', 'Delete src/', 'Delete src/api/']) {
+      assert.equal(labelled(guest.pane, label), undefined, `a guest is offered ${label}`);
+    }
+    assert.equal(allWithClass(guest.pane, 'del-row').length, 0, 'a guest is offered the question');
+    assert.equal(
+      allWithClass(guest.pane, 'row').some((row) => row.draggable === true),
+      false,
+      'a guest’s file row can be dragged',
+    );
+  });
+
+  it('asks in the row itself, in place, with focus on ✓', () => {
+    const { pane, view } = deletable();
+    view.render();
+    labelled(pane, 'Delete src/').fire('click');
+
+    // The row keeps its shape and its place: a `<details>` that is still open, whose summary is the
+    // row the person pressed, with the trash where the folder icon was.
+    const row = withClass(pane, 'del-row');
+    assert.equal(row.tagName, 'SUMMARY');
+    assert.equal(row.parentElement.dataset.dir, 'src');
+    assert.equal(row.parentElement.open, true, 'the folder shut under the person');
+    assert.equal(row.attributes['aria-label'], 'Delete src/ and its 3 files?');
+    assert.equal(row.attributes['aria-description'], 'Enter on Delete confirms, Escape leaves it');
+    const mark = withClass(row, 'del-mark');
+    assert.equal(mark.attributes['aria-hidden'], 'true');
+    assert.ok(mark.innerHTML.includes('<svg'), 'the mark is not the trash');
+    assert.equal(withClass(row, 'del-name').textContent, 'src/');
+    assert.ok(withClass(row, 'del-name').classes.includes('del-name'), 'the name is not struck through');
+
+    // The two answers stand where the download and the delete were, and ✓ holds focus.
+    const yes = labelled(pane, 'Delete src/ and its 3 files');
+    const no = labelled(pane, 'Keep src/');
+    assert.ok(yes !== undefined, 'no ✓ on the row');
+    assert.ok(no !== undefined, 'no ✕ on the row');
+    assert.equal(yes.parentElement, row, '✓ is not in the row it belongs to');
+    assert.equal(doc.activeElement, yes, 'focus did not land on the deletion');
+
+    // What goes with the folder is drawn struck and nested under it: the folder inside it, and the
+    // files inside that.
+    const nested = allWithClass(pane, 'del-plain');
+    assert.ok(
+      nested.some((line) => nameIn(line) === 'main.ts'),
+      'the folder’s own files are not drawn as going with it',
+    );
+    assert.ok(
+      allWithClass(pane, 'sum').some((line) => (line.children[1]?.textContent ?? '') === 'api/'),
+      'a folder inside the folder is not drawn as going with it',
+    );
+    assert.ok(
+      nested.some((line) => nameIn(line) === 'handler.ts'),
+      'the nested folder’s contents are not drawn as going with it',
+    );
+    // A struck line is a picture, not a row: nothing in what goes with the folder can be opened.
+    assert.equal(
+      nested.some((line) => line.dataset.open !== undefined),
+      false,
+      'a row that is going is still a control',
+    );
+  });
+
+  it('takes it out on ✓, says what went, and puts the row back on ✕', async () => {
+    const { pane, view, calls, said } = deletable();
+    view.render();
+    labelled(pane, 'Delete src/').fire('click');
+    labelled(pane, 'Delete src/ and its 3 files').fire('click');
+    await until(() => calls.length === 1, 'the removal');
+    assert.deepEqual(calls, ['src']);
+    assert.deepEqual(said, ['Deleted src/ and its 3 files']);
+    assert.equal(allWithClass(pane, 'del-row').length, 0, 'the row is still asking after the removal');
+
+    // ✕ keeps it, and the row is a row again — downloadable, openable, its name unbroken.
+    labelled(pane, 'Delete main.ts').fire('click');
+    assert.equal(allWithClass(pane, 'del-row').length, 1);
+    // ✓ names the file it would remove by its path and ✕ the file it would keep, the same way a
+    // folder's do: the row is the one that was pressed, and what the two answers say has to name the
+    // file wherever it is.
+    labelled(pane, 'Keep src/main.ts').fire('click');
+    assert.equal(allWithClass(pane, 'del-row').length, 0, '✕ left the row asking');
+    assert.ok(labelled(pane, 'Delete main.ts') !== undefined, 'the row never came back');
+    assert.equal(rowFor(pane, 'main.ts').tagName, 'BUTTON', 'the row is not the row again');
+  });
+
+  it('leaves it on Escape, wherever focus is in the row', () => {
+    const { pane, view, calls, said } = deletable();
+    view.render();
+    labelled(pane, 'Delete src/').fire('click');
+    pane.fire('keydown', { key: 'Escape' });
+    assert.equal(allWithClass(pane, 'del-row').length, 0, 'Escape left the row asking');
+    assert.deepEqual(calls, [], 'Escape removed something');
+    assert.deepEqual(said, [], 'Escape said something');
+    assert.equal(view.isCreating(), false);
+  });
+
+  it('keeps the question open, with the folder’s own sentence, when the removal is refused', async () => {
+    const sentence = 'src is not in the folder any more, so nothing was removed.';
+    const refused = deletable({ remove: async () => ({ kind: 'refused', sentence }) });
+    refused.view.render();
+    labelled(refused.pane, 'Delete src/').fire('click');
+    labelled(refused.pane, 'Delete src/ and its 3 files').fire('click');
+    await until(() => allWithClass(refused.pane, 'row-note').length === 1, 'the refusal');
+    assert.equal(withClass(refused.pane, 'row-note').children[0], sentence);
+    assert.equal(allWithClass(refused.pane, 'del-row').length, 1, 'a refusal closed the question');
+    assert.deepEqual(refused.said, [], 'a refusal announced a deletion');
+  });
+
+  it('names a file’s own row after its leaf and a folder’s after its path', () => {
+    const { pane, view } = deletable({ listing: ['src/main.ts'] });
+    view.render();
+    // A file’s control is read by its leaf; a folder’s by the path, with the slash that says folder.
+    assert.ok(labelled(pane, 'Delete main.ts') !== undefined);
+    labelled(pane, 'Delete main.ts').fire('click');
+    assert.ok(labelled(pane, 'Delete src/main.ts') !== undefined, '✓ does not name the file it would remove');
+    assert.ok(labelled(pane, 'Keep src/main.ts') !== undefined, '✕ does not name the file it would keep');
+    assert.equal(
+      allWithClass(pane, 'del-row')[0].tagName,
+      'DIV',
+      'a file’s asking row is not the row itself',
+    );
+  });
+});
+
+describe('moving a file', () => {
+  function movable(overrides = {}) {
+    const calls = [];
+    const said = [];
+    const state = {
+      listing: ['src/main.ts', 'src/lib.ts', 'tests/join.rs', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      say: (text) => void said.push(text),
+      ...overrides,
+    };
+    state.move =
+      overrides.move ??
+      (async (path, into) => {
+        const leaf = path.split('/').pop();
+        const to = into === '' ? leaf : `${into}/${leaf}`;
+        if (state.listing.includes(to)) {
+          return { kind: 'refused', sentence: `${to} is already in the folder, so nothing was moved.` };
+        }
+        state.listing = state.listing.filter((known) => known !== path).concat(to);
+        calls.push([path, into]);
+        return { kind: 'moved', to };
+      });
+    const { pane, view } = makeView(state);
+    return { pane, view, calls, said, state };
+  }
+
+  it('drags a file onto a folder, marks the folder as a whole, and speaks the move', async () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    const transfer = dataTransfer();
+
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: transfer });
+    assert.equal(
+      said[0],
+      'Picked up main.ts. Up and down choose a folder, Enter drops it, Escape leaves it where it is.',
+    );
+    assert.deepEqual(transfer.written, [['text/plain', 'src/main.ts']]);
+    assert.equal(transfer.effectAllowed, 'move');
+    assert.ok(rowFor(pane, 'main.ts').parentElement.classes.includes('dragging'), 'the row it came from is not dimmed');
+
+    // The folder a drop would land in is marked as a whole: the pointer is over `tests/`.
+    const tests = summaryFor(pane, 'tests/');
+    let prevented = 0;
+    pane.fire('dragover', { target: tests, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 1, 'a drop on a folder was not accepted');
+    assert.ok(tests.classes.includes('drop-into'), 'the folder is not marked as where it lands');
+
+    pane.fire('drop', { target: tests, dataTransfer: transfer });
+    await until(() => calls.length === 1, 'the move');
+    assert.deepEqual(calls, [['src/main.ts', 'tests']]);
+    assert.equal(said.at(-1), 'Moved main.ts into tests');
+  });
+
+  it('walks the folders from the keyboard and drops the file where the choice is', async () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    const row = () => rowFor(pane, 'main.ts');
+
+    // Space picks it up: the sentence is the whole instruction, because the keys are not on screen.
+    pane.fire('keydown', { target: row(), key: ' ' });
+    assert.equal(
+      said[0],
+      'Picked up main.ts. Up and down choose a folder, Enter drops it, Escape leaves it where it is.',
+    );
+    assert.ok(row().parentElement.classes.includes('dragging'), 'the picked-up row is not dimmed');
+
+    // The choice walks every folder the listing has, in order, and the top level last.
+    pane.fire('keydown', { target: row(), key: 'ArrowUp' });
+    assert.equal(said[1], 'Already into src', 'the folder it is in is not read as where it already is');
+    pane.fire('keydown', { target: row(), key: 'ArrowDown' });
+    assert.equal(said[2], 'Drops into tests');
+    assert.ok(summaryFor(pane, 'tests/').classes.includes('drop-into'), 'the choice is not marked');
+    pane.fire('keydown', { target: row(), key: 'ArrowDown' });
+    assert.equal(said[3], 'Drops at the top level');
+    assert.ok(withClass(pane, 'drop-into').tagName === 'UL', 'the top level is not marked as a whole');
+    pane.fire('keydown', { target: row(), key: 'ArrowUp' });
+    assert.equal(said[4], 'Drops into tests');
+
+    pane.fire('keydown', { target: row(), key: 'Enter' });
+    await until(() => calls.length === 1, 'the move');
+    assert.deepEqual(calls, [['src/main.ts', 'tests']]);
+    assert.equal(said.at(-1), 'Moved main.ts into tests');
+    // The row moved with the file, so focus is on the row at its new path.
+    assert.equal(doc.activeElement, rowFor(pane, 'main.ts'), 'focus did not return to the file’s row');
+    assert.equal(summaryFor(pane, 'tests/').parentElement.open, true, 'the folder it landed in is shut');
+  });
+
+  it('leaves the file where it is on Escape, and says which file', () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: ' ' });
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'Escape' });
+    assert.deepEqual(calls, [], 'Escape moved the file');
+    assert.equal(said.at(-1), 'Left main.ts where it is');
+    assert.equal(allWithClass(pane, 'dragging').length, 0, 'the row is still dimmed');
+    assert.equal(doc.activeElement, rowFor(pane, 'main.ts'), 'focus did not come back to the row');
+  });
+
+  it('refuses to move a file the room holds open, and says why', () => {
+    const { pane, view, calls, said } = movable({ inRoom: ['src/main.ts'] });
+    view.render();
+    // The pointer: the drag never begins, so nothing is dimmed and no folder is marked for a file
+    // that could not land in it.
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: dataTransfer() });
+    assert.equal(allWithClass(pane, 'dragging').length, 0, 'an open file was picked up');
+    assert.match(said[0], /is open in the room, so it cannot be moved/);
+    // The keyboard: Space answers the same way.
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: ' ' });
+    assert.match(said[1], /is open in the room, so it cannot be moved/);
+    assert.deepEqual(calls, [], 'an open file was moved');
+  });
+
+  it('does not move a file into the folder it is already in', () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: ' ' });
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'ArrowUp' });
+    assert.equal(allWithClass(pane, 'drop-into').length, 0, 'the folder it is already in is marked');
+    pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'Enter' });
+    assert.deepEqual(calls, [], 'the file was moved into the folder it was already in');
+    assert.equal(said.at(-1), 'Already into src');
+  });
+
+  it('does not move a file onto a name the folder already holds', () => {
+    // `tests/main.ts` is already there: the folder would refuse the write, so the drop is refused
+    // before it is made, and no folder is marked for it.
+    const { pane, view, calls } = movable({ listing: ['src/main.ts', 'tests/main.ts', 'tests/join.rs'] });
+    view.render();
+    const transfer = dataTransfer();
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: transfer });
+    const tests = summaryFor(pane, 'tests/');
+    let prevented = 0;
+    pane.fire('dragover', { target: tests, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 0, 'a name the folder holds was accepted as a drop');
+    assert.equal(tests.classes.includes('drop-into'), false, 'a folder that holds the name is marked');
+    pane.fire('drop', { target: tests, dataTransfer: transfer });
+    assert.deepEqual(calls, [], 'the file was moved onto a name the folder holds');
   });
 });

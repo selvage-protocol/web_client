@@ -42,8 +42,8 @@ import {
   folderPickerOf,
   pickFolder,
 } from './folder.ts';
-import type { NewEntryKind } from './folder.ts';
-import { createInFolder } from './new-entry.ts';
+import type { FolderMove, FolderRemove, NewEntryKind } from './folder.ts';
+import { createInFolder, listingNotPublishedSentence } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
 import {
   clearHostingMark,
@@ -56,7 +56,8 @@ import type { ServerRead } from './meta-read.ts';
 import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
-import type { CreateResult, RowFeedback } from './tree-view.ts';
+import { openInRoomMoveRefusal } from './tree-view.ts';
+import type { CreateResult, MoveResult, RemoveResult, RowFeedback } from './tree-view.ts';
 import {
   fetchAndSave,
   fetchCostsSentence,
@@ -582,6 +583,116 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<CreateRes
 }
 
 /**
+ * Re-walks the folder this window hosts and publishers the listing the room is drawn from.
+ *
+ * The walk is what a listing is, so a path is published because the folder holds it and not because
+ * this page names it — which is why a removal and a move go through the same step a create does. A
+ * failure here is the caller's to word: the folder has already changed, and what is left unsaid is
+ * that the room has not been told.
+ */
+async function publishFolder(): Promise<string | undefined> {
+  const folder = hostFolder;
+  if (folder === undefined) {
+    return 'this window is not serving a folder any more';
+  }
+  try {
+    await republishGrant?.(await folder.list());
+    return undefined;
+  } catch (error: unknown) {
+    return describe(error);
+  }
+}
+
+/** Forgets a folder this session made, and everything this session made under it. */
+function forgetMadeFolder(path: string): void {
+  const under = `${path}/`;
+  for (const made of [...madeFolders]) {
+    if (made === path || made.startsWith(under)) {
+      madeFolders.delete(made);
+    }
+  }
+}
+
+/**
+ * Takes a path out of the folder this tab picked, and out of the room.
+ *
+ * The order is what makes each step true. The folder's own removal is the act, and its refusals are
+ * its own sentences. The re-walk publishes a listing that no longer names the path. And the documents
+ * that went with it leave this window: a room keys a document by its path, so a path the folder no
+ * longer has is a buffer nothing will ever be written from, and a window showing one falls back to
+ * the pane with no document in it.
+ *
+ * A guest never reaches this: the control that runs it is drawn only where this window holds a folder
+ * (`canCreate`), and this is the second half of that gate rather than a trust in the first.
+ */
+async function removeEntry(path: string): Promise<RemoveResult> {
+  const folder = hostFolder;
+  if (folder === undefined || binding === undefined) {
+    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+  }
+  let outcome: FolderRemove;
+  try {
+    outcome = await folder.remove(path);
+  } catch (error: unknown) {
+    return { kind: 'refused', sentence: `${path} was not deleted: ${describe(error)}` };
+  }
+  if (outcome.kind === 'refused') {
+    return { kind: 'refused', sentence: outcome.sentence };
+  }
+  // What this session made and what just went: a folder of its own rows, and the files inside it.
+  forgetMadeFolder(outcome.path);
+  for (const gone of outcome.paths) {
+    forgetMadeFolder(gone);
+  }
+  const unpublished = await publishFolder();
+  binding.dropDocuments(outcome.paths);
+  syncGrant();
+  if (unpublished !== undefined) {
+    failureAlert.show(listingNotPublishedSentence(path, unpublished));
+  }
+  return { kind: 'removed', path: outcome.path, paths: outcome.paths };
+}
+
+/**
+ * Moves a file into a folder, or to the top level, as a write at the new name and a removal at the
+ * old one.
+ *
+ * The refusal that is this client's own is the first one: the room keys an open document by its
+ * path, and nothing here can re-key a live one, so a file the room holds open is refused rather than
+ * moved out from under every seat that has it. The tree view refuses the same case before asking, so
+ * this is the gate a caller that reached the act another way still passes.
+ */
+async function moveEntry(path: string, into: string): Promise<MoveResult> {
+  const folder = hostFolder;
+  if (folder === undefined || binding === undefined) {
+    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+  }
+  if (binding.isOpenInRoom(path)) {
+    return { kind: 'refused', sentence: openInRoomMoveRefusal(path) };
+  }
+  const to = into === '' ? leafOf(path) : `${into}/${leafOf(path)}`;
+  let outcome: FolderMove;
+  try {
+    outcome = await folder.move(path, to);
+  } catch (error: unknown) {
+    return { kind: 'refused', sentence: `${path} was not moved: ${describe(error)}` };
+  }
+  if (outcome.kind === 'refused') {
+    return { kind: 'refused', sentence: outcome.sentence };
+  }
+  const unpublished = await publishFolder();
+  syncGrant();
+  if (outcome.kind === 'partial') {
+    // The file is at both names, which is not a move that did not happen: the page says so and the
+    // tree draws both rows.
+    failureAlert.show(outcome.sentence);
+  } else if (unpublished !== undefined) {
+    failureAlert.show(listingNotPublishedSentence(to, unpublished));
+  }
+  return { kind: 'moved', to };
+}
+
+/**
  * The two create verbs, offered only to a window that holds a folder: a guest has nothing to create
  * in, and the sentence the empty tree carries is its own answer. They stand in a full-width bar at
  * the panel's foot, always visible, and they create where the person is looking — the directory of
@@ -902,7 +1013,10 @@ async function seatSession(seat: Seat): Promise<void> {
     canCreate: () => hostFolder !== undefined,
     localFolders: () => madeFolders,
     create: (path, entry) => createEntry(path, entry),
+    remove: (path) => removeEntry(path),
+    move: (path, into) => moveEntry(path, into),
     download: (path, feedback) => startDownload(path, feedback),
+    say: (text) => announce(text),
     open: (path) => {
       binding?.stopFollowing();
       void openPath(path);
@@ -2448,6 +2562,12 @@ function syncTreeIfMoved(): void {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The last segment of a path, for the name a move keeps. */
+function leafOf(path: string): string {
+  const segments = path.split('/');
+  return segments[segments.length - 1] ?? '';
 }
 
 

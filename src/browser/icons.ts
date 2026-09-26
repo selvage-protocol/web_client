@@ -50,8 +50,8 @@ export type IconName =
   | 'check'
   | 'crown'
   | 'download'
+  | 'trash'
   | 'warning'
-  | 'ellipsis'
   | 'leave';
 
 const FILE_OUTLINE =
@@ -175,6 +175,10 @@ const ICONS: Record<IconName, string> = {
     '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M230.9,73.6A15.85,15.85,0,0,0,212,77.39l-33.67,36.29-35.8-80.29a1,1,0,0,1,0-.1,16,16,0,0,0-29.06,0,1,1,0,0,1,0,.1l-35.8,80.29L44,77.39A16,16,0,0,0,16.25,90.81c0,.11,0,.21.07.32L39,195a16,16,0,0,0,15.72,13H201.29A16,16,0,0,0,217,195L239.68,91.13c0-.11,0-.21.07-.32A15.85,15.85,0,0,0,230.9,73.6ZM201.35,191.68l-.06.32H54.71l-.06-.32L32,88l.14.16,42,45.24a8,8,0,0,0,13.18-2.18L128,40l40.69,91.25a8,8,0,0,0,13.18,2.18l42-45.24L224,88Z"/></svg>',
   download:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5"/><path d="M2 12.5v1.5h12v-1.5"/></svg>',
+  // The trash a row asks to be taken out with: it replaces the row's own icon while the row asks, so
+  // what is about to happen is drawn where the file's type was.
+  trash:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10"/><path d="M6.4 4.5V3.2h3.2v1.3"/><path d="M4.4 4.5l.7 8.3h5.8l.7-8.3"/></svg>',
   // The notices column's own mark, worn by the session card in every state it has: a warning
   // triangle, the design's glyph for a line about the room rather than about a file.
   warning:
@@ -184,9 +188,6 @@ const ICONS: Record<IconName, string> = {
   // the width the session's name needs (`index.html`'s phone block).
   leave:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 2.5H3.8A1.3 1.3 0 0 0 2.5 3.8v8.4a1.3 1.3 0 0 0 1.3 1.3h2.7"/><path d="M10 5.2 12.8 8 10 10.8"/><path d="M12.8 8H6.5"/></svg>',
-  // The touch row's one disclosure: three dots, the platform's own word for "the rest of it".
-  ellipsis:
-    '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>',
   ...(Object.fromEntries(
     (Object.keys(TYPED_FILE_TYPES) as TypedFileIcon[]).map((name) => [name, typedFile(TYPED_FILE_TYPES[name])]),
   ) as Record<TypedFileIcon, string>),

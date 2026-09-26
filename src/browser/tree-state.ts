@@ -22,6 +22,15 @@ export interface RowChrome {
   /** The directories this session made that no listing carries. */
   local: string;
   /**
+   * The row asking to be taken out, as `kind:path`, or `''` when none is.
+   *
+   * Row chrome and not a row of its own: the row that asks is the row itself, and it stays where it
+   * was.
+   */
+  asking: string;
+  /** The file picked up for a move, as `path` and the folder it would land in, or `''`. */
+  moving: string;
+  /**
    * What each row says about the room: its text is here, the room holds it, it reads empty.
    *
    * Part of the row chrome because the *listing* does not carry it. A path is in a listing from the
@@ -38,6 +47,8 @@ export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
     chrome.touch ? '1' : '0',
     chrome.draft,
     chrome.local,
+    chrome.asking,
+    chrome.moving,
     chrome.marks,
     listing.join('\n'),
   ].join('\u0000');

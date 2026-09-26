@@ -330,6 +330,8 @@ describe('what a tree re-render reads', () => {
     touch: false,
     draft: '',
     local: '',
+    asking: '',
+    moving: '',
     marks: 'src/main.ts:in-room\nsrc/lib.ts:',
   };
 
@@ -350,6 +352,10 @@ describe('what a tree re-render reads', () => {
     // so a document arriving changes it while the listing reads exactly the same — and that is what
     // a host's row reads to offer its download.
     assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, marks: 'src/main.ts:empty' }), key);
+    // The two rows that are states of the tree are chrome as well: the row asking to be taken out,
+    // and the file a move is holding. Both are drawn in place and both move the marking.
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, asking: 'file:src/lib.ts' }), key);
+    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, moving: 'src/lib.ts\u0000src' }), key);
   });
 
   it('separates the row chrome from the listing', () => {

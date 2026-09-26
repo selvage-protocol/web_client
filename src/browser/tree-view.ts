@@ -17,6 +17,17 @@
  * directory it will be created in, at the position the name will take. The rules it applies are
  * `new-entry.ts`'s, pure functions over strings.
  *
+ * The two acts that take a row away are here for the same reason. A row asking to be deleted asks in
+ * place — the row keeps its shape, the trash replaces its icon, the name is struck through and the
+ * two controls become ✓ and ✕ in the slots the download and the delete held — so nothing moves under
+ * the pointer that pressed. A file being moved is picked up on its own row, and the folder it would
+ * land in is marked as a whole, whether the pointer drags it or the keyboard chooses with Up and
+ * Down. What either act *does* to the folder is the caller's (`folder.ts`); what it says is here.
+ *
+ * Both are the host's alone: a guest's window draws neither, because neither can run there. The
+ * folder and the listing are the host's, and a row that offered an act the window cannot take would
+ * be a control that only refuses.
+ *
  * Every decision that is not drawing is a pure function in `tree-state.ts`, so the rules are pinned
  * by tests that need no DOM at all.
  */
@@ -57,6 +68,32 @@ export type CreateResult =
   | { kind: 'made'; path: string; entry: NewEntryKind }
   | { kind: 'refused'; sentence: string }
   | { kind: 'incomplete'; path: string; entry: NewEntryKind; sentence: string };
+
+/**
+ * What became of one removal, in the shape the row has to act on.
+ *
+ * `paths` is the listed files the removal took with it, which is what the page needs to take their
+ * documents out of the room.
+ */
+export type RemoveResult =
+  | { kind: 'removed'; path: string; paths: readonly string[] }
+  | { kind: 'refused'; sentence: string };
+
+/** What became of one move: the file's new path, or the sentence that says why it did not move. */
+export type MoveResult =
+  | { kind: 'moved'; to: string }
+  | { kind: 'refused'; sentence: string };
+
+/**
+ * Why a file the room holds open cannot be moved, in the client's own words.
+ *
+ * One constraint the prototype cannot have: the room keys a document by its path, so moving the file
+ * underneath a live document would either orphan every seat's text or silently re-key it, and this
+ * client has no way to re-key one. The move is refused, and this is what says so.
+ */
+export function openInRoomMoveRefusal(path: string): string {
+  return `${path} is open in the room, so it cannot be moved: the room keys an open document by its path. Close it, move it, and open it again.`;
+}
 
 /**
  * What a row's own work can say while it runs and when it fails.
@@ -103,14 +140,26 @@ export interface TreeViewOptions {
   create?: (path: string, entry: NewEntryKind) => Promise<CreateResult>;
   /** Saves a path out of the room, fetching its text first when this window has none. */
   download?: (path: string, feedback: RowFeedback) => void;
+  /** Removes one path from the folder this window hosts, with everything a folder holds. */
+  remove?: (path: string) => Promise<RemoveResult>;
+  /** Moves one file into a folder, or to the top level for `''`. */
+  move?: (path: string, into: string) => Promise<MoveResult>;
+  /** Announces a sentence: what a screen reader hears about an act that has no line of its own. */
+  say?: (text: string) => void;
   /** A row was clicked: the page decides what opening a path means. */
   open(path: string): void;
 }
 
-/** The `⋯` a directory row carries where there is no hover, and what is in it. */
-interface MenuItem {
-  label: string;
-  run: () => void;
+/** What one row is asking to be taken out, and which kind of row it is. */
+interface DeleteAsk {
+  path: string;
+  directory: boolean;
+}
+
+/** The file picked up for a move, and the folder it would land in (`''` is the top level). */
+interface Move {
+  path: string;
+  into: string;
 }
 
 /** How long a typed name is left alone before the live checks read it. */
@@ -139,8 +188,13 @@ export class GrantTreeView {
   private draftCheck: NewEntryCheck | undefined;
   private draftBusy = false;
   private pendingCheck: unknown;
-  /** The open touch menu, if one is, with the trigger that shows it. */
-  private menu: { element: HTMLElement; trigger: HTMLElement } | undefined;
+  /** The row asking to be taken out, if one is, and the ✓ its focus lands on. */
+  private asking: DeleteAsk | undefined;
+  private askYes: HTMLButtonElement | undefined;
+  /** The file picked up for a move, if one is, and where it would land. */
+  private holding: Move | undefined;
+  /** The row a render owes focus to once it exists: a file this page just made, or one that moved. */
+  private focusAfter: string | undefined;
   /** Whether the create row found its directory in the walk that just ran. */
   private draftPlaced = false;
   /** The create row's own list item, which is what moves as the name is typed. */
@@ -170,6 +224,13 @@ export class GrantTreeView {
     this.source = options.source;
     this.pinned = options.pinned;
     this.options = options;
+    // The pointer's move and the keyboard's are one act with two ways in, so the drag events and the
+    // row keys are bound once here and read from the element they land on.
+    this.pane.addEventListener('dragstart', (event) => this.onDragStart(event));
+    this.pane.addEventListener('dragover', (event) => this.onDragOver(event));
+    this.pane.addEventListener('drop', (event) => this.onDrop(event));
+    this.pane.addEventListener('dragend', () => this.endMove());
+    this.pane.addEventListener('keydown', (event) => this.onKeyDown(event));
   }
 
   /**
@@ -184,6 +245,9 @@ export class GrantTreeView {
       touch: this.touch(),
       draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draft.parent}`,
       local: this.local().join('\n'),
+      asking:
+        this.asking === undefined ? '' : `${this.asking.directory ? 'dir' : 'file'}:${this.asking.path}`,
+      moving: this.holding === undefined ? '' : `${this.holding.path}\u0000${this.holding.into}`,
       marks: this.markKey(listing, current),
     });
     if (rows === this.drawnRows) {
@@ -205,7 +269,10 @@ export class GrantTreeView {
     this.notes.clear();
     this.busy.clear();
     this.actionHosts.clear();
-    this.menu = undefined;
+    this.asking = undefined;
+    this.askYes = undefined;
+    this.holding = undefined;
+    this.focusAfter = undefined;
     this.pane.replaceChildren();
   }
 
@@ -217,7 +284,6 @@ export class GrantTreeView {
    * name field, and the destination is the last place a person asked to create something.
    */
   beginCreate(kind: NewEntryKind, parent: string): void {
-    this.closeMenu();
     this.openDraft(kind, parent);
   }
 
@@ -311,7 +377,7 @@ export class GrantTreeView {
     const caret = hadFocus ? [this.draftInput?.selectionStart, this.draftInput?.selectionEnd] : undefined;
     this.hosts.clear();
     this.badges.clear();
-    this.menu = undefined;
+    this.askYes = undefined;
     // The row is built before the walk, because the walk needs what is typed in it: the position the
     // name will take is the name's own.
     if (this.draft !== undefined) {
@@ -360,6 +426,29 @@ export class GrantTreeView {
       if (caret?.[0] !== undefined && caret[0] !== null) {
         this.draftInput.setSelectionRange(caret[0], caret[1] ?? caret[0]);
       }
+      return;
+    }
+    // A rebuild takes focus with the element it replaced, so the two rows that are states of the tree
+    // put it back where the design says it belongs: the row that is asking holds ✓, and a file this
+    // page just made or moved holds its own row.
+    this.restoreRowFocus();
+  }
+
+  /**
+   * Puts focus back on the row a rebuild took it from.
+   *
+   * Its own method because `rebuild` sets `askYes` to `undefined` as it starts, and a reader of that
+   * assignment cannot tell that the property was set again while the rows were built.
+   */
+  private restoreRowFocus(): void {
+    if (this.asking !== undefined && this.askYes !== undefined) {
+      this.askYes.focus();
+      return;
+    }
+    if (this.focusAfter !== undefined) {
+      const path = this.focusAfter;
+      this.focusAfter = undefined;
+      this.rowElement(path)?.focus();
     }
   }
 
@@ -376,6 +465,11 @@ export class GrantTreeView {
     const list = document.createElement('ul');
     if (depth === 0) {
       list.style.paddingLeft = '0';
+      // The top level is where a drag that lands on no folder goes, so it is marked as a whole when
+      // that is where the file would land.
+      if (this.landing() === '') {
+        list.classList.add('drop-into');
+      }
     }
     const children: GrantChild[] = [...this.source.grantTree(directory)];
     const listed = new Set(children.map((child) => child.path));
@@ -457,6 +551,9 @@ export class GrantTreeView {
     current: string | undefined,
     presence: ReadonlyMap<string, readonly Participant[]>,
   ): HTMLElement {
+    if (this.asking?.directory === true && this.asking.path === child.path) {
+      return this.askingDirectory(child, presence);
+    }
     const details = document.createElement('details');
     details.dataset.dir = child.path;
     // Openness is the guest's pin, or an ancestor of the open file — never the open file alone, so
@@ -483,6 +580,11 @@ export class GrantTreeView {
     head.append(nameSpan(`${child.name}/`));
     head.append(this.presenceChrome(child.path, presence));
     head.append(this.directoryChrome(child));
+    // The folder a move would land in is marked as a whole: the order inside a folder is
+    // alphabetical, so which folder a file joins is the whole of what a drop decides.
+    if (this.landing() === child.path) {
+      head.classList.add('drop-into');
+    }
     details.appendChild(head);
     details.appendChild(this.level(child.path, depth + 1, current, presence));
     return details;
@@ -504,8 +606,12 @@ export class GrantTreeView {
   }
 
   /**
-   * A directory's own chrome: the two create actions where a pointer can reach them, or the one `⋯`
-   * that carries them where there is no hover.
+   * A directory's own chrome: the folder's own two acts, drawn directly rather than behind a `⋯`.
+   *
+   * The design's folder row carries `New file in <dir>/` and `Delete <dir>/` and nothing else — the
+   * `⋯` was this build's own, and a menu one press deep is a worse place for the folder's only two
+   * actions than the row itself. The stylesheet draws them always on a touch device, where there is
+   * no hover to reveal them with.
    */
   private directoryChrome(child: GrantChild): HTMLElement {
     const chrome = document.createElement('span');
@@ -513,18 +619,9 @@ export class GrantTreeView {
     if (!this.canCreate()) {
       return chrome;
     }
-    if (this.touch()) {
-      chrome.appendChild(
-        this.actionsButton(`More actions for ${child.name}/`, [
-          { label: `New file in ${child.path}/`, run: () => this.openDraft('file', child.path) },
-          { label: `New folder in ${child.path}/`, run: () => this.openDraft('directory', child.path) },
-        ]),
-      );
-      return chrome;
-    }
     chrome.append(
       this.iconButton('file-add', `New file in ${child.path}/`, () => this.openDraft('file', child.path)),
-      this.iconButton('folder-add', `New folder in ${child.path}/`, () => this.openDraft('directory', child.path)),
+      this.deleteControl(child.path, `${child.path}/`, true),
     );
     return chrome;
   }
@@ -534,15 +631,28 @@ export class GrantTreeView {
     current: string | undefined,
     presence: ReadonlyMap<string, readonly Participant[]>,
   ): HTMLElement {
+    const listedPath = child.path;
+    if (this.asking?.directory === false && this.asking.path === listedPath) {
+      return this.askingFile(child, presence);
+    }
     // The item is the row and its own actions side by side, as the design draws them: a control
     // inside the row's own box made every row on a touch device 13 px taller than the fingertip it
     // is meant to be.
     const item = document.createElement('li');
     item.className = 'file';
+    // A host's file row is the handle for a move: the pointer drags it, and the keyboard picks it up
+    // with Space. A guest's row is not, because nothing on the other side of the drop is theirs.
+    const draggable = this.canCreate() && this.options.move !== undefined;
+    if (draggable && this.holding?.path === listedPath) {
+      item.classList.add('dragging');
+    }
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'row';
-    const listedPath = child.path;
+    row.dataset.open = listedPath;
+    if (draggable) {
+      row.draggable = true;
+    }
     row.append(iconSpan(fileIcon(listedPath)), nameSpan(child.name));
     // The row's own badge container, kept so a presence move repaints this row rather than the tree
     // around it.
@@ -560,6 +670,9 @@ export class GrantTreeView {
     item.appendChild(row);
     if (this.canDownload(listedPath)) {
       item.append(this.downloadChrome(listedPath, child.name));
+    }
+    if (this.canCreate()) {
+      item.append(this.deleteChrome(listedPath, child.name));
     }
     return item;
   }
@@ -618,6 +731,22 @@ export class GrantTreeView {
     return wrap;
   }
 
+  /**
+   * The delete action: an icon where a pointer can find it in a row's hover, and the same button
+   * always visible on a touch device, which has no hover at all.
+   */
+  private deleteChrome(path: string, name: string): HTMLElement {
+    const wrap = document.createElement('span');
+    wrap.className = 'row-actions';
+    wrap.appendChild(this.deleteControl(path, name, false));
+    return wrap;
+  }
+
+  /** The trash a row carries, named after what it would take out. */
+  private deleteControl(path: string, name: string, directory: boolean): HTMLButtonElement {
+    return this.iconButton('trash', `Delete ${name}`, () => this.beginDelete(path, directory));
+  }
+
   private runDownload(path: string): void {
     this.options.download?.(path, this.rowFeedback(path));
   }
@@ -632,8 +761,6 @@ export class GrantTreeView {
    */
   private rowFeedback(path: string): RowFeedback {
     const label = `Download ${leafOf(path)}`;
-    const noteHost = (): Element | null | undefined =>
-      this.hosts.get(path)?.parentElement?.parentElement;
     return {
       busy: (text) => {
         this.busy.set(path, text);
@@ -656,21 +783,7 @@ export class GrantTreeView {
         host.button.title = label;
       },
       note: (text, actions) => {
-        let note = this.notes.get(path);
-        if (note === undefined) {
-          note = document.createElement('p');
-          note.className = 'row-note';
-          this.notes.set(path, note);
-        }
-        note.replaceChildren(text);
-        for (const action of actions ?? []) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = action.label;
-          button.addEventListener('click', action.run);
-          note.appendChild(button);
-        }
-        noteHost()?.appendChild(note);
+        this.stand(path, text, actions);
       },
       clear: (text) => {
         const note = this.notes.get(path);
@@ -683,15 +796,35 @@ export class GrantTreeView {
     };
   }
 
-  /** One icon-only control of a row. */
-  private iconButton(
-    icon: Parameters<typeof iconSpan>[0],
-    label: string,
-    run: () => void,
-  ): HTMLButtonElement {
+  /**
+   * A sentence that stands under a row until it is replaced or cleared, with the acts it names.
+   *
+   * The element is kept by path rather than in the row, because a redraw replaces the row: the line a
+   * refusal is standing in has to be the line the next sentence is written into.
+   */
+  private stand(path: string, text: string, actions?: readonly { label: string; run: () => void }[]): void {
+    let note = this.notes.get(path);
+    if (note === undefined) {
+      note = document.createElement('p');
+      note.className = 'row-note';
+      this.notes.set(path, note);
+    }
+    note.replaceChildren(text);
+    for (const action of actions ?? []) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = action.label;
+      button.addEventListener('click', action.run);
+      note.appendChild(button);
+    }
+    this.hosts.get(path)?.parentElement?.parentElement?.appendChild(note);
+  }
+
+  /** One control of a row, with its own class, label and tooltip. */
+  private rowControl(className: string, label: string, icon: Parameters<typeof iconSpan>[0], run: () => void): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'icon-button';
+    button.className = className;
     button.setAttribute('aria-label', label);
     button.title = label;
     button.appendChild(iconSpan(icon));
@@ -705,43 +838,447 @@ export class GrantTreeView {
     return button;
   }
 
-  /** The `⋯` that carries the actions a touch device cannot reach by hover. */
-  private actionsButton(label: string, items: readonly MenuItem[]): HTMLButtonElement {
-    const button = this.iconButton('ellipsis', label, () => {
-      if (this.menu !== undefined) {
-        this.closeMenu();
-        return;
-      }
-      const menu = document.createElement('div');
-      menu.className = 'row-menu';
-      menu.setAttribute('role', 'menu');
-      for (const item of items) {
-        const entry = document.createElement('button');
-        entry.type = 'button';
-        entry.setAttribute('role', 'menuitem');
-        entry.textContent = item.label;
-        entry.addEventListener('click', () => {
-          this.closeMenu();
-          item.run();
-        });
-        menu.appendChild(entry);
-      }
-      button.parentElement?.appendChild(menu);
-      this.menu = { element: menu, trigger: button };
-      button.setAttribute('aria-expanded', 'true');
-    });
-    button.setAttribute('aria-expanded', 'false');
+  /** One icon-only control of a row. */
+  private iconButton(
+    icon: Parameters<typeof iconSpan>[0],
+    label: string,
+    run: () => void,
+  ): HTMLButtonElement {
+    return this.rowControl('icon-button', label, icon, run);
+  }
+
+  // ---- the row asking to be taken out --------------------------------------
+
+  /**
+   * Starts the question: the row itself becomes the thing that asks.
+   *
+   * Nothing moves. The row keeps its shape and its place, its icon becomes the trash that is about to
+   * do it, its name goes through, and the two controls land in the slots the download and the delete
+   * held — so a pointer that just pressed the delete is over ✓, which is the whole of why the design
+   * draws it this way.
+   */
+  private beginDelete(path: string, directory: boolean): void {
+    this.asking = { path, directory };
+    this.holding = undefined;
+    this.render();
+  }
+
+  /** Leaves the row as it was: ✕, Escape, or a sentence that changed the person's mind. */
+  cancelDelete(): void {
+    if (this.asking === undefined) {
+      return;
+    }
+    this.asking = undefined;
+    this.askYes = undefined;
+    this.render();
+  }
+
+  /** What the row is asking about, in the two words the copy turns on. */
+  private deleteWhat(ask: DeleteAsk): { what: string; goes: string } {
+    const what = ask.directory ? `${ask.path}/` : ask.path;
+    const files = ask.directory ? this.filesUnder(ask.path) : 0;
+    if (files === 0) {
+      return { what, goes: what };
+    }
+    return { what, goes: `${what} and its ${files} ${files === 1 ? 'file' : 'files'}` };
+  }
+
+  /** The files a folder takes with it, counted the way the sentence counts them: all the way down. */
+  private filesUnder(directory: string): number {
+    const under = `${directory}/`;
+    return this.source.grantListing().filter((path) => path.startsWith(under)).length;
+  }
+
+  /** The row that asks: the file's own row, with the trash where its icon was. */
+  private askingFile(
+    child: GrantChild,
+    presence: ReadonlyMap<string, readonly Participant[]>,
+  ): HTMLElement {
+    const ask = this.asking as DeleteAsk;
+    const { what, goes } = this.deleteWhat(ask);
+    const item = document.createElement('li');
+    item.className = 'file';
+    const row = document.createElement('div');
+    row.className = 'row del-row';
+    row.append(markSpan());
+    row.append(struckSpan(child.name, true));
+    row.append(this.presenceChrome(child.path, presence));
+    item.append(row, this.deleteYes(ask, goes), this.deleteNo(what));
+    return item;
+  }
+
+  /**
+   * The folder that asks: the same row, still open, with everything it would take struck beneath it.
+   *
+   * A count is not what goes with a folder. The contents are drawn where they are — nested, in their
+   * own folders, struck through — so a person reads what they are about to lose rather than a number
+   * that stands for it.
+   */
+  private askingDirectory(
+    child: GrantChild,
+    presence: ReadonlyMap<string, readonly Participant[]>,
+  ): HTMLElement {
+    const ask = this.asking as DeleteAsk;
+    const { what, goes } = this.deleteWhat(ask);
+    const details = document.createElement('details');
+    details.dataset.dir = child.path;
+    details.open = true;
+    const head = document.createElement('summary');
+    head.className = 'del-row';
+    head.setAttribute('tabindex', '-1');
+    head.setAttribute('aria-label', `Delete ${goes}?`);
+    head.setAttribute('aria-description', 'Enter on Delete confirms, Escape leaves it');
+    head.append(markSpan());
+    head.append(struckSpan(`${child.name}/`, true));
+    head.append(this.presenceChrome(child.path, presence));
+    head.append(this.deleteYes(ask, goes), this.deleteNo(what));
+    details.appendChild(head);
+    details.appendChild(this.struckLevel(child.path));
+    return details;
+  }
+
+  /** The ✓: the act the row exists for, in the slot the download held. */
+  private deleteYes(ask: DeleteAsk, goes: string): HTMLButtonElement {
+    const button = this.rowControl('del-yes', `Delete ${goes}`, 'check', () => void this.confirmDelete(ask));
+    this.askYes = button;
     return button;
   }
 
-  private closeMenu(): void {
-    const open = this.menu;
-    if (open === undefined) {
+  /** The ✕: keep it, named after the thing being kept. */
+  private deleteNo(what: string): HTMLButtonElement {
+    return this.rowControl('del-no', `Keep ${what}`, 'close', () => this.cancelDelete());
+  }
+
+  /** Everything a folder takes with it, struck: its folders and files, and theirs, all the way down. */
+  private struckLevel(directory: string): HTMLElement {
+    const list = document.createElement('ul');
+    for (const child of sortChildren(this.source.grantTree(directory))) {
+      const item = document.createElement('li');
+      if (child.directory) {
+        item.className = 'sum';
+        item.append(iconSpan('folder'), struckSpan(`${child.name}/`, false));
+        item.appendChild(this.struckLevel(child.path));
+      } else {
+        item.className = 'file';
+        const row = document.createElement('div');
+        row.className = 'row del-plain';
+        row.append(iconSpan(fileIcon(child.path)), struckSpan(child.name, false));
+        item.appendChild(row);
+      }
+      list.appendChild(item);
+    }
+    return list;
+  }
+
+  /**
+   * Runs the removal the row asked for.
+   *
+   * The row leaves the tree on the folder's own answer and only then: a refusal keeps the question
+   * open, with the folder's sentence under the row that asked, because a person who is told "no"
+   * needs the row still there to answer again or to keep it.
+   */
+  private async confirmDelete(ask: DeleteAsk): Promise<void> {
+    const remove = this.options.remove;
+    const { goes } = this.deleteWhat(ask);
+    if (remove === undefined) {
+      this.cancelDelete();
       return;
     }
-    this.menu = undefined;
-    open.element.remove();
-    open.trigger.setAttribute('aria-expanded', 'false');
+    const result = await remove(ask.path);
+    if (result.kind === 'refused') {
+      this.stand(ask.path, result.sentence);
+      return;
+    }
+    this.asking = undefined;
+    this.askYes = undefined;
+    this.render();
+    this.say(`Deleted ${goes}`);
+  }
+
+  // ---- a file being moved --------------------------------------------------
+
+  /**
+   * Picks a file up: the pointer's drag and the keyboard's Space arrive here.
+   *
+   * A file the room holds open is refused before anything is picked up. The room keys a document by
+   * its path, and this client has no way to re-key a live one — so a move that was allowed to start
+   * would have to end in a lie. The refusal is said, and nothing moves under the pointer.
+   */
+  private beginMove(path: string): boolean {
+    if (this.source.isOpenInRoom(path)) {
+      this.say(openInRoomMoveRefusal(path));
+      return false;
+    }
+    this.asking = undefined;
+    this.holding = { path, into: parentOf(path) };
+    this.render();
+    this.say(
+      `Picked up ${leafOf(path)}. Up and down choose a folder, Enter drops it, Escape leaves it where it is.`,
+    );
+    return true;
+  }
+
+  /** Whether the held file could land in `into`, and why not when it could not. */
+  /**
+   * Whether the held file could land in `into`, and why not when it could not.
+   *
+   * A file already in that folder is not a move, and neither is a name the folder already holds: the
+   * folder's own `create` would refuse the second, and saying so before the drop keeps the sentence
+   * about the person's choice rather than about the folder's refusal.
+   */
+  private landRefusal(path: string, into: string): 'same' | 'taken' | 'open' | undefined {
+    if (this.source.isOpenInRoom(path)) {
+      return 'open';
+    }
+    if (into === parentOf(path)) {
+      return 'same';
+    }
+    return this.nameTaken(into, leafOf(path)) ? 'taken' : undefined;
+  }
+
+  /** Whether a folder already holds a name, which no move replaces. */
+  private nameTaken(directory: string, leaf: string): boolean {
+    const to = directory === '' ? leaf : `${directory}/${leaf}`;
+    return this.source.grantListing().includes(to);
+  }
+
+  /** The folder the held file would land in, or `undefined` when it could land nowhere. */
+  private landing(): string | undefined {
+    const held = this.holding;
+    if (held === undefined) {
+      return undefined;
+    }
+    return this.landRefusal(held.path, held.into) === undefined ? held.into : undefined;
+  }
+
+  /** Every folder a file could be dropped into, in the order Up and Down walk them, top level last. */
+  private folders(): string[] {
+    const dirs = new Set<string>();
+    for (const path of this.source.grantListing()) {
+      let at = parentOf(path);
+      while (at !== '') {
+        dirs.add(at);
+        at = parentOf(at);
+      }
+    }
+    for (const path of this.local()) {
+      dirs.add(path);
+    }
+    return [...dirs].sort();
+  }
+
+  /**
+   * Moves the keyboard's choice one folder along, and says where the file would land.
+   *
+   * The choice walks the folders the tree has and then the top level, and it is clamped rather than
+   * wrapped: a choice that jumped from the last folder back to the first would read as the tree
+   * having moved under the person.
+   */
+  private stepMove(delta: number): void {
+    const held = this.holding;
+    if (held === undefined) {
+      return;
+    }
+    const choices = [...this.folders(), ''];
+    const at = choices.indexOf(held.into);
+    const next = choices[Math.min(choices.length - 1, Math.max(0, (at === -1 ? 0 : at) + delta))] ?? '';
+    held.into = next;
+    this.render();
+    const where = next === '' ? 'at the top level' : `into ${next}`;
+    this.say(parentOf(held.path) === next ? `Already ${where}` : `Drops ${where}`);
+  }
+
+  /** Drops the held file where the choice is, and says what happened. */
+  private async dropMove(refocus: boolean): Promise<void> {
+    const held = this.holding;
+    if (held === undefined) {
+      return;
+    }
+    const refusal = this.landRefusal(held.path, held.into);
+    if (refusal !== undefined) {
+      if (refusal === 'open') {
+        this.say(openInRoomMoveRefusal(held.path));
+      }
+      return;
+    }
+    const move = this.options.move;
+    const into = held.into;
+    if (move === undefined) {
+      this.endMove();
+      return;
+    }
+    const result = await move(held.path, into);
+    this.holding = undefined;
+    if (result.kind === 'refused') {
+      this.render();
+      this.say(result.sentence);
+      return;
+    }
+    // The folder it landed in opens, as the design has it: a move that happened inside a shut folder
+    // is a move the person cannot see.
+    if (into !== '') {
+      this.pinned.add(into);
+    }
+    // The row moved with the file: what focus returns to is the row at its new path, once the
+    // listing the page republished has drawn it.
+    if (refocus) {
+      this.focusAfter = result.to;
+    }
+    this.render();
+    this.say(
+      into === ''
+        ? `Moved ${leafOf(result.to)} to the top level`
+        : `Moved ${leafOf(result.to)} into ${into}`,
+    );
+  }
+
+  /** Leaves the held file where it was, and says so. */
+  private leaveMove(): void {
+    const held = this.holding;
+    if (held === undefined) {
+      return;
+    }
+    this.holding = undefined;
+    this.focusAfter = held.path;
+    this.render();
+    this.say(`Left ${leafOf(held.path)} where it is`);
+  }
+
+  /** Forgets a move with no sentence: a drag that ended outside the tree, or over nothing legal. */
+  private endMove(): void {
+    if (this.holding === undefined) {
+      return;
+    }
+    this.holding = undefined;
+    this.render();
+  }
+
+  private onDragStart(event: DragEvent): void {
+    const row = rowNodeOf(event.target);
+    const path = row?.dataset['open'];
+    if (path === undefined || row?.draggable !== true) {
+      return;
+    }
+    if (!this.beginMove(path)) {
+      return;
+    }
+    event.dataTransfer?.setData('text/plain', path);
+    if (event.dataTransfer !== null && event.dataTransfer !== undefined) {
+      event.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  private onDragOver(event: DragEvent): void {
+    const held = this.holding;
+    if (held === undefined) {
+      return;
+    }
+    const into = this.dropTargetOf(event.target);
+    if (into === undefined || this.landRefusal(held.path, into) !== undefined) {
+      this.clearDropMark();
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer !== null && event.dataTransfer !== undefined) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+    this.paintDrop(into);
+  }
+
+  private onDrop(event: DragEvent): void {
+    const held = this.holding;
+    if (held === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const into = this.dropTargetOf(event.target);
+    held.into = into ?? parentOf(held.path);
+    this.clearDropMark();
+    void this.dropMove(false);
+  }
+
+  /**
+   * Where a drop under this element would land: a file row's folder, a folder row itself, or the top
+   * level for anywhere else in the tree.
+   */
+  private dropTargetOf(target: EventTarget | null): string | undefined {
+    for (let node = nodeOf(target); node !== null; node = node.parentElement ?? null) {
+      const dir = node.dataset?.['dir'];
+      if (dir !== undefined) {
+        return dir;
+      }
+      const open = node.dataset?.['open'];
+      if (open !== undefined) {
+        return parentOf(open);
+      }
+    }
+    return '';
+  }
+
+  /** Marks the folder a drop would land in, and nothing else. */
+  private paintDrop(into: string): void {
+    this.clearDropMark();
+    const marked =
+      into === ''
+        ? allIn(this.pane).find((element) => element.tagName === 'UL' && element.parentElement === this.pane)
+        : this.directoryElement(into)?.children[0];
+    marked?.classList.add('drop-into');
+  }
+
+  private clearDropMark(): void {
+    for (const element of allIn(this.pane)) {
+      element.classList?.remove('drop-into');
+    }
+  }
+
+  private onKeyDown(event: KeyboardEvent): void {
+    if (this.asking !== undefined && event.key === 'Escape') {
+      event.preventDefault();
+      this.cancelDelete();
+      return;
+    }
+    const held = this.holding;
+    const path = rowNodeOf(event.target)?.dataset['open'];
+    if (path === undefined) {
+      return;
+    }
+    if (held === undefined) {
+      if (event.key === ' ' && event.repeat !== true && this.canCreate() && this.options.move !== undefined) {
+        event.preventDefault();
+        this.beginMove(path);
+      }
+      return;
+    }
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.stepMove(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void this.dropMove(true);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.leaveMove();
+    }
+  }
+
+  /** The row a path is drawn as, so focus can be put on it after it moved. */
+  private rowElement(path: string): HTMLElement | undefined {
+    return allIn(this.pane).find(
+      (element) => element.classList?.contains('row') === true && element.dataset?.['open'] === path,
+    );
+  }
+
+  /** The `<details>` a folder path is drawn as. */
+  private directoryElement(path: string): HTMLElement | undefined {
+    return allIn(this.pane).find((element) => element.dataset?.['dir'] === path);
+  }
+
+  private say(text: string): void {
+    this.options.say?.(text);
   }
 
   // ---- the create row --------------------------------------------------------
@@ -869,6 +1406,9 @@ export class GrantTreeView {
       this.openDraft('file', result.path);
       return;
     }
+    // The file that was just made opens in the editor (the page's own act), and the row it was made
+    // as is where the person's hands are: the next press is about that file, so focus lands on it.
+    this.focusAfter = result.path;
     this.cancelCreate();
   }
 
@@ -971,6 +1511,65 @@ function nameSpan(name: string): HTMLSpanElement {
   const span = labelSpan(name);
   span.className = 'label';
   return span;
+}
+
+/** The trash that stands where a row's type icon was while the row asks to be taken out. */
+function markSpan(): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = 'del-mark';
+  span.setAttribute('aria-hidden', 'true');
+  span.innerHTML = iconSpan('trash').innerHTML;
+  return span;
+}
+
+/** A name with a line through it: the row that is going, and everything a folder takes with it. */
+function struckSpan(name: string, row: boolean): HTMLSpanElement {
+  const span = nameSpan(name);
+  span.classList.add(row ? 'del-name' : 'del-plain-name');
+  return span;
+}
+
+/**
+ * The element an event landed on, as the tree reads it.
+ *
+ * The double the suite drives this with has no `closest`, and the real one needs a walk only one
+ * level wide: every node the drag and key handlers ask about is an element on the path from the
+ * target up to the pane.
+ */
+function nodeOf(target: EventTarget | null): TreeElement | null {
+  const node = target as TreeElement | null;
+  return node === null || node.dataset === undefined ? null : node;
+}
+
+/** The row a node belongs to, found by the path the row carries rather than by its tag. */
+function rowNodeOf(target: EventTarget | null): TreeElement | undefined {
+  for (let node = nodeOf(target); node !== null; node = node.parentElement ?? null) {
+    if (node.dataset?.['open'] !== undefined) {
+      return node;
+    }
+  }
+  return undefined;
+}
+
+/** Every element under `node`, depth first, so a class can be found without a selector engine. */
+function allIn(node: TreeElement): TreeElement[] {
+  const found: TreeElement[] = [];
+  for (const child of Array.from(node.children ?? []) as TreeElement[]) {
+    found.push(child, ...allIn(child));
+  }
+  return found;
+}
+
+/**
+ * What the tree reads off an element, which is the whole of what these handlers need of the DOM.
+ *
+ * Named as its own shape because the drag and key handlers walk up from `event.target`, and the
+ * double the suite drives this with carries exactly these fields and no more.
+ */
+interface TreeElement extends HTMLElement {
+  parentElement: TreeElement | null;
+  children: HTMLCollection;
+  dataset: Record<string, string | undefined>;
 }
 
 /**
