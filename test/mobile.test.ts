@@ -17,7 +17,6 @@ import {
   TOUCH_QUERY,
   appHeightFor,
   editorOptionsFor,
-  keyboardInsetFor,
   watchTouchQuery,
 } from '../src/browser/mobile.ts';
 import { FACE_LIMIT, PHONE_FACE_LIMIT } from '../src/browser/room.ts';
@@ -143,17 +142,6 @@ describe('the visual viewport a soft keyboard shrinks', () => {
     assert.equal(appHeightFor({ height: 419.6, scale: 1 }, 844), 420);
   });
 
-  it('measures the distance a fixed line has to clear to stay above the keyboard', () => {
-    assert.equal(keyboardInsetFor({ height: 420, scale: 1, offsetTop: 0 }, 844), 424);
-    assert.equal(keyboardInsetFor({ height: 420, scale: 1, offsetTop: 40 }, 844), 384);
-  });
-
-  it('leaves the transient lines where they are when nothing shrank', () => {
-    assert.equal(keyboardInsetFor({ height: 844, scale: 1 }, 844), 0);
-    assert.equal(keyboardInsetFor({ height: 422, scale: 2 }, 844), 0);
-    assert.equal(keyboardInsetFor(undefined, 844), 0);
-  });
-
   it('re-decides when a pointer is attached or removed mid-session', () => {
     const listeners: (() => void)[] = [];
     const query = {
@@ -244,23 +232,17 @@ describe('the shell and the page agree on what a phone is', () => {
   it('keeps the last row off a phone’s home indicator', () => {
     assert.ok(style.includes('env(safe-area-inset-bottom)'), 'no bottom inset anywhere');
     assert.match(mediaBlock(PHONE_QUERY), /#join\s*\{[^}]*env\(safe-area-inset-bottom\)/);
-    assert.match(mediaBlock(TOUCH_QUERY), /#alert[^{]*\{[^}]*env\(safe-area-inset-bottom\)/);
   });
 
-  it('lifts the transient lines with the visual viewport, like the app', () => {
-    assert.match(declarations(style, '#peek'), /var\(--keyboard-inset/, '#peek is parked under the keyboard');
-    assert.match(declarations(style, '#alert'), /var\(--keyboard-inset/, '#alert is parked under the keyboard');
-  });
-
-  it('puts the failure alert above the tap line where the two collide', () => {
-    const zIndex = (selector: string): number => {
-      const found = /(?:^|;)\s*z-index:\s*(\d+)/.exec(declarations(style, selector));
-      return Number(found?.[1]);
-    };
-    assert.ok(
-      zIndex('#alert') > zIndex('#peek'),
-      `#alert z ${zIndex('#alert')} does not paint over #peek z ${zIndex('#peek')}`,
-    );
+  it('stretches the notices column under the bar and the strip', () => {
+    // The design's column runs the width of a phone, where there is no room beside the bar, and
+    // the bundle puts its top below the strip that runs the whole width (`placeNotices`).
+    const phone = mediaBlock(PHONE_QUERY);
+    assert.match(declarations(phone, '#notices'), /left:\s*12px/, '#notices does not stretch left');
+    assert.match(declarations(phone, '#notices'), /right:\s*12px/, '#notices does not stretch right');
+    assert.match(declarations(phone, '.toast'), /width:\s*auto/, 'a full-width column still hugs its cards');
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(main, /fileStrip\.offsetHeight/, 'the column never clears the phone’s file strip');
   });
 
   it('re-reads the touch query as a pointer arrives, not once at load', () => {
@@ -272,14 +254,10 @@ describe('the shell and the page agree on what a phone is', () => {
     assert.ok(main.includes('applyTouchMode()'), 'a changed touch query re-applies nothing');
   });
 
-  it('follows a visual-viewport pan, not only a resize', () => {
+  it('follows a visual-viewport resize', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(main, /addEventListener\('resize',\s*fitVisualViewport\)/, 'the visual viewport is never watched');
-    assert.match(
-      main,
-      /addEventListener\('scroll',\s*fitVisualViewport\)/,
-      'a pan moves the visual viewport without a resize, and the inset is measured from its offset',
-    );
+    assert.match(main, /appHeightFor\(window\.visualViewport/, 'the app height is not read from the visual viewport');
   });
 });
 
@@ -564,7 +542,10 @@ describe('what a phone cannot hover', () => {
 
   it('carries a tap-revealed line for the peer a caret belongs to', () => {
     assert.ok(html.includes('id="peek"'), 'no tap-revealed line in the shell');
-    assert.match(declarations(style, '#peek'), /position:\s*fixed/);
+    // It floats in the notices column with the rest of them: nothing is anchored to the bottom
+    // centre, where a phone's keyboard would sit over it.
+    assert.match(declarations(style, '#notices'), /position:\s*absolute/);
+    assert.match(declarations(style, '#notices'), /pointer-events:\s*none/);
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(main.includes("addEventListener('touchend'"), 'nothing reveals a hover on a tap');
     assert.ok(main.includes('peerAt('), 'a tap never asks whose caret it landed on');

@@ -63,7 +63,9 @@ function element(tag = 'div') {
     blur() {},
     click() {},
     closest: () => null,
-    querySelector: () => null,
+    // The page asks an element for its own parts (`wireSessionCard`, the tree's rows); this stands
+    // in for whatever it asks for, since what is under test is the order the module runs in.
+    querySelector: () => element(),
     querySelectorAll: () => [],
     getClientRects: () => [],
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),

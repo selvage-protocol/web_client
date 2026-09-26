@@ -107,7 +107,7 @@ export function takeHostingNotice(storage: HostStorage): string | undefined {
  *
  * The page-hosted shape is not explained to this reader — they reloaded their own tab, and the
  * card in front of them is the explanation — and the guests' countdown is said where it runs rather
- * than to a host who is no longer in the room (`wireSessionNote`). What the reload cost is the room
+ * than to a host who is no longer in the room (`wireSessionCard`). What the reload cost is the room
  * and its invite link, and no more than the keystrokes still inside the settle: everything else was
  * written to the folder, which is what the sentence says rather than the old claim that nothing was.
  */

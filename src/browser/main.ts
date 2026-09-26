@@ -93,8 +93,9 @@ import {
   RECONNECTING_NOTE,
   hostBackSentence,
   hostPresent,
+  wireDownloadToasts,
   wireFailureAlert,
-  wireSessionNote,
+  wireSessionCard,
   wireTapPeek,
 } from './notice.ts';
 import {
@@ -113,7 +114,6 @@ import {
   TOUCH_QUERY,
   appHeightFor,
   editorOptionsFor,
-  keyboardInsetFor,
   watchTouchQuery,
 } from './mobile.ts';
 
@@ -239,6 +239,7 @@ const treeActions = document.getElementById('tree-actions') as HTMLElement;
 const newFileButton = document.getElementById('new-file') as HTMLButtonElement;
 const newFolderButton = document.getElementById('new-folder') as HTMLButtonElement;
 const appPane = document.getElementById('app') as HTMLElement;
+const noticesPane = document.getElementById('notices') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
 const sideResizer = document.getElementById('side-resizer') as HTMLElement;
 const sideRail = document.getElementById('side-rail') as HTMLButtonElement;
@@ -248,11 +249,16 @@ const fileStripPath = document.getElementById('file-strip-path') as HTMLElement;
 const live = document.getElementById('live') as HTMLElement;
 
 /**
- * The chrome's lifecycle line: the host-leave warning while the grace runs, counting its
- * window down. Every other transient sentence either has a home of its own or is dropped
- * (see `onNotice`).
+ * The chrome's lifecycle card: the host-leave warning while the grace runs, counting its window
+ * down with the bar that drains with it. Every other transient sentence either has a home of its
+ * own or is dropped (see `onNotice`).
  */
-const sessionNote = wireSessionNote(document.getElementById('session-note') as HTMLElement);
+const sessionCard = wireSessionCard(document.getElementById('session-card') as HTMLElement);
+/** The files this window saved, as the design's toasts in the same column. */
+const toasts = wireDownloadToasts(
+  document.getElementById('toasts') as HTMLElement,
+  document.getElementById('toasts-more') as HTMLElement,
+);
 /** Failures of an action the guest took: shown, then gone on their own. */
 const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLElement);
 /**
@@ -274,6 +280,17 @@ let binding: MonacoBinding | undefined;
  * dead zone — unbundled, the load would throw `Cannot access 'editorApi' before initialization`.
  */
 let editorApi: monacoTypes.editor.IStandaloneCodeEditor | undefined;
+
+/**
+ * Where the notices column starts. It floats over the workspace rather than being laid out with
+ * it, so its top is measured from what it has to clear: the bar, whose height the faces change,
+ * and — on a phone, where the file strip runs the whole width — the strip below it. Measured
+ * rather than assumed, because a phone whose panel is open draws no strip at all.
+ */
+function placeNotices(): void {
+  const strip = phoneLayout.matches ? fileStrip.offsetHeight : 0;
+  noticesPane.style.top = `${sessionBar.offsetHeight + strip + 10}px`;
+}
 
 /**
  * The panel is a disclosure on a phone and a resizable column on anything else.
@@ -301,6 +318,8 @@ function showPanel(open: boolean): void {
   // The empty pane's own way into the panel is that state read back: the pane offers the panel only
   // where the panel is shut, and an act that opens what is already open does nothing visible.
   syncEmptyEditor();
+  // The workspace is a different height, and on a phone the strip the column clears may be gone.
+  placeNotices();
 }
 
 phoneLayout.addEventListener('change', () => {
@@ -498,8 +517,16 @@ let republishGrant: ((paths: readonly string[]) => Promise<void>) | undefined;
 const madeFolders = new Set<string>();
 /** The directory the panel's create verbs last used, for the session. */
 let lastCreateParent: string | undefined;
-/** Whether the host's absence is being counted down: a guest's rows dim while it is. */
+/** Whether the host's absence is being counted down. */
 let hostAway = false;
+/**
+ * The host's display name, remembered while its seat is in the room.
+ *
+ * A room's roster stops carrying the host the moment its socket detaches, and both the bar's
+ * identity line and the session card still have to name it: `In <host>'s session` is as true while
+ * the grace runs as it was a second before. Nothing clears it but leaving the room.
+ */
+let sessionHostName: string | undefined;
 /** Whether the cost of fetching has been said this session: it is said once. */
 let saidFetchCosts = false;
 
@@ -1414,6 +1441,9 @@ function drawRoom(participants: Participant[]): void {
   // Every draw replaces the button the dialog came from, so the dialog is placed again against
   // the one that stands there now.
   placeOpenMenu();
+  // The faces are what makes a phone's bar tall, and the column clears the bar: it is placed here,
+  // where the cluster's own size can have changed.
+  placeNotices();
 }
 
 /**
@@ -1649,7 +1679,10 @@ document.addEventListener('keydown', (event) => {
 
 // The dialog is placed against the face it came from, so a window that changed size under it has
 // to be told rather than the two drifting apart.
-window.addEventListener('resize', placeOpenMenu);
+window.addEventListener('resize', () => {
+  placeOpenMenu();
+  placeNotices();
+});
 
 /**
  * Landing on a peer, from wherever the press came: a face's `Go to`, or the empty pane's own.
@@ -1961,7 +1994,9 @@ function awarenessRenewMs(): number | undefined {
  *
  * The fetch is the page's own open (`fetch-download.ts` says why it has to be the same call), and
  * the answer lands on the row that asked: progress in the action's own place, and a sentence under
- * the row when there is something to decide.
+ * the row while there is a decision in it — the cost of the fetch, a wait, an empty file offered, a
+ * failure with its retry. What the design draws and those states are not, is the save itself: it is
+ * a toast in the notices column, where a finished thing belongs.
  */
 function startDownload(path: string, feedback: RowFeedback): void {
   if (binding === undefined) {
@@ -2005,7 +2040,9 @@ function startDownload(path: string, feedback: RowFeedback): void {
     .then((outcome) => {
       feedback.idle();
       if (outcome.kind === 'saved') {
-        // Opening it is what put its text in the room, so the row's own mark moves: nothing is said.
+        // Opening it is what put its text in the room, so the row's own mark moves, and the save
+        // itself is the toast in the notices column.
+        toasts.downloaded(path);
         syncGrant();
         return;
       }
@@ -2027,6 +2064,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
           run: () => {
             feedback.clear();
             downloadDocument(path, '', downloadSink);
+            toasts.downloaded(path);
           },
         },
         again,
@@ -2121,6 +2159,7 @@ function leaveSession(sentence: string): void {
   madeFolders.clear();
   lastCreateParent = undefined;
   hostAway = false;
+  sessionHostName = undefined;
   saidFetchCosts = false;
   setHealth('ok');
   editorApi = undefined;
@@ -2141,7 +2180,7 @@ function leaveSession(sentence: string): void {
   // The question a host was reading goes with the room it was about, and the control that asked it
   // goes back to rest: one owner for that state, so the next session's first press raises a panel.
   leaveControl.close();
-  sessionNote.hide();
+  sessionCard.hide();
   peek.dismiss();
   sessionBar.hidden = true;
   workspacePane.hidden = true;
@@ -2239,15 +2278,26 @@ function setHealth(state: 'ok' | 'reconnecting' | 'away'): void {
  * and a guest reads whose room it is, from the room's own `host` seat. Before the room's peers have
  * arrived there is nothing to name but the shape: a guest in a session it does not yet know the
  * host of.
+ *
+ * While the host is away its seat leaves the roster and this line would read as a room with nobody
+ * in charge of it. The name is kept from when the room still named it, so the guest keeps reading
+ * whose session they are in — the card above says the same name, and both are the same fact.
  */
+function rememberHostName(): void {
+  const host = binding?.participants().find((participant) => participant.role === 'host');
+  if (host !== undefined) {
+    sessionHostName = host.displayName;
+  }
+}
+
 function setSessionIdentity(): void {
   if (hostFolder !== undefined) {
     sessionIdentity.textContent = `Sharing “${hostFolder.name}”`;
     return;
   }
-  const host = binding?.participants().find((participant) => participant.role === 'host');
+  rememberHostName();
   sessionIdentity.textContent =
-    host === undefined ? 'In a shared session' : `In ${host.displayName}\u2019s session`;
+    sessionHostName === undefined ? 'In a shared session' : `In ${sessionHostName}\u2019s session`;
 }
 
 function onNotice(notice: BindingNotice): void {
@@ -2268,7 +2318,7 @@ function onNotice(notice: BindingNotice): void {
       // Both seat reports are the room answering again — the bridge forces them on a re-seat,
       // because the set can be exactly what it was before the drop — so either one ends the
       // dropped line a retry put up.
-      sessionNote.endDropped();
+      sessionCard.endDropped();
       setHealth(hostAway ? 'away' : 'ok');
       // The tree is the listing, so a changed set re-renders it here as well
       // as on the grant event itself. Nothing is opened: opening a file is the person's act, and
@@ -2279,16 +2329,16 @@ function onNotice(notice: BindingNotice): void {
       syncGrant();
       break;
     case 'peers':
-      sessionNote.endDropped();
+      sessionCard.endDropped();
       if (binding !== undefined) {
         const present = binding.participants();
         // The membership report is the room's own word on who is here, so a
         // report that names the host ends the warning the attach frame may
         // never have delivered (S1, 2026-09-18). It ends the countdown and
         // not the line: the host's return may be standing there, and the
-        // strip is the only place the guest reads it.
+        // card is the only place the guest reads it.
         if (hostPresent(present)) {
-          sessionNote.endCountdown();
+          sessionCard.endAway();
           hostAway = false;
         }
         // The dot and the dimming are one fact: green and legible together, red and dimmed together.
@@ -2302,7 +2352,7 @@ function onNotice(notice: BindingNotice): void {
       break;
     case 'roster':
       if (hostPresent(notice.participants)) {
-        sessionNote.endCountdown();
+        sessionCard.endAway();
         hostAway = false;
       }
       setHealth(hostAway ? 'away' : 'ok');
@@ -2312,21 +2362,25 @@ function onNotice(notice: BindingNotice): void {
       syncGrant();
       break;
     case 'grace':
-      sessionNote.countdown(notice.graceMs);
-      // A guest's rows without `●` dim while the grace runs: no text can arrive until the host is
-      // back, which is the one moment the difference has a consequence before a click.
+      // The roster stops naming the host the moment its socket detaches, and the card says who
+      // left: the name is taken from the room while it is still there, and kept.
+      rememberHostName();
+      sessionCard.away(sessionHostName ?? '', notice.graceMs);
+      // No row draws a state while the host is away: no text can arrive until it is back, and the
+      // card above carries that news. What is left of the fact is the health dot, and the rows.
       hostAway = true;
       setHealth('away');
+      setSessionIdentity();
       syncGrant();
       break;
     case 'reconnecting':
       // The socket is down and the engine is re-dialling it: the line stands for as long as that
       // lasts, and the room's own reports are what take it down.
-      sessionNote.dropped(RECONNECTING_NOTE);
+      sessionCard.dropped(RECONNECTING_NOTE);
       setHealth('reconnecting');
       break;
     case 'hostBack':
-      sessionNote.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
+      sessionCard.say(hostBackSentence(notice.name), HOST_BACK_STAND_MS);
       hostAway = false;
       setHealth('ok');
       syncGrant();
@@ -2397,26 +2451,17 @@ window.addEventListener('beforeunload', () => {
  * the element's own size — never hears about it. That is how a caret ends up
  * behind the keyboard. Following the visual viewport is the fix; `appHeightFor`
  * is the rule, and it declines a pinch-zoom, which is a visual-viewport shrink
- * too. A layout that did change gets its editor re-measured. The transient
- * lines are fixed against the layout viewport, which the keyboard leaves
- * alone, so they are told the distance up to the floor the guest can see.
+ * too. A layout that did change gets its editor re-measured.
  */
 function fitVisualViewport(): void {
   const height = touchOnly
     ? appHeightFor(window.visualViewport ?? undefined, window.innerHeight)
     : undefined;
   appPane.style.height = height === undefined ? '' : `${height}px`;
-  const inset = touchOnly
-    ? keyboardInsetFor(window.visualViewport ?? undefined, window.innerHeight)
-    : 0;
-  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
   editorApi?.layout();
 }
 
 window.visualViewport?.addEventListener('resize', fitVisualViewport);
-// A pan scrolls the visual viewport without resizing it, and the inset is
-// measured from its offset, so the same rule runs on the scroll too.
-window.visualViewport?.addEventListener('scroll', fitVisualViewport);
 
 /**
  * The decisions a stylesheet cannot restyle, replayed when a pointer is

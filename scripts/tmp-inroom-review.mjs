@@ -517,7 +517,43 @@ const CHROME = `(() => {
     sideBox: rect(document.getElementById('side')),
     treeBox: rect(document.getElementById('tree')),
     treeActionsBox: rect(document.getElementById('tree-actions')),
-    sessionNote: text('session-note'),
+    workspaceBox: rect(document.getElementById('workspace')),
+    notices: (() => {
+      const column = document.getElementById('notices');
+      if (column === null) return null;
+      const box = column.getBoundingClientRect();
+      const card = document.getElementById('session-card');
+      const more = document.getElementById('toasts-more');
+      const centre = { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+      const under = document.elementFromPoint(centre.x, centre.y);
+      return {
+        box: rect(column),
+        top: Math.round(box.top),
+        pointerEvents: getComputedStyle(column).pointerEvents,
+        // The order the column draws its four homes in, read off the document rather than assumed.
+        children: [...column.children].map((child) => child.id),
+        card: {
+          hidden: card === null || card.hidden,
+          tone: card?.dataset.tone ?? '',
+          msg: card?.querySelector('.msg')?.textContent ?? '',
+          when: card?.querySelector('.when')?.textContent ?? '',
+          spoken: card?.querySelector('.sr')?.textContent ?? '',
+          bar: card?.querySelector('.bar')?.style.transform ?? '',
+          barHidden: card?.querySelector('.bar')?.hidden ?? null,
+        },
+        toasts: [...document.querySelectorAll('#toasts .toast')].map((toast) => toast.textContent ?? ''),
+        more: more !== null && more.hidden === false ? more.textContent : null,
+        alert: text('alert'),
+        peek: text('peek'),
+        // What a click at the column's own centre lands on. The column says something and takes no
+        // click from what it covers, so this can never name the column itself.
+        under: under === null
+          ? null
+          : under.closest('#notices') === null
+            ? under.tagName.toLowerCase() + (under.id === '' ? '' : '#' + under.id)
+            : 'itself',
+      };
+    })(),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
     phonePanelOpen: document.getElementById('side')?.hidden !== true,
     termsLink: terms === null ? null : rect(terms),
@@ -941,6 +977,50 @@ function checkDesktopChrome(chrome, failures) {
     if (!folder.name.endsWith('/')) failures.push(`${folder.name} is not named as a folder`);
     if ((folder.icons ?? []).length !== 2) failures.push(`${folder.name} draws ${folder.icons?.length} folder glyphs`);
   }
+  checkNotices(chrome, failures, { phone: false });
+}
+
+/**
+ * The notices column: where it stands, that it takes no click, and that nothing under it moved.
+ *
+ * The design floats one column in the top-right corner over the workspace. Every number here is one
+ * the prototype itself sets: `top` is the bar's own height plus ten, the phone's is that plus the
+ * strip it stretches under, and the column never takes a pointer event from what it covers.
+ */
+function checkNotices(chrome, failures, { phone }) {
+  const notices = chrome.notices;
+  if (notices === null || notices === undefined) {
+    failures.push('the page has no notices column');
+    return;
+  }
+  const bar = chrome.barBox;
+  const strip = chrome.stripBox;
+  const expected = (bar?.bottom ?? 0) + (phone ? strip?.height ?? 0 : 0) + 10;
+  if (Math.abs((notices.top ?? 0) - expected) > 1) {
+    failures.push(`the notices column starts at ${notices.top} px, and the bar ${phone ? 'and strip ' : ''}end at ${expected} px`);
+  }
+  // The workspace begins where the bar ends: a column that pushed it down would show here.
+  if (chrome.workspaceBox !== null && chrome.workspaceBox !== undefined && Math.abs(chrome.workspaceBox.top - (bar?.bottom ?? 0)) > 1) {
+    failures.push(`the workspace starts at ${chrome.workspaceBox.top} px and the bar ends at ${bar?.bottom} px, so something is pushing it down`);
+  }
+  if (notices.pointerEvents !== 'none') {
+    failures.push(`the notices column answers ${notices.pointerEvents} to a pointer, and the design takes none`);
+  }
+  if (notices.under === 'itself') {
+    failures.push('a click at the notices column’s own centre lands on the column');
+  }
+  const order = (notices.children ?? []).join(',');
+  if (order !== 'session-card,alert,peek,toasts,toasts-more') {
+    failures.push(`the notices column draws ${order}, and the design puts the card, the two transients and the toasts in it`);
+  }
+  if (phone) {
+    const viewport = chrome.environment?.viewport?.width ?? 0;
+    if (Math.abs((notices.box?.left ?? 0) - 12) > 1 || Math.abs(viewport - (notices.box?.right ?? 0) - 12) > 1) {
+      failures.push(`the phone’s notices column runs ${notices.box?.left}..${notices.box?.right} of ${viewport} px, and the design stretches it to 12 px at either edge`);
+    }
+  } else if (Math.abs((chrome.environment?.viewport?.width ?? 0) - (notices.box?.right ?? 0) - 12) > 1) {
+    failures.push(`the notices column ends ${(chrome.environment?.viewport?.width ?? 0) - (notices.box?.right ?? 0)} px off the right edge, and the design puts it at 12`);
+  }
 }
 
 /** The phone's own numbers, from the same prototype at 390x844. */
@@ -965,6 +1045,7 @@ function checkPhoneChrome(chrome, failures) {
   if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
     failures.push(`the phone’s strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
   }
+  checkNotices(chrome, failures, { phone: true });
 }
 
 /** The desktop shots, in the mouse browser: the layout a real pointer gets, and every new control. */
@@ -1873,6 +1954,22 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
     facts.fetchStates = states;
     facts.fetchOutcome = { ...outcome, sawBusy };
   }
+  // The save itself, which the design draws as the notices column's toast: the row's own line is
+  // about the fetch (what it costs, what it is waiting for, what it refused), and a file that was
+  // written says so where a finished thing belongs. The stand is 2.2 s, so this polls from the
+  // moment the row settled rather than reading once and calling a missed toast a missing one.
+  const readToasts = `[...document.querySelectorAll('#toasts .toast')].map((toast) => toast.textContent ?? '')`;
+  const toastStandMs = 2200;
+  let toasts = [];
+  for (let tick = 0; tick < Math.ceil(toastStandMs / 250) + 2 && toasts.length === 0; tick += 1) {
+    toasts = await page.evaluate(readToasts);
+    if (toasts.length === 0) await delay(250);
+  }
+  facts.downloadToast = toasts;
+  log('the download toast, if the save landed:', JSON.stringify(toasts));
+  if (outcome.landed && toasts.length === 0) {
+    failures.push('a saved file said nothing: the design draws a `Downloaded` toast and none stood');
+  }
   facts.afterFetch = await page.evaluate(GUEST_ROWS);
   log('the guest, after the fetch:', JSON.stringify({ landed: outcome.landed, ...facts.afterFetch }));
   if (!outcome.landed) {
@@ -1933,7 +2030,7 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
  * from an empty folder, and the guest leaves its room and joins that one. Both leave by the control
  * a person uses, and the guest comes back in by pasting the link, which is the card's own way.
  */
-async function reviewEmptyRoom(hostPage, guestPage, server, written) {
+async function reviewEmptyRoom(hostPage, guestPage, server, written, failures) {
   const facts = {};
   await hostPage.setViewport(DESKTOP);
   // A host's press asks first: its leaving ends the room for everyone in it.
@@ -2023,6 +2120,74 @@ async function reviewEmptyRoom(hostPage, guestPage, server, written) {
   facts.guest = await guestPage.evaluate(EMPTY_PANE);
   log('the guest in a room that shares nothing:', JSON.stringify(facts.guest));
   log('wrote', await record(written, guestPage, '14-editor-empty-guest.png'));
+
+  // The host's tab goes away without leaving the room: the socket closes, the server detaches the
+  // host and the grace window starts, which is the one way the design's card appears. The host page
+  // is this run's mouse browser and this is the last thing it is used for, so the whole browser goes.
+  await hostPage.stop();
+  const readCard = `(() => {
+    const card = document.getElementById('session-card');
+    if (card === null || card.hidden) return null;
+    const bar = card.querySelector('.bar');
+    const scale = bar === null || bar.hidden ? null : Number(/([0-9.]+)/.exec(bar.style.transform ?? '')?.[1] ?? 1);
+    return {
+      tone: card.dataset.tone,
+      msg: card.querySelector('.msg')?.textContent ?? '',
+      when: card.querySelector('.when')?.textContent ?? '',
+      spoken: card.querySelector('.sr')?.textContent ?? '',
+      barScale: scale,
+      identity: document.getElementById('session-identity')?.textContent ?? '',
+      workspace: document.getElementById('workspace')?.hidden === false,
+    };
+  })()`;
+  let card = null;
+  try {
+    await waitFor(guestPage, 'the host-away card', readCard, (state) => state !== null, 8_000);
+    card = await guestPage.evaluate(readCard);
+    log('the guest’s card when the host’s tab goes away:', JSON.stringify(card));
+    log('wrote', await record(written, guestPage, '15-host-away-card.png'));
+    // The column with something in it: the placement and the hit test are only worth anything
+    // against a box of its own, which an empty column has not got.
+    const standing = await guestPage.evaluate(CHROME);
+    facts.hostAwayColumn = standing.notices;
+    if ((standing.notices?.box?.height ?? 0) <= 0) {
+      failures.push('the notices column measures nothing while the host-away card stands in it');
+    }
+    checkNotices(standing, failures, { phone: true });
+    await delay(2_000);
+    const later = await guestPage.evaluate(readCard);
+    facts.hostAway = { at: card, after2s: later };
+    if (card.tone !== 'grace') {
+      failures.push(`the host-away card reads ${JSON.stringify(card.tone)} rather than the warning`);
+    }
+    if (!/left the session$/.test(card.msg ?? '')) {
+      failures.push(`the host-away card says ${JSON.stringify(card.msg)} rather than who left`);
+    }
+    if (!/^Disconnecting in \d+s$/.test(card.when ?? '')) {
+      failures.push(`the host-away card counts ${JSON.stringify(card.when)} rather than the seconds left`);
+    }
+    if (!/\d+ (second|minute|hour)s?\.$/.test(card.spoken ?? '')) {
+      failures.push(`the card announces ${JSON.stringify(card.spoken)}, which is not the window said once`);
+    }
+    // The bar drains with the count: two readings two seconds apart, both of a live window.
+    if (later !== null && later.tone === 'grace') {
+      if (!(later.barScale < card.barScale)) {
+        failures.push(`the countdown bar reads ${card.barScale} then ${later.barScale}, so it is not draining with the window`);
+      }
+    } else {
+      failures.push('the card did not stand for the two seconds its bar was measured over');
+    }
+    // The room stays drawn and the identity keeps the host's name, which is the design's rule.
+    if (card.workspace !== true) {
+      failures.push('the host going away took the workspace down with the card');
+    }
+    if (!/’s session$/.test(card.identity ?? '')) {
+      failures.push(`the identity reads ${JSON.stringify(card.identity)} while the host is away`);
+    }
+  } catch (error) {
+    facts.hostAway = { at: null, why: String(error) };
+    failures.push('the host-away card never stood');
+  }
   return facts;
 }
 
@@ -2054,7 +2219,7 @@ async function main() {
     facts.phone = await reviewTouch(touch, server, desktop.invite, written, desktop.openedPath, failures);
     // Last, and in the two browsers already up: the empty room's two empty states need a folder with
     // nothing in it, which the seeded run never has (`reviewEmptyRoom`).
-    facts.empty = await reviewEmptyRoom(mouse, touch, server, written);
+    facts.empty = await reviewEmptyRoom(mouse, touch, server, written, failures);
   } finally {
     // Whatever happened — a `waitFor` that timed out, a browser that would not launch, the guest's
     // clipboard refusing — both browsers and the server are stopped and their logs collected. A

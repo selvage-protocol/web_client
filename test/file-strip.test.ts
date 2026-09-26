@@ -43,7 +43,7 @@ describe('the strip is in the shell, above the editor', () => {
     assert.deepEqual(others, ['file-strip-path'], `the strip carries more than the path: ${others}`);
     // The bar's download control moved to the tree, where a room's files are, and the strip's copy
     // of it is gone: one control per act. It is about a file, not about the session.
-    const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="session-note"'));
+    const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="notices"'));
     assert.ok(!bar.includes('id="download"'), 'the download control is still in the session bar');
     assert.ok(!strip.includes('id="download"'), 'the strip still carries a second download control');
   });
@@ -199,10 +199,10 @@ describe('what the strip states', () => {
 });
 
 describe('the homes a message can have', () => {
-  it('room health is the bar’s dot and the strip under it, and nothing while the room is well', () => {
-    assert.match(main, /sessionNote\.countdown\(notice\.graceMs\)/, 'the countdown has no home');
-    assert.match(main, /sessionNote\.dropped\(RECONNECTING_NOTE\)/, 'the dropped line has no home');
-    assert.match(main, /sessionNote\.say\(hostBackSentence\(notice\.name\), HOST_BACK_STAND_MS\)/,
+  it('room health is the bar’s dot and the session card in the notices column, and nothing while the room is well', () => {
+    assert.match(main, /sessionCard\.away\(sessionHostName \?\? '', notice\.graceMs\)/, 'the countdown has no home');
+    assert.match(main, /sessionCard\.dropped\(RECONNECTING_NOTE\)/, 'the dropped line has no home');
+    assert.match(main, /sessionCard\.say\(hostBackSentence\(notice\.name\), HOST_BACK_STAND_MS\)/,
       'the host’s return has no home');
     assert.match(main, /setHealth\('reconnecting'\)/, 'the socket going down reaches no dot');
     assert.match(main, /setHealth\('away'\)/, 'the host going away reaches no dot');
@@ -251,7 +251,7 @@ describe('the homes a message can have', () => {
   });
 
   it('announces in place, through the one polite region, what no longer has a sentence', () => {
-    assert.match(html, /<div id="live" aria-live="polite"><\/div>/, 'there is no live region for markers');
+    assert.match(html, /<div id="live" class="sr" aria-live="polite"><\/div>/, 'there is no live region for markers');
     assert.match(style, /#live \{[^}]*clip-path: inset\(50%\)/, 'the live region is visible on the page');
     assert.match(main, /function announce\(/, 'nothing writes to the live region');
   });
@@ -259,7 +259,7 @@ describe('the homes a message can have', () => {
 
 describe('the leave control', () => {
   it('is at the far right, with a border, and nothing is ever placed to its right', () => {
-    const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="session-note"'));
+    const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="notices"'));
     const leave = bar.indexOf('id="leave-wrap"');
     assert.ok(leave !== -1, 'the leave control is not in the bar');
     assert.ok(bar.indexOf('id="faces"') < leave, 'the faces are not the last thing before the way out');

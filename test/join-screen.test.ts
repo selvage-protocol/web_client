@@ -267,8 +267,36 @@ describe('brand heading', () => {
     assert.match(main, /`Sharing “\$\{hostFolder\.name\}”`/, 'a host cannot read which folder it exposes');
     // The apostrophe is the page's: the pre-join card and the room's own copy use the typographic
     // one (`host.ts`), so a straight one here is the same phrase spelled two ways.
-    assert.match(main, /`In \$\{host\.displayName\}\\u2019s session`/, 'a guest cannot read whose room it is');
+    assert.match(
+      main,
+      /`In \$\{sessionHostName\}\\u2019s session`/,
+      'a guest cannot read whose room it is',
+    );
     assert.match(main, /'In a shared session'/, 'a guest before the roster arrives reads nothing');
+  });
+
+  it('keeps the host’s name while its socket is away', () => {
+    // A room's roster stops carrying the host the moment its socket detaches, and the bar would read
+    // as a room with nobody in charge of it. The name is taken while the room still has it and kept
+    // through the grace — the same name the session card puts on its line — and nothing but leaving
+    // the room clears it.
+    const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
+    assert.match(
+      main,
+      /function rememberHostName\(\): void \{[\s\S]*?sessionHostName = host\.displayName;/,
+      'the host’s name is never remembered',
+    );
+    assert.match(
+      main,
+      /case 'grace':[\s\S]{0,400}?rememberHostName\(\);/,
+      'the name is not taken while the room still names the host',
+    );
+    assert.match(
+      main,
+      /sessionHostName === undefined \? 'In a shared session'/,
+      'the line does not fall back for a room whose host was never seen',
+    );
+    assert.match(main, /sessionHostName = undefined;/, 'the name outlives the room it was about');
   });
 
   it('gives the card and the workspace one main landmark', () => {
@@ -568,13 +596,13 @@ describe('failure display and diagnostics', () => {
 });
 
 /**
- * The session bar's own markup: from the bar's opening tag to the health strip under it, which is
+ * The session bar's own markup: from the bar's opening tag to the notices column under it, which is
  * the next thing the shell draws. The bar used to end at the follow banner's id, and the banner is
  * gone — a slice that runs to a missing id silently reads the whole page instead.
  */
 function barOf(source: string): string {
   const from = source.indexOf('<div id="session"');
-  const to = source.indexOf('<div id="session-note"');
+  const to = source.indexOf('<div id="notices"');
   assert.ok(from !== -1 && to > from, 'the session bar is not in the shell');
   return source.slice(from, to);
 }

@@ -1,15 +1,23 @@
 /**
- * The two message homes the page keeps: a failure alert and a session note.
+ * The notices column: one home for everything the page has to say over the workspace.
  *
- * The failure alert is for a failure with no control on screen — a path this
- * host could not read out of its own folder, or an error the room reported about
- * the session itself. It stands a few seconds and leaves on its own. Progress,
- * success and connection chatter never reach it. The session note is the one line
- * about the room itself: the host's socket detached and the grace window is
- * running, so it stays for as long as that is true, counting the window down, and
- * the host's return stands in it briefly. When the room actually ends the page
- * leaves and says so on the card.
+ * The column floats in the top-right corner, takes no pointer (`pointer-events: none`) and is out of
+ * the flow, so a sentence arriving never moves the editor under it. Inside it, one card per kind of
+ * news:
+ *
+ * - **the session card** is the room's own lifecycle: the host's socket detached and the grace
+ *   window is running, so it stands in the warning colour with the host's name, the time left and a
+ *   2 px bar draining over that time; when the window runs out it turns red and says the session
+ *   ended. A transient sentence — the host's return, a dropped socket the engine is re-dialling —
+ *   stands in the same card in the plain colour. The ticking line is hidden from assistive tech and
+ *   the card carries a separate sentence that changes once, so a screen reader hears the news once
+ *   rather than once a second.
+ * - **the download toasts** are files this window saved: `Downloaded <leaf>`, two at a time, the rest
+ *   counted by a `+N more` pill.
+ * - **the failure alert** and **the tap-revealed line** are the same mechanism with different copy:
+ *   one sentence about a thing that just happened, standing a few seconds and leaving on its own.
  */
+import { iconSpan } from './icons.ts';
 
 export interface NoticeOptions {
   /** How long a failure stands before it leaves on its own. */
@@ -18,24 +26,6 @@ export interface NoticeOptions {
   cancel?: (handle: unknown) => void;
   /** The clock the countdown reads; `Date.now` unless a test injects one. */
   now?: () => number;
-  /**
-   * Builds the note's three runs — the sentence's lead, the element the number counts in —
-   * with the number in an element of its own (see `CountParts`). Injected so the suite needs
-   * no DOM.
-   */
-  countParts?: (lead: string, tail: string) => CountParts;
-}
-
-/** The three runs of the countdown's sentence, and the way its number is written. */
-export interface CountParts {
-  /**
-   * What `replaceChildren` is given. The countdown's default is one element holding the whole
-   * sentence — the strip is a flex row, so a run left as its own child would wear the row's gap
-   * (see `defaultCountParts`).
-   */
-  parts: (Node | string)[];
-  /** Writes one reading of the number. */
-  number: (text: string) => void;
 }
 
 export interface FailureAlert {
@@ -52,9 +42,9 @@ export interface FailureAlert {
 
 /**
  * How long a line about something that has just happened stands before it takes itself down: the
- * failure alert, the tap-revealed line, and the session note's own news. One number, because it is
- * one idea — a sentence nobody has to act on, read once — and three surfaces that would otherwise
- * each carry their own guess.
+ * failure alert, the tap-revealed line, and the session card's own transient sentences. One number,
+ * because it is one idea — a sentence nobody has to act on, read once — and several surfaces that
+ * would otherwise each carry their own guess.
  */
 export const TRANSIENT_STAND_MS = 7000;
 
@@ -129,14 +119,6 @@ export function hostPresent(members: readonly { role: string }[]): boolean {
 const HOST_ROLE = 'host';
 
 /**
- * The host's absence in the page's own words, around the number that counts down in it: the
- * number is the strip's own reading of the deadline, so the sentence around it never changes
- * and the live region only ever announces that the host left.
- */
-const HOST_LEFT_LEAD = 'The host left. The room closes in ';
-const HOST_LEFT_TAIL = ' unless the host returns.';
-
-/**
  * A dropped socket, in the words the desktop clients' own status lines carry: the room is out of
  * reach and the engine's bounded retry is re-dialling it (`§9.1`). A page that said nothing would
  * look healthy for the whole retry — the editor keeps working locally and nothing typed reaches
@@ -144,18 +126,8 @@ const HOST_LEFT_TAIL = ' unless the host returns.';
  */
 export const RECONNECTING_NOTE = 'Connection dropped. Reconnecting…';
 
-/** How long the host's return stands in the strip before it takes itself down. */
+/** How long the host's return stands in the card before it takes itself down. */
 export const HOST_BACK_STAND_MS = 5000;
-
-/**
- * The host coming back inside the grace, in the words both desktop clients use. The name is
- * the room's to leave blank — the engine's own validation accepts an empty display name — and
- * the sentence falls back to the role rather than to a gap.
- */
-export function hostBackSentence(name: string): string {
-  const who = name.trim() === '' ? 'the host' : name.trim();
-  return `${who} is back — the session continues.`;
-}
 
 /**
  * How long the grace window reads to a guest: the largest whole unit the window
@@ -182,38 +154,62 @@ export function graceWording(graceMs: number): string {
 }
 
 /**
- * The number's own element, `role="timer"` and silent: the count is not read out.
+ * What the card's countdown line reads at `remainingMs` of a window `graceMs` long.
  *
- * The three runs go inside one wrapper element, and that is not decoration. The strip that shows
- * them is a flex row (for the dot beside the sentence), and every child of a flex container is a
- * flex item with the container's `gap` on each side of it — so three runs directly under it put
- * `gap`-width spaces around the substituted number, which is neither the width of a space nor the
- * same for `30 seconds` as for `a moment`. One wrapper keeps the sentence one flow: the spaces in it
- * are the words' own, and the gap stays where it was written, between the dot and the sentence.
+ * A window a person can watch — under a minute, which is every grace a server sends by default — is
+ * counted in whole seconds, the way the design draws it (`Disconnecting in 18s`). A longer one is
+ * read in the unit `graceWording` picks, because nobody counts 3600 seconds. The second is rounded
+ * up: with any part of a second left the room still has a second to come back in, and `0s` is not a
+ * thing to show.
  */
-function defaultCountParts(lead: string, tail: string): CountParts {
-  const sentence = document.createElement('span');
-  const number = document.createElement('span');
-  // `role="timer"` carries `aria-live: off`, and the explicit pair keeps that true whatever a
-  // browser's default is: the sentence is announced once, the count is not announced at all.
-  number.setAttribute('role', 'timer');
-  number.setAttribute('aria-live', 'off');
-  sentence.append(document.createTextNode(lead), number, document.createTextNode(tail));
-  return {
-    parts: [sentence],
-    number: (text: string): void => {
-      number.textContent = text;
-    },
-  };
+export function disconnectingReading(graceMs: number, remainingMs: number): string {
+  const left = Math.max(0, remainingMs);
+  if (graceMs >= 60_000) {
+    return graceWording(left);
+  }
+  return `${Math.ceil(left / 1000)}s`;
 }
 
-export interface SessionNote {
-  /** Shows the grace window, counting the number in its sentence down to the deadline. */
-  countdown(graceMs: number): void;
-  /** Shows one sentence that stands `standMs` and then takes itself down. */
+/**
+ * The host's absence, in the design's words: the card's headline. The name is the room's, so it can
+ * be blank — a guest that joined after the host's socket dropped never saw one — and the sentence
+ * then falls back to the role rather than to a gap.
+ */
+export function hostLeftSentence(name: string): string {
+  const who = name.trim() === '' ? 'The host' : name.trim();
+  return `${who} left the session`;
+}
+
+/**
+ * The host coming back inside the grace, in the words both desktop clients use. The name is
+ * the room's to leave blank — the engine's own validation accepts an empty display name — and
+ * the sentence falls back to the role rather than to a gap.
+ */
+export function hostBackSentence(name: string): string {
+  const who = name.trim() === '' ? 'the host' : name.trim();
+  return `${who} is back — the session continues.`;
+}
+
+/**
+ * The window as words, for the sentence a screen reader hears. Rounded to the whole second the
+ * countdown line starts on, so the two readings of one window cannot disagree: a server that
+ * advertises `29 999 ms` is read as `30s` on the line and `30 seconds` in the announcement.
+ */
+function windowWords(graceMs: number): string {
+  return graceWording(Math.ceil(graceMs / 1000) * 1000);
+}
+
+/** What the card shows when the window has run out and the room has not come back. */
+const SESSION_ENDED_SENTENCE = 'The session ended';
+const HOST_DISCONNECTED_SENTENCE = 'Host disconnected';
+
+export interface SessionCard {
+  /** The host's socket detached: the warning, the name, the window counting down to its deadline. */
+  away(name: string, graceMs: number): void;
+  /** One sentence that stands `standMs` and then takes itself down. */
   say(text: string, standMs: number): void;
   /**
-   * Shows the line a dropped socket wears while the engine re-dials it (`§9.1`). It stands until
+   * The line a dropped socket wears while the engine re-dials it (`§9.1`). It stands until
    * `endDropped` takes it down, because the retry has no length to stand for: a bounded backoff
    * can run for the room's whole advertised grace, and a line on its own timer would either lie
    * about the wait or leave while the room is still out of reach.
@@ -221,35 +217,45 @@ export interface SessionNote {
   dropped(text: string): void;
   /**
    * Takes the dropped line down once the room has answered again, and leaves any other sentence
-   * standing: the host's return is said into this same strip and outlives the all-clear.
+   * standing: the host's return is said into this same card and outlives the all-clear.
    */
   endDropped(): void;
   /**
-   * Takes the countdown down when the countdown is what the line is showing, and leaves a
+   * Takes the countdown down when the countdown is what the card is showing, and leaves a
    * sentence standing in its place alone: the host's return outlives the all-clear.
    */
-  endCountdown(): void;
-  /** Takes the line down, whatever it was showing. */
+  endAway(): void;
+  /** Takes the card down, whatever it was showing. */
   hide(): void;
 }
 
+/** What the card is showing, which is what decides who may take it down. */
+type CardMode = 'away' | 'ended' | 'return' | 'dropped';
+
 /**
- * Wires the chrome's lifecycle line. It stays in the DOM as an empty live region (so the
- * sentence is announced when it lands) and its empty state is what hides it, so the strip
- * takes no room while the room is healthy.
+ * Wires the session card. It stays in the DOM and its `hidden` is what takes it off screen, so the
+ * element the clock is writing into is not the one a redraw replaces.
  *
- * The countdown is a deadline rather than a value the strip lowers itself: every tick reads
- * the clock again, so a backgrounded tab that missed a dozen ticks shows the room's own
- * remaining time the moment it paints again.
+ * The countdown is a deadline rather than a value the card lowers itself: every tick reads the clock
+ * again, so a backgrounded tab that missed a dozen ticks shows the room's own remaining time the
+ * moment it paints again — and the bar is drawn from that same reading, so the two cannot disagree.
  */
-export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {}): SessionNote {
+export function wireSessionCard(element: HTMLElement, options: NoticeOptions = {}): SessionCard {
   const now = options.now ?? ((): number => Date.now());
   const schedule = options.schedule ?? ((run, ms) => setInterval(run, ms));
   const cancel =
     options.cancel ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
-  const countParts = options.countParts ?? defaultCountParts;
+  const message = element.querySelector<HTMLElement>('.msg');
+  const when = element.querySelector<HTMLElement>('.when');
+  const bar = element.querySelector<HTMLElement>('.bar');
+  const spoken = element.querySelector<HTMLElement>('.sr');
+  if (message === null || when === null || bar === null || spoken === null) {
+    throw new Error('the session card is missing one of its own parts');
+  }
   let pending: unknown;
   let deadline: number | undefined;
+  let grace = 0;
+  let mode: CardMode | undefined;
 
   const stop = (): void => {
     if (pending !== undefined) {
@@ -259,70 +265,182 @@ export function wireSessionNote(element: HTMLElement, options: NoticeOptions = {
     deadline = undefined;
   };
 
-  const clear = (): void => {
-    element.dataset.tone = '';
-    element.textContent = '';
+  /** The one sentence a screen reader hears, written only when it changes. */
+  const announce = (sentence: string): void => {
+    if (spoken.textContent !== sentence) {
+      spoken.textContent = sentence;
+    }
   };
 
-  /** One sentence of news, standing one transient stand and then taking itself down. */
-  const say = (text: string, standMs: number): void => {
+  /** Puts the card in the shape one mode has, so the three cannot half-overwrite each other. */
+  const paint = (next: CardMode): void => {
+    mode = next;
+    element.hidden = false;
+    element.dataset.tone = next === 'away' ? 'grace' : next === 'ended' ? 'over' : 'plain';
+    // Only the countdown carries these two; every other sentence is one line.
+    when.hidden = next !== 'away' && next !== 'ended';
+    bar.hidden = next !== 'away';
+  };
+
+  /** The window ran out: the same card, red, saying what the room is now. */
+  const ended = (): void => {
     stop();
-    element.textContent = text;
-    element.dataset.tone = 'plain';
-    pending = schedule(clear, standMs);
+    paint('ended');
+    message.textContent = SESSION_ENDED_SENTENCE;
+    when.textContent = HOST_DISCONNECTED_SENTENCE;
+    announce(`${SESSION_ENDED_SENTENCE}. ${HOST_DISCONNECTED_SENTENCE}.`);
+  };
+
+  const clear = (): void => {
+    stop();
+    mode = undefined;
+    element.hidden = true;
+    element.dataset.tone = '';
+    message.textContent = '';
+    when.textContent = '';
+    bar.style.transform = '';
+    announce('');
   };
 
   return {
-    endCountdown(): void {
-      if (element.dataset.tone !== 'grace') {
-        return;
-      }
+    away(name: string, graceMs: number): void {
       stop();
-      clear();
+      grace = Math.max(0, graceMs);
+      deadline = now() + grace;
+      paint('away');
+      const headline = hostLeftSentence(name);
+      message.textContent = headline;
+      bar.style.transform = 'scaleX(1)';
+      // Said once, with the window as a unit rather than a number the reader has to catch: the
+      // ticking line below is hidden from assistive tech.
+      announce(`${headline}. The room disconnects in ${windowWords(grace)}.`);
+      let shown = '';
+      const draw = (): void => {
+        const remaining = (deadline ?? 0) - now();
+        if (remaining <= 0) {
+          ended();
+          return;
+        }
+        const reading = disconnectingReading(grace, remaining);
+        if (reading !== shown) {
+          shown = reading;
+          when.textContent = `Disconnecting in ${reading}`;
+        }
+        bar.style.transform = `scaleX(${Math.min(1, remaining / grace)})`;
+      };
+      draw();
+      if (mode === 'away') {
+        pending = schedule(() => {
+          draw();
+          if (deadline !== undefined && (deadline ?? 0) - now() <= 0) {
+            stop();
+          }
+        }, 1000);
+      }
+    },
+
+    say(text: string, standMs: number): void {
+      stop();
+      paint('return');
+      message.textContent = text;
+      announce(text);
+      pending = schedule(clear, standMs);
     },
 
     dropped(text: string): void {
       stop();
-      element.textContent = text;
-      element.dataset.tone = 'dropped';
+      paint('dropped');
+      message.textContent = text;
+      announce(text);
     },
 
     endDropped(): void {
-      if (element.dataset.tone !== 'dropped') {
+      if (mode !== 'dropped') {
         return;
       }
-      stop();
       clear();
     },
 
-    countdown(graceMs: number): void {
-      stop();
-      const count = countParts(HOST_LEFT_LEAD, HOST_LEFT_TAIL);
-      element.replaceChildren(...count.parts);
-      element.dataset.tone = 'grace';
-      deadline = now() + Math.max(0, graceMs);
-      let shown = '';
-      const draw = (): void => {
-        const reading = graceWording(Math.max(0, (deadline ?? 0) - now()));
-        if (reading !== shown) {
-          shown = reading;
-          count.number(reading);
-        }
-      };
+    endAway(): void {
+      if (mode !== 'away' && mode !== 'ended') {
+        return;
+      }
+      clear();
+    },
+
+    hide: clear,
+  };
+}
+
+/** How long one download toast stands before it takes itself down. */
+export const TOAST_STAND_MS = 2200;
+
+/**
+ * How many toasts are shown at once. A burst of downloads queues up rather than papering over the
+ * corner: the newest two would jump a toast the person is reading out of the way, so the queue is
+ * read oldest first and the rest are counted.
+ */
+export const TOASTS_SHOWN = 2;
+
+/** What one saved file says: the leaf, because the row the press came from already named the rest. */
+export function downloadedSentence(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return `Downloaded ${slash === -1 ? path : path.slice(slash + 1)}`;
+}
+
+export interface DownloadToasts {
+  /** A path this window saved. */
+  downloaded(path: string): void;
+}
+
+/** Wires the toast list and the `+N more` pill beside it. */
+export function wireDownloadToasts(
+  list: HTMLElement,
+  more: HTMLElement,
+  options: NoticeOptions = {},
+): DownloadToasts {
+  const schedule = options.schedule ?? ((run, ms) => setTimeout(run, ms));
+  const standMs = options.standMs ?? TOAST_STAND_MS;
+  const queue: Array<{ id: number; text: string }> = [];
+  let seq = 0;
+
+  const draw = (): void => {
+    const shown = queue.slice(0, TOASTS_SHOWN);
+    list.replaceChildren(
+      ...shown.map((item) => {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.append(iconSpan('download'), labelSpan(item.text));
+        return toast;
+      }),
+    );
+    const extra = queue.length - shown.length;
+    more.hidden = extra === 0;
+    more.textContent = extra === 0 ? '' : `+${extra} more`;
+  };
+
+  return {
+    downloaded(path: string): void {
+      seq += 1;
+      const item = { id: seq, text: downloadedSentence(path) };
+      queue.push(item);
       draw();
-      pending = schedule(() => {
-        draw();
-        if ((deadline ?? 0) - now() <= 0) {
-          stop();
+      schedule(() => {
+        const at = queue.findIndex((candidate) => candidate.id === item.id);
+        if (at === -1) {
+          return;
         }
-      }, 1000);
-    },
-
-    say,
-
-    hide(): void {
-      stop();
-      clear();
+        queue.splice(at, 1);
+        draw();
+      }, standMs);
     },
   };
+}
+
+/** One span of text, for a node the toasts build. */
+function labelSpan(text: string): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = 'msg';
+  span.textContent = text;
+  return span;
 }

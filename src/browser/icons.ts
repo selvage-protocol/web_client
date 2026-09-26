@@ -50,6 +50,7 @@ export type IconName =
   | 'check'
   | 'crown'
   | 'download'
+  | 'warning'
   | 'ellipsis'
   | 'leave';
 
@@ -174,6 +175,10 @@ const ICONS: Record<IconName, string> = {
     '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M230.9,73.6A15.85,15.85,0,0,0,212,77.39l-33.67,36.29-35.8-80.29a1,1,0,0,1,0-.1,16,16,0,0,0-29.06,0,1,1,0,0,1,0,.1l-35.8,80.29L44,77.39A16,16,0,0,0,16.25,90.81c0,.11,0,.21.07.32L39,195a16,16,0,0,0,15.72,13H201.29A16,16,0,0,0,217,195L239.68,91.13c0-.11,0-.21.07-.32A15.85,15.85,0,0,0,230.9,73.6ZM201.35,191.68l-.06.32H54.71l-.06-.32L32,88l.14.16,42,45.24a8,8,0,0,0,13.18-2.18L128,40l40.69,91.25a8,8,0,0,0,13.18,2.18l42-45.24L224,88Z"/></svg>',
   download:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5"/><path d="M2 12.5v1.5h12v-1.5"/></svg>',
+  // The notices column's own mark, worn by the session card in every state it has: a warning
+  // triangle, the design's glyph for a line about the room rather than about a file.
+  warning:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2 14.6 13.6H1.4z"/><path d="M8 6.4v3.2"/><path d="M8 11.7h.01"/></svg>',
   // The way out of the room: the frame a door opens in and an arrow leaving it, the design's own
   // glyph for the control. It stands in the bar alone on a phone, where the verb it replaces took
   // the width the session's name needs (`index.html`'s phone block).
