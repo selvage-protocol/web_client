@@ -435,7 +435,7 @@
       /* A file row is a row and its own actions side by side, so the actions take no room inside the
          row's box: on a touch device a 44 px control inside a padded row made every row 57 px. */
       #tree li.file { display: flex; align-items: center; }
-      #tree button.row { display: flex; align-items: center; gap: 0.45em; flex: 1 1 auto; min-width: 0;
+      #tree button.row, #tree .del-row { display: flex; align-items: center; gap: 0.45em; flex: 1 1 auto; min-width: 0;
         box-sizing: border-box; background: none; border: 1px solid transparent;
         text-align: left; color: var(--foreground); padding: 0.4em 0.55em; border-radius: var(--radius); }
       #tree button.row:hover { background: var(--muted); }
@@ -489,6 +489,9 @@
       #tree button.del-yes:hover, #tree button.del-no:hover { background: var(--muted);
         border-color: var(--border-strong); }
       #tree li.file > button.del-yes, #tree li.file > button.del-no { margin-left: 0.5em; }
+      /* A folder's row holds its own acts at the right edge, so the two answers take that edge back:
+         ✓ lands in the slot the New file held and ✕ in the slot the trash itself held. */
+      #tree summary.del-row button.del-yes { margin-left: auto; }
       #tree summary.del-row button.del-no { margin-right: -0.55em; }
       /* What a folder takes with it is shown struck rather than counted, all the way down. */
       #tree .del-plain .del-plain-name, #tree li.sum .del-plain-name { text-decoration: line-through; }

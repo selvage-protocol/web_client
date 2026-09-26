@@ -615,6 +615,11 @@ describe('the create row', () => {
       allWithClass(pane, 'label').some((span) => span.textContent === 'docs/'),
       'the folder the typed path named is not drawn',
     );
+    assert.equal(
+      summaryFor(pane, 'docs/').parentElement.open,
+      true,
+      'the folder the new file landed in is shut, so its row is behind a disclosure nobody opened',
+    );
     assert.equal(doc.activeElement, rowOf(pane, 'docs/intro.md'), 'focus did not land on the new file’s row');
   });
 
@@ -1172,6 +1177,10 @@ describe('moving a file', () => {
       say: (text) => void said.push(text),
       ...overrides,
     };
+    // The page republishes the walk and redraws the tree while the move is still in flight, so the
+    // stub does too: the drawing and the act are one sequence in the real page, and a view that only
+    // ever renders after the move resolves would not be the one that ships.
+    let live;
     state.move =
       overrides.move ??
       (async (path, into) => {
@@ -1182,9 +1191,11 @@ describe('moving a file', () => {
         }
         state.listing = state.listing.filter((known) => known !== path).concat(to);
         calls.push([path, into]);
+        live.view.render();
         return { kind: 'moved', to };
       });
     const { pane, view } = makeView(state);
+    live = { view };
     return { pane, view, calls, said, state };
   }
 

@@ -1117,7 +1117,7 @@ export class GrantTreeView {
     // The folder it landed in opens, as the design has it: a move that happened inside a shut folder
     // is a move the person cannot see.
     if (into !== '') {
-      this.pinned.add(into);
+      this.openFolder(into);
     }
     // The row moved with the file: what focus returns to is the row at its new path, once the
     // listing the page republished has drawn it.
@@ -1265,6 +1265,20 @@ export class GrantTreeView {
     }
   }
 
+  /**
+   * Opens a folder this view decided to open: pin it, and make the next render redraw the rows.
+   *
+   * Open folders are deliberately not part of what a row reads for a redraw. A guest's own toggle is
+   * the browser's business — the `<details>` is already open when it is clicked — and a key that
+   * carried every opened folder would rebuild the whole tree on the toggle and again on every
+   * presence frame, to draw what is already drawn. A folder this view opens itself has no such event
+   * behind it, so it invalidates the drawing rather than hoping some other row field moved too.
+   */
+  private openFolder(path: string): void {
+    this.pinned.add(path);
+    this.drawnRows = '';
+  }
+
   /** The row a path is drawn as, so focus can be put on it after it moved. */
   private rowElement(path: string): HTMLElement | undefined {
     return allIn(this.pane).find(
@@ -1408,6 +1422,12 @@ export class GrantTreeView {
     }
     // The file that was just made opens in the editor (the page's own act), and the row it was made
     // as is where the person's hands are: the next press is about that file, so focus lands on it.
+    // Its folder opens with it, as the design has every folder drawn: a row inside a shut folder is a
+    // row nobody can see, and a focused row nobody can see is no better than no focus at all.
+    const parent = parentOf(result.path);
+    if (parent !== '') {
+      this.openFolder(parent);
+    }
     this.focusAfter = result.path;
     this.cancelCreate();
   }
