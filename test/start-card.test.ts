@@ -198,7 +198,11 @@ describe('the join card: what a person who followed a link reads', () => {
     // actually made. The card says nothing there beyond the action itself.
     const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
     assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');
-    assert.ok(offering.includes('hostWrap.hidden = false'), 'the start action is never revealed');
+    assert.match(
+      offering,
+      /hostWrap\.hidden = !offered/,
+      'the start action is never revealed on the card that is offered it',
+    );
     assert.ok(!/scope/.test(offering), 'the offer is worded for a card it is not on');
     // The line is the guest's; the button keeps the join card's own leading rule.
     assert.match(html, /id="host-quiet"/, 'the guest card carries no quiet line');

@@ -262,6 +262,14 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
       'nothing tells a sentence from an action',
     );
     assert.match(main, /hostButton\.hidden = !offered/, 'a button is shown where only a sentence belongs');
+    // And the wrap around all of it takes no room where it holds nothing: measured on a static
+    // server — a page that is not a Selvage server's own — the hairline rule and its 34 px of
+    // margin and padding stood under Join with nothing beneath them.
+    assert.match(
+      main,
+      /hostWrap\.hidden = !offered && hostNote\.textContent === ''/,
+      'an empty section still draws its rule and its spacing',
+    );
   });
 
   it("shows the card's own copy for a failed host, not the socket's", () => {

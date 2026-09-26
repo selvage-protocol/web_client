@@ -1111,13 +1111,15 @@ function showHosting(picker: boolean, read: ServerRead): void {
     hostNote.textContent = '';
     return;
   }
-  hostWrap.hidden = false;
   hostQuiet.hidden = true;
   // The offered card says nothing: the action is the whole of it. A state that cannot act stands its
   // sentence where the action would have been, and the page that is not a Selvage server's own
   // stands none: the way in it does have is the whole of what it can say.
   hostNote.textContent =
     availability.kind === 'offered' || availability.kind === 'silent' ? '' : availability.note;
+  // A state with neither an action nor a sentence takes no room either: the wrap is a hairline and
+  // 34 px of space around whatever it holds, and holding nothing it drew an empty rule under Join.
+  hostWrap.hidden = !offered && hostNote.textContent === '';
   hostButton.hidden = !offered;
   // A page that cannot start a room leads with the way in it does have. The invite path opens —
   // joining was behind a 11.9 px summary and a four-line refusal led the card — and Join takes the
