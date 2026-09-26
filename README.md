@@ -272,14 +272,16 @@ yet` where they are not, a `Follow` toggle that reads `Stop following` once it i
 `Rename`, which edits the name in the menu itself. A go-to the room cannot answer — the peer
 closed the file, or its caret does not resolve here — says so in that menu for four seconds, or in
 the alert when no menu stands for it, which is where the empty pane's own `Go to` is pressed. The
-sidebar is the tree, under its `Shared` heading: what the room shares, with a peer badge on whose
-file is whose, and a tag beside a file whose text the room sent empty or holds open with nothing
-arrived for it. An action that refuses says so beside its own control, or in the alert where it
-has none.
+sidebar is the tree: what the room shares, with a peer badge on whose file is whose and, on a shut
+folder, the badges of the peers inside it. A row states nothing else about the room — the tags that
+said a document reads empty or had not arrived, and the mark a refused write put there, are gone —
+and an action that refuses says so beside its own control, or in the alert where it has none. The
+panel's create verbs stand in a bar at its foot, labelled `New file` and `New folder`.
 
-Following shows a segment in the file strip, in the followed peer's colour, with the stop
-control on it, and ends when you type, navigate (open a file from the tree or go to
-someone), stop it, or the peer leaves. When the host's socket drops, the session note
+Following shows on the followed face — a dashed ring and an eye — with `Stop following` in
+that person's menu, and ends when you type, navigate (open a file from the tree or go to
+someone), stop it, or the peer leaves. A follow that ended without a stop says why on the
+alert, for four seconds. When the host's socket drops, the session note
 names the grace window and counts it down to the room's own deadline; when the host
 returns it says so for a few seconds and then clears. When the room ends, because the host does not return before the
 grace expires, the page leaves the session: the socket closes, the binding and the editor
@@ -339,9 +341,9 @@ The page's own modules:
 
 - `src/browser/main.ts`: the page. Display name, invite, the editable document, the faces
   in the session bar with go-to and a follow toggle, the presence-badged grant tree, the
-  file strip above the editor (the open file's state, the follow's own stop, the chevron a
-  phone opens the panel with), the panel disclosure a phone gets, and the page-origin share
-  link whose whole bar copies.
+  file strip above the editor (the open file, the directory muted and the leaf bold, and the
+  chevron a phone opens the panel with), the panel disclosure a phone gets, and the
+  page-origin share link whose whole bar copies.
 - `src/browser/transport.ts`: the engine's socket from the browser's own WebSocket. The
   `ws` package is a dev-only dependency for the Node proof and never enters the bundle;
   the build refuses a bundle that mentions it.
@@ -382,13 +384,15 @@ The page's own modules:
 - `src/browser/presence.ts`: initials, one badge per line, the badge CSS.
 - `src/browser/mobile.ts`: what a touch-only browser is given, the phone query's two arms
   (upright and on its side) and the touch query it is narrowed by, the editor options a phone
-  needs (no minimap, wrapped lines, 16 px, a 55 px gutter), and how tall the app is when a soft
-  keyboard shrinks the visual viewport.
+  needs (wrapped lines, 16 px, a 55 px gutter), and how tall the app is when a soft
+  keyboard shrinks the visual viewport. The minimap and the caret's line highlight are off for
+  every device, because the design draws neither.
 - `src/browser/notice.ts`: the two message homes the page keeps: the session note in the
   chrome (the host-leave warning while the grace runs, counting its window down to the
   room's deadline, the dropped socket's line while the engine re-dials, and the host's
   return for a few seconds), and the failure alert — an action that refused with no control
-  to sit beside, and an error the room reports about the session — plus the line a tap
+  to sit beside, a write the folder refused, a follow that ended, and an error the room reports
+  about the session — plus the line a tap
   reveals where a `title` would have shown a pointer. The countdown's number is an element of its own with the live region off, so
   the sentence is announced once and the count never is; the alert and the tap line are
   one mechanism, standing a few seconds and leaving on their own.
