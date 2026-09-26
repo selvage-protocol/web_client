@@ -18,13 +18,6 @@ import assert from 'node:assert/strict';
 import { GrantTreeView } from '../src/browser/tree-view.ts';
 import type { CreateResult, RowFeedback } from '../src/browser/tree-view.ts';
 import { grantLevels } from '../src/browser/tree.ts';
-import {
-  EMPTY_FILE_TITLE,
-  EMPTY_IN_ROOM_TITLE,
-  NOT_HERE_TAG,
-  NOT_READ_TITLE,
-  NOT_SENT_TITLE,
-} from '../src/browser/tree-state.ts';
 
 /** A DOM that counts what it is asked to make, and keeps the children it is given. */
 const world = { created: 0 };
@@ -253,14 +246,20 @@ describe('the grant tree redraws what changed', () => {
     assert.ok(world.created > 100, 'the first render built the tree');
     world.created = 0;
 
-    // One peer's cursor moves to another file: the row it left and the row it entered.
+    // One peer's cursor moves to another file: the row it left and the row it entered, and the two
+    // folders those files sit in — a shut folder wears the badges of the peers inside it, so a peer
+    // moving between two of its files changes that row as well.
     state.participants = [participant('p-1', 'ada', '#112233', 'src/mod03/file033.ts')];
     view.render();
 
     assert.equal(pane.children[0], built, 'a presence move rebuilt the tree');
     assert.ok(world.created <= 2, `a presence move made ${world.created} elements`);
     const wearing = allWithClass(pane, 'presence').filter((span) => span.children.length === 1);
-    assert.equal(wearing.length, 1, 'the row the peer entered wears no badge');
+    assert.equal(wearing.length, 2, 'the rows the peer entered wear no badge');
+    const folder = allWithClass(pane, 'presence').find((span) => span.title === 'Inside src/mod03/');
+    assert.equal(folder?.children.length, 1, 'the folder the peer moved into wears no badge');
+    const left = allWithClass(pane, 'presence').find((span) => span.title === 'Inside src/mod00/');
+    assert.equal(left?.children.length, 0, 'the folder the peer left still wears their badge');
   });
 
   it('a listing that moved rebuilds the tree', () => {
@@ -274,7 +273,7 @@ describe('the grant tree redraws what changed', () => {
     assert.notEqual(pane.children[0], built, 'a new path did not redraw the tree');
   });
 
-  it('the open file, a refused write, the host being away and the session’s own folders redraw it', () => {
+  it('the open file, the host being away and the session’s own folders redraw it', () => {
     const state = {
       listing: listing(4),
       current: undefined,
@@ -292,26 +291,20 @@ describe('the grant tree redraws what changed', () => {
     assert.ok(rowFor(pane, 'file000.ts').classes.includes('open'), 'the open row is not lit');
 
     const opened = pane.children[0];
-    state.unsaved = new Map([['src/mod00/file000.ts', 'the file changed on disk']]);
-    view.render();
-    assert.notEqual(pane.children[0], opened, 'a refused write did not redraw the tree');
-    const warn = withClass(rowFor(pane, 'file000.ts'), 'unsaved');
-    assert.equal(warn.textContent, '⚠');
-    assert.equal(warn.title, 'the file changed on disk');
-
-    const warned = pane.children[0];
     state.hostAway = true;
     view.render();
-    assert.notEqual(pane.children[0], warned, 'the host going away did not redraw the tree');
+    assert.notEqual(pane.children[0], opened, 'the host going away did not redraw the tree');
     assert.ok(rowFor(pane, 'file000.ts').classes.includes('away'), 'a row is not dimmed');
-    // A row whose text is in the room stays legible: the host being away cannot cost it anything.
     assert.equal(rowFor(pane, 'file000.ts').title, 'The host is away, so its text cannot arrive.');
 
     const dimmed = pane.children[0];
     state.local = new Set(['docs']);
     view.render();
     assert.notEqual(pane.children[0], dimmed, 'a folder this session made did not redraw the tree');
-    assert.equal(withClass(pane, 'local').textContent, 'only you');
+    assert.ok(
+      allWithClass(pane, 'label').some((span) => span.textContent === 'docs/'),
+      'the folder this session made is not drawn as a row of its own',
+    );
   });
 
   it('a row click opens the path the row names', () => {
@@ -338,35 +331,43 @@ describe('what a row says about the room', () => {
     return rowFor(pane, 'main.rs');
   }
 
-  it('gains its tag when the room sends an empty document, with the listing unchanged', () => {
-    // What a row says is about the text, and a path is in the listing from the grant alone: a
-    // document arriving can change the mark while the listing reads exactly the same.
+  it('draws no tag for what the page knows about a document', () => {
+    // `empty` and `not fetched yet` said what the page had been told about a document's text, on a
+    // row whose job is to be a name in a list of names. The design draws neither — the editor's own
+    // pane says what a room holds or withholds — so a row states nothing about the room but the
+    // dimming a guest's rows wear while the host is away.
+    const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
+    for (const gone of ['empty-tag', 'pending-tag', 'unsaved', 'in-room']) {
+      assert.equal(allWithClass(row, gone).length, 0, `a row still draws .${gone}`);
+    }
+    // And a refused write is not the row's either: the sentence the folder gave stands on the
+    // page's transient line (`main.ts`).
+    assert.equal(allWithClass(row, 'chip').length, 0, 'a row still carries a chip');
+  });
+
+  it('redraws the rows when a document arrives, which is what the dimming reads', () => {
+    // A path is in the listing from the grant alone, so a document arriving can change what a row
+    // says about the room while the listing reads exactly the same: the row chrome is what the
+    // redraw key carries, and the dimming is decided from it.
     const state = {
       listing: ['main.rs'],
       current: undefined,
       touch: false,
       opened: [],
       participants: [],
+      hostAway: true,
     };
     const { pane, view } = makeView(state);
     view.render();
     const built = pane.children[0];
+    assert.ok(rowFor(pane, 'main.rs').classes.includes('away'), 'a row with nothing in the room is dimmed');
+    // The room answers with the file's text: the host being away cannot cost that row anything now,
+    // and the row is redrawn without the dimming.
     state.inRoom = ['main.rs'];
     state.textHere = ['main.rs'];
-    state.textEmpty = ['main.rs'];
     view.render();
     assert.notEqual(pane.children[0], built, 'the room sending text redrew nothing');
-    assert.equal(withClass(rowFor(pane, 'main.rs'), 'empty-tag').textContent, 'empty');
-  });
-
-  it('draws no dot for a file the room holds with text in it', () => {
-    // The `●` stood on every such row: the room holds the text, which for a file this window
-    // opened is what opening it did. The row that says the text is here is the row the editor is
-    // showing, and it is dashed and bold; every other row has nothing to say.
-    const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'] });
-    assert.equal(allWithClass(row, 'in-room').length, 0, 'the in-room dot is back');
-    assert.equal(allWithClass(row, 'empty-tag').length, 0, 'a file with text reads as empty');
-    assert.equal(allWithClass(row, 'pending-tag').length, 0, 'a file with text waits on a fetch');
+    assert.equal(rowFor(pane, 'main.rs').classes.includes('away'), false, 'a row with its text is dimmed');
   });
 
   it('names the host on their badge, where a crown has no circle to sit on', () => {
@@ -386,45 +387,57 @@ describe('what a row says about the room', () => {
     );
     assert.equal(allWithClass(host, 'crown').length, 0, 'a badge wears a crown it has no room for');
   });
+});
 
-  it('wears a tag of its own while the room holds the file and nothing has arrived', () => {
-    // The row used to say `empty` here, which claims a document nobody has read: the room holds the
-    // path open and not a byte has been sent, so the tag says exactly that. The two titles are what
-    // tell a guest's wait from a host's, and neither is only in a `title` — the tag carries it.
-    const guest = rowState({ inRoom: ['main.rs'] });
-    const pending = withClass(guest, 'pending-tag');
-    assert.equal(pending.textContent, NOT_HERE_TAG);
-    assert.equal(pending.title, NOT_SENT_TITLE);
-    assert.equal(allWithClass(guest, 'empty-tag').length, 0, 'an unfetched file still reads empty');
-    // A host fetches nothing: it has not read the file off its own disk yet.
-    const host = rowState({ inRoom: ['main.rs'], canCreate: true });
-    assert.equal(withClass(host, 'pending-tag').title, NOT_READ_TITLE);
+describe('a folder row', () => {
+  function tree(overrides = {}) {
+    const state = {
+      listing: ['src/main.ts', 'src/other.ts', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      ...overrides,
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    return pane;
+  }
+
+  it('is the design’s folder: filled, swapping when it opens, and named with its slash', () => {
+    const summary = withClass(tree(), 'folder').parentElement;
+    const glyphs = allWithClass(summary, 'folder');
+    assert.equal(glyphs.length, 2, 'the row draws one glyph, so it has nothing to swap to');
+    assert.deepEqual(
+      glyphs.map((glyph) => glyph.className),
+      ['icon folder closed', 'icon folder open'],
+      'the folder is not drawn closed and open',
+    );
+    assert.equal(allWithClass(summary, 'chev').length, 0, 'the folder still draws a chevron');
+    assert.equal(nameIn(summary), 'src/', 'the folder is not named as a folder');
   });
 
-  it('wears `empty` only for text the room sent, and which is empty', () => {
-    // The text is here and it is empty: that is a fact the page was told.
-    const guest = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
-    assert.equal(withClass(guest, 'empty-tag').title, EMPTY_IN_ROOM_TITLE);
-    // A host read the file off its own disk, so it says the one true thing.
-    const host = rowState({
-      inRoom: ['main.rs'],
-      canCreate: true,
-      textHere: ['main.rs'],
-      textEmpty: ['main.rs'],
+  it('wears the badges of the peers inside it, and no badge of its own', () => {
+    // A folder is not a document, so the room says nothing about it; the rows inside it say where
+    // each peer is, and while the folder is shut those rows are not on screen.
+    const pane = tree({
+      participants: [
+        participant('p-1', 'ada', '#112233', 'src/main.ts'),
+        participant('p-2', 'bob', '#445566', 'README.md'),
+      ],
     });
-    assert.equal(withClass(host, 'empty-tag').title, EMPTY_FILE_TITLE);
-  });
-
-  it('says nothing at all about a path the room does not hold', () => {
-    const row = rowState({});
-    assert.equal(allWithClass(row, 'in-room').length, 0);
-    assert.equal(allWithClass(row, 'empty-tag').length, 0);
-    assert.equal(allWithClass(row, 'pending-tag').length, 0);
+    const summary = withClass(pane, 'folder').parentElement;
+    assert.deepEqual(
+      allWithClass(summary, 'badge').map((badge) => badge.textContent),
+      ['ad'],
+      'the folder wears the wrong badges',
+    );
+    assert.equal(withClass(summary, 'presence').title, 'Inside src/');
   });
 });
 
 describe('a host’s own folders', () => {
-  it('draws a folder this session made as a row of its own, marked for the host only', () => {
+  it('draws a folder this session made as a row of its own', () => {
     // A room's listing is files, so an empty directory is in nobody's: without this row, the folder
     // a host just made would vanish and the next create into it would be refused as a path through
     // something that is not there.
@@ -439,24 +452,27 @@ describe('a host’s own folders', () => {
     };
     const { pane, view } = makeView(state);
     view.render();
-    const tag = withClass(pane, 'local');
-    assert.equal(tag.textContent, 'only you');
-    assert.equal(tag.title, 'Folders join the room with their first file.');
+    assert.equal(nameIn(withClass(pane, 'folder').parentElement), 'docs/');
   });
 
-  it('drops the marker once the room’s listing carries the folder', () => {
-    const state = {
-      listing: ['docs/intro.md'],
-      current: undefined,
-      touch: false,
-      opened: [],
-      participants: [],
-      canCreate: true,
-      local: new Set(['docs']),
-    };
-    const { pane, view } = makeView(state);
-    view.render();
-    assert.equal(allWithClass(pane, 'local').length, 0, 'a shared folder still reads `only you`');
+  it('draws it once, whether the listing carries it or not', () => {
+    // The listing is files: a folder this session made is drawn from the page's own memory until
+    // some path goes through it, and from the listing after that — never both.
+    for (const listing of [[], ['docs/intro.md']]) {
+      const state = {
+        listing,
+        current: undefined,
+        touch: false,
+        opened: [],
+        participants: [],
+        canCreate: true,
+        local: new Set(['docs']),
+      };
+      const { pane, view } = makeView(state);
+      view.render();
+      // Two glyphs per folder row: the closed one and the open one it swaps to.
+      assert.equal(allWithClass(pane, 'folder').length, 2, `the folder is not drawn once: ${listing}`);
+    }
   });
 });
 
@@ -665,7 +681,8 @@ describe('the create row', () => {
   it('sorts the create row among folders by the name it is given', () => {
     // A folder row is a `details` whose name lives inside its `summary`: reading only the direct
     // children left every folder with the same empty name, and a folder draft always landed at the
-    // end of the folder group instead of where its name sorts.
+    // end of the folder group instead of where its name sorts. The slash a folder is drawn with is
+    // its mark and not part of the name, so a draft called `mike` still sorts between two folders.
     const { pane, view } = creating({ listing: ['alpha/x.md', 'zulu/y.md'] });
     view.beginCreate('directory', '');
     const input = withClass(pane, 'new-name');
@@ -684,7 +701,7 @@ describe('the create row', () => {
       }
     };
     walk(pane);
-    assert.deepEqual(order, ['alpha', '<the create row>', 'zulu']);
+    assert.deepEqual(order, ['alpha/', '<the create row>', 'zulu/']);
   });
 
   it('says `Create folder` on the folder variant and hides the slash on the file one', () => {

@@ -5,7 +5,8 @@
  * A typed file is a solid page in the type's colour with a bold short label on
  * it, so it still reads in a 14 px tree row — a two-letter label at the old
  * 4.6-unit size was under 4 px and invisible. The colours follow an editor icon
- * theme (TS blue, JS yellow, Rust orange, Nix blue, …); the generic and text
+ * theme (TS blue, JS yellow, Nix blue, …), but the three types the design names
+ * — Rust, Markdown and TOML — wear Mocha's own accents; the generic and text
  * files stay the muted outline so an unbacked type is visibly a plain file.
  */
 
@@ -35,6 +36,7 @@ export type IconName =
   | 'file-lua'
   | 'file-docker'
   | 'folder'
+  | 'folder-open'
   | 'folder-add'
   | 'file-add'
   | 'close'
@@ -105,15 +107,17 @@ function typedFile({ label, bg, fg }: FileType): string {
 const TYPED_FILE_TYPES = {
   'file-ts': { label: 'TS', bg: '#3178c6', fg: '#ffffff' },
   'file-js': { label: 'JS', bg: '#f7df1e', fg: '#111111' },
-  'file-md': { label: 'MD', bg: '#519aba', fg: '#ffffff' },
+  // Rust, Markdown and TOML are the three types the design names, and it fills them with Mocha's
+  // own accents: Peach, Sky and Lavender, with the page's ground (Crust) as the label.
+  'file-md': { label: 'MD', bg: '#89dceb', fg: '#11111b' },
   'file-json': { label: '{}', bg: '#cbcb41', fg: '#111111' },
   'file-css': { label: '#', bg: '#42a5f5', fg: '#0b1a24' },
   'file-scss': { label: 'S', bg: '#cf649a', fg: '#ffffff' },
   'file-html': { label: '<>', bg: '#e44d26', fg: '#ffffff' },
   'file-xml': { label: 'X', bg: '#f1662a', fg: '#2a1006' },
-  'file-rs': { label: 'RS', bg: '#f74c00', fg: '#ffffff' },
+  'file-rs': { label: 'RS', bg: '#fab387', fg: '#11111b' },
   'file-sh': { label: '>_', bg: '#2f9e44', fg: '#04130a' },
-  'file-toml': { label: 'TM', bg: '#b08968', fg: '#231508' },
+  'file-toml': { label: 'TM', bg: '#b4befe', fg: '#11111b' },
   'file-yaml': { label: 'Y', bg: '#cb171e', fg: '#ffffff' },
   'file-nix': { label: 'N', bg: '#5277c3', fg: '#ffffff' },
   'file-py': { label: 'PY', bg: '#3776ab', fg: '#ffd343' },
@@ -133,8 +137,13 @@ const ICONS: Record<IconName, string> = {
   file: `${OUTLINE_OPEN}${FILE_OUTLINE}${OUTLINE_CLOSE}`,
   'file-txt': TEXT_FILE,
   'file-ini': CONFIG_FILE,
+  // The directory, as the design draws it: Phosphor's filled `folder`, with the open glyph that
+  // replaces it when the row is expanded. A filled glyph reads as a folder at 14 px where an
+  // outline does not, and the swap is the disclosure the tree used to draw as a chevron.
   folder:
-    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 4.5c0-.8.7-1.5 1.5-1.5h3l1.5 2H13c.8 0 1.5.7 1.5 1.5v5c0 .8-.7 1.5-1.5 1.5H3c-.8 0-1.5-.7-1.5-1.5z"/></svg>',
+    '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,72H131.31L104,44.69A15.86,15.86,0,0,0,92.69,40H40A16,16,0,0,0,24,56V200.62A15.4,15.4,0,0,0,39.38,216H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72ZM40,56H92.69l16,16H40ZM216,200H40V88H216Z"/></svg>',
+  'folder-open':
+    '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M245,110.64A16,16,0,0,0,232,104H216V88a16,16,0,0,0-16-16H130.67L102.94,51.2a16.14,16.14,0,0,0-9.6-3.2H40A16,16,0,0,0,24,64V208h0a8,8,0,0,0,8,8H211.1a8,8,0,0,0,7.59-5.47l28.49-85.47A16.05,16.05,0,0,0,245,110.64ZM93.34,64,123.2,86.4A8,8,0,0,0,128,88h72v16H69.77a16,16,0,0,0-15.18,10.94L40,158.7V64Zm112,136H43.1l26.67-80H232Z"/></svg>',
   // The two create verbs of the tree's own header and directory rows: the kind's own outline with
   // a plus in its lower right, so "make one of these" reads at 14 px without a label.
   'file-add': `${OUTLINE_OPEN}${FILE_OUTLINE}<path d="M10 11.5h4M12 9.5v4"/>${OUTLINE_CLOSE}`,
@@ -269,9 +278,9 @@ export function fileIcon(path: string): IconName {
   return FILE_ICON_BY_NAME.get(name.toLowerCase()) ?? 'file';
 }
 
-export function iconSpan(name: IconName): HTMLSpanElement {
+export function iconSpan(name: IconName, extra = ''): HTMLSpanElement {
   const span = document.createElement('span');
-  span.className = name === 'chevron' ? 'icon chev' : 'icon';
+  span.className = extra === '' ? 'icon' : `icon ${extra}`;
   span.setAttribute('aria-hidden', 'true');
   span.innerHTML = ICONS[name];
   return span;

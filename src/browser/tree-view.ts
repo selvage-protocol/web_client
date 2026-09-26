@@ -27,7 +27,6 @@ import { fileIcon, iconSpan, labelSpan } from './icons.ts';
 import { badgeSignature, changedBadgePaths, initials } from './presence.ts';
 import {
   HOST_AWAY_ROW_TITLE,
-  NOT_HERE_TAG,
   dirOpen,
   roomMark,
   rowsKey,
@@ -99,10 +98,8 @@ export interface TreeViewOptions {
    * nothing else: a guest's empty room is the host's to fill.
    */
   canCreate?: () => boolean;
-  /** The directories this session made that no listing carries yet, drawn as `only you` rows. */
+  /** The directories this session made that no listing carries yet, drawn as rows of their own. */
   localFolders?: () => ReadonlySet<string>;
-  /** The paths whose write was refused, with the sentence the folder refused with. */
-  unsaved?: () => ReadonlyMap<string, string>;
   /** Whether the host is away and the grace is running: a guest's rows dim while it does. */
   hostAway?: () => boolean;
   /** Runs the create the row asks for. */
@@ -147,8 +144,6 @@ export class GrantTreeView {
   private pendingCheck: unknown;
   /** The open touch menu, if one is, with the trigger that shows it. */
   private menu: { element: HTMLElement; trigger: HTMLElement } | undefined;
-  /** Every directory the room's listing implies, for one rebuild. */
-  private listedDirs = new Set<string>();
   /** Whether the create row found its directory in the walk that just ran. */
   private draftPlaced = false;
   /** The create row's own list item, which is what moves as the name is typed. */
@@ -192,7 +187,6 @@ export class GrantTreeView {
       touch: this.touch(),
       draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draft.parent}`,
       local: this.local().join('\n'),
-      unsaved: [...this.unsaved().keys()].join('\n'),
       hostAway: this.hostAway(),
       marks: this.markKey(listing, current),
     });
@@ -220,7 +214,7 @@ export class GrantTreeView {
   }
 
   /**
-   * Opens the create row in `parent` (`''` is the root), which is what the header's `📄+`/`📁+`
+   * Opens the create row in `parent` (`''` is the root), which is what the panel's own footer bar
    * and a directory row's own action do.
    *
    * A second press while the row is open moves it rather than stacking a second one: there is one
@@ -270,10 +264,6 @@ export class GrantTreeView {
     return [...(this.options.localFolders?.() ?? new Set<string>())].sort();
   }
 
-  private unsaved(): ReadonlyMap<string, string> {
-    return this.options.unsaved?.() ?? new Map<string, string>();
-  }
-
   private hostAway(): boolean {
     return this.options.hostAway?.() ?? false;
   }
@@ -291,14 +281,31 @@ export class GrantTreeView {
     }
   }
 
-  /** Where everyone is, by the room path each participant says it is in. */
+  /**
+   * Where everyone is, by the row a badge belongs to: the room path each participant says it is in,
+   * and the directory that path sits in.
+   *
+   * A folder is not a document, so the room says nothing about it — but a folder row wears the
+   * badges of the peers inside it while it is shut, and a peer moving between two files of one
+   * folder has to change that row too. One map for both kinds of row is what keeps a presence frame
+   * costing the two rows that moved rather than a rebuild.
+   */
   private presenceByPath(): Map<string, Participant[]> {
     const presence = new Map<string, Participant[]>();
+    const add = (path: string, participant: Participant): void => {
+      const known = presence.get(path) ?? [];
+      known.push(participant);
+      presence.set(path, known);
+    };
     for (const participant of this.source.participants()) {
-      if (participant.path !== undefined) {
-        const known = presence.get(participant.path) ?? [];
-        known.push(participant);
-        presence.set(participant.path, known);
+      const path = participant.path;
+      if (path === undefined || path === '') {
+        continue;
+      }
+      add(path, participant);
+      const directory = parentOf(path);
+      if (directory !== '') {
+        add(directory, participant);
       }
     }
     return presence;
@@ -313,7 +320,6 @@ export class GrantTreeView {
     this.hosts.clear();
     this.badges.clear();
     this.menu = undefined;
-    this.listedDirs = directoryPrefixes(listing);
     // The row is built before the walk, because the walk needs what is typed in it: the position the
     // name will take is the name's own.
     if (this.draft !== undefined) {
@@ -328,7 +334,7 @@ export class GrantTreeView {
       // An empty room reads differently to the two people looking at it: a guest is waiting on the
       // host, and a host is the one who can fill it. The host's line is the short one now — the
       // editor pane beside it carries the explanation and the two acts (design §7.2), and the two
-      // verbs in this panel's own header are the act the line would otherwise describe.
+      // verbs in this panel's own footer bar are the act the line would otherwise describe.
       empty.textContent = this.canCreate()
         ? 'Nothing here yet.'
         : 'The host has not shared any files yet.';
@@ -478,7 +484,12 @@ export class GrantTreeView {
       }
     });
     const head = document.createElement('summary');
-    head.append(iconSpan('chevron'), iconSpan('folder'), nameSpan(child.name));
+    // The name carries the slash that says the row is a folder, the way the design draws it, and
+    // the badges of the peers inside stand beside it while the folder is shut (the stylesheet hides
+    // them while it is open, where the rows inside carry the same badges).
+    head.append(iconSpan('folder', 'folder closed'), iconSpan('folder-open', 'folder open'));
+    head.append(nameSpan(`${child.name}/`));
+    head.append(this.presenceChrome(child.path, presence));
     head.append(this.directoryChrome(child));
     details.appendChild(head);
     details.appendChild(this.level(child.path, depth + 1, current, presence));
@@ -486,19 +497,27 @@ export class GrantTreeView {
   }
 
   /**
-   * A directory's own chrome: the local marker for a folder this session made, and — for a host —
-   * the two create actions where a pointer can reach them.
+   * The badges of the peers inside a folder, which a shut folder row wears in place of the rows
+   * that would say where each of them is.
+   */
+  private presenceChrome(path: string, presence: ReadonlyMap<string, readonly Participant[]>): HTMLElement {
+    const here = presence.get(path) ?? [];
+    const badges = document.createElement('span');
+    badges.className = 'presence';
+    badges.title = `Inside ${path}/`;
+    badges.replaceChildren(...badgeNodes(here));
+    this.hosts.set(path, badges);
+    this.badges.set(path, badgeSignature(here));
+    return badges;
+  }
+
+  /**
+   * A directory's own chrome: the two create actions where a pointer can reach them, or the one `⋯`
+   * that carries them where there is no hover.
    */
   private directoryChrome(child: GrantChild): HTMLElement {
     const chrome = document.createElement('span');
     chrome.className = 'row-chrome';
-    if (!this.isListed(child.path)) {
-      const tag = document.createElement('span');
-      tag.className = 'local';
-      tag.textContent = 'only you';
-      tag.title = 'Folders join the room with their first file.';
-      chrome.appendChild(tag);
-    }
     if (!this.canCreate()) {
       return chrome;
     }
@@ -518,27 +537,21 @@ export class GrantTreeView {
     return chrome;
   }
 
-  /** Whether a directory the page remembered is one the room's listing also carries. */
-  private isListed(path: string): boolean {
-    return this.listedDirs.has(path);
-  }
-
   private file(
     child: GrantChild,
     current: string | undefined,
     presence: ReadonlyMap<string, readonly Participant[]>,
   ): HTMLElement {
+    // The item is the row and its own actions side by side, as the design draws them: a control
+    // inside the row's own box made every row on a touch device 13 px taller than the fingertip it
+    // is meant to be.
+    const item = document.createElement('li');
+    item.className = 'file';
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'row';
     const listedPath = child.path;
     row.append(iconSpan(fileIcon(listedPath)), nameSpan(child.name));
-    // The row of the file this window has open is dashed and bold, so it needs no mark; what is left
-    // for `appendRoomMark` is the two states of the text itself, and who is in a file is this row's
-    // badges, which say *who*.
-    if (listedPath !== current) {
-      appendRoomMark(row, this.markFor(listedPath));
-    }
     // The row's own badge container, kept so a presence move repaints this row rather than the tree
     // around it.
     const here = presence.get(listedPath) ?? [];
@@ -548,14 +561,6 @@ export class GrantTreeView {
     this.hosts.set(listedPath, badges);
     this.badges.set(listedPath, badgeSignature(here));
     row.append(badges);
-    const refused = this.unsaved().get(listedPath);
-    if (refused !== undefined) {
-      const warn = document.createElement('span');
-      warn.className = 'unsaved';
-      warn.textContent = '⚠';
-      warn.title = refused;
-      row.append(warn);
-    }
     if (listedPath === current) {
       row.classList.add('open');
     }
@@ -564,18 +569,19 @@ export class GrantTreeView {
       row.title = HOST_AWAY_ROW_TITLE;
     }
     row.addEventListener('click', () => this.options.open(listedPath));
+    item.appendChild(row);
     if (this.canDownload(listedPath)) {
-      row.append(this.downloadChrome(listedPath, child.name));
+      item.append(this.downloadChrome(listedPath, child.name));
     }
-    return row;
+    return item;
   }
 
   /**
    * What every row's mark reads, as one string, so a mark that moves redraws the rows.
    *
-   * The listing cannot carry this: a path is listed from the grant alone, so a document arriving —
-   * which is exactly what `●` is about — can change every mark on screen while the listing reads the
-   * same. Without it, a fetched file's row would never gain its dot.
+   * The listing cannot carry this: a path is listed from the grant alone, so a document arriving can
+   * change what every row says about the room while the listing reads the same. What a row still
+   * draws from it is the dimming a guest's rows wear while the host is away.
    */
   private markKey(listing: readonly string[], current: string | undefined): string {
     const paths = current === undefined || listing.includes(current) ? listing : [...listing, current];
@@ -971,24 +977,6 @@ export class GrantTreeView {
   }
 }
 
-/**
- * Every directory a listing implies, once per rebuild.
- *
- * A listing is a list of files, so a directory exists only because some path goes through it. Asked
- * once here rather than once per drawn directory: the scan is over the whole listing, and a room may
- * hold thousands of paths.
- */
-function directoryPrefixes(listing: readonly string[]): Set<string> {
-  const dirs = new Set<string>();
-  for (const path of listing) {
-    const segments = path.split('/');
-    for (let index = 1; index < segments.length; index += 1) {
-      dirs.add(segments.slice(0, index).join('/'));
-    }
-  }
-  return dirs;
-}
-
 /** A row's name, in its own span so the row can be read (and re-placed) by it. */
 function nameSpan(name: string): HTMLSpanElement {
   const span = labelSpan(name);
@@ -1002,7 +990,8 @@ function nameSpan(name: string): HTMLSpanElement {
  * A file row holds its name directly; a directory row is a `<details>` whose name is inside the
  * `<summary>` it draws, one level down. Reading only the direct children left every folder with the
  * same empty name, and a folder draft then always landed at the end of the folder group rather than
- * where its name sorts.
+ * where its name sorts. The slash a folder's name wears is its mark, not part of the name, so it is
+ * taken off here: a draft called `src` belongs beside the folder `src`, not before it.
  */
 function nameOf(row: Element | undefined): string {
   if (row === undefined) {
@@ -1010,7 +999,7 @@ function nameOf(row: Element | undefined): string {
   }
   for (const child of row.children) {
     if (child.classList.contains('label')) {
-      return child.textContent ?? '';
+      return (child.textContent ?? '').replace(/\/+$/, '');
     }
     const nested = nameOf(child);
     if (nested !== '') {
@@ -1062,28 +1051,8 @@ function orderOf(child: GrantChild): string {
 }
 
 /**
- * The `empty` or `not fetched yet` tag a row wears, or nothing.
- *
- * `in-room` draws nothing. The green `●` said the room holds the file's text, which for every row
- * but one is also what the reader can see for themselves — a file this window opened is one the
- * room holds open — and the owner read it, on every such row, as a mark the page did not need. What
- * is left is the two states nobody can see: a document the room sent that reads empty, and one it
- * holds open with nothing arrived for it.
- */
-function appendRoomMark(row: HTMLElement, mark: ReturnType<typeof roomMark>): void {
-  if (mark.kind !== 'empty' && mark.kind !== 'not-here') {
-    return;
-  }
-  const span = document.createElement('span');
-  span.className = mark.kind === 'empty' ? 'empty-tag' : 'pending-tag';
-  span.textContent = mark.kind === 'empty' ? 'empty' : NOT_HERE_TAG;
-  span.title = mark.title;
-  row.appendChild(span);
-}
-
-/**
- * Who is in one file, as initials badges in peer colours: where someone is reads on the tree,
- * glanceable, instead of path text under a face in the bar.
+ * Who is in one file — or, on a shut folder, who is inside it — as initials badges in peer colours:
+ * where someone is reads on the tree, glanceable, instead of path text under a face in the bar.
  */
 /** What a badge says under a pointer: whose caret this is, and the role where there is one. */
 function badgeNodes(present: readonly Participant[]): HTMLElement[] {

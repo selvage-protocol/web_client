@@ -58,9 +58,18 @@ describe('typed file icons', () => {
     const ts = iconSvg('file-ts');
     assert.ok(ts.includes('fill="#3178c6"'), `no TypeScript page colour: ${ts}`);
     assert.ok(/<text[^>]*font-size="7\.6"/.test(ts), `no readable label: ${ts}`);
-    const rs = iconSvg('file-rs');
-    assert.ok(rs.includes('fill="#f74c00"'), `no Rust page colour: ${rs}`);
-    assert.ok(/>RS</.test(rs), `no Rust label: ${rs}`);
+    // The three types the design names wear Mocha's own accents rather than an editor theme's
+    // brand colours: Rust is Peach, Markdown is Sky and TOML is Lavender, each labelled in Crust.
+    for (const [type, accent, label] of [
+      ['file-rs', '#fab387', 'RS'],
+      ['file-md', '#89dceb', 'MD'],
+      ['file-toml', '#b4befe', 'TM'],
+    ]) {
+      const page = iconSvg(type);
+      assert.ok(page.includes(`fill="${accent}"`), `${type} is not the design's ${accent}: ${page}`);
+      assert.ok(page.includes('fill="#11111b"'), `${type} does not label in Crust: ${page}`);
+      assert.ok(page.includes(`>${label}</`), `${type} lost its label: ${page}`);
+    }
   });
 
   it('escapes angle brackets so an HTML label cannot break the markup', () => {

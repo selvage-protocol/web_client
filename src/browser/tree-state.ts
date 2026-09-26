@@ -21,8 +21,6 @@ export interface RowChrome {
   draft: string;
   /** The directories this session made that no listing carries. */
   local: string;
-  /** The paths whose write was refused, in the room's order. */
-  unsaved: string;
   /** Whether the host is away and the grace is running (a guest's dimming). */
   hostAway: boolean;
   /**
@@ -42,7 +40,6 @@ export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
     chrome.touch ? '1' : '0',
     chrome.draft,
     chrome.local,
-    chrome.unsaved,
     chrome.hostAway ? '1' : '0',
     chrome.marks,
     listing.join('\n'),
@@ -62,18 +59,17 @@ export function dirOpen(path: string, pinned: ReadonlySet<string>, current: stri
 }
 
 /**
- * What a row says about the room, beside its name.
+ * What the page knows about one path, and what a row makes of it.
  *
- * The distinction the tree exists to draw is *is this file's text in the room?* — the one thing a
- * host most wants to know (which of their files has left their folder) and the one thing a guest
- * cannot otherwise tell. `inRoom` is the room's own open-document set, which both roles receive, so
- * the mark means the same thing on both sides.
+ * The distinction is *is this file's text in the room?* — the one thing a host most wants to know
+ * (which of their files has left their folder) and the one thing a guest cannot otherwise tell.
+ * `inRoom` is the room's own open-document set, which both roles receive, so the reading means the
+ * same thing on both sides.
  *
- * `empty` is a fact the page has been told: the text is here, and it is empty. It used to cover the
- * other state as well — the room holds a path open and nothing has arrived for it — so a guest's row
- * said `empty` for a document the host had not sent a byte of, and the only thing that separated the
- * two was a `title`, which a phone never shows. That is a claim about a document nobody has read, so
- * the unfetched state has a tag of its own and `empty` is left for the empty one.
+ * A row draws nothing from it any more: the tags that said `empty` and `not fetched yet` were the
+ * page's own account of a document, on rows whose job is to be names in a list of names, and the
+ * design draws neither. What is left is the dimming a guest's rows wear while the host is away,
+ * which is decided from this: a row whose text cannot arrive is the one that has to say so.
  */
 export interface RoomRowState {
   /** The room holds this path open. */
@@ -92,25 +88,16 @@ export type RoomMark =
   | { kind: 'empty'; title: string }
   | { kind: 'not-here'; title: string };
 
-/** The tooltip for the `●` a row wears when its text is in the room. */
+/** The tooltip for the state a row is in when its text is in the room. */
 export const IN_THE_ROOM_TITLE = 'Its text is in the room.';
 
-/** What the `empty` tag says on a guest's screen, where the room is the one that sent the text. */
+/** What an empty document says on a guest's screen, where the room is the one that sent the text. */
 export const EMPTY_IN_ROOM_TITLE = 'The room sent its text, and it is empty.';
 
 /** What it says on a host's screen, where this page read the file itself. */
 export const EMPTY_FILE_TITLE = 'The file is empty.';
 
-/**
- * What the tag for the unfetched state reads, on both roles' screens.
- *
- * A guest's row is waiting on a fetch it asked for and nobody has answered; a host's is waiting on
- * a file this window has not read yet. `fetched` is the page's own word for the first, and the two
- * titles below say which one this is rather than making the tag say both.
- */
-export const NOT_HERE_TAG = 'not fetched yet';
-
-/** What the tag says to a guest: the room holds it open and the text has not arrived. */
+/** What the unfetched state says to a guest: the room holds it open and the text has not arrived. */
 export const NOT_SENT_TITLE =
   'The room holds it open, and its text has not arrived yet.';
 
