@@ -88,7 +88,7 @@ export function emptyEditorFor(facts: EmptyEditorFacts): EmptyEditorState {
   if (!facts.host && facts.files === 0) {
     blocks.push({
       lead: `${hostNameOf(facts)} hasn\u2019t shared any files yet.`,
-      text: 'They\u2019ll appear in Shared as soon as the host\u2019s folder has some.',
+      text: 'They\u2019ll appear in the panel as soon as the host\u2019s folder has some.',
       // Nothing is loading, so nothing spins: the room is empty and that is all the pane says.
       actions: panelActs(facts),
     });

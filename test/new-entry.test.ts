@@ -517,16 +517,24 @@ describe('the create the page runs for the row', () => {
 });
 
 describe('the page the row is drawn in', () => {
-  it('carries both create verbs, always visible, for the window that holds a folder', () => {
-    for (const id of ['shared-actions', 'new-file', 'new-folder']) {
+  it('carries both create verbs, labelled, in a bar at the panel’s foot', () => {
+    for (const id of ['tree-actions', 'new-file', 'new-folder']) {
       assert.ok(SHELL.includes(`id="${id}"`), `${id} is not in the shell`);
     }
     assert.ok(!SHELL.includes('id="new-entry"'), 'the old standing field is still in the shell');
     assert.ok(!SHELL.includes('id="new-message"'), 'the old refusal line is still in the shell');
     assert.ok(!SHELL.includes('placeholder="notes.md"'), 'the greyed example is still in the shell');
+    // The panel has no heading: the design's verbs stand in a full-width bar at its foot, each
+    // labelled with its own words beside the kind's icon.
+    assert.ok(!/<h2>Shared<\/h2>/.test(SHELL), 'the panel heading survived the footer bar');
+    assert.ok(!/class="panel-head"/.test(SHELL), 'the panel-head wrapper survived the footer bar');
+    assert.match(MAIN, /newFileButton\.append\(iconSpan\('file-add'\), labelSpan\('New file'\)\)/,
+      'the new-file verb has no words');
+    assert.match(MAIN, /newFolderButton\.append\(iconSpan\('folder-add'\), labelSpan\('New folder'\)\)/,
+      'the new-folder verb has no words');
     assert.match(MAIN, /newFileButton\.addEventListener\('click'/, 'the new-file verb does nothing');
     assert.match(MAIN, /newFolderButton\.addEventListener\('click'/, 'the new-folder verb does nothing');
-    assert.match(MAIN, /sharedActions\.hidden = seat\.folder === undefined/, 'a guest is offered a create');
+    assert.match(MAIN, /treeActions\.hidden = seat\.folder === undefined/, 'a guest is offered a create');
   });
 
   it('opens the editable row in the tree, where the entry will appear', () => {

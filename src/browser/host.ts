@@ -31,20 +31,20 @@ export const HOST_NEEDS_A_BROWSER =
   'This browser cannot hand a page a folder, so a room cannot be started from it. Chrome and Edge can; Firefox and Safari cannot. Joining a room here still works.';
 
 /**
- * Why the host action is not offered: this page is not the server's own page.
+ * Why the host action is not offered, and what the card says instead: nothing.
  *
  * The page's rule is that the link's own origin is the server, and a host has no link, so a host
- * needs a page its server is behind. The two-origin deployment whose agreement with the
- * one-address invite rule is an open item therefore gets a sentence rather than a guess.
+ * needs a page its server is behind. A page that answered with something else — a static host,
+ * another JSON API, a page — has no room to start and no sentence worth standing where the action
+ * would be: the card leads with the way in it does have, which is the invite path with `Join` as its
+ * action. That this page is not a Selvage server's is not a fact the person can act on, and the join
+ * attempt says what went wrong when they try.
  *
- * Two facts reach it, and neither of them is "`/meta` did not answer": an origin that answered
- * with something that is not a Selvage `/meta` (a static host, another JSON API, a page) and a
- * page whose own address names no server at all (a `file://` open). A read that timed out is the
- * third thing, and it is not this sentence — see `HOST_UNREAD_NOTE`.
+ * Two facts reach it, and neither of them is "`/meta` did not answer": an origin that answered with
+ * something that is not a Selvage `/meta`, and a page whose own address names no server at all (a
+ * `file://` open). A read that timed out is the third thing, and it keeps the offer with a note
+ * saying what was not read (`HOST_UNREAD_NOTE`).
  */
-export const HOST_NEEDS_THE_SERVERS_PAGE =
-  'This page was not served by a Selvage server, so there is nothing here to start a room on. Open the server\u2019s own page \u2014 the address a share link points at \u2014 to start a room from a browser.';
-
 /**
  * The warning beside the action where `/meta` had not answered by the time the card was built.
  *
@@ -127,7 +127,12 @@ export type HostAvailability =
   /** Offered, and `/meta` had not answered: the note says what was not read and what the click does. */
   | { kind: 'unchecked'; note: string }
   /** No action: the note is the sentence that stands where it would be. */
-  | { kind: 'explained'; note: string };
+  | { kind: 'explained'; note: string }
+  /**
+   * No action and nothing to say: a page that is not a Selvage server's own. The card leads with the
+   * way in it has, and no sentence stands where the action would have been.
+   */
+  | { kind: 'silent' };
 
 /**
  * The decision, from the facts it rests on.
@@ -146,7 +151,7 @@ export function hostAvailability(options: {
     return { kind: 'explained', note: HOST_NEEDS_A_BROWSER };
   }
   if (options.read.kind === 'not-a-server') {
-    return { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE };
+    return { kind: 'silent' };
   }
   if (options.read.kind === 'no-answer') {
     return { kind: 'unchecked', note: hostUnreadNote() };

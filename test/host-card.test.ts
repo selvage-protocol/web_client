@@ -20,7 +20,6 @@ import assert from 'node:assert/strict';
 import {
   HOST_MARK_KEY,
   HOST_NEEDS_A_BROWSER,
-  HOST_NEEDS_THE_SERVERS_PAGE,
   HOST_UNREAD_NOTE,
   clearHostingMark,
   hostAvailability,
@@ -121,11 +120,12 @@ describe('the host action in the shell', () => {
     assert.match(showing, /hostNote\.textContent = '';/, 'the guest card still explains a refusal it never asked for');
     // And the two intents are said the same way: the offered card writes no note at all — the
     // action is the whole of what it says — and every state that has no action leads with its own
-    // sentence where the action would have been.
+    // sentence where the action would have been, except the page that is not a Selvage server's,
+    // which has no action, no sentence, and the way in it does have.
     assert.match(
       showing,
-      /hostNote\.textContent = availability\.kind === 'offered' \? '' : availability\.note;/,
-      'the offered card writes a sentence, or a card with no action writes none',
+      /hostNote\.textContent =\n\s*availability\.kind === 'offered' \|\| availability\.kind === 'silent' \? '' : availability\.note;/,
+      'a card with no action writes a sentence the person cannot act on',
     );
     assert.ok(!/HOST_TAB_WARNING/.test(main), 'the tab warning survives on the card');
     assert.ok(!/hostWarningFor/.test(main), 'the scoped warning survived the collapse');
@@ -174,11 +174,16 @@ describe('whether the card offers to start a room', () => {
     assert.match(HOST_NEEDS_A_BROWSER, /Joining a room here still works/);
   });
 
-  it("explains a page that is not the server's own page rather than guessing at one", () => {
+  it("offers nothing on a page that is not the server's own, and says nothing about it", () => {
+    // The way in this card does have leads: the invite path opens and `Join` is the action, so a
+    // sentence where the start action would have stood is a line about a thing the card is not
+    // offering, on the card of somebody who never asked for it.
     const availability = hostAvailability({ picker: true, read: { kind: 'not-a-server' } });
-    assert.deepEqual(availability, { kind: 'explained', note: HOST_NEEDS_THE_SERVERS_PAGE });
+    assert.deepEqual(availability, { kind: 'silent' });
+    assert.ok(!('note' in availability), 'a page with nothing to say carries a sentence anyway');
     // A picker that cannot pick is the first answer either way: the /meta read is not worth
-    // making where there is nothing to do with its answer.
+    // making where there is nothing to do with its answer, and the browser's own refusal is the
+    // one fact the person can act on.
     assert.equal(
       hostAvailability({ picker: false, read: { kind: 'not-a-server' } }).kind,
       'explained',
@@ -196,7 +201,7 @@ describe('whether the card offers to start a room', () => {
     // wording the constant carries, so the two cannot drift into two answers.
     assert.equal(hostUnreadNote(), HOST_UNREAD_NOTE);
     assert.ok(
-      !availability.note.includes(HOST_NEEDS_THE_SERVERS_PAGE),
+      !/not served by a Selvage server/.test(availability.note),
       'a read that did not answer still says the page was not served by a Selvage server',
     );
     assert.match(availability.note, /has not answered \/meta/);
@@ -248,12 +253,12 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
   it('draws the line and the note from the availability it just made', () => {
     assert.match(
       main,
-      /hostNote\.textContent = availability\.kind === 'offered' \? '' : availability\.note/,
+      /availability\.kind === 'offered' \|\| availability\.kind === 'silent' \? '' : availability\.note/,
       'the note is not what is written',
     );
     assert.match(
       main,
-      /const offered = availability\.kind !== 'explained'/,
+      /const offered = availability\.kind === 'offered' \|\| availability\.kind === 'unchecked'/,
       'nothing tells a sentence from an action',
     );
     assert.match(main, /hostButton\.hidden = !offered/, 'a button is shown where only a sentence belongs');

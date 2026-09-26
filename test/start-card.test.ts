@@ -381,17 +381,24 @@ describe('Enter and a refusal where the start card cannot host', () => {
     assert.match(primary, /attemptJoin\(\)[\s\S]*$/, 'the join is not what Enter runs');
   });
 
-  it('the standing sentence that explains it is on the card, not only in the bundle', () => {
+  it('the standing sentence that explains it is on the card, and a page with nothing to say stands none', () => {
     // The action Enter takes is the join; why starting a room is not offered stands in
-    // `#host-note`, above the button that would be there, and it is visible in every one of
-    // these states. The offered card writes nothing there, so the note is the empty string for
-    // the one state that has an action to lead with.
+    // `#host-note`, above the button that would be there, and it is visible in every state that has
+    // no action — except the page that is not a Selvage server's own, where there is no sentence
+    // worth reading and the way in the card does have is the whole of what it says.
     const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
     assert.ok(offering.includes('showHosting('), 'the card is never told what to say about hosting');
     assert.match(
       main,
-      /hostNote\.textContent = availability\.kind === 'offered' \? '' : availability\.note/,
+      /hostNote\.textContent =\n\s*availability\.kind === 'offered' \|\| availability\.kind === 'silent' \? '' : availability\.note;/,
       'the note standing where the button would be is not written',
+    );
+    // And the element takes no room when it is empty: a card with nothing to say left 0.75rem of
+    // gap under its action.
+    assert.match(
+      html,
+      /#host-note:empty \{ display: none; \}/,
+      'an empty note still takes room under the action',
     );
     assert.match(
       HOST_NEEDS_A_BROWSER,

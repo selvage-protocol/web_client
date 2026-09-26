@@ -12,7 +12,7 @@
  */
 
 /** The width a panel has before anyone has said otherwise, in rem. */
-export const DEFAULT_WIDTH_REM = 21;
+export const DEFAULT_WIDTH_REM = 24;
 /** The narrowest it may be dragged to and stay a panel. */
 export const MIN_WIDTH_REM = 14;
 /** The widest, as a share of the window and in rem, whichever is smaller. */
