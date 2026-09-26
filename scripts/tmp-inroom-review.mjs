@@ -336,8 +336,13 @@ async function launchChromium({ pointer = 'mouse' } = {}) {
       }
       return result.result?.value;
     },
-    async shot(name) {
-      const { data } = await psend('Page.captureScreenshot', { format: 'png' });
+    async shot(name, clip) {
+      // A clip crops the shot to the control the run is about, so a reviewer reads the chrome
+      // rather than hunting for it in a 1280 px page.
+      const { data } = await psend(
+        'Page.captureScreenshot',
+        clip === undefined ? { format: 'png' } : { format: 'png', clip },
+      );
       const path = resolve(OUT, name);
       writeFileSync(path, Buffer.from(data, 'base64'));
       return path;
@@ -443,6 +448,7 @@ const CHROME = `(() => {
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width), height: Math.round(box.height) };
   };
   const terms = document.getElementById('terms-link');
+  const health = document.getElementById('health');
   const share = document.getElementById('share');
   const shareStyle = share === null ? null : getComputedStyle(share);
   return {
@@ -472,26 +478,45 @@ const CHROME = `(() => {
     copyControl: leaf(document.getElementById('share-group')),
     copyLabel: text('share-group') || document.querySelector('.share-label')?.textContent || '',
     leave: visible('leave') ? text('leave') : '',
-    // The bar's own facts: which session it is, and what the health dot is saying.
+    // The bar's own facts: which session it is, and whether a health state is painted at all — a
+    // healthy room draws nothing, so this is null on a room that is fine.
     sessionIdentity: text('session-identity'),
-    health: document.getElementById('health')?.dataset.health ?? null,
+    health: health?.dataset.health ?? null,
     healthLabel: text('health-label'),
+    healthPainted: health !== null && getComputedStyle(health).display !== 'none',
     // The panel's own edge, and whether it is drawn at all on this device.
     resizer: rect(document.getElementById('side-resizer')),
     resizerCollapsed: document.getElementById('side-resizer')?.dataset.collapsed ?? null,
     sideWidth: Math.round(document.getElementById('side')?.getBoundingClientRect().width ?? 0),
-    // The file strip: the open file's whole state in one line. innerText collapses the shell's own
-    // indentation, which textContent would report as the line's content.
+    // The file strip: the open file, and nothing else — the directory muted, the leaf bold.
     fileStrip: document.getElementById('file-strip')?.innerText ?? '',
-    fileStripChips: document.getElementById('file-strip-chips')?.innerText ?? '',
-    fileStripFollow: document.getElementById('file-strip-follow')?.innerText ?? '',
+    fileStripIds: [...(document.getElementById('file-strip')?.querySelectorAll('[id]') ?? [])].map((node) => node.id),
     treeRows: rows,
     createRow: document.querySelectorAll('#tree .new-row').length,
-    localFolders: [...document.querySelectorAll('#tree .local')].map((tag) => tag.textContent),
-    // A row says "not fetched yet" while the room holds a path open and this window has no text
-    // for it, so this is the count of rows still waiting on the room — what a row wears now that
-    // the dot for "the text is here" is gone. (No backticks here: this is inside a template.)
-    unfetchedTags: document.querySelectorAll('#tree .pending-tag').length,
+    // The panel's own footer bar, and the words on its two verbs.
+    treeActions: document.getElementById('tree-actions')?.hidden === false
+      ? [...document.querySelectorAll('#tree-actions button')].map((button) => button.textContent ?? '')
+      : [],
+    // The folder rows: the glyphs they wear, the name they carry, and the badges of the peers inside.
+    folders: [...document.querySelectorAll('#tree details[data-dir] > summary')].map((summary) => ({
+      name: summary.querySelector('.label')?.textContent ?? '',
+      icons: [...summary.querySelectorAll('.icon.folder')].map((icon) => icon.className),
+      chevron: summary.querySelector('.chev') !== null,
+      badges: [...summary.querySelectorAll('.presence .badge')].map((badge) => badge.title),
+      open: summary.parentElement?.open === true,
+    })),
+    // No row states anything about the room any more: the tags and the refused-write mark are gone.
+    rowTags: document.querySelectorAll('#tree .empty-tag, #tree .pending-tag, #tree .unsaved').length,
+    rowMarks: [...document.querySelectorAll('#tree .label')].map((label) => label.textContent ?? ''),
+    rowHeights: [...document.querySelectorAll('#tree li')].slice(0, 6).map((row) => Math.round(row.getBoundingClientRect().height * 10) / 10),
+    leaveBox: rect(document.getElementById('leave')),
+    barBox: rect(document.getElementById('session')),
+    barText: rect(document.getElementById('brand')),
+    stripBox: rect(document.getElementById('file-strip')),
+    stripText: rect(document.getElementById('file-strip-path')),
+    sideBox: rect(document.getElementById('side')),
+    treeBox: rect(document.getElementById('tree')),
+    treeActionsBox: rect(document.getElementById('tree-actions')),
     sessionNote: text('session-note'),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
     phonePanelOpen: document.getElementById('side')?.hidden !== true,
@@ -740,11 +765,7 @@ const EMPTY_PANE = `(() => {
 const GUEST_ROWS = `(() => {
   const rows = [...document.querySelectorAll('#tree button.row')].map((row) => ({
     text: (row.textContent ?? '').trim(),
-    // The room holds the row open and this window has no text for it yet: the one state a fetch
-    // moves, and the row's reading of the dot this driver used to key on.
-    pending: row.querySelector('.pending-tag') !== null,
-    emptyTag: row.querySelector('.empty-tag') !== null,
-    download: row.querySelector('.download') !== null,
+    download: row.parentElement?.querySelector('.download') !== null && row.parentElement !== null,
   }));
   const strip = document.getElementById('file-strip')?.innerText ?? '';
   // The panel's own state, which is what tells a fetch that shut it from one that left it standing:
@@ -852,12 +873,136 @@ async function hostAndOpen(page, server) {
   return openedPath;
 }
 
+/**
+ * What the design fixes, in px, as the prototype draws it at this width. Every number here was
+ * measured off the prototype in a browser (`ai_notes/.tmp/presence-prototype/index.html`, 1280 wide)
+ * and is what a run of this driver checks the page against.
+ */
+const DESIGN_DESKTOP = {
+  bar: 57.8,
+  strip: 38.8,
+  side: 336,
+  leave: 30.1,
+  treeActions: 43.4,
+};
+
+/** The same, at 390x844: the phone's row, its bar, its strip, and the two text edges. */
+const DESIGN_PHONE = {
+  row: 44,
+  bar: 111.4,
+  strip: 44,
+  chrome: 155,
+  barText: 10.5,
+  stripText: 9.45,
+};
+
+/** Within half a pixel, which is all a layout can be compared at. */
+function near(measured, design, tolerance = 0.5) {
+  return typeof measured === 'number' && Math.abs(measured - design) <= tolerance;
+}
+
+/**
+ * The chrome the design fixes, checked against the prototype's own numbers. A shot shows a person
+ * whether it looks right; these say whether it measures right, and a miss is reported rather than
+ * left in a photograph nobody measures.
+ */
+function checkDesktopChrome(chrome, failures) {
+  const bar = chrome.barBox?.height;
+  const strip = chrome.stripBox?.height;
+  const side = chrome.sideBox?.width;
+  const leave = chrome.leaveBox;
+  const actions = chrome.treeActionsBox?.height;
+  const said = [
+    ['the session bar', bar, DESIGN_DESKTOP.bar],
+    ['the file strip', strip, DESIGN_DESKTOP.strip],
+    ['the panel', side, DESIGN_DESKTOP.side],
+    ['the way out', leave?.height, DESIGN_DESKTOP.leave],
+    ['the panel’s create bar', actions, DESIGN_DESKTOP.treeActions],
+  ];
+  for (const [what, measured, design] of said) {
+    if (!near(measured, design)) {
+      failures.push(`${what} measures ${measured} px, and the design draws ${design}`);
+    }
+  }
+  if (leave?.width !== leave?.height) {
+    failures.push(`the way out is ${leave?.width}x${leave?.height}, and the design draws a square`);
+  }
+  if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
+    failures.push(`the strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
+  }
+  if (chrome.rowTags !== 0) {
+    failures.push(`a tree row still wears a mark: ${chrome.rowTags} of them`);
+  }
+  if (chrome.healthPainted === true && chrome.health === 'ok') {
+    failures.push('a healthy room paints a health control');
+  }
+  for (const folder of chrome.folders ?? []) {
+    if (folder.chevron === true) failures.push(`${folder.name} still draws a chevron`);
+    if (!folder.name.endsWith('/')) failures.push(`${folder.name} is not named as a folder`);
+    if ((folder.icons ?? []).length !== 2) failures.push(`${folder.name} draws ${folder.icons?.length} folder glyphs`);
+  }
+}
+
+/** The phone's own numbers, from the same prototype at 390x844. */
+function checkPhoneChrome(chrome, failures) {
+  const rows = chrome.rowHeights ?? [];
+  const bar = chrome.barBox;
+  const strip = chrome.stripBox;
+  const barText = chrome.barText === null || chrome.barText === undefined ? null : chrome.barText.left - (bar?.left ?? 0);
+  const stripText = chrome.stripText === null || chrome.stripText === undefined ? null : chrome.stripText.left - (strip?.left ?? 0);
+  if (rows.length === 0) {
+    failures.push('the phone’s panel draws no rows to measure');
+  }
+  for (const height of rows) {
+    if (!near(height, DESIGN_PHONE.row, 1)) {
+      failures.push(`a phone tree row measures ${height} px, and the design draws ${DESIGN_PHONE.row}`);
+    }
+  }
+  if (!near(bar?.height, DESIGN_PHONE.bar, 1)) failures.push(`the phone bar measures ${bar?.height} px, not ${DESIGN_PHONE.bar}`);
+  if (!near(strip?.height, DESIGN_PHONE.strip, 1)) failures.push(`the phone strip measures ${strip?.height} px, not ${DESIGN_PHONE.strip}`);
+  if (!near(barText, DESIGN_PHONE.barText, 1)) failures.push(`the phone bar’s text starts ${barText} px in, not ${DESIGN_PHONE.barText}`);
+  if (!near(stripText, DESIGN_PHONE.stripText, 1)) failures.push(`the phone strip’s text starts ${stripText} px in, not ${DESIGN_PHONE.stripText}`);
+  if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
+    failures.push(`the phone’s strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
+  }
+}
+
 /** The desktop shots, in the mouse browser: the layout a real pointer gets, and every new control. */
 async function reviewDesktop(page, server, written, failures) {
   const openedPath = await hostAndOpen(page, server);
   const chrome = await page.evaluate(CHROME);
   log('desktop chrome:', JSON.stringify(chrome));
+  checkDesktopChrome(chrome, failures);
+  log(
+    'the design’s numbers: bar',
+    chrome.barBox?.height,
+    'strip',
+    chrome.stripBox?.height,
+    'panel',
+    chrome.sideBox?.width,
+    'way out',
+    `${chrome.leaveBox?.width}x${chrome.leaveBox?.height}`,
+    'create bar',
+    chrome.treeActionsBox?.height,
+  );
+  log('the panel’s verbs:', JSON.stringify(chrome.treeActions), 'the folders:', JSON.stringify(chrome.folders));
   log('wrote', await record(written, page, '01-in-room-desktop.png'));
+  // And the two pieces of chrome this wave changed, cropped so they can be read: the panel with its
+  // folder rows and its create bar, and the session bar with the way out and no health dot.
+  for (const [name, box] of [
+    ['01b-panel.png', chrome.sideBox],
+    ['01c-session-bar.png', chrome.barBox],
+  ]) {
+    if (box === null || box === undefined) {
+      failures.push(`${name} has no box to crop to`);
+      continue;
+    }
+    written.push(name);
+    log(
+      'wrote the crop',
+      await page.shot(name, { x: box.left, y: box.top, width: box.width, height: box.height, scale: 1 }),
+    );
+  }
   const facts = { chrome };
 
   // The create row, refused and previewed. Two states of the same line: a name this room cannot
@@ -1027,8 +1172,9 @@ async function reviewDesktop(page, server, written, failures) {
     log('a person’s menu:', JSON.stringify(facts.personMenu));
     log('wrote', await record(written, page, '17-person-menu.png'));
 
-    // Follow, from the menu: the same state as the strip's segment, from the other side. The press
-    // takes the dialog down, so what follows is the bar showing the follow it turned on.
+    // Follow, from the menu. The state is the followed face's own ring and its eye — the strip's
+    // segment is gone, and the design draws the follow on the face — and the press takes the dialog
+    // down, so what follows is the bar showing the follow it turned on.
     await page.evaluate(`(() => {
       const button = [...document.querySelectorAll('#menu button')].find((candidate) => /^Follow$/.test((candidate.textContent ?? '').trim()));
       button.click();
@@ -1036,11 +1182,18 @@ async function reviewDesktop(page, server, written, failures) {
     })()`);
     const followed = await waitFor(
       page,
-      'the follow segment in the file strip',
-      `document.getElementById('file-strip-follow')?.innerText ?? ''`,
-      (text) => /Bob/.test(text),
+      'the followed face to wear its ring and its eye',
+      `(() => {
+        const face = [...document.querySelectorAll('#faces .av')].find((candidate) => (candidate.getAttribute('aria-label') ?? '').startsWith('Bob'));
+        return face === undefined ? null : {
+          label: face.getAttribute('aria-label'),
+          classes: face.className,
+          eye: face.querySelector('.eye') !== null,
+        };
+      })()`,
+      (read) => read !== null && read.classes.includes('followed') && read.eye === true,
     );
-    facts.followSegment = followed;
+    facts.followMark = followed;
     facts.menuClosedOnFollow = await page.evaluate(`document.getElementById('menu') === null`);
     facts.following = await page.evaluate(FACES);
     log('following:', JSON.stringify(followed), 'the faces:', JSON.stringify(facts.following));
@@ -1156,6 +1309,33 @@ async function reviewDesktop(page, server, written, failures) {
     }
     await delay(400);
     log('wrote', await record(written, page, '20-following-a-pinned-face.png'));
+
+    // One peer into the folder the run seeded, for the one thing a shot of the panel has to show: a
+    // shut folder wearing the badges of the peers inside it, which is what the design draws where
+    // this page used to draw nothing.
+    await guests[0].open('src/main.ts');
+    // The presence path is what the row is drawn from, and it is published with the caret: an open
+    // alone takes the hold and says nothing about where the peer is.
+    guests[0].setSelection('src/main.ts', { anchor: 0, head: 3 });
+    await waitFor(
+      page,
+      'the folder’s own badges',
+      `document.querySelectorAll('#tree details[data-dir="src"] summary .badge').length`,
+      (count) => count > 0,
+    );
+    await delay(400);
+    const panelBox = await page.evaluate(`(() => {
+      const box = document.getElementById('side').getBoundingClientRect();
+      return { x: box.left, y: box.top, width: box.width, height: box.height };
+    })()`);
+    facts.panelFolders = await page.evaluate(`[...document.querySelectorAll('#tree details[data-dir] > summary')].map((summary) => ({
+      name: summary.querySelector('.label')?.textContent ?? '',
+      open: summary.parentElement?.open === true,
+      badges: [...summary.querySelectorAll('.badge')].map((badge) => badge.title),
+    }))`);
+    log('the folder with a peer in it:', JSON.stringify(facts.panelFolders));
+    written.push('16b-panel-with-a-room.png');
+    log('wrote the panel with a room in it:', await page.shot('16b-panel-with-a-room.png', { ...panelBox, scale: 1 }));
   } finally {
     for (const engine of guests) {
       await engine.disconnect();
@@ -1267,15 +1447,9 @@ async function reviewDesktop(page, server, written, failures) {
   const readEditor = `[...document.querySelectorAll('.monaco-editor .view-line')]
     .map((line) => (line.textContent ?? '').replace(/\\u00a0/g, ' '))
     .join('\\n')`;
-  // The row's own refusal mark, which is what the page shows when a write did not land.
-  const readWarned = `(() => {
-    const wanted = ${JSON.stringify(openedPath)};
-    const leaf = wanted.slice(wanted.lastIndexOf('/') + 1);
-    const row = [...document.querySelectorAll('#tree button.row')].find((candidate) =>
-      [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
-    );
-    return row !== undefined && row.querySelector('.unsaved') !== null;
-  })()`;
+  // The page's own transient line, which is where a refused write lands: the row wears no mark for
+  // it any more, and the sentence stands until its own clock takes it down.
+  const readWarned = `document.getElementById('alert')?.textContent ?? ''`;
   const editorBox = await page.evaluate(`(() => {
     const box = document.querySelector('.monaco-editor')?.getBoundingClientRect();
     return box === undefined || box === null
@@ -1322,7 +1496,7 @@ async function reviewDesktop(page, server, written, failures) {
         5_000,
       );
       // The write landed. What it landed is the whole of the claim: the file on disk is the text the
-      // editor holds, and the page did not mark the row as refused.
+      // editor holds, and the page said nothing about a refusal.
       const onDisk = await page.evaluate(readFolder);
       const inEditor = await page.evaluate(readEditor);
       const warned = await page.evaluate(readWarned);
@@ -1332,7 +1506,7 @@ async function reviewDesktop(page, server, written, failures) {
         path: openedPath,
         reachedTheFolder: true,
         equalsEditor,
-        warnedOnRow: warned,
+        said: warned,
         alreadyThere,
       };
       if (!equalsEditor) {
@@ -1340,8 +1514,10 @@ async function reviewDesktop(page, server, written, failures) {
           `the host\u2019s own edit: ${openedPath} on disk is not what the editor holds (file ${JSON.stringify(onDisk)}, editor ${JSON.stringify(inEditor)})`,
         );
       }
-      if (warned) {
-        failures.push(`the host\u2019s own edit: ${openedPath} wears a refusal mark although its write landed`);
+      if (warned.includes(openedPath)) {
+        failures.push(
+          `the host\u2019s own edit: the page says ${JSON.stringify(warned)} about ${openedPath}, and the write landed`,
+        );
       }
     } catch (error) {
       facts.hostWriteBack = {
@@ -1435,6 +1611,40 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
   facts.settled = await page.evaluate(GUEST_ROWS);
   log('the guest, at rest:', JSON.stringify(facts.settled));
   log('wrote', await record(written, page, '02-in-room-phone.png'));
+
+  // The phone's own chrome, with the panel open: the tree rows the design draws at 44 px, the bar
+  // and the strip at their own heights, and the two text edges. The panel is shut again after it,
+  // because the rest of this pass photographs a guest at rest.
+  await page.evaluate(`(() => {
+    if (document.getElementById('side').hidden) document.getElementById('file-strip').click();
+    return true;
+  })()`);
+  await waitFor(
+    page,
+    'the phone’s panel to open on the tree',
+    `document.querySelectorAll('#tree li').length`,
+    (rows) => rows > 0,
+  );
+  await delay(400);
+  facts.phoneChrome = await page.evaluate(CHROME);
+  checkPhoneChrome(facts.phoneChrome, failures);
+  log(
+    'the phone’s chrome: bar',
+    facts.phoneChrome.barBox?.height,
+    'strip',
+    facts.phoneChrome.stripBox?.height,
+    'rows',
+    JSON.stringify(facts.phoneChrome.rowHeights),
+    'bar text',
+    facts.phoneChrome.barText?.left,
+    'strip text',
+    facts.phoneChrome.stripText?.left,
+    'verbs',
+    JSON.stringify(facts.phoneChrome.treeActions),
+  );
+  log('wrote', await record(written, page, '25-phone-panel-chrome.png'));
+  await page.evaluate(`document.getElementById('file-strip').click()`);
+  await delay(300);
 
   // The bar's faces on a phone: your own seat, the host's crowned one, and the rest counted, with
   // the cluster costing the bar nothing — measured against the same bar with the cluster hidden,
@@ -1549,8 +1759,8 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
   // room does not hold look exactly alike now that the row draws no dot for "the text is here", and
   // a row whose text *is* here saves the file at once and says nothing about a fetch. So the row is
   // found by asking each one in turn and keeping the first that answers with the cost line.
-  const candidates = await page.evaluate(`[...document.querySelectorAll('#tree button.row')]
-    .map((row) => row.querySelector('.download'))
+  const candidates = await page.evaluate(`[...document.querySelectorAll('#tree li.file')]
+    .map((item) => item.querySelector('.download'))
     .filter((button) => button !== null)
     .map((button) => (button.getAttribute('aria-label') ?? '').replace(/^Download /, ''))`);
   facts.downloadCandidates = candidates;
@@ -1597,9 +1807,10 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
   // an empty file and the second says the wait is still running — and a run that recorded only the
   // words could not say which of the two it saw.
   //
-  // What is *not* read here is the `●` the row used to gain when the text landed. The row draws no
-  // dot for it now, and the busy mark is the page's own statement that the fetch has not settled.
-  // The tag is recorded beside it, because the fetch's own open is what puts it up.
+  // What is *not* read here is the `●` the row used to gain when the text landed, or the `not
+  // fetched yet` tag that replaced it. The row states nothing about the room now: the busy mark is
+  // the page's own statement that the fetch has not settled, and the line under the row says what
+  // became of it.
   // The path the driver clicked, and no other: a fetch of `notes.md` is not a fetch of `main.ts`.
   let sawBusy = false;
   const landed = async () => {
@@ -1611,15 +1822,15 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
           [...candidate.querySelectorAll('span.label')].some((span) => span.textContent === leaf),
         );
         if (found === undefined) return null;
-        return {
-          busy: found.querySelector('.row-actions.busy') !== null,
-          pending: found.querySelector('.pending-tag') !== null,
-        };
+        return { busy: found.querySelector('.row-actions.busy') !== null };
       })()`,
     );
     if (row === null) return false;
     sawBusy = sawBusy || row.busy;
-    return sawBusy && !row.busy && !row.pending;
+    // Settled means the row is not working: the busy mark is the page's only statement about a
+    // fetch in flight now that no row says what the room holds, and a fast answer can be over before
+    // the first read — which is why the mark is recorded rather than required.
+    return !row.busy;
   };
   let outcome = { landed: false, note: null, state: 'none' };
   const states = [];
@@ -1672,10 +1883,6 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
     log(
       'the fetch did not land; the room still reads:',
       JSON.stringify(facts.afterFetch.rows),
-      'and the host page read:',
-      JSON.stringify(await arguments[4].evaluate(
-        `[...document.querySelectorAll('#tree button.row')].map((row) => (row.textContent ?? '').trim() + (row.querySelector('.pending-tag') === null ? '' : '[not fetched yet]'))`,
-      )),
     );
   }
   // The panel is where the row's own line lives, so a shot of a row has to be a shot of the panel.
