@@ -270,20 +270,29 @@ the one counted away, because that ring is the only place a follow shows on this
 face opens that person's menu under it, with `Go to` where they are in a file and `not in a file
 yet` where they are not, a `Follow` toggle that reads `Stop following` once it is on, and your own
 `Rename`, which edits the name in the menu itself. A go-to the room cannot answer — the peer
-closed the file, or its caret does not resolve here — says so in that menu for four seconds, or in
-the alert when no menu stands for it, which is where the empty pane's own `Go to` is pressed. The
-sidebar is the tree: what the room shares, with a peer badge on whose file is whose and, on a shut
-folder, the badges of the peers inside it. A row states nothing else about the room — the tags that
-said a document reads empty or had not arrived, and the mark a refused write put there, are gone —
-and an action that refuses says so beside its own control, or in the alert where it has none. The
-panel's create verbs stand in a bar at its foot, labelled `New file` and `New folder`.
+closed the file, or its caret does not resolve here — says so in that menu for four seconds as
+two lines: `Nothing to go to` over the room's own reason. The empty pane's own `Go to`, which
+has no menu to stand it in, says the same sentence in the alert. The sidebar is the tree: what
+the room shares, with a peer badge on whose file is whose and, on a shut folder, the badges of
+the peers inside it. A row states nothing else about the room — the tags that said a document
+reads empty or had not arrived, and the mark a refused write put there, are gone — and an
+action that refuses says so beside its own control, or in the alert where it has none. The
+panel's create verbs stand in a bar at its foot, labelled `New file` and `New folder`, and the row a
+press opens asks for a `New file name` or a `New folder name` — ` in <dir>` where it stands in one —
+and offers `Create` and `Cancel`.
 
-Following shows on the followed face — a dashed ring and an eye — with `Stop following` in
-that person's menu, and ends when you type, navigate (open a file from the tree or go to
-someone), stop it, or the peer leaves. A follow that ended without a stop says why on the
-alert, for four seconds. When the host's socket drops, the session note
-names the grace window and counts it down to the room's own deadline; when the host
-returns it says so for a few seconds and then clears. When the room ends, because the host does not return before the
+Following shows on the followed face — a dashed ring and an eye — with `Stop following` in that
+person's menu, and ends when you type, navigate (open a file from the tree or go to someone),
+stop it, or the peer leaves. A follow that ended without a stop says why on the alert, for four
+seconds. Everything the page has to say over the workspace stands in one notices column in the
+top-right corner, floating above it: the session card, the failure alert, the line a tap
+reveals, and a toast per file saved. When the host's socket drops, the card names the host,
+counts the grace window down to the room's own deadline under a bar that drains with it, and
+turns red saying `The session ended` when the window is out; when the host returns it says so
+for a few seconds and then clears, and the bar's identity keeps naming the host's session
+throughout. A file saved out of the room — fetched first when this window has no text for it —
+is `Downloaded <leaf>`, two at a time with the rest counted. The column takes no click and
+moves nothing under it. When the room ends, because the host does not return before the
 grace expires, the page leaves the session: the socket closes, the binding and the editor
 are dropped, the chrome comes down, and the card returns over the blurred preview carrying
 `The room is gone (host did not return). Nothing is kept on this page; the folder the room
@@ -379,23 +388,27 @@ The page's own modules:
   On a phone the act is `Browse files`, since the panel starts shut and nothing else opens
   it.
 - `src/browser/share-box.ts`: the share bar as one copy control. Click anywhere, or
-  focus and press Enter, to copy; an overlay inside the bar names the `Link copied`
-  confirmation briefly and hides, and the readout never leaves, so no layout shifts.
+  focus and press Enter, to copy; an overlay inside the bar names the `Copied`
+  confirmation briefly and hides, and the readout never leaves, so no layout shifts. The copy is
+  announced once, through the page's polite region, because the morph says nothing to a screen
+  reader.
 - `src/browser/presence.ts`: initials, one badge per line, the badge CSS.
 - `src/browser/mobile.ts`: what a touch-only browser is given, the phone query's two arms
   (upright and on its side) and the touch query it is narrowed by, the editor options a phone
   needs (wrapped lines, 16 px, a 55 px gutter), and how tall the app is when a soft
   keyboard shrinks the visual viewport. The minimap and the caret's line highlight are off for
   every device, because the design draws neither.
-- `src/browser/notice.ts`: the two message homes the page keeps: the session note in the
-  chrome (the host-leave warning while the grace runs, counting its window down to the
-  room's deadline, the dropped socket's line while the engine re-dials, and the host's
-  return for a few seconds), and the failure alert — an action that refused with no control
-  to sit beside, a write the folder refused, a follow that ended, and an error the room reports
-  about the session — plus the line a tap
-  reveals where a `title` would have shown a pointer. The countdown's number is an element of its own with the live region off, so
-  the sentence is announced once and the count never is; the alert and the tap line are
-  one mechanism, standing a few seconds and leaving on their own.
+- `src/browser/notice.ts`: the notices column, which is every sentence the page has over the
+  workspace. The session card is the room's own lifecycle: the host-leave warning while the grace
+  runs, counting its window down to the room's deadline under a 2 px bar that drains with it and
+  turning red when the window is out, the host's return for a few seconds, and the dropped socket's
+  line while the engine re-dials. The ticking line is hidden from assistive tech and the card carries
+  its own sentence, so the news is announced once rather than once a second. The same column holds
+  the download toasts (`Downloaded <leaf>`, two at a time with `+N more`), the failure alert — an
+  action that refused with no control to sit beside, a write the folder refused, a follow that ended,
+  an error the room reports about the session — and the line a tap reveals where a `title` would have
+  shown a pointer. The column takes no pointer at all, and its top is measured from the bar and the
+  phone's strip so it clears both.
 - `src/browser/ended.ts`: the end of a session, the sentences for it (the desktop clients'
   `The room is gone (<reason>).` plus what a page cannot keep) and the one next step, and
   `dropSession`, the order in which the page leaves a dead room.

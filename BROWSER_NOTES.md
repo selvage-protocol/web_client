@@ -3926,3 +3926,67 @@ different fact and was not part of the ask; `HOST_NEEDS_A_BROWSER` and
 comment gone with the constant. The grant's own shape is unchanged and `README.md` keeps it as a
 fact about the room rather than as copy the card says: `.env`, `.git/**` and the key names are
 excluded, and the write-back is still every settled edit into the file on disk.
+
+## The notices, and the copy the prototype draws (2026-09-26)
+
+**One notices column.** `#session-note`, the full-width strip under the bar that pushed the
+workspace down, is gone; `#notices` floats one column in the top-right corner instead, out of the
+flow and at `pointer-events: none`, so a sentence arriving moves nothing and takes no click.
+`#alert` and `#peek` moved into it and are no longer fixed at the bottom centre, which retired
+`--keyboard-inset` and `keyboardInsetFor` with them: nothing is parked under a soft keyboard any
+more. Its top is measured rather than declared (`placeNotices`), because the bar's height is what
+the faces make it and a phone's strip below it runs the full width and is not drawn at all while
+the panel is open — a CSS top would be a second guess at both. The prototype's own numbers are
+taken literally where it has them: `right: 12px`, `gap: 8px`, the card's 2 px bar, `22rem` wide.
+
+**The card.** The host's departure is the design's: `<Host> left the session` over
+`Disconnecting in Ns`, with the bar draining over the same window and the whole card turning red as
+`The session ended` / `Host disconnected` when the deadline passes. Two deviations, both because
+the build's window is the server's number and the mock's is a constant 30 s. The bar is drawn from
+each tick's own reading of the deadline rather than a CSS animation of a fixed length, so a
+backgrounded tab shows the room's real remaining time and the line and the bar cannot disagree. And
+a window of a minute or more is read in `graceWording`'s unit (`1 minute`) rather than `60s`: the
+prototype's `Ns` is kept for the windows a server actually sends, which are seconds.
+
+**The downloads became toasts.** A save is `Downloaded <leaf>`, two at a time with `+N more` and a
+2.2 s stand, in the same column. The row keeps the sentences the mock cannot draw — what a fetch
+costs, the wait, an empty file offered, a failure with `Try again` — because each is a decision a
+person has to make. Queue order is oldest-first rather than the newest, which is what the prototype
+*draws* (its comment says newest), so a burst cannot jump a toast out from under a reader.
+
+**Copy taken from the prototype.** The invite pill says `Copied` for 1.8 s (was `Link copied`,
+1.5 s) and announces `Invite link copied` through the page's polite region — the morph is the
+visible confirmation, and a copy with no words says nothing to a screen reader. The go-to refusal
+is the design's two lines, `Nothing to go to` over the room's own reason; both of the build's
+reasons are kept, because one of them is a peer in no document and the prototype's single caret
+sentence is wrong for that case. The create row asks for a `New file name` or a `New folder name`
+with ` in <dir>` where it stands in one, offers `Create` and `Cancel`, and refuses with
+`A path cannot go up a folder`, `That file is already in the tree` or `That folder is already in
+the tree`. The `Also creates the folders …` line went with them: what a path makes on the way is
+the commit's business, and the folder makes it either way.
+
+**Behaviour the audits drove.** On a phone, `Go to` and `Follow` both shut the panel, since the
+file that opens is what the press asked for. A follow ends with focus on the followed face (the
+design's rule: the follow *is* that face's ring), which fixes the `+N` case in particular. While the
+host is away the identity line keeps `In <host>'s session`: the roster drops the host the moment
+its socket detaches, so the name is taken while the room still carries it and cleared only by
+leaving.
+
+**Escape is a reversal, deliberately.** Escape now always returns focus to the dialog's own faces:
+the first press leaves the name edit with focus on `Rename`, the second closes the menu with focus
+back on the face. The branch had it the other way — a stray Escape, one Monaco is dismissing, closed
+the menu without pulling focus out of the editor — and the owner asked for the prototype's
+behaviour, which is this. The trade-off is real: an Escape meant for the editor now takes focus to
+the bar when a menu is standing. Focus never moves when no menu is open, and the field's own Escape
+still stops the key where it is typed.
+
+**Kept, and why.** The invite field's `••••` mask (the prototype shows the real link blurred, and
+a blur is readable; the mask is the only version that keeps the token out of the DOM), the editor's empty pane, the join and start cards, the end-of-room card's
+sentence, the read-only sentence for a screen reader, and the rule that a *document change* ends a
+follow rather than any printable key — a click in the editor produces a key event in Monaco, so the
+prototype's rule would end a follow on a click.
+
+**The host-away row state went.** The rows' `opacity: .55` and their `The host is away, so its text
+cannot arrive.` title are gone: the card carries that news now, and `markKey` stays for the one row
+chrome that does read the room's knowledge — a host's download control appears when the room holds
+the file open.
