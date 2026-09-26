@@ -101,9 +101,8 @@
       #brand .mark { width: 1.35em; height: 1.35em; flex: none; }
       #session-identity { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Health is painted only where there is something to say: while the room is fine the bar says
-         nothing, and the dot with its own name stands for the two states that change what typing
-         means — amber while the socket is re-dialling, red while the host is away and the grace is
-         running. The session card in the notices column carries the countdown and who left. */
+         nothing, and the dot with its own name stands for a socket being re-dialled. A host that is
+         away is the session card's, in the notices column, with the countdown and who left. */
       #health { display: inline-flex; align-items: center; gap: 0.4em; flex: none;
         font-size: 0.85em; font-weight: 600; color: var(--muted-foreground); }
       #health[data-health='ok'] { display: none; }
@@ -112,8 +111,6 @@
       #health[data-health='reconnecting'] { color: var(--warning); }
       #health[data-health='reconnecting'] .dot { background: var(--warning);
         animation: health-pulse 1.4s ease-in-out infinite; }
-      #health[data-health='away'] { color: var(--danger); }
-      #health[data-health='away'] .dot { background: var(--danger); }
       @keyframes health-pulse { 50% { opacity: 0.35; } }
       @media (prefers-reduced-motion: reduce) {
         #health[data-health='reconnecting'] .dot { animation: none; }
@@ -541,32 +538,66 @@
          card says one thing to a screen reader, from its own element, and changes it once. */
       .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
         overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-      /* The editor the card stands over: a file tree beside the code the tree
-         has open, in the page's own tokens. A picture, and nothing more: it
-         takes no pointer, no cursor and no selection, and holds nothing a
-         person could reach. It is drawn at 16 px — the size the editor gives
-         a document on a touch device, and 1.15em of the page's 14 px because
-         a shrunken fraction of the editor's own size is what the veil's blur
-         turns into an artifact. */
-      #preview { position: absolute; inset: 0; display: flex; min-height: 0;
+      /* The room the card stands over, in the page's own tokens and the workspace's own shape. A
+         picture, and nothing more: it takes no pointer, no cursor and no selection. Faces, badges,
+         icons and the caret are shapes without text, which is all the veil's blur leaves of them.
+         The code is drawn at 16 px, 1.15em of the page's 14 px, because a shrunken fraction of the
+         editor's own size is what the blur turns into an artifact. */
+      #preview { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0;
         pointer-events: none; user-select: none; }
-      #preview .fake-side { width: 24rem; flex: none; background: var(--card);
-        border-right: 1px solid var(--border); padding: 0.7em 0 1.4em; overflow: hidden;
-        font: 1.15em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
-      #preview .fake-side .fake-dir { color: var(--foreground); font-weight: 600;
-        padding: 0 0.9em; }
-      #preview .fake-side .fake-file { color: var(--muted-foreground);
-        padding: 0 0.9em 0 2.05em; white-space: nowrap; overflow: hidden;
-        text-overflow: ellipsis; }
-      #preview .fake-side .fake-caret { color: var(--muted-foreground); margin-right: 0.35em; }
-      /* The one row an editor would have lit: the file the code pane shows. */
-      #preview .fake-side .fake-open { background: var(--muted); color: var(--foreground);
+      #preview .fake-top { display: flex; align-items: center; gap: 0.9em; flex: none;
+        padding: 0.6em 1.1em; min-height: 2.9em; background: var(--card);
+        border-bottom: 1px solid var(--border); color: var(--foreground); font-weight: 650; }
+      #preview .fake-mark { width: 1.35em; height: 1.35em; border-radius: 0.3em;
+        background: var(--muted-hover); }
+      #preview .fake-name { white-space: nowrap; }
+      #preview .fake-invite { padding: 0.3em 0.7em; border: 1px solid var(--border);
+        border-radius: var(--radius); background: var(--input); color: var(--muted-foreground);
+        white-space: nowrap; }
+      #preview .fake-faces { display: flex; margin-left: auto; }
+      #preview .fake-face { width: 1.9em; height: 1.9em; border-radius: 50%;
+        border: 2px solid var(--card); margin-left: -0.35em; }
+      #preview .fake-host { background: var(--primary); }
+      #preview .fake-guest { background: var(--ok); }
+      #preview .fake-third { background: var(--warning); }
+      #preview .fake-leave { width: 2.15em; height: 2.15em; box-sizing: border-box;
+        border: 1px solid var(--border-strong); border-radius: var(--radius); }
+      #preview .fake-body { display: flex; flex: 1; min-height: 0; }
+      #preview .fake-side { width: 24rem; flex: none; display: flex; flex-direction: column;
+        background: var(--card); border-right: 1px solid var(--border);
+        padding: 0.9em 0.7em 0; box-sizing: border-box; overflow: hidden;
+        font: 1.05em/2.4 var(--ui); }
+      #preview .fake-side .fake-dir { display: flex; align-items: center; gap: 0.45em;
+        padding: 0 0.6em; color: var(--foreground); font-weight: 600; }
+      #preview .fake-side .fake-file { display: flex; align-items: center; gap: 0.45em;
+        padding: 0 0.6em 0 2em; color: var(--foreground); white-space: nowrap;
+        border: 1px solid transparent; border-radius: var(--radius); }
+      #preview .fake-side .fake-root { padding-left: 0.6em; }
+      /* The one row the workspace would have lit: the file the code pane shows. */
+      #preview .fake-side .fake-open { background: var(--muted); border: 1px solid var(--border-strong);
         font-weight: 600; }
-      /* The code pane is the gutter against the text, which is the shape that
-         reads as an editor first, and a document longer than the window, so
-         the card is cutting lines rather than sitting under the last one. */
-      #preview .fake-main { flex: 1; min-width: 0; display: flex; gap: 1.2em;
-        padding: 0.7em 1.4em 1.4em; overflow: hidden; }
+      #preview .fake-side .fake-ico { width: 0.8em; height: 0.8em; flex: none; border-radius: 2px;
+        background: var(--primary); }
+      #preview .fake-side .fake-folder { width: 0.95em; height: 0.75em; flex: none;
+        border: 1.5px solid var(--muted-foreground); border-radius: 2px; }
+      #preview .fake-side .fake-shut { background: var(--muted-foreground); }
+      #preview .fake-side .fake-badge { width: 1.45em; height: 1.05em; margin-left: auto;
+        border-radius: 3px; }
+      #preview .fake-side .fake-foot { display: flex; justify-content: space-around; flex: none;
+        margin: auto -0.7em 0; padding: 0.3em 0; background: var(--card);
+        color: var(--muted-foreground); }
+      #preview .fake-side .fake-verb { white-space: nowrap; }
+      #preview .fake-main { flex: 1; min-width: 0; display: flex; flex-direction: column;
+        overflow: hidden; }
+      #preview .fake-main .fake-strip { flex: none; padding: 0.4em 0.9em; min-height: 2.2em;
+        box-sizing: border-box; background: var(--card); border-bottom: 1px solid var(--border);
+        color: var(--foreground); font-weight: 700; }
+      #preview .fake-main .fake-dirname { color: var(--muted-foreground); font-weight: 400; }
+      /* The gutter against the text, which is the shape that reads as an editor first, and a
+         document longer than the window, so the card is cutting lines rather than sitting under
+         the last one. */
+      #preview .fake-main .fake-editor { display: flex; gap: 1.2em; min-height: 0;
+        padding: 0.7em 1.4em 1.4em; }
       #preview .fake-main .fake-nums { flex: none; color: var(--muted-foreground);
         text-align: right; white-space: pre;
         font: 1.15em/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -576,6 +607,9 @@
       #preview .fake-main .tok-key { color: var(--primary); }
       #preview .fake-main .tok-lit { color: var(--warning); }
       #preview .fake-main .tok-comment { color: var(--muted-foreground); }
+      /* A guest's caret, where the guest's badge in the tree says they are. */
+      #preview .fake-main .fake-peer { display: inline-block; width: 2px; height: 1.3em;
+        margin: 0 -1px; vertical-align: text-bottom; background: var(--ok); }
       #veil { position: absolute; inset: 0; background: rgba(17, 17, 27, 0.6);
         backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px); }
       #join { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -940,43 +974,50 @@
         <div id="toasts" aria-live="polite"></div>
         <div id="toasts-more" hidden></div>
       </div>
-      <!-- A picture of an editor for the card to stand over: none of it is
-           real and nothing in it is reachable, so `inert` and `aria-hidden`
-           between them keep a screen reader from reading a file tree that
-           does not exist. The code block's own lines start at the margin of
-           this file, because a `<pre>` keeps the indentation it is written
-           with; the gutter is one source line of numbers. -->
+      <!-- A picture of a room for the card to stand over, drawn as the workspace is: the session
+           bar, the file tree with its verbs at the foot, the file strip and the code. None of it is
+           real and nothing in it is reachable, so `inert` and `aria-hidden` between them keep a
+           screen reader from reading a file tree that does not exist. The code block's own lines
+           start at the margin of this file, because a `<pre>` keeps the indentation it is written
+           with, and the gutter is one source line of numbers. -->
       <div id="preview" aria-hidden="true" inert>
-        <div class="fake-side">
-          <div class="fake-dir"><span class="fake-caret">▾</span>src/</div>
-          <div class="fake-file fake-open">main.rs</div>
-          <div class="fake-file">room.rs</div>
-          <div class="fake-file">session.rs</div>
-          <div class="fake-file">invite.rs</div>
-          <div class="fake-file">grant.rs</div>
-          <div class="fake-file">peers.rs</div>
-          <div class="fake-file">presence.rs</div>
-          <div class="fake-file">editor.rs</div>
-          <div class="fake-file">binding.rs</div>
-          <div class="fake-file">transport.rs</div>
-          <div class="fake-file">notice.rs</div>
-          <div class="fake-file">roster.rs</div>
-          <div class="fake-file">tree.rs</div>
-          <div class="fake-dir"><span class="fake-caret">▾</span>tests/</div>
-          <div class="fake-file">join.rs</div>
-          <div class="fake-file">session.rs</div>
-          <div class="fake-file">grant.rs</div>
-          <div class="fake-file">presence.rs</div>
-          <div class="fake-dir"><span class="fake-caret">▸</span>docs/</div>
-          <div class="fake-dir"><span class="fake-caret">▸</span>packaging/</div>
-          <div class="fake-file">Cargo.toml</div>
-          <div class="fake-file">README.md</div>
+        <div class="fake-top">
+          <span class="fake-mark"></span><span class="fake-name">Sharing “selvage”</span>
+          <span class="fake-invite">Copy invite link</span>
+          <span class="fake-faces"><span class="fake-face fake-host"></span><span class="fake-face fake-guest"></span><span class="fake-face fake-third"></span></span>
+          <span class="fake-leave"></span>
         </div>
-        <div class="fake-main">
-          <div class="fake-nums">1&#10;2&#10;3&#10;4&#10;5&#10;6&#10;7&#10;8&#10;9&#10;10&#10;11&#10;12&#10;13&#10;14&#10;15&#10;16&#10;17&#10;18&#10;19&#10;20&#10;21&#10;22&#10;23&#10;24&#10;25&#10;26&#10;27&#10;28&#10;29&#10;30&#10;31&#10;32&#10;33&#10;34&#10;35&#10;36</div>
-          <pre class="fake-code"><span class="tok-comment">// A guest opens the document the room shares.</span>
+        <div class="fake-body">
+          <div class="fake-side">
+            <div class="fake-dir"><span class="fake-folder"></span>src/</div>
+            <div class="fake-file fake-open"><span class="fake-ico"></span>main.rs<span class="fake-badge fake-guest"></span></div>
+            <div class="fake-file"><span class="fake-ico"></span>room.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>session.rs<span class="fake-badge fake-third"></span></div>
+            <div class="fake-file"><span class="fake-ico"></span>invite.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>grant.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>peers.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>presence.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>editor.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>binding.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>transport.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>notice.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>tree.rs</div>
+            <div class="fake-dir"><span class="fake-folder"></span>tests/</div>
+            <div class="fake-file"><span class="fake-ico"></span>join.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>session.rs</div>
+            <div class="fake-file"><span class="fake-ico"></span>presence.rs</div>
+            <div class="fake-dir"><span class="fake-folder fake-shut"></span>docs/</div>
+            <div class="fake-file fake-root"><span class="fake-ico"></span>Cargo.toml</div>
+            <div class="fake-file fake-root"><span class="fake-ico"></span>README.md</div>
+            <div class="fake-foot"><span class="fake-verb">New file</span><span class="fake-verb">New folder</span></div>
+          </div>
+          <div class="fake-main">
+            <div class="fake-strip"><span class="fake-dirname">src/</span>main.rs</div>
+            <div class="fake-editor">
+              <div class="fake-nums">1&#10;2&#10;3&#10;4&#10;5&#10;6&#10;7&#10;8&#10;9&#10;10&#10;11&#10;12&#10;13&#10;14&#10;15&#10;16&#10;17&#10;18&#10;19&#10;20&#10;21&#10;22&#10;23&#10;24&#10;25&#10;26&#10;27&#10;28&#10;29&#10;30&#10;31&#10;32&#10;33&#10;34&#10;35&#10;36</div>
+              <pre class="fake-code"><span class="tok-comment">// A guest opens the document the room shares.</span>
 <span class="tok-key">fn</span> main() {
-    <span class="tok-key">let</span> invite = Invite::from_env();
+    <span class="tok-key">let</span> invite = Invite::<span class="fake-peer"></span>from_env();
     <span class="tok-key">let</span> <span class="tok-key">mut</span> room = Room::connect(invite);
 
     room.on_open(|path: &amp;str| {
@@ -1010,6 +1051,8 @@
 
 <span class="tok-comment">// Nothing here reads the host's disk: the room holds the text, and the</span>
 <span class="tok-comment">// host's copy stays the truth.</span></pre>
+            </div>
+          </div>
         </div>
       </div>
       <div id="veil" aria-hidden="true"></div>
