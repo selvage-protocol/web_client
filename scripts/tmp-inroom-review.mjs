@@ -12,10 +12,12 @@
  * The same technique is what the project used before (`BROWSER_NOTES.md`, "Seen in a browser"),
  * and this file is the small, committed version of it for a visual review.
  *
- * With `--footer` (or `SELVAGE_FOOTER=1`) the demo deployment's footer — the non-commercial
- * notice and its terms link, injected before `</body>` by the demo's nginx — is appended to the
- * page, so the phone shot shows whether it is reachable without hunting, and the last run of the
- * empty room measures the same notice once a session is on screen.
+ * With `--footer` (or `SELVAGE_FOOTER=1`) the demo deployment's footer — the non-commercial notice
+ * and its terms link — is served inside the page's own bytes, before `</body>`, which is where that
+ * deployment's front puts it; the phone shot then shows whether it is reachable without hunting, and
+ * the last run of the empty room measures the same notice once a session is on screen. It also
+ * decides the panel's own foot: with a link in the page the foot is shown over it, and without one
+ * the foot stays hidden, which is the pair the run checks.
  *
  * The last pass photographs the room's two empty states, which need a folder with nothing in it:
  * the driver leaves the room it built, starts another from an empty folder and joins it as a
@@ -34,7 +36,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -108,7 +110,7 @@ function selvagedBinary() {
  * origin the guest's own page is served from, which is `PROTOCOL.md` §5.1's shape.
  */
 async function startServer() {
-  const page = resolve(ROOT, 'dist');
+  const page = servedPage();
   if (!existsSync(resolve(page, 'index.html'))) {
     throw new Error('dist/index.html is missing; run `npm run build` first');
   }
@@ -183,14 +185,43 @@ const PICKER_STAND_IN = `(() => {
   window.showDirectoryPicker = () => build();
 })();`;
 
-/** The demo's own footer, the shape its nginx injects before `</body>`. */
-const FOOTER_INJECTION = `(() => {
-  const aside = document.createElement('aside');
-  aside.id = 'demo-footer';
-  aside.style.cssText = 'box-sizing:border-box;padding:.65rem 1rem;font:14px/1.45 system-ui,sans-serif;text-align:center;color:#a6adc8;background:#181825;border-top:1px solid #313244';
-  aside.innerHTML = 'Demo instance: <strong style="color:#f9e2af">non-commercial use only.</strong> Not a hosted product; rooms are not persisted and may be reset at any time. <a id="terms-link" style="color:#cba6f7" href="/terms">Terms of use</a>';
-  document.body.appendChild(aside);
-})();`;
+/**
+ * The demo's own banner, byte for byte as its front serves it: the aside it substitutes for
+ * `</body>`, with no id on the aside and none on the link — which is why the page's foot finds it
+ * by shape rather than by name.
+ */
+const FOOTER_ASIDE =
+  '<aside style="box-sizing:border-box;padding:.65rem 1rem;' +
+  'font:14px/1.45 system-ui,sans-serif;text-align:center;color:#a6adc8;background:#181825;' +
+  'border-top:1px solid #313244">Demo instance: ' +
+  '<strong style="color:#f9e2af">non-commercial use only.</strong> Not a hosted product; ' +
+  'rooms are not persisted and may be reset at any time. ' +
+  '<a style="color:#cba6f7" href="/terms">Terms of use</a></aside>';
+
+/**
+ * The page the driver serves: `dist/` as it is, or — with `--footer` — a copy of `dist/` carrying the
+ * demo's banner in its bytes, where that deployment's front puts it.
+ *
+ * The aside is not appended by a script, because that is a different page from the one a visitor
+ * gets: the banner is in the response, so it is in the DOM before the bundle's own module runs, and a
+ * page that adopted the link on `DOMContentLoaded` would be reading a document no visitor has.
+ */
+function servedPage() {
+  const page = resolve(ROOT, 'dist');
+  if (!FOOTER) {
+    return page;
+  }
+  const served = resolve(OUT, 'served');
+  rmSync(served, { recursive: true, force: true });
+  cpSync(page, served, { recursive: true });
+  const index = resolve(served, 'index.html');
+  const html = readFileSync(index, 'utf8');
+  if (!html.includes('</body>')) {
+    throw new Error('dist/index.html has no </body>, so the banner has nowhere to land');
+  }
+  writeFileSync(index, html.replace('</body>', `  ${FOOTER_ASIDE}\n  </body>`));
+  return served;
+}
 
 /**
  * The smallest CDP driver this needs: one page, evaluate, screenshot, device metrics.
@@ -309,11 +340,6 @@ async function launchChromium({ pointer = 'mouse' } = {}) {
   // be the focused one.
   await psend('Emulation.setFocusEmulationEnabled', { enabled: true });
   await psend('Page.addScriptToEvaluateOnNewDocument', { source: PICKER_STAND_IN });
-  if (FOOTER) {
-    await psend('Page.addScriptToEvaluateOnNewDocument', {
-      source: `window.addEventListener('DOMContentLoaded', () => { ${FOOTER_INJECTION} });`,
-    });
-  }
 
   return {
     send: psend,
@@ -447,7 +473,7 @@ const CHROME = `(() => {
     const box = element.getBoundingClientRect();
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width), height: Math.round(box.height) };
   };
-  const terms = document.getElementById('terms-link');
+  const terms = document.querySelector('body > aside a[href$="/terms"]');
   const health = document.getElementById('health');
   const share = document.getElementById('share');
   const shareStyle = share === null ? null : getComputedStyle(share);
@@ -558,16 +584,36 @@ const CHROME = `(() => {
     phonePanelOpen: document.getElementById('side')?.hidden !== true,
     termsLink: terms === null ? null : rect(terms),
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight && terms.getBoundingClientRect().top >= 0,
-    footer: rect(document.getElementById('demo-footer')),
+    footer: rect(document.querySelector('body > aside')),
+    // The panel's own foot: the deployment's link where the page carries one, and nothing at all
+    // where it does not. Its href is the deployment's, read off the deployment's own aside here, so
+    // the two can be compared rather than assumed.
+    panelFoot: (() => {
+      const foot = document.getElementById('side-foot');
+      const link = document.getElementById('side-terms');
+      if (foot === null || link === null) return null;
+      const style = getComputedStyle(link);
+      const deployed = document.querySelector('body > aside a[href$="/terms"]');
+      return {
+        hidden: foot.hidden,
+        text: link.textContent,
+        href: link.getAttribute('href'),
+        deploymentHref: deployed === null ? null : deployed.getAttribute('href'),
+        colour: style.color,
+        fontSize: style.fontSize,
+        align: getComputedStyle(foot).textAlign,
+        box: rect(foot),
+      };
+    })(),
     joinCard: rect(document.getElementById('join')),
   };
 })()`;
 
 /**
- * The faces in the session bar: what each one is read by, which marks it wears, and the size it is
- * actually drawn at. The label and the title are the two readings a person has — one for a screen
- * reader and one for a pointer — and the crown and the eye are pictures, so they are counted rather
- * than read.
+ * The faces in the session bar: what each one is read by, which marks it wears, the fill it is drawn
+ * in, and the size it is actually drawn at. The label and the title are the two readings a person has
+ * — one for a screen reader and one for a pointer — and the crown and the eye are pictures, so they
+ * are counted rather than read.
  */
 const FACES = `(() => {
   const faces = [...document.querySelectorAll('#faces .av')].map((face) => {
@@ -576,6 +622,7 @@ const FACES = `(() => {
       label: face.getAttribute('aria-label') ?? '',
       title: face.getAttribute('title') ?? '',
       classes: face.className,
+      colour: getComputedStyle(face).backgroundColor,
       crown: face.querySelector('.crown') !== null,
       eye: face.querySelector('.eye') !== null,
       expanded: face.getAttribute('aria-expanded'),
@@ -757,13 +804,13 @@ const PREJOIN = `(() => {
     const box = element.getBoundingClientRect();
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), height: Math.round(box.height) };
   };
-  const terms = document.getElementById('terms-link');
+  const terms = document.querySelector('body > aside a[href$="/terms"]');
   const card = document.getElementById('join');
   const atTerms = terms === null ? null : document.elementFromPoint(terms.getBoundingClientRect().left + 4, terms.getBoundingClientRect().top + 8);
   return {
     viewport: { width: window.innerWidth, height: window.innerHeight },
     card: rect(card),
-    footer: rect(document.getElementById('demo-footer')),
+    footer: rect(document.querySelector('body > aside')),
     termsLink: rect(terms),
     termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight,
     overTheTermsLink: atTerms === null ? null : atTerms.tagName + (atTerms.id === '' ? '' : '#' + atTerms.id),
@@ -937,6 +984,56 @@ function near(measured, design, tolerance = 0.5) {
   return typeof measured === 'number' && Math.abs(measured - design) <= tolerance;
 }
 
+/** Catppuccin Mocha's Mauve, as the browser reports a background colour. */
+const MOCHA_MAUVE = 'rgb(203, 166, 247)';
+
+/**
+ * The seats' fills, read off what the browser painted: the host's seat Mauve and no two faces sharing
+ * a fill. The prototype's own rule — the host takes Mauve, the seat beside it Teal, the rest the
+ * accents in order — is a fact about the pixels rather than about the stylesheet, and a room of six
+ * is where the old eight-colour hash showed three faces in one fill.
+ */
+function checkSeats(faces, failures) {
+  const seats = (faces ?? []).filter((face) => !face.classes.includes('more'));
+  const host = seats.find((face) => /, host|host$/.test(face.label));
+  if (host === undefined) {
+    failures.push('no face in the bar wears the host’s crown');
+    return;
+  }
+  if (host.colour !== MOCHA_MAUVE) {
+    failures.push(`the host’s face is filled ${host.colour}, and the design draws the host’s seat Mauve`);
+  }
+  const fills = seats.map((face) => face.colour);
+  if (new Set(fills).size !== fills.length) {
+    failures.push(`two faces share a fill: ${JSON.stringify(fills)}`);
+  }
+}
+
+/**
+ * The panel's foot: shown over the deployment's own link when the page carries one, and shown not at
+ * all when it does not — a self-hosted copy must not be handed a link to nowhere.
+ */
+function checkPanelFoot(chrome, failures) {
+  const foot = chrome.panelFoot;
+  if (foot === null || foot === undefined) {
+    failures.push('the panel draws no foot at all');
+    return;
+  }
+  if (foot.text !== 'Terms') {
+    failures.push(`the panel’s foot reads ${JSON.stringify(foot.text)}, and the design draws Terms`);
+  }
+  if (FOOTER) {
+    if (foot.hidden === true) {
+      failures.push('the panel’s foot is hidden over a deployment that carries a terms link');
+    }
+    if (foot.href !== foot.deploymentHref || foot.href === null) {
+      failures.push(`the panel’s foot points at ${foot.href}, and the deployment’s own link at ${foot.deploymentHref}`);
+    }
+  } else if (foot.hidden !== true) {
+    failures.push('the panel’s foot is shown on a page that carries no terms link');
+  }
+}
+
 /**
  * The chrome the design fixes, checked against the prototype's own numbers. A shot shows a person
  * whether it looks right; these say whether it measures right, and a miss is reported rather than
@@ -977,6 +1074,7 @@ function checkDesktopChrome(chrome, failures) {
     if (!folder.name.endsWith('/')) failures.push(`${folder.name} is not named as a folder`);
     if ((folder.icons ?? []).length !== 2) failures.push(`${folder.name} draws ${folder.icons?.length} folder glyphs`);
   }
+  checkPanelFoot(chrome, failures);
   checkNotices(chrome, failures, { phone: false });
 }
 
@@ -1045,6 +1143,7 @@ function checkPhoneChrome(chrome, failures) {
   if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
     failures.push(`the phone’s strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
   }
+  checkPanelFoot(chrome, failures);
   checkNotices(chrome, failures, { phone: true });
 }
 
@@ -1228,6 +1327,7 @@ async function reviewDesktop(page, server, written, failures) {
     await delay(300);
     facts.faces = await page.evaluate(FACES);
     facts.hostFace = facts.faces.faces.find((face) => /, host/.test(face.label))?.label ?? '';
+    checkSeats(facts.faces.faces, failures);
     // The same reading the phone takes, on a pointer device's bar: the cluster's own cost there.
     facts.barCost = await page.evaluate(BAR_COST);
     log('the faces in the bar:', JSON.stringify(facts.faces));
@@ -1750,6 +1850,7 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
     );
     await delay(400);
     facts.phoneFaces = await page.evaluate(FACES);
+    checkSeats(facts.phoneFaces.faces, failures);
     facts.phoneBar = await page.evaluate(BAR_COST);
     facts.phoneTap = await page.evaluate(TAP_WIDTH);
     facts.phoneLeave = await page.evaluate(LEAVE);
@@ -1999,7 +2100,7 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
     // pre-join shot, with the rule the phone query applies to it while a session is up. The two
     // measurements are what say whether it shrank, and by how much (design §5 of the session pass).
     facts.footerInRoom = await page.evaluate(`(() => {
-      const aside = document.getElementById('demo-footer');
+      const aside = document.querySelector('body > aside');
       if (aside === null) return null;
       const box = aside.getBoundingClientRect();
       const style = getComputedStyle(aside);
@@ -2009,7 +2110,7 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
         height: Math.round(box.height * 100) / 100,
         fontSize: style.fontSize,
         padding: style.paddingTop,
-        termsVisible: document.getElementById('terms-link')?.getClientRects().length > 0,
+        termsVisible: aside.querySelector('a[href$="/terms"]')?.getClientRects().length > 0,
         text: aside.innerText,
       };
     })()`);
@@ -2242,6 +2343,8 @@ async function main() {
       facts.phone.prejoin?.termsLinkInViewport,
       '| in a room:',
       JSON.stringify(facts.phone.footerInRoom ?? null),
+      '| the panel’s foot:',
+      JSON.stringify(facts.desktop?.chrome?.panelFoot ?? null),
     );
   }
   log('the guest card’s other intent:', JSON.stringify(facts.phone.prejoin?.quietLineVisible), JSON.stringify(facts.phone.prejoin?.quietLine));
