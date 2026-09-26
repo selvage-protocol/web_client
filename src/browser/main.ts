@@ -112,6 +112,7 @@ import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
 import { peerColour } from '../bridge/index.ts';
 import { schemeMatchBase, serverBaseOf } from './servers.ts';
 import { seatColours } from './seats.ts';
+import { adoptTermsFoot } from './terms.ts';
 import {
   PHONE_QUERY,
   TOUCH_QUERY,
@@ -246,6 +247,8 @@ const noticesPane = document.getElementById('notices') as HTMLElement;
 const sidePane = document.getElementById('side') as HTMLElement;
 const sideResizer = document.getElementById('side-resizer') as HTMLElement;
 const sideRail = document.getElementById('side-rail') as HTMLButtonElement;
+const sideFoot = document.getElementById('side-foot') as HTMLElement;
+const sideTerms = document.getElementById('side-terms') as HTMLAnchorElement;
 const fileStrip = document.getElementById('file-strip') as HTMLElement;
 const fileStripPath = document.getElementById('file-strip-path') as HTMLElement;
 /** The one polite region for the changes that no longer have a visible sentence of their own. */
@@ -1412,6 +1415,14 @@ const sidebar = wireSidebar({
   relayout: () => editorApi?.layout(),
 });
 sidebar.apply();
+
+/**
+ * The panel's foot, filled from the deployment's own terms link where it injected one (`terms.ts`),
+ * and left hidden where it did not — a self-hosted copy has no terms page to point at. Read once,
+ * here: the deployment's markup is part of the served page, so it is in the DOM before this bundle
+ * runs.
+ */
+adoptTermsFoot(document, { foot: sideFoot, link: sideTerms });
 
 /**
  * The strip's own chevron, drawn on a phone and taken down anywhere else. Declared before the

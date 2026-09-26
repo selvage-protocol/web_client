@@ -419,6 +419,13 @@
         color: var(--muted-foreground); }
       #tree-actions button .icon { font-size: 1.2em; }
       #tree-actions button:hover:not(:disabled) { color: var(--foreground); }
+      /* The panel's foot: the one link the deployment put on the page, quiet and centred under the
+         create verbs. It draws nothing where there is no link to adopt — the href is written by the
+         page (`terms.ts`), and the foot stays hidden without one. */
+      #side-foot { flex: none; padding: 0.55em 0.7em; border-top: 1px solid var(--border);
+        text-align: center; font-size: 11px; }
+      #side-foot a { color: var(--muted-foreground); text-decoration: none; }
+      #side-foot a:hover { color: var(--foreground); text-decoration: underline; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
       #tree > ul { padding-left: 0; }
       #tree li { margin: 2px 0; }
@@ -1081,6 +1088,12 @@
           <div id="tree-actions" hidden>
             <button id="new-file" type="button"></button>
             <button id="new-folder" type="button"></button>
+          </div>
+          <!-- The panel's foot: the deployment's own terms link, adopted at load (`terms.ts`). The
+               href is the only thing that comes from the deployment, so no link is written here:
+               with none to adopt, this stays hidden and a self-hosted copy is given nothing. -->
+          <div id="side-foot" hidden>
+            <a id="side-terms" target="_blank" rel="noreferrer">Terms</a>
           </div>
         </div>
         <!-- The panel's own edge: 1 px drawn, 8 px hit area, a pointer's col-resize and a keyboard's
