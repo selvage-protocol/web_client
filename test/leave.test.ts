@@ -27,7 +27,6 @@ import {
   LEAVE_ASKING_LABEL,
   LEAVE_CANCEL_LABEL,
   LEAVE_HOST_LABEL,
-  LEAVE_LABEL,
   LEAVE_TITLE,
   wireLeave,
 } from '../src/browser/leave.ts';
@@ -42,7 +41,7 @@ const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'u
  * module touches is here — the panel's hidden flag, the question line, the two answers, focus, and
  * the document the outside-press watch hangs on.
  */
-function control(hosting: boolean, options: { shortLabel?: () => boolean; label?: boolean } = {}) {
+function control(hosting: boolean, options: { label?: boolean } = {}) {
   const seen: string[] = [];
   const outside: Array<(event: unknown) => void> = [];
   const make = (tag: string) => {
@@ -108,45 +107,28 @@ function control(hosting: boolean, options: { shortLabel?: () => boolean; label?
 describe('the way out of a session', () => {
   it('tells a host what leaving costs before the press, not only in the question after it', () => {
     // The control said `Leave` for both roles, so a host learned that its press ends the room for
-    // everyone in it only from the confirmation — one press too late, and in a `title` a phone
-    // never shows. The role names the control as the seat is taken (`showRole`).
+    // everyone in it only from the confirmation — one press too late. The role names the control as
+    // the seat is taken (`showRole`), and the name is what a screen reader and a pointer read: the
+    // design's icon is the control at every width, so the words themselves are never painted.
     const guest = control(false);
     guest.leave.showRole(false);
-    assert.equal(guest.button.textContent, LEAVE_LABEL, 'a guest\u2019s way out lost its word');
     assert.equal(guest.button.attributes['aria-label'], LEAVE_TITLE, 'a guest\u2019s way out is unnamed');
+    assert.equal(guest.button.title, LEAVE_TITLE, 'a guest\u2019s way out explains nothing on hover');
     const host = control(true);
     host.leave.showRole(true);
-    assert.equal(host.button.textContent, LEAVE_HOST_LABEL, 'a host\u2019s way out reads like a guest\u2019s');
     assert.equal(
       host.button.attributes['aria-label'],
       LEAVE_HOST_LABEL,
-      'the name a screen reader reads is not the one on screen',
+      'the name a screen reader reads is not what the press costs',
     );
     assert.equal(host.button.title, LEAVE_HOST_LABEL, 'the host\u2019s control explains nothing on hover');
     // And the role can change under it: a page that hosted and then joined says the guest's word.
     host.leave.showRole(false);
-    assert.equal(host.button.textContent, LEAVE_LABEL, 'the control kept a role this window left');
-  });
-
-  it('says the host’s word in one word where the bar has no room for four', () => {
-    // Measured at 390x844: `Leave and end the room` is 213 px of a 390 px bar, so the control took
-    // a row of its own and the session bar was 138 px of the screen for the whole session. A phone
-    // gets the verb and keeps the sentence: it is the accessible name, the tooltip, and the
-    // question the press opens.
-    const phone = control(true, { shortLabel: () => true });
-    phone.leave.showRole(true);
-    assert.equal(phone.button.textContent, LEAVE_LABEL, 'the phone bar carries four words again');
     assert.equal(
-      phone.button.attributes['aria-label'],
-      LEAVE_HOST_LABEL,
-      'the phone’s control lost the consequence a screen reader reads',
+      host.button.attributes['aria-label'],
+      LEAVE_TITLE,
+      'the control kept a role this window left',
     );
-    assert.equal(phone.button.title, LEAVE_HOST_LABEL, 'the phone’s control explains nothing on hover');
-    assert.equal(phone.question.textContent, HOST_LEAVE_QUESTION, 'the question lost what the press costs');
-    // A pointer arriving mid-session gets the long verb back.
-    const pointer = control(true, { shortLabel: () => false });
-    pointer.leave.showRole(true);
-    assert.equal(pointer.button.textContent, LEAVE_HOST_LABEL, 'a pointer’s bar lost the host’s word');
   });
 
   it('is a control in the chrome, named the way both desktop clients name it', () => {
@@ -166,23 +148,24 @@ describe('the way out of a session', () => {
     );
     assert.match(main, /getElementById\('leave'\)/, 'the page never reaches the control');
     assert.match(main, /leaveControl\.press\(\)/, 'the control is never pressed');
-    // A phone draws the design's icon over the words, and the words are not dropped with the paint:
-    // they move into a span (`leave.ts`'s own `label`) that the stylesheet clips, so the control is
-    // still named and tooltipped in full. The icon is built from the icon set, never a second copy
-    // of the glyph in the shell.
+    // A phone drew the design's icon over the words, and the words were not dropped with the paint:
+    // they moved into a span (`leave.ts`'s own `label`) that the stylesheet clipped. The icon is the
+    // control at every width now, so the span and its clip are the shell's own rules — the words are
+    // the control's name and its tooltip, and nothing a person reads on screen. The icon is built
+    // from the icon set, never a second copy of the glyph in the shell.
     assert.match(main, /iconSpan\('leave'\)/, 'the way out is drawn without the design’s icon');
     assert.match(main, /label: leaveLabel/, 'the icon has no words to keep in the DOM');
   });
 
-  it('keeps the phone’s words in the DOM while the icon takes their place', () => {
+  it('keeps the words in the DOM while the icon takes their place, at every width', () => {
     const host = control(true, { label: true });
     host.leave.showRole(true);
-    assert.equal(host.label.textContent, LEAVE_HOST_LABEL, 'the phone’s control lost its words');
+    assert.equal(host.label.textContent, LEAVE_HOST_LABEL, 'the control lost its words');
     assert.equal(host.button.textContent, '', 'the role words were written over the button’s icon');
-    assert.equal(host.button.attributes['aria-label'], LEAVE_HOST_LABEL, 'the phone’s control is unnamed');
+    assert.equal(host.button.attributes['aria-label'], LEAVE_HOST_LABEL, 'the control is unnamed');
     const guest = control(false, { label: true });
     guest.leave.showRole(false);
-    assert.equal(guest.label.textContent, LEAVE_LABEL, 'the guest’s way out lost its word');
+    assert.equal(guest.label.textContent, LEAVE_TITLE, 'the guest’s way out lost its word');
     assert.equal(guest.button.attributes['aria-label'], LEAVE_TITLE, 'the guest’s way out is unnamed');
   });
 
