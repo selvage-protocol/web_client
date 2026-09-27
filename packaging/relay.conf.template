@@ -32,9 +32,11 @@ location = /session {
     # is verified against the image's own CA bundle, which the base image carries at
     # that path. Written for an `http://` base too, where they apply to nothing, so
     # that one template renders both and no scheme branch can leave the verification
-    # out.
+    # out. The depth is nginx's default of 1 raised: the default refuses a chain that
+    # carries two intermediates between the leaf and its root.
     proxy_ssl_server_name on;
     proxy_ssl_verify on;
+    proxy_ssl_verify_depth 4;
     proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
 
     proxy_connect_timeout 5s;
@@ -52,6 +54,7 @@ location = /meta {
     # The same TLS handling as `/session` above.
     proxy_ssl_server_name on;
     proxy_ssl_verify on;
+    proxy_ssl_verify_depth 4;
     proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
 
     proxy_connect_timeout 5s;

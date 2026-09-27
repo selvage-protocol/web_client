@@ -127,8 +127,13 @@ echo "=== https: SNI and verification against the image's CA bundle ==="
 generate 0 "https://server.internal:8443"
 grep -q '    proxy_pass https://server.internal:8443;' "$relay" || fail "https was not kept"
 grep -q '^    proxy_ssl_server_name on;$' "$relay" || fail "an https upstream sends no SNI"
-grep -q '^    proxy_ssl_verify on;$' "$relay" \
-    || fail "an https upstream's certificate is not verified"
+# Verification and the depth are counted, not grepped once: a location that lost one of
+# them would leave the parse green and that half of the relay unverified, and nginx's
+# default for `proxy_ssl_verify` is off.
+verified="$(grep -c '^    proxy_ssl_verify on;$' "$relay")"
+[ "$verified" = "2" ] || fail "$verified of the two locations verify the upstream's certificate, want both"
+depth="$(grep -c '^    proxy_ssl_verify_depth 4;$' "$relay")"
+[ "$depth" = "2" ] || fail "$depth of the two locations bound the chain's depth, want both"
 grep -q '^    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;$' "$relay" \
     || fail "the verification names no CA bundle"
 generated="$(grep -c '^    proxy_ssl_server_name on;$' "$relay")"
