@@ -473,10 +473,13 @@ the wire's proof in a real browser; `prove-fb2.mjs`, the owner-feedback proof;
 `Dockerfile`, `.dockerignore` and `packaging/` are the page-only image: nginx's
 own configuration, with the media types, the cache policy and the page's policy
 the one-origin deployment decides, and the bundle copied from the committed
-`dist/`. The scripts CI reads live beside the proofs: `test-ci.mjs` (the suite a
-single checkout can run), `release-tags.sh` (the release identity),
-`check-page.sh` (the served bytes, types and headers), `container-smoke.sh`,
-`assert-image-page.sh` and `ci-local.sh`.
+`dist/`. `bump-version.sh` moves the page's version in every file that carries
+it and rebuilds the bundle, so a bump leaves a `dist/` this repository's checks
+accept; `test-bump-version.sh` covers it, in a clone of its own. The scripts CI
+reads live beside the proofs: `test-ci.mjs` (the suite a single checkout can
+run), `release-tags.sh` (the release identity), `check-page.sh` (the served
+bytes, types and headers), `container-smoke.sh`, `assert-image-page.sh` and
+`ci-local.sh`.
 
 ## Languages and peer markers
 
