@@ -133,7 +133,19 @@ grep -q '^    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;$
     || fail "the verification names no CA bundle"
 generated="$(grep -c '^    proxy_ssl_server_name on;$' "$relay")"
 [ "$generated" = "2" ] || fail "$generated of the two locations turn SNI on, want both"
-echo "https://server.internal:8443: SNI on, verification against /etc/ssl/certs/ca-certificates.crt"
+# A path named in a directive is not a file: nginx parses it without reading it. The
+# bundle the two locations name is read back out of the template and held to the check the
+# Dockerfile makes against the base image, so the path and the file it is meant to be
+# cannot drift apart, and a location that lost its bundle is caught here.
+named="$(grep -c '^    proxy_ssl_trusted_certificate ' "$template")"
+[ "$named" = "2" ] || fail "$template names a CA bundle under $named locations, want the two"
+ca_bundle="$(sed -n 's|^    proxy_ssl_trusted_certificate \(.*\);$|\1|p' "$template" | sort -u)"
+[ -n "$ca_bundle" ] || fail "$template names no CA bundle in the shape this test reads"
+[ "$(printf '%s\n' "$ca_bundle" | grep -c .)" = "1" ] \
+    || fail "the two locations name different CA bundles: $(printf '%s' "$ca_bundle" | tr '\n' ' ')"
+grep -qF "test -e $ca_bundle" Dockerfile \
+    || fail "the Dockerfile does not prove that $ca_bundle exists in the image it builds"
+echo "https://server.internal:8443: SNI on, verification against $ca_bundle, which the Dockerfile proves is in the image"
 
 echo "=== an address that is not a host and port is refused ==="
 # Each of these would otherwise reach nginx as a broken or injected directive: the value
