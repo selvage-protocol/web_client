@@ -217,11 +217,20 @@ about the serving layer the page is deployed behind. Against the page-only image
 the same script is what `scripts/check-page.sh` runs, together with the served
 bytes and headers.
 
+`scripts/check_dry_run_gating.py` is the one check here that is not Node's. It
+reads `.github/workflows` back and refuses a workflow that declares a `dry_run`
+input and leaves a step below its plan step without a condition that excludes a
+dry run — `release.yml` and `deploy-prod.yml` both declare one, and `actionlint`
+cannot see the condition a step does *not* carry. `scripts/ci-local.sh checks`
+runs it, and its own suite, through a venv under `.tmp/`; `ci.yml`'s container
+installs Debian's `python3-yaml` for the same two files.
+
 ### CI
 
 The repository's four workflows. `ci.yml` is the node checks, on a pull request:
 `npm ci`, `typecheck`, `build`, `scripts/check-dist.sh`, `test:ci` and the two
-script suites, `scripts/test-bump-version.sh` and `scripts/test-release-plan.sh`.
+script suites, `scripts/test-bump-version.sh` and `scripts/test-release-plan.sh`,
+and the `dry_run` guard, `scripts/check_dry_run_gating.py`.
 It runs in `node:22-trixie-slim`, because the build shells out to ImageMagick 7's
 `magick` and the GitHub runner image ships ImageMagick 6.
 

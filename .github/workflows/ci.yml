@@ -34,14 +34,30 @@ jobs:
       # and purge it as auto-removable in the same layer. Node carries its own trusted
       # roots; git, which the checkout uses over HTTPS, does not. ImageMagick 7's
       # `magick` is here because `npm run build` shells out to it for the sized icons.
-      - name: install git, ca-certificates and ImageMagick 7
+      # `python3` and its PyYAML are here for the `dry_run` guard below, which is the one
+      # check in this repository that is not Node's: it reads `.github/workflows` back, so
+      # no suite can cover it, and Debian's `python3-yaml` is where it gets the parser.
+      - name: install git, ca-certificates, ImageMagick 7 and python3
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git imagemagick
+          apt-get install -y --no-install-recommends ca-certificates git imagemagick python3 python3-yaml
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # The guard around a workflow's `dry_run` input (`scripts/check_dry_run_gating.py`):
+      # `release.yml` and `deploy-prod.yml` both declare one, its plan step prints what the run
+      # would have done, and every step after each plan step carries `!inputs.dry_run` — which is
+      # the whole of what keeps a rehearsal from cutting a release or moving the public demo's
+      # image. `actionlint` cannot see a condition that is *missing* from a step, so nothing else
+      # reads that. This job's container is `node:22-trixie-slim` and its steps run under `sh`, so
+      # the step above installs python3 and python3-yaml; `scripts/ci-local.sh checks` runs the
+      # same two files through a venv under `.tmp/`.
+      - name: the dry_run gating of the workflows that declare it
+        run: |
+          python3 -B scripts/test_check_dry_run_gating.py
+          python3 -B scripts/check_dry_run_gating.py .github/workflows
 
       - run: npm ci --no-audit --no-fund
 

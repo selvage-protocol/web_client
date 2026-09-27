@@ -3,12 +3,16 @@
 # Runs the steps of this repository's workflows on this machine, so a red job is
 # found here rather than on a runner.
 #
-#   scripts/ci-local.sh checks     # the `checks` job: install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, every shell script parses
+#   scripts/ci-local.sh checks     # the `checks` job: the dry_run guard's Python and the gating of the workflows
+#                                 # that declare it, install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, every shell script parses
 #   scripts/ci-local.sh container  # the `image` workflow's `container` job: docker build, a hardened run, the page asserted (needs Docker)
 #   scripts/ci-local.sh all        # `checks`, which is what a push has to be green on
 #
 # There is no nix flake here: the checks are node's and the image is Docker's, so the
-# two modes are the two workflows' local halves and nothing else. This host has no
+# two modes are the two workflows' local halves and nothing else. The `dry_run` guard is the one
+# step that is not Node's — it is Python, and this gate gives it a venv under `.tmp/` because this
+# host's Python carries no PyYAML, where the container's `python3-yaml` is that check's half of
+# `ci.yml`. This host has no
 # Docker at all, so `container` is the mode that runs on a runner, and the image
 # workflow's `publish-rehearsal` and `publish` (multi-architecture buildx) have no
 # step here either: they are read from the run, and their logic lives in
@@ -32,6 +36,25 @@ mkdir -p "$TMPDIR"
 say() { printf '\n=== %s ===\n' "$*"; }
 
 job_checks() {
+  # The `dry_run` guard is the one check here that is not Node's: it reads `.github/workflows`
+  # back, so no suite below covers it, and it is Python. This host's Python has no PyYAML, so the
+  # gate builds it a venv under `.tmp/` — once — with the version the CI container's
+  # `python3-yaml` carries (`node:22-trixie-slim` is trixie's 6.0.2). The check itself is the same
+  # file `.github/workflows/ci.yml` runs.
+  say "checks: the dry_run guard's Python"
+  guard_venv="$TMPDIR/dry-run-gating-venv"
+  if [ ! -x "$guard_venv/bin/python3" ]; then
+    # A `python3` without `venv` (Ubuntu and Debian ship it as `python3-venv`) cannot build one,
+    # and a gate that skipped the check instead would report a green run it did not make.
+    if ! python3 -m venv "$guard_venv"; then
+      printf 'refusing: the dry_run guard is Python and needs a `python3` with the `venv` module, which this host does not have; the check has not run, so this gate is not green\n' >&2
+      exit 1
+    fi
+    "$guard_venv/bin/pip" install --quiet --disable-pip-version-check pyyaml==6.0.2
+  fi
+  say "checks: the dry_run gating of the workflows that declare it"
+  "$guard_venv/bin/python3" -B scripts/test_check_dry_run_gating.py
+  "$guard_venv/bin/python3" -B scripts/check_dry_run_gating.py .github/workflows
   say "checks: install"
   npm ci --no-audit --no-fund
   say "checks: typecheck"
