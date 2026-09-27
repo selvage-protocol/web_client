@@ -564,4 +564,24 @@ describe('the page the row is drawn in', () => {
     assert.match(MAIN, /localFolders: \(\) => madeFolders/, 'the tree is told about no local folders');
     assert.match(MAIN, /madeFolders\.clear\(\)/, 'a session’s folders outlive it');
   });
+
+  it('takes the rows a session made away with the move that moved them', () => {
+    // A folder this session made is drawn from `madeFolders` and not from the listing, so the path it
+    // moves away from is drawn whether or not anything is still there — and a move that landed on
+    // such a row found no folder and was refused with a sentence about the *source*. What the two
+    // acts that can empty a path do with the session's own rows has to agree: a removal forgets what
+    // it took away (`forgetMadeFolder(outcome.path)` above), and a move is the same thing at
+    // another name. It also has to keep the row it arrived at: an empty folder is in no listing, so
+    // without the second half, the folder the person just moved vanishes from the tree.
+    const move = MAIN.slice(MAIN.indexOf('async function moveEntry'));
+    const removal = MAIN.slice(MAIN.indexOf('async function removeEntry'), MAIN.indexOf('async function moveEntry'));
+    const forgotten = /forgetMadeFolder\(path\);/.exec(move);
+    assert.ok(forgotten, 'the path a move left is still one of this session’s own rows');
+    assert.ok(
+      /madeFolders\.has\(path\)/.exec(move),
+      'the row the move arrived at is not kept, so an empty folder moved is one that disappears',
+    );
+    assert.match(move, /madeFolders\.add\(outcome\.to\)/, 'the folder moved to is drawn from nothing');
+    assert.match(removal, /forgetMadeFolder\(outcome\.path\)/, 'a removal stopped forgetting what it took');
+  });
 });

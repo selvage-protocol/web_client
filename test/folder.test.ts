@@ -258,6 +258,33 @@ describe('the listing', () => {
     assert.deepEqual(await folder.list(), []);
     assert.equal(folder.name, 'project');
   });
+
+  it('keeps the folders that hold no shared file, which no listing names', async () => {
+    // The tree draws an empty folder only from the page's memory of the ones it made, and a page that
+    // has just loaded has none. What this reads back is what makes a folder the person can see in
+    // their file manager a row here as well, rather than an invisible name a move is refused against.
+    const { folder } = projection(
+      dir({
+        'src': dir({ 'main.ts': file('a'), 'api': dir({ 'v2': dir({}) }) }),
+        'notes': dir({}),
+        'node_modules': dir({}),
+        '.git': dir({ 'config': file('c') }),
+      }),
+    );
+    await folder.list();
+    // `src/api` is here because it holds only the empty `v2`, which is what `emptyFolders` means: a
+    // folder no listed path goes through. `node_modules` is not, because the grant's own excludes are
+    // the walk's answer for a name a room may not see — a folder this page may not name is not one it
+    // may offer as a row.
+    assert.deepEqual(folder.emptyFolders(), ['notes', 'src/api', 'src/api/v2']);
+  });
+
+  it('names no folder before the walk it reads has run', async () => {
+    const { folder } = projection(dir({ 'notes': dir({}) }));
+    assert.deepEqual(folder.emptyFolders(), [], 'a folder was named before anything had been read');
+    await folder.list();
+    assert.deepEqual(folder.emptyFolders(), ['notes']);
+  });
 });
 
 describe('the read', () => {
@@ -748,7 +775,7 @@ describe('taking an entry out of the folder', () => {
   });
 });
 
-describe('moving a file, which is a write at the new name and a removal at the old', () => {
+describe('moving a file or a folder, which is a write at the new name and a removal at the old', () => {
   it('writes the text at the new name and removes the old one', async () => {
     const { folder, tree } = projection(
       dir({
@@ -758,7 +785,12 @@ describe('moving a file, which is a write at the new name and a removal at the o
     );
     await folder.list();
     const outcome = await folder.move('src/main.ts', 'tests/main.ts');
-    assert.deepEqual(outcome, { kind: 'moved', from: 'src/main.ts', to: 'tests/main.ts' });
+    assert.deepEqual(outcome, {
+      kind: 'moved',
+      from: 'src/main.ts',
+      to: 'tests/main.ts',
+      paths: ['src/main.ts'],
+    });
     assert.deepEqual(await folder.list(), ['tests/join.rs', 'tests/main.ts']);
     assert.equal(tree.children['src'].children['main.ts'], undefined, 'the old name is still there');
     assert.equal(tree.children['tests'].children['main.ts'].text, 'let a = 1;\n');
@@ -797,7 +829,7 @@ describe('moving a file, which is a write at the new name and a removal at the o
     await folder.list();
     const outcome = await folder.move('src/main.ts', 'tests/main.ts');
     assert.equal(refusalCause(outcome), 'exists');
-    assert.match(outcome.sentence, /is already in the folder/);
+    assert.match(outcome.sentence, /is already in that folder/);
     assert.equal(tree.children['src'].children['main.ts'].text, 'a');
     assert.equal(tree.children['tests'].children['main.ts'].text, 'b');
     assert.deepEqual(log.writes, [], 'a refused move wrote something');
@@ -830,19 +862,144 @@ describe('moving a file, which is a write at the new name and a removal at the o
     assert.equal(refusalCause(outcome), 'missing');
   });
 
-  it('refuses to move a folder, which is the other kind of entry', async () => {
-    const tree = dir({ 'src': dir({ 'main.ts': file('a') }), 'tests': dir({}) });
-    const { folder, log } = projection(tree);
-    // Before any walk, the folder is a name in the folder that is not a plain file.
-    assert.equal(refusalCause(await folder.move('src', 'tests/src')), 'not-a-file');
-    assert.match(folderMoveSentence('not-a-file', 'src', 'tests/src'), /is not a plain file/);
-    // After one, the folder is caught a step earlier, by the rule a room's listing is: a listing is
-    // files, so a folder is not a path this room shares at all.
+  it('moves a folder with every file the room carries in it', async () => {
+    const { folder, tree } = projection(
+      dir({
+        'src': dir({ 'main.ts': file('a'), 'api': dir({ 'handler.ts': file('h') }) }),
+        'tests': dir({ 'join.rs': file('j') }),
+      }),
+    );
     await folder.list();
-    const listed = await folder.move('src', 'tests/src');
-    assert.equal(refusalCause(listed), 'not-granted');
+    const outcome = await folder.move('src', 'tests/src');
+    assert.deepEqual(outcome, {
+      kind: 'moved',
+      from: 'src',
+      to: 'tests/src',
+      paths: ['src/api/handler.ts', 'src/main.ts'],
+    });
+    assert.deepEqual(await folder.list(), [
+      'tests/join.rs',
+      'tests/src/api/handler.ts',
+      'tests/src/main.ts',
+    ]);
+    assert.equal(tree.children['src'], undefined, 'the folder it came from is still there');
+    assert.equal(tree.children['tests'].children['src'].children['main.ts'].text, 'a');
+    assert.equal(
+      tree.children['tests'].children['src'].children['api'].children['handler.ts'].text,
+      'h',
+    );
+  });
+
+  it('moves a folder the room carries nothing in, which only the disk says is a folder', async () => {
+    // A folder this session made and wrote nothing into is in no listing at all: a listing is files.
+    const { folder, tree } = projection(dir({ 'empty': dir({}), 'tests': dir({ 'join.rs': file('j') }) }));
+    await folder.list();
+    const outcome = await folder.move('empty', 'tests/empty');
+    assert.deepEqual(outcome, { kind: 'moved', from: 'empty', to: 'tests/empty', paths: [] });
+    assert.equal(tree.children['empty'], undefined, 'the folder it came from is still there');
+    assert.equal(tree.children['tests'].children['empty'].kind, 'directory');
+  });
+
+  it('brings the empty folders inside it, which no listing could have said were there', async () => {
+    // A room's listing is files, so an empty directory is in none. The removal that ends a folder
+    // move is recursive, so one the move did not make at the other end is *destroyed* rather than
+    // left behind — a folder the person made inside the folder they moved would simply be gone.
+    const { folder, tree } = projection(
+      dir({
+        'src': dir({
+          'main.ts': file('a'),
+          'api': dir({ 'handler.ts': file('h'), 'v2': dir({}) }),
+          'empty': dir({}),
+        }),
+        'tests': dir({}),
+      }),
+    );
+    await folder.list();
+    const outcome = await folder.move('src', 'tests/src');
+    assert.equal(outcome.kind, 'moved');
+    const landed = tree.children['tests'].children['src'];
+    assert.equal(landed.children['empty'].kind, 'directory', 'the empty folder was destroyed');
+    assert.equal(landed.children['api'].children['v2'].kind, 'directory', 'a nested empty one went too');
+    assert.equal(landed.children['main.ts'].text, 'a');
+    assert.equal(landed.children['api'].children['handler.ts'].text, 'h');
+    assert.equal(tree.children['src'], undefined, 'the folder it came from is still there');
+  });
+  it('refuses to move a folder into anything inside it', async () => {
+    const { folder } = projection(dir({ 'src': dir({ 'api': dir({ 'handler.ts': file('h') }) }) }));
+    await folder.list();
+    for (const to of ['src/api', 'src/api/deeper']) {
+      const outcome = await folder.move('src', to);
+      assert.equal(refusalCause(outcome), 'inside', `src → ${to} was not refused`);
+      assert.match(outcome.sentence, /which is inside it/);
+    }
+    // The folder onto its own name is the one the two-paths rule catches first: there is no move in it.
+    assert.equal(refusalCause(await folder.move('src', 'src')), 'same');
+  });
+
+  it('refuses a folder that holds something the room does not carry, before anything moves', async () => {
+    // A `.git` is a name the room's own rules exclude, so no listing has a path for it. The removal
+    // that ends a move is the recursive one, so the folder is refused whole rather than emptied of it.
+    const { folder, tree, log } = projection(
+      dir({
+        'src': dir({ 'main.ts': file('a'), '.git': dir({ 'config': file('c') }) }),
+        'tests': dir({}),
+      }),
+    );
+    await folder.list();
+    const outcome = await folder.move('src', 'tests/src');
+    assert.equal(refusalCause(outcome), 'unshared');
+    assert.match(outcome.sentence, /src\/\.git\/config/);
     assert.deepEqual(log.writes, [], 'a refused move wrote something');
     assert.deepEqual(log.removed, [], 'a refused move removed something');
+    assert.equal(tree.children['tests'].children['src'], undefined, 'the destination was made anyway');
+    assert.equal(tree.children['src'].children['main.ts'].text, 'a');
+  });
+
+  it('blames the destination, not the source, when the folder it lands in is not there', async () => {
+    // The row a drop landed on can be a row whose folder is gone — the tree draws a folder this
+    // session made whether or not it is still on disk. What failed is making the destination, and a
+    // sentence about the source would send the person to look at the folder in their hand rather than
+    // at the one they dropped it on.
+    const { folder } = projection(
+      dir({ 'src': dir({ 'main.ts': file('a') }), 'tests': dir({ 'join.rs': file('j') }) }),
+    );
+    await folder.list();
+    const outcome = await folder.move('src', 'gone/src');
+    assert.equal(refusalCause(outcome), 'missing');
+    assert.match(outcome.sentence, /^src was not moved: gone\/src/, 'the source was blamed for the destination');
+    assert.match(outcome.sentence, /has to exist before a name inside it can be created/);
+  });
+
+  it('blames the destination for a file too, whose folder is the thing that went', async () => {
+    const { folder } = projection(dir({ 'main.ts': file('a'), 'tests': dir({}) }));
+    await folder.list();
+    const outcome = await folder.move('main.ts', 'gone/main.ts');
+    assert.equal(refusalCause(outcome), 'missing');
+    assert.match(outcome.sentence, /^main\.ts was not moved: gone\/main\.ts/);
+  });
+
+  it('refuses a folder onto a name the folder already holds', async () => {
+    const { folder, tree } = projection(
+      dir({
+        'src': dir({ 'main.ts': file('a') }),
+        'tests': dir({ 'src': dir({ 'join.rs': file('j') }) }),
+      }),
+    );
+    await folder.list();
+    const outcome = await folder.move('src', 'tests/src');
+    assert.equal(refusalCause(outcome), 'exists');
+    assert.equal(tree.children['src'].children['main.ts'].text, 'a');
+  });
+
+  it('leaves a folder that could not be taken out at both names', async () => {
+    const tree = dir({ 'src': dir({ 'main.ts': file('a') }), 'tests': dir({}) });
+    tree.children['src'].removeFails = { 'main.ts': 'NotAllowedError' };
+    const { folder } = projection(tree);
+    await folder.list();
+    const outcome = await folder.move('src', 'tests/src');
+    assert.equal(outcome.kind, 'partial');
+    assert.match(outcome.sentence, /is now at tests\/src as well/);
+    assert.deepEqual(outcome.paths, [], 'a file that did not move was dropped anyway');
   });
 
   it('says a move whose removal was refused is at both names', async () => {

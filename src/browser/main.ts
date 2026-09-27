@@ -668,42 +668,69 @@ async function removeEntry(path: string): Promise<RemoveResult> {
 }
 
 /**
- * Moves a file into a folder, or to the top level, as a write at the new name and a removal at the
- * old one.
+ * Moves a file or a folder into a folder, or to the top level, as a write at the new name and a
+ * removal at the old one.
  *
- * The room keys a document by its path, so a file the room holds open cannot keep its document
- * across the move. Its pending edits are written first, so the new name carries the latest text,
- * and then the old document ends the way a deleted file's does. This window reopens it at the new
- * name when it was the one in front of the editor.
+ * The room keys a document by its path, so a document cannot keep its identity across a move. The
+ * pending edits of every one the move touches are written first, so the new names carry the latest
+ * text, and then the old documents end the way a deleted file's do. This window reopens the one
+ * that was in front of the editor at the name it moved to. A folder takes every document the room
+ * holds open inside it, which is why the paths are read off the listing rather than named.
  */
 async function moveEntry(path: string, into: string): Promise<MoveResult> {
+  // An action that refuses says so beside its own control, or in the alert where it has none. A drag
+  // leaves no control on screen — the row is under the pointer and nothing is pressed — so every
+  // refusal this act makes is the page's own line. The tree does not say it: one sentence reaches a
+  // reader once.
+  const refuse = (sentence: string): MoveResult => {
+    failureAlert.show(sentence);
+    return { kind: 'refused', sentence };
+  };
   const folder = hostFolder;
   if (folder === undefined || binding === undefined) {
-    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+    return refuse('This window is not serving a folder any more.');
   }
-  const live = binding.isOpenInRoom(path) || binding.currentPath() === path;
-  if (live) {
-    await binding.settle(path);
+  const under = `${path}/`;
+  const moving = binding
+    .grantListing()
+    .filter((listed) => listed === path || listed.startsWith(under));
+  const at = binding.currentPath();
+  for (const live of moving) {
+    if (binding.isOpenInRoom(live) || at === live) {
+      await binding.settle(live);
+    }
   }
   const to = into === '' ? leafOf(path) : `${into}/${leafOf(path)}`;
   let outcome: FolderMove;
   try {
     outcome = await folder.move(path, to);
   } catch (error: unknown) {
-    return { kind: 'refused', sentence: `${path} was not moved: ${describe(error)}` };
+    return refuse(`${path} was not moved: ${describe(error)}`);
   }
   if (outcome.kind === 'refused') {
-    return { kind: 'refused', sentence: outcome.sentence };
+    return refuse(outcome.sentence);
   }
   const unpublished = await publishFolder();
+  // What this session made and what just went. The path it left is not on disk any more, so it goes
+  // with everything under it — a row left behind there is a folder nothing can be dropped into,
+  // because the move that would land there finds no such folder (`folder.ts`). And a folder that
+  // arrives empty is one no listing carries, so it takes the place the row it left held: a move
+  // that swapped a visible row for nothing would be a folder that vanished where it was put.
+  const wasItsOwnRow = madeFolders.has(path);
+  forgetMadeFolder(path);
+  if (wasItsOwnRow) {
+    madeFolders.add(outcome.to);
+  }
   keepEmptiedFolder(path);
-  const showing = binding.currentPath() === path;
-  if (live && outcome.kind !== 'partial') {
-    binding.dropDocuments([path]);
+  // The file in front of the editor: it moves with everything else, and what reopens is the name it
+  // went to. A folder's own name is not a document, so only the paths under it are asked about.
+  const showing = at !== undefined && (at === path || at.startsWith(under));
+  if (outcome.kind !== 'partial') {
+    binding.dropDocuments(outcome.paths);
   }
   syncGrant();
-  if (showing && outcome.kind !== 'partial') {
-    void openPath(to);
+  if (showing && at !== undefined && outcome.kind !== 'partial') {
+    void openPath(`${to}${at.slice(path.length)}`);
   }
   if (outcome.kind === 'partial') {
     // The file is at both names, which is not a move that did not happen: the page says so and the
@@ -982,7 +1009,16 @@ async function seatSession(seat: Seat): Promise<void> {
   republishGrant = seat.republish;
   // The two create verbs are the window's that holds a folder, and no one else's.
   treeActions.hidden = seat.folder === undefined;
+  // A room's listing is files, so an empty folder is in none of it and the tree draws one only from
+  // this memory. A page that has just loaded has made nothing, so the folder is asked for the empty
+  // folders it already holds: without that, a folder the person made in an earlier session is on
+  // disk, in no listing and drawn nowhere, while the rule a move is checked against still refuses
+  // its name — an obstacle nobody can see. It reads the walk the room was sealed from, so the rows
+  // are there for the tree's first paint.
   madeFolders.clear();
+  for (const folder of seat.folder?.emptyFolders() ?? []) {
+    madeFolders.add(folder);
+  }
   fullShareLink = seat.shareLink;
   // The readout carries the mask and nothing of the link, at a fixed size so the pill's width says
   // nothing about the link's length either. The clipboard is the one place the whole link goes.

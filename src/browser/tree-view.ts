@@ -131,7 +131,8 @@ export interface TreeViewOptions {
   download?: (path: string, feedback: RowFeedback) => void;
   /** Removes one path from the folder this window hosts, with everything a folder holds. */
   remove?: (path: string) => Promise<RemoveResult>;
-  /** Moves one file into a folder, or to the top level for `''`. */
+  /** Moves one row — a file, or a folder with what it holds — into a folder, or to the top level for
+   * `''`. */
   move?: (path: string, into: string) => Promise<MoveResult>;
   /** Announces a sentence: what a screen reader hears about an act that has no line of its own. */
   say?: (text: string) => void;
@@ -145,12 +146,19 @@ interface DeleteAsk {
   directory: boolean;
 }
 
-/** The file picked up for a move, and the folder it would land in (`''` is the top level). */
+/**
+ * The row picked up for a move, and the folder it would land in (`''` is the top level).
+ *
+ * `directory` is the row's own kind, which decides what the move means and what it is called: a
+ * file moves by itself, and a folder moves with everything the room carries inside it.
+ */
 interface Move {
   path: string;
   into: string;
   /** Whether the pointer holds it, whose drag a rebuild would end. */
   pointer: boolean;
+  /** Whether the row is a folder rather than a file. */
+  directory: boolean;
 }
 
 /** How long a typed name is left alone before the live checks read it. */
@@ -455,7 +463,7 @@ export class GrantTreeView {
     if (this.focusAfter !== undefined) {
       const path = this.focusAfter;
       this.focusAfter = undefined;
-      this.rowElement(path)?.focus();
+      this.moveRowElement(path)?.focus();
     }
   }
 
@@ -541,6 +549,17 @@ export class GrantTreeView {
       }
     });
     const head = document.createElement('summary');
+    // A host's folder row is the handle for a move, exactly as a file's is, and the keyboard is not: a
+    // summary's Space is the toggle that opens the folder, and a keyboard that picked the row up
+    // there instead would take the one key the row has for reading what is inside it.
+    const draggable = this.canCreate() && this.options.move !== undefined;
+    if (draggable && this.holding?.path === child.path) {
+      head.classList.add('dragging');
+    }
+    if (draggable) {
+      head.draggable = true;
+      head.dataset.move = child.path;
+    }
     // The name carries the slash that says the row is a folder, the way the design draws it, and
     // the badges of the peers inside stand beside it while the folder is shut (the stylesheet hides
     // them while it is open, where the rows inside carry the same badges).
@@ -549,7 +568,7 @@ export class GrantTreeView {
     head.append(this.presenceChrome(child.path, presence));
     head.append(this.directoryChrome(child));
     // The folder a move would land in is marked as a whole: the order inside a folder is
-    // alphabetical, so which folder a file joins is the whole of what a drop decides.
+    // alphabetical, so which folder a row joins is the whole of what a drop decides.
     if (this.landing() === child.path) {
       head.classList.add('drop-into');
     }
@@ -609,7 +628,8 @@ export class GrantTreeView {
     const item = document.createElement('li');
     item.className = 'file';
     // A host's file row is the handle for a move: the pointer drags it, and the keyboard picks it up
-    // with Space. A guest's row is not, because nothing on the other side of the drop is theirs.
+    // with Space (`dataset.move` says what a row is a handle for). A guest's row is not, because
+    // nothing on the other side of the drop is theirs.
     const draggable = this.canCreate() && this.options.move !== undefined;
     if (draggable && this.holding?.path === listedPath) {
       item.classList.add('dragging');
@@ -620,6 +640,7 @@ export class GrantTreeView {
     row.dataset.open = listedPath;
     if (draggable) {
       row.draggable = true;
+      row.dataset.move = listedPath;
     }
     row.append(iconSpan(fileIcon(listedPath)), nameSpan(child.name));
     // The row's own badge container, kept so a presence move repaints this row rather than the tree
@@ -972,62 +993,80 @@ export class GrantTreeView {
     this.say(`Deleted ${goes}`);
   }
 
-  // ---- a file being moved --------------------------------------------------
+  // ---- a row being moved ---------------------------------------------------
 
   /**
-   * Picks a file up: the pointer's drag and the keyboard's Space arrive here.
+   * Picks a row up: the pointer's drag and the keyboard's Space arrive here.
    *
    * A pointer drag must not rebuild the tree: the browser drags the element the press landed on, and
    * replacing it inside `dragstart` ends the drag before it begins. So the row is dimmed where it
    * stands, and the rows' key leaves a pointer's hold out.
+   *
+   * Only a file arrives here from the keyboard: a folder's Space is its toggle (`directory`), so the
+   * two keys the sentence teaches are the two a file has and nothing else.
    */
-  private beginMove(path: string, pointer: boolean): boolean {
+  private beginMove(path: string, pointer: boolean, directory: boolean): boolean {
     if (pointer && this.asking !== undefined) {
       return false;
     }
     this.asking = undefined;
-    this.holding = { path, into: parentOf(path), pointer };
+    this.holding = { path, into: parentOf(path), pointer, directory };
     if (pointer) {
-      this.rowElement(path)?.parentElement?.classList.add('dragging');
+      this.draggingElement(path)?.classList.add('dragging');
     } else {
       this.render();
     }
+    const what = directory ? `${path}/` : leafOf(path);
     this.say(
-      `Picked up ${leafOf(path)}. Up and down choose a folder, Enter drops it, Escape leaves it where it is.`,
+      `Picked up ${what}. Up and down choose a folder, Enter drops it, Escape leaves it where it is.`,
     );
     return true;
   }
 
   /**
-   * Whether the held file could land in `into`, and why not when it could not.
+   * Whether the held row could land in `into`, and why not when it could not.
    *
-   * A file already in that folder is not a move, and neither is a name the folder already holds: the
+   * A row already in that folder is not a move, and neither is a name the folder already holds: the
    * folder's own `create` would refuse the second, and saying so before the drop keeps the sentence
-   * about the person's choice rather than about the folder's refusal.
+   * about the person's choice rather than about the folder's refusal. A folder has one more of its
+   * own: it cannot go inside itself, so neither its own name nor anything below it is a place it
+   * could land — the two would be one folder with no path to the other.
    */
-  private landRefusal(path: string, into: string): 'same' | 'taken' | undefined {
-    if (into === parentOf(path)) {
+  private landRefusal(held: Move, into: string): 'same' | 'taken' | 'inside' | undefined {
+    if (into === parentOf(held.path)) {
       return 'same';
     }
-    return this.nameTaken(into, leafOf(path)) ? 'taken' : undefined;
+    if (held.directory && (into === held.path || into.startsWith(`${held.path}/`))) {
+      return 'inside';
+    }
+    return this.nameTaken(into, leafOf(held.path)) ? 'taken' : undefined;
   }
 
-  /** Whether a folder already holds a name, which no move replaces. */
+  /**
+   * Whether a folder already holds a name, which no move replaces.
+   *
+   * A folder is in a listing only through the files inside it, so the name being there as a folder
+   * is the listing holding a path *under* it; a folder this session made and wrote nothing into is
+   * in no listing at all and is asked about by name.
+   */
   private nameTaken(directory: string, leaf: string): boolean {
     const to = directory === '' ? leaf : `${directory}/${leaf}`;
-    return this.source.grantListing().includes(to);
+    const under = `${to}/`;
+    return [...this.source.grantListing(), ...this.local()].some(
+      (path) => path === to || path.startsWith(under),
+    );
   }
 
-  /** The folder the held file would land in, or `undefined` when it could land nowhere. */
+  /** The folder the held row would land in, or `undefined` when it could land nowhere. */
   private landing(): string | undefined {
     const held = this.holding;
     if (held === undefined) {
       return undefined;
     }
-    return this.landRefusal(held.path, held.into) === undefined ? held.into : undefined;
+    return this.landRefusal(held, held.into) === undefined ? held.into : undefined;
   }
 
-  /** Every folder a file could be dropped into, in the order Up and Down walk them, top level last. */
+  /** Every folder a row could be dropped into, in the order Up and Down walk them, top level last. */
   private folders(): string[] {
     const dirs = new Set<string>();
     for (const path of this.source.grantListing()) {
@@ -1064,13 +1103,13 @@ export class GrantTreeView {
     this.say(parentOf(held.path) === next ? `Already ${where}` : `Drops ${where}`);
   }
 
-  /** Drops the held file where the choice is, and says what happened. */
+  /** Drops the held row where the choice is, and says what happened. */
   private async dropMove(refocus: boolean): Promise<void> {
     const held = this.holding;
     if (held === undefined) {
       return;
     }
-    const refusal = this.landRefusal(held.path, held.into);
+    const refusal = this.landRefusal(held, held.into);
     if (refusal !== undefined) {
       return;
     }
@@ -1083,8 +1122,10 @@ export class GrantTreeView {
     const result = await move(held.path, into);
     this.holding = undefined;
     if (result.kind === 'refused') {
+      // The redraw is this view's own; the sentence is not said here. A move that is refused at the
+      // folder is one the page (or whatever holds the folder) found out about, and it has the same
+      // problem this view has — nowhere on a row to stand it — so it is the page's line to make.
       this.render();
-      this.say(result.sentence);
       return;
     }
     // The folder it landed in opens, as the design has it: a move that happened inside a shut folder
@@ -1098,14 +1139,11 @@ export class GrantTreeView {
       this.focusAfter = result.to;
     }
     this.render();
-    this.say(
-      into === ''
-        ? `Moved ${leafOf(result.to)} to the top level`
-        : `Moved ${leafOf(result.to)} into ${into}`,
-    );
+    const what = held.directory ? `${leafOf(result.to)}/` : leafOf(result.to);
+    this.say(into === '' ? `Moved ${what} to the top level` : `Moved ${what} into ${into}`);
   }
 
-  /** Leaves the held file where it was, and says so. */
+  /** Leaves the held row where it was, and says so. */
   private leaveMove(): void {
     const held = this.holding;
     if (held === undefined) {
@@ -1114,7 +1152,7 @@ export class GrantTreeView {
     this.holding = undefined;
     this.focusAfter = held.path;
     this.render();
-    this.say(`Left ${leafOf(held.path)} where it is`);
+    this.say(`Left ${held.directory ? `${held.path}/` : leafOf(held.path)} where it is`);
   }
 
   /** Forgets a move with no sentence: a drag that ended outside the tree, or over nothing legal. */
@@ -1129,15 +1167,14 @@ export class GrantTreeView {
   }
 
   private onDragStart(event: DragEvent): void {
-    const row = rowNodeOf(event.target);
-    const path = row?.dataset['open'];
-    if (path === undefined || row?.draggable !== true) {
+    const handle = moveHandleOf(event.target);
+    if (handle === undefined || handle.node.draggable !== true) {
       return;
     }
-    if (!this.beginMove(path, true)) {
+    if (!this.beginMove(handle.path, true, handle.directory)) {
       return;
     }
-    event.dataTransfer?.setData('text/plain', path);
+    event.dataTransfer?.setData('text/plain', handle.path);
     if (event.dataTransfer !== null && event.dataTransfer !== undefined) {
       event.dataTransfer.effectAllowed = 'move';
     }
@@ -1149,7 +1186,7 @@ export class GrantTreeView {
       return;
     }
     const into = this.dropTargetOf(event.target);
-    if (into === undefined || this.landRefusal(held.path, into) !== undefined) {
+    if (into === undefined || this.landRefusal(held, into) !== undefined) {
       this.clearDropMark();
       return;
     }
@@ -1220,7 +1257,7 @@ export class GrantTreeView {
     if (held === undefined) {
       if (event.key === ' ' && event.repeat !== true && this.canCreate() && this.options.move !== undefined) {
         event.preventDefault();
-        this.beginMove(path, false);
+        this.beginMove(path, false, false);
       }
       return;
     }
@@ -1254,11 +1291,35 @@ export class GrantTreeView {
     this.drawnRows = '';
   }
 
-  /** The row a path is drawn as, so focus can be put on it after it moved. */
+  /** The row a file path is drawn as, so focus can be put on it after it moved. */
   private rowElement(path: string): HTMLElement | undefined {
     return allIn(this.pane).find(
       (element) => element.classList?.contains('row') === true && element.dataset?.['open'] === path,
     );
+  }
+
+  /**
+   * The row a path is drawn as, whichever kind it is, for focus to be put back on after a rebuild.
+   *
+   * A file's row is the button its name is a label of; a folder's is the summary that toggles it.
+   * Both are focusable, and both are what the person was holding when the tree was redrawn.
+   */
+  private moveRowElement(path: string): HTMLElement | undefined {
+    return this.rowElement(path) ?? this.directoryHeadElement(path);
+  }
+
+  /**
+   * What the dragging style dims for a path: a file's row with its own actions beside it, and a
+   * folder's head — the folder's contents are still the folder's, and are not what is under the
+   * pointer.
+   */
+  private draggingElement(path: string): HTMLElement | undefined {
+    return this.rowElement(path)?.parentElement ?? this.directoryHeadElement(path);
+  }
+
+  /** The `<summary>` a folder path is drawn as: the row itself, which is its own move handle. */
+  private directoryHeadElement(path: string): HTMLElement | undefined {
+    return this.directoryElement(path)?.children[0] as HTMLElement | undefined;
   }
 
   /** The `<details>` a folder path is drawn as. */
@@ -1599,6 +1660,35 @@ function rowNodeOf(target: EventTarget | null): TreeElement | undefined {
   for (let node = nodeOf(target); node !== null; node = node.parentElement ?? null) {
     if (node.dataset?.['open'] !== undefined) {
       return node;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The row a drag started on, and the kind of thing it is.
+ *
+ * A row says it is a move handle with `dataset.move`, which is the one field the two kinds share: a
+ * file's row is also the button that opens it and carries the path it opens, and a folder's is the
+ * summary that toggles it — a `dataset.open` on that one would make Space pick the folder up
+ * instead of opening it, which is why the two are marked apart. The walk stops at the nearest
+ * handle, so a file inside a folder drags the file.
+ *
+ * A control the row carries is not a handle: a folder's own create and delete buttons stand inside
+ * its summary, and a browser drags the nearest draggable ancestor for anyone who pressed one of
+ * them and moved. A file's chrome is a sibling of its row rather than inside it, so this is the
+ * difference between the two shapes and not a rule of its own.
+ */
+function moveHandleOf(
+  target: EventTarget | null,
+): { node: TreeElement; path: string; directory: boolean } | undefined {
+  for (let node = nodeOf(target); node !== null; node = node.parentElement ?? null) {
+    const path = node.dataset?.['move'];
+    if (path !== undefined) {
+      return { node, path, directory: node.dataset?.['open'] === undefined };
+    }
+    if (node.tagName === 'BUTTON') {
+      return undefined;
     }
   }
   return undefined;

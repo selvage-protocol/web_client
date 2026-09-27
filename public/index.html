@@ -502,10 +502,13 @@
       #tree .del-plain .del-plain-name, #tree li.sum .del-plain-name { text-decoration: line-through; }
       #tree li.sum { display: flex; align-items: center; gap: 0.4em; padding: 0.4em 0.55em;
         font-weight: 600; list-style: none; }
-      /* Where a file being moved would land: the folder it would join, marked as a whole, because
-         the order inside a folder is alphabetical and not the user's to set. */
-      #tree button.row[draggable="true"] { cursor: grab; }
-      #tree li.dragging { opacity: 0.45; }
+      /* Where a row being moved would land: the folder it would join, marked as a whole, because
+         the order inside a folder is alphabetical and not the user's to set. The row being moved
+         is dimmed where it stands: a file's row with its own actions beside it, and a folder's
+         head, which is the row the pointer holds — its contents are still readable under it. A
+         host's rows are the ones that can be moved, so the grab cursor is the host's too. */
+      #tree button.row[draggable="true"], #tree summary[draggable="true"] { cursor: grab; }
+      #tree li.dragging, #tree summary.dragging { opacity: 0.45; }
       #tree summary.drop-into, #tree button.row.drop-into, #tree ul.drop-into {
         background: var(--muted); box-shadow: inset 0 0 0 1px var(--primary); }
       #tree li { position: relative; }

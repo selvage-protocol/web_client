@@ -204,19 +204,42 @@ export type FolderMoveRefusal =
   /** A file over the size a room will carry. */
   | 'too-large'
   /** The two paths are one: there is nowhere to move it to. */
-  | 'same';
+  | 'same'
+  /** The destination is inside the folder being moved: a folder cannot hold itself. */
+  | 'inside'
+  /**
+   * The folder holds a file the room's listing does not carry.
+   *
+   * The excludes are a list of names a room must never see at all, the walk leaves out a name that
+   * declares a format a room cannot carry and one over the size it carries, and a folder can fall
+   * outside the walk's budget. A folder moves whole or not at all, so one holding such an entry is
+   * refused rather than half-moved and then emptied of it.
+   */
+  | 'unshared';
 
 /**
  * What a move came to.
  *
+ * `paths` are the listed files that moved, whose old path is gone: what the page needs to take
+ * their documents out of the room. A file carries itself, a folder carries every listed file inside
+ * it, and a `partial` carries only the ones that landed.
+ *
  * `partial` is the one that needs saying out loud: a move in this client is a write at the new name
  * and a removal at the old, and the folder can refuse the removal after the write has landed. The
- * file is then at both paths, which is not a failed move and is not a finished one either.
+ * file is then at both paths, which is not a failed move and is not a finished one either. A folder
+ * reaches the same state one file at a time, or through its own removal once its contents have
+ * moved.
  */
 export type FolderMove =
-  | { kind: 'moved'; from: string; to: string }
+  | { kind: 'moved'; from: string; to: string; paths: readonly string[] }
   | { kind: 'refused'; cause: FolderMoveRefusal; sentence: string }
-  | { kind: 'partial'; from: string; to: string; sentence: string };
+  | { kind: 'partial'; from: string; to: string; paths: readonly string[]; sentence: string };
+
+/** What a path being moved is in the folder the person picked, or why nothing can be said of it. */
+type MoveSource =
+  | { kind: 'file' }
+  | { kind: 'directory'; handle: FolderDirectoryHandle }
+  | { kind: 'refused'; cause: FolderMoveRefusal };
 
 /** Why nothing was created. */
 export type FolderCreateRefusal =
@@ -289,14 +312,19 @@ export function folderRemoveSentence(cause: FolderRemoveRefusal, path: string): 
  * Both paths are named, because a move is the one act here that is about two names at once and the
  * answer to "what happened?" is a statement about each of them.
  */
-export function folderMoveSentence(cause: FolderMoveRefusal, from: string, to: string): string {
+export function folderMoveSentence(
+  cause: FolderMoveRefusal,
+  from: string,
+  to: string,
+  detail = '',
+): string {
   switch (cause) {
     case 'not-granted':
       return `${from} or ${to} is not a path this room shares, so nothing was moved.`;
     case 'missing':
       return `${from} is not in the folder any more, so nothing was moved.`;
     case 'not-a-file':
-      return `${from} is not a plain file in the folder, so nothing was moved.`;
+      return `${from} or ${to} goes through something that is a file, not a folder, so nothing was moved.`;
     case 'too-large':
       return `${from} is larger than a room will carry, so nothing was moved.`;
     case 'binary':
@@ -311,6 +339,12 @@ export function folderMoveSentence(cause: FolderMoveRefusal, from: string, to: s
       return `${from} could not be moved: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
     case 'same':
       return `${from} is already there, so nothing was moved.`;
+    case 'inside':
+      return `${from} cannot be moved into ${to}, which is inside it, so nothing was moved.`;
+    case 'unshared':
+      return detail === ''
+        ? `${from} was not moved: it holds a file this room does not carry, and a folder moves whole or not at all.`
+        : `${from} was not moved: it holds ${detail}, which this room does not carry. A folder moves whole, or not at all.`;
   }
 }
 
@@ -424,6 +458,13 @@ export class FolderWorkingCopy implements FolderWork {
    * `doc.open` for a name outside the listing is still carried; it just finds no text here.
    */
   private listed: ReadonlySet<string> | undefined;
+  /**
+   * Every directory the last walk entered, ascending.
+   *
+   * Held apart from the listing, which is files: a directory is in a listing only through the files
+   * inside it, so a folder holding none is a folder no listing names at all (`emptyFolders`).
+   */
+  private folders: readonly string[] = [];
 
   constructor(handle: FolderDirectoryHandle) {
     this.handle = handle;
@@ -455,17 +496,51 @@ export class FolderWorkingCopy implements FolderWork {
    */
   async list(): Promise<string[]> {
     const paths: string[] = [];
+    const folders: string[] = [];
     const budget = { nodes: MAX_FOLDER_NODES };
-    await this.walk(this.handle, '', paths, budget);
+    await this.walk(this.handle, '', paths, folders, budget);
     const sorted = sortGrant(paths);
     this.listed = new Set(sorted);
+    this.folders = folders.sort();
     return sorted;
+  }
+
+  /**
+   * The folders the last walk entered that hold no shared file.
+   *
+   * A room's listing is files, so a directory is in one only through the files inside it — which
+   * leaves a folder holding none in nothing the page knows. The tree draws the empty folders *this
+   * session* made from its own memory, and a page that has just loaded has none: a folder the person
+   * made last time is then on disk, in no listing, and drawn nowhere, while a move onto its name is
+   * refused against it. So the walk keeps the directories it entered and this reads back the ones no
+   * listed path goes through.
+   *
+   * A directory whose own name the grant's rules exclude is not among them: it is left out of the
+   * walk whole, and a folder this page may not name is not one it may offer as a row.
+   */
+  emptyFolders(): string[] {
+    const known = this.listed;
+    if (known === undefined) {
+      return [];
+    }
+    // Every directory a listed file goes through holds that file. Marking them from the files, one
+    // ancestor at a time, is what a per-directory descendant scan would say, without the scan.
+    const holds = new Set<string>();
+    for (const path of known) {
+      let at = folderOf(path);
+      while (at !== '' && !holds.has(at)) {
+        holds.add(at);
+        at = folderOf(at);
+      }
+    }
+    return this.folders.filter((folder) => !holds.has(folder));
   }
 
   private async walk(
     dir: FolderDirectoryHandle,
     prefix: string,
     out: string[],
+    folders: string[],
     budget: { nodes: number },
   ): Promise<void> {
     if (out.length >= MAX_GRANT_PATHS || budget.nodes <= 0) {
@@ -490,7 +565,10 @@ export class FolderWorkingCopy implements FolderWork {
       }
       if (entry.kind === 'directory') {
         try {
-          await this.walk(await dir.getDirectoryHandle(entry.name), child, out, budget);
+          // Recorded before the descent: a directory that cannot be read is still one the listing
+          // has no file under, and the tree has a row for it either way.
+          folders.push(child);
+          await this.walk(await dir.getDirectoryHandle(entry.name), child, out, folders, budget);
         } catch {
           // Gone or unreadable between the listing and the descent.
         }
@@ -716,21 +794,18 @@ export class FolderWorkingCopy implements FolderWork {
   }
 
   /**
-   * Moves one file to another name: a write at the new path, then a removal at the old.
+   * Moves a file or a folder to another name.
    *
-   * That is the whole of what a move is here, and the order is what makes each step honest. The old
-   * text is read first, so a file that is not there, is not text or is over the bound is refused
-   * before anything is made. The new name is created, which refuses a name the folder already holds
-   * rather than merging the two. Then the text is written, and only then is the old path removed — a
-   * removal first would lose a file whose write was refused.
+   * A file is a write at the new path and then a removal at the old (`moveFile`). A folder is its
+   * whole contents: every listed file inside it moves the same way, one at a time, and the folder
+   * itself follows once nothing is left in it (`moveFolder`). What the path actually is comes from
+   * the folder rather than from the listing, because a listing is files (`moveSource`).
    *
-   * What this is not: a rename. The file's identity is its path in this client too, and the caller is
-   * the one that decides a path may change at all (the page refuses a move of a path the room holds
-   * open, because the room keys a document by its path).
-   *
-   * What it cannot promise: the write and the removal are two steps, so a removal refused after the
-   * write landed leaves the file at both names, reported as `partial` rather than as a move that did
-   * not happen or one that did.
+   * What this cannot promise, and does not: a move is many steps rather than one, so a refusal
+   * partway leaves the folder at both names, reported as `partial`. And a room carries a folder only
+   * through the files its listing has in it, so an entry no listing carries — an exclude such as
+   * `.git`, a binary, a file over the size a room will carry — cannot travel with the move; a folder
+   * holding one is refused up front rather than half-moved and then emptied of it (`unsharedUnder`).
    */
   async move(from: string, to: string): Promise<FolderMove> {
     const refuse = (cause: FolderMoveRefusal): FolderMove => ({
@@ -744,13 +819,80 @@ export class FolderWorkingCopy implements FolderWork {
     if (from === to) {
       return refuse('same');
     }
+    const source = await this.moveSource(from);
+    if (source.kind === 'refused') {
+      return refuse(source.cause);
+    }
+    return source.kind === 'directory'
+      ? this.moveFolder(from, to, source.handle, (cause, detail) => ({
+          kind: 'refused',
+          cause,
+          sentence: folderMoveSentence(cause, from, to, detail),
+        }))
+      : this.moveFile(from, to, refuse);
+  }
+
+  /**
+   * What `path` is in the folder the person picked, asked of the folder itself.
+   *
+   * The listing cannot answer it: a listing is files, so a folder is in one only through the files
+   * inside it, and a folder this session made and wrote nothing into is in no listing at all. The
+   * lookup asks for a directory, so a name that is there as a file answers `TypeMismatchError` —
+   * the one answer here that is a fact about the path and not about the move.
+   */
+  private async moveSource(path: string): Promise<MoveSource> {
+    const dir = await this.directoryOf(path);
+    if ('cause' in dir) {
+      return { kind: 'refused', cause: dir.cause === 'not-granted' ? 'not-permitted' : dir.cause };
+    }
+    try {
+      return { kind: 'directory', handle: await dir.handle.getDirectoryHandle(leafOf(path)) };
+    } catch (error: unknown) {
+      if (permissionRefusal(error)) {
+        return { kind: 'refused', cause: 'not-permitted' };
+      }
+      const cause = refusalOf(error);
+      if (cause === undefined) {
+        throw error;
+      }
+      return cause === 'not-a-file' ? { kind: 'file' } : { kind: 'refused', cause };
+    }
+  }
+
+  /**
+   * Moves one file to another name: a write at the new path, then a removal at the old.
+   *
+   * That is the whole of what moving a file is here, and the order is what makes each step honest.
+   * The old text is read first, so a file that is not there, is not text or is over the bound is
+   * refused before anything is made. The new name is created, which refuses a name the folder
+   * already holds rather than merging the two. Then the text is written, and only then is the old
+   * path removed — a removal first would lose a file whose write was refused. The directories a
+   * path goes through are made on the way down for a file inside a folder being moved, which is what
+   * `create`'s own `createDirectories` is for, and not for a file moved to a name typed at the top
+   * level, where a missing one means the person mistyped.
+   *
+   * What this is not: a rename. The file's identity is its path in this client too, and the caller is
+   * the one that decides a path may change at all (the page settles the documents the room holds
+   * open first, because the room keys a document by its path).
+   *
+   * What it cannot promise: the write and the removal are two steps, so a removal refused after the
+   * write landed leaves the file at both names, reported as `partial` rather than as a move that did
+   * not happen or one that did. The path it carries for the page is then nothing: the old document
+   * still describes the old name, which is still there.
+   */
+  private async moveFile(
+    from: string,
+    to: string,
+    refuse: (cause: FolderMoveRefusal) => FolderMove,
+    options: { createDirectories?: boolean } = {},
+  ): Promise<FolderMove> {
     const source = await this.read(from);
     if (source.kind === 'refused') {
       return refuse(source.cause);
     }
-    const made = await this.create(to, 'file');
+    const made = await this.create(to, 'file', options);
     if (made.kind === 'refused') {
-      return refuse(made.cause);
+      return this.destinationRefusal(made.cause, from, to);
     }
     // The layout travels with the text. `create` stamped the new file and knows nothing about how the
     // old one's bytes were laid out, so the byte order mark has to be carried here or the move would
@@ -768,9 +910,163 @@ export class FolderWorkingCopy implements FolderWork {
     }
     const gone = await this.remove(from);
     if (gone.kind === 'refused') {
-      return { kind: 'partial', from, to, sentence: folderMovePartialSentence(from, to, gone.sentence) };
+      return { kind: 'partial', from, to, paths: [], sentence: folderMovePartialSentence(from, to, gone.sentence) };
     }
-    return { kind: 'moved', from, to };
+    return { kind: 'moved', from, to, paths: [from] };
+  }
+
+  /**
+   * Moves a folder: every listed file inside it, one at a time, and then the folder itself.
+   *
+   * The order is what makes a move that stops halfway readable rather than destructive. Each file
+   * lands before the folder is taken out, and the folder goes only once its contents have: what has
+   * not moved is still where it was, and a refusal along the way is answered with the folder at both
+   * names rather than with a folder that half arrived.
+   *
+   * The folder is refused before anything is made when it holds a file the room's listing has no
+   * path for (`unsharedUnder`). The removal that ends the move is the recursive one, which takes
+   * with it everything in the folder and not only the files that were listed; the check is what
+   * makes that removal safe, and it is made before the first byte moves rather than after.
+   */
+  /**
+   * A refusal about the destination, in a create's own words.
+   *
+   * What failed is making `to`, not finding `from`: the folder a path goes through is not there, or
+   * the name is already held. Wording it as a move's refusal of the source says the folder the person
+   * picked up is not in the folder any more, which sends them to look at the one they are holding
+   * rather than the one they dropped it on.
+   */
+  private destinationRefusal(
+    cause: FolderCreateRefusal,
+    from: string,
+    to: string,
+  ): FolderMove {
+    if (cause === 'exists') {
+      // A create's own words for this are about a name somebody typed, and a move has no field to
+      // type one in: the sentence says what the folder did rather than what to try next.
+      return {
+        kind: 'refused',
+        cause,
+        sentence: `${from} was not moved: ${to} is already in that folder, and this page replaces and renames nothing the folder holds.`
+      };
+    }
+    return {
+      kind: 'refused',
+      cause,
+      sentence: `${from} was not moved: ${folderCreateSentence(cause, to)}`,
+    };
+  }
+
+  private async moveFolder(
+    from: string,
+    to: string,
+    handle: FolderDirectoryHandle,
+    refuse: (cause: FolderMoveRefusal, detail?: string) => FolderMove,
+  ): Promise<FolderMove> {
+    const under = `${from}/`;
+    if (to.startsWith(under)) {
+      return refuse('inside');
+    }
+    const dirs: string[] = [];
+    const stranger = await this.unsharedUnder(handle, from, dirs);
+    if (stranger !== undefined) {
+      return refuse('unshared', stranger);
+    }
+    const made = await this.create(to, 'directory');
+    if (made.kind === 'refused') {
+      return this.destinationRefusal(made.cause, from, to);
+    }
+    // What a move that gives up before anything landed takes back out: the folder it made at the other
+    // end. An empty folder left where nothing arrived is a row nobody asked for — and, a listing being
+    // files, one nothing draws, which is a name the next move onto it is refused against.
+    const abandon = (): Promise<FolderRemove> => this.remove(to);
+    // The folders arrive too, shallowest first, before the files that go in them. A room's listing
+    // cannot carry a directory — it is files — so the walk above is the only thing that knows one was
+    // there, and a move that left them behind would have the source removal take them with it: an
+    // empty folder inside a folder the person moved is theirs, and `mv` keeps it.
+    for (const dir of dirs) {
+      const at = `${to}${dir.slice(from.length)}`;
+      const madeDir = await this.create(at, 'directory', { createDirectories: true });
+      if (madeDir.kind === 'refused') {
+        await abandon();
+        return this.destinationRefusal(madeDir.cause, from, at);
+      }
+    }
+    const moving = [...(this.listed ?? [])].filter((path) => path.startsWith(under)).sort();
+    const moved: string[] = [];
+    for (const path of moving) {
+      const at = `${to}${path.slice(from.length)}`;
+      const landed = await this.moveFile(path, at, (cause) => ({
+        kind: 'refused',
+        cause,
+        sentence: folderMoveSentence(cause, path, at),
+      }), { createDirectories: true });
+      if (landed.kind !== 'moved') {
+        // Nothing has moved when the first file is refused, so that is a move that did not happen;
+        // a refusal after one has landed is a half-done move, and is said as one.
+        if (landed.kind === 'refused' && moved.length === 0) {
+          await abandon();
+          return landed;
+        }
+        return { kind: 'partial', from, to, paths: moved, sentence: folderMovePartialSentence(from, to, landed.sentence) };
+      }
+      moved.push(path);
+    }
+    const gone = await this.remove(from);
+    if (gone.kind === 'refused') {
+      return { kind: 'partial', from, to, paths: moved, sentence: folderMovePartialSentence(from, to, gone.sentence) };
+    }
+    return { kind: 'moved', from, to, paths: moved };
+  }
+
+  /**
+   * The first file under a folder that the room's listing has no path for, or `undefined` when
+   * every file in it is one the listing carries.
+   *
+   * A raw walk, because this answers what a recursive removal would take with it: the excludes are a
+   * list of names a room must never see at all, the listing's own walk leaves out a name that
+   * declares a format a room cannot carry and one over the size it carries, and a subtree can fall
+   * outside the walk's budget. Each of those is a file the folder holds and the listing does not.
+   *
+   * Every directory it walks is left in `dirs`, shallowest first, which is what the move makes at
+   * the other end: a room's listing is files, so a directory is in none, and the source removal is
+   * recursive — one it did not make would be taken by the removal rather than moved.
+   *
+   * A directory it cannot descend into is answered as the stranger itself: a move may not remove
+   * what nothing here has read.
+   */
+  private async unsharedUnder(
+    dir: FolderDirectoryHandle,
+    path: string,
+    dirs: string[],
+  ): Promise<string | undefined> {
+    let entries: FolderEntry[];
+    try {
+      entries = await folderEntries(dir);
+    } catch {
+      return path;
+    }
+    for (const entry of entries) {
+      const child = `${path}/${entry.name}`;
+      if (entry.kind === 'file') {
+        if (this.listed?.has(child) !== true) {
+          return child;
+        }
+        continue;
+      }
+      let handle: FolderDirectoryHandle;
+      try {
+        handle = await dir.getDirectoryHandle(entry.name);
+      } catch {
+        return child;
+      }
+      dirs.push(child);
+      const under = await this.unsharedUnder(handle, child, dirs);
+      if (under !== undefined) {
+        return under;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -964,6 +1260,12 @@ async function folderEntries(dir: FolderDirectoryHandle): Promise<FolderEntry[]>
 function leafOf(path: string): string {
   const segments = path.split('/');
   return segments[segments.length - 1] ?? '';
+}
+
+/** The directory a path sits in, or `''` for a path at the root of the folder. */
+function folderOf(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash === -1 ? '' : path.slice(0, slash);
 }
 
 /**
