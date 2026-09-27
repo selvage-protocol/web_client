@@ -16,9 +16,17 @@
 # page is served from the image's own copy of `dist/` — every file's media type,
 # the bytes of the shell and of a content-hashed chunk, and the headers the
 # one-origin deployment decides; a write is refused; and `/meta` and `/session`,
-# which this image does not have with no upstream, are 404. A second run with
-# `SELVAGE_SERVER` set proves the other shape: an unreachable upstream is a 502 on
-# those two paths and nothing else about the page changes.
+# which this image does not have with no upstream, are 404. Then the relay, which is
+# what `SELVAGE_SERVER` turns on: the two paths are proxied (an unreachable upstream
+# is a 502, and it leaves nothing on the container's transcript, which an invite
+# URL's token would otherwise reach); a name that does not resolve stops the
+# container and its output names the name; and a real server behind the page is
+# proved end to end — `/meta` read, a socket upgraded to `101`, and a room minted on
+# one connection and joined on a second, all through the page's own published port.
+# That last case pulls `ghcr.io/selvage-protocol/selvaged:latest`, the server the
+# relay is for, so it needs a route to `ghcr.io`; where that image cannot be pulled it
+# runs `scripts/relay-stub.mjs` instead and says so, which proves the relay and not
+# the server.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -45,6 +53,10 @@ image="selvage-web-smoke"
 # Named per invocation: a crashed or `SIGKILL`ed run leaves its container behind,
 # and a second invocation must not collide with it — or remove its container.
 name="selvage-web-smoke-$PPID-$$"
+# Everything this run starts, so the trap can take it all down, and the network the
+# relay's case puts the page and its server on.
+containers=("$name")
+network=""
 tags="$(scripts/release-tags.sh)"
 version="$(printf '%s\n' "$tags" | sed -n 's/^version=//p')"
 revision="$(git rev-parse HEAD)"
@@ -64,7 +76,12 @@ fail() {
 }
 
 cleanup() {
-    docker rm -f "$name" >/dev/null 2>&1 || true
+    for container in "${containers[@]}"; do
+        docker rm -f "$container" >/dev/null 2>&1 || true
+    done
+    if [ -n "$network" ]; then
+        docker network rm "$network" >/dev/null 2>&1 || true
+    fi
 }
 trap cleanup EXIT
 
@@ -212,6 +229,16 @@ scripts/check-page.sh "$base" || {
     exit 1
 }
 
+echo "=== build: the image declares the knob the room's other image sets ==="
+# The server's compose file sets `SELVAGE_SERVER` on this image and nothing in that
+# repository runs the image, so the name is pinned here as well as in
+# `scripts/test-relay-config.sh`: a container on the image's own defaults still carries
+# the variable, which is what `docker image inspect` has to show for an operator to
+# find the knob at all.
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" | grep -qx 'SELVAGE_SERVER=' \
+    || fail "the image's own environment carries no SELVAGE_SERVER, which is the name the server's compose file sets"
+echo "the image declares SELVAGE_SERVER (empty): the knob shows in 'docker image inspect'"
+
 echo "=== relay: no SELVAGE_SERVER leaves the include empty ==="
 # `check-page.sh` above asserted one half of the absence — `/meta` and `/session`
 # are 404 — and this is the other: the file the entrypoint wrote is empty, so
@@ -225,6 +252,7 @@ attempt 'docker exec (unconfigured) cat' docker exec "$name" cat /dev/shm/selvag
 echo "=== relay: with SELVAGE_SERVER set the two endpoints are proxied ==="
 docker rm -f "$name" >/dev/null
 name="selvage-web-smoke-relay-$PPID-$$"
+containers+=("$name")
 attempt 'docker run (relay)' docker run --detach --name "$name" "${hardening[@]}" \
     --env SELVAGE_SERVER=http://127.0.0.1:9 \
     --publish "127.0.0.1:$port:8080" \
@@ -250,7 +278,111 @@ for path in /meta /session; do
     echo "relayed: $path is $status, from the configured upstream"
 done
 
+# That 502 is below the level this image's error log keeps and its access log is off, so
+# the container's own transcript has nothing about the request or the upstream it could
+# not reach. The token in an invite URL travels in the request line, which is exactly what
+# must not land there; a regression to an `error`-level log, or to a filter rather than
+# `off`, shows up here.
+transcript="$(docker logs "$name" 2>&1 || true)"
+if printf '%s\n' "$transcript" | grep -qE '127\.0\.0\.1:9|connect\(\) failed|no live upstreams|\[error\]|\[warn\]'; then
+    printf '%s\n' "$transcript" >&2
+    fail "the 502 reached the container's transcript, which an invite URL's token would reach too"
+fi
+echo "the 502 left nothing on the transcript: the error log is at crit and the access log is off"
+
+echo "=== relay: a name that does not resolve stops the container, naming it ==="
+# `proxy_pass` resolves its host while nginx loads its configuration, so a misspelled
+# name, or a page started before its server, is fatal at startup: the container exits and
+# says `host not found in upstream`, rather than starting a page that 502s every join.
+# A silent fallback to a page with no relay is the failure this case exists to catch.
+docker rm -f "$name" >/dev/null
+name="selvage-web-smoke-unresolved-$PPID-$$"
+containers+=("$name")
+attempt 'docker run (unresolved upstream)' docker run --detach --name "$name" "${hardening[@]}" \
+    --env SELVAGE_SERVER=http://no-such-host.invalid:8080 \
+    --publish "127.0.0.1:$port:8080" \
+    "$image"
+
+deadline=$((SECONDS + 60))
+while [ "$(field '{{.State.Running}}')" = "true" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || {
+        docker logs "$name" >&2 || true
+        fail "the container is still running with an upstream name that does not resolve"
+    }
+    sleep 0.5
+done
+code="$(field '{{.State.ExitCode}}')"
+[ "$code" != "0" ] || fail "the container exited 0 with an upstream name that does not resolve"
+unresolved="$(docker logs "$name" 2>&1 || true)"
+printf '%s\n' "$unresolved" | grep -qF 'no-such-host.invalid' || {
+    printf '%s\n' "$unresolved" >&2
+    fail "the container exited $code without naming the upstream it could not resolve"
+}
+printf '%s\n' "$unresolved" | tail -n 1
+echo "unresolvable upstream: the container exited $code, and its output names no-such-host.invalid"
+
+echo "=== relay: a server behind the page, and a room joined through it ==="
+# The value below is the one the other repository's compose file writes — the bare service
+# name and port — so this pins `SELVAGE_SERVER`, `/meta`, `/session` and one origin as the
+# contract between the two images.
+server_name="selvaged"
+server_image="${SELVAGE_SERVER_IMAGE:-ghcr.io/selvage-protocol/selvaged:latest}"
+network="selvage-web-smoke-$PPID-$$"
+server_container="selvage-web-smoke-server-$PPID-$$"
+containers+=("$server_container")
+attempt 'docker network create' docker network create "$network"
+
+if docker pull "$server_image" >"$TMPDIR/server-pull.log" 2>&1; then
+    echo "server under test: $server_image, the published reference server"
+    server=(docker run --detach --name "$server_container" --network "$network" \
+        --network-alias "$server_name" "$server_image")
+else
+    # The honest counterpart is `selvaged`. Where its image cannot be pulled — no route to
+    # `ghcr.io`, a rate limit — the proof still runs, against `scripts/relay-stub.mjs`,
+    # which answers `/meta` with a Selvage body and upgrades `/session` in the shape the
+    # checker asserts. That proves the relay and not the server, and the two lines below
+    # are the whole of the difference.
+    echo "the published server image could not be pulled: $(tail -n 2 "$TMPDIR/server-pull.log" | tr '\n' ' ')"
+    echo "server under test: scripts/relay-stub.mjs, which proves the relay and not the server"
+    stub_image="${SELVAGE_STUB_IMAGE:-node:22-alpine}"
+    attempt 'docker pull (stub runtime)' docker pull "$stub_image"
+    server=(docker run --detach --name "$server_container" --network "$network" \
+        --network-alias "$server_name" \
+        --mount "type=bind,source=$repo_root/scripts/relay-stub.mjs,target=/stub.mjs,readonly" \
+        "$stub_image" node /stub.mjs)
+fi
+attempt 'docker run (server)' "${server[@]}"
+
+docker rm -f "$name" >/dev/null
+name="selvage-web-smoke-relayed-$PPID-$$"
+containers+=("$name")
+attempt 'docker run (relayed page)' docker run --detach --name "$name" "${hardening[@]}" \
+    --network "$network" \
+    --env SELVAGE_SERVER="$server_name:8080" \
+    --publish "127.0.0.1:$port:8080" \
+    "$image"
+
+# The wait is on the relayed `/meta`, which answers 200 only once both containers are up:
+# a 502 while the server is still starting is this loop's business, not a failure.
+deadline=$((SECONDS + 90))
+last=""
+until last="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "$base/meta" 2>&1)" && [ "$last" = "200" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || {
+        docker logs "$name" >&2 || true
+        docker logs "$server_container" >&2 || true
+        fail "$base/meta did not answer 200 within 90s through the relay (last: $last)"
+    }
+    sleep 0.5
+done
+echo "the relay reached the server: $base/meta is 200"
+
+attempt 'docker exec (relayed) cat' docker exec "$name" cat /dev/shm/selvage-relay.conf
+# `/meta` read, the upgrade to `101`, and a room minted on one connection and joined on a
+# second — every one of them through the page's own published port, which is the property
+# this branch exists for.
+attempt 'the relay proof' node scripts/check-relay.mjs "$base"
+
 echo "=== the relay container's own transcript ==="
 docker logs "$name" || true
 
-echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, refused a write, answered 404 on the two endpoints with no upstream, and relayed them when configured"
+echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, refused a write, answered 404 on the two endpoints with no upstream, relayed them when configured without logging the attempt, exited with a name that does not resolve, and seated a room through itself against $server_image"
