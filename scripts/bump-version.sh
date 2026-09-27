@@ -13,6 +13,10 @@
 # nothing at all — is refused with the reason and a non-zero exit, having changed
 # nothing. `--dry-run` prints the same line and writes nothing.
 #
+# A run that fails once it has started writing puts every file it owns back, so a failed
+# bump leaves the tree as it found it and a caller that tries again starts from the
+# version it started from.
+#
 # The caller commits and tags: nothing here commits, tags or pushes, and nothing here
 # touches a tag that already exists.
 #
@@ -142,7 +146,44 @@ for tool in node npm magick; do
         die "$tool is not on PATH; the manifests are written with node and the bundle's icons are rendered with ImageMagick 7's magick"
 done
 
+# Fresh scratch every run. A leftover copy from an earlier run would be restored in
+# place of this one, and `cp -r` into an existing directory nests it.
+rm -rf "$work"
 mkdir -p "$work"
+
+# Everything from the first write on is put back if anything fails, so a run that fails
+# leaves the tree as it found it and a caller that tries again starts from the version it
+# started from rather than from three files further along. The bundle is restored too,
+# because `npm run build` empties `dist/` before it fills it again and a build that fails
+# halfway leaves it in neither state.
+kept="$work/kept"
+mkdir -p "$kept"
+cp -- "$manifest" "$kept/manifest"
+cp -- "$lockfile" "$kept/lockfile"
+cp -- "$identity" "$kept/identity"
+kept_dist=false
+if [ -d dist ]; then
+    kept_dist=true
+    cp -r dist "$kept/dist"
+fi
+
+writes_started=false
+put_everything_back() {
+    local status=$?
+    if [ "$status" -eq 0 ] || [ "$writes_started" = false ]; then
+        return 0
+    fi
+    cp -- "$kept/manifest" "$manifest"
+    cp -- "$kept/lockfile" "$lockfile"
+    cp -- "$kept/identity" "$identity"
+    rm -rf dist
+    if [ "$kept_dist" = true ]; then
+        cp -r "$kept/dist" dist
+    fi
+    note "the run failed, so $manifest, $lockfile, $identity and dist/ are as they were"
+    return 0
+}
+trap put_everything_back EXIT
 
 # `path<TAB>sha256` for every file whose bytes this script owns: the three it writes and
 # the generated tree. Compared afterwards rather than asked of git, so a checkout that
@@ -173,6 +214,8 @@ changed_paths() {  # changed_paths <before> <after>
 }
 
 snapshot "$work/before"
+
+writes_started=true
 
 # JSON, not `sed`: `package-lock.json` carries a `version` for every installed package
 # as well as its own two, and only the two are the manifest's. npm's own formatting is
