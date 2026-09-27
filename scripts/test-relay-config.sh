@@ -95,7 +95,13 @@ grep -q '    proxy_http_version 1.1;' "$relay" || fail "the upgrade needs HTTP/1
 grep -q '    proxy_set_header Upgrade \$http_upgrade;' "$relay" || fail "no Upgrade passthrough"
 grep -q '    proxy_set_header Connection \$connection_upgrade;' "$relay" \
     || fail "no Connection passthrough"
-grep -q '    proxy_set_header Host \$host;' "$relay" || fail "the Host is not passed through"
+# The upstream's own name and port, never the page's: a server behind a front that routes
+# by name refuses a request carrying the origin the page is served under.
+grep -qF '    proxy_set_header Host $proxy_host;' "$relay" \
+    || fail "the relay does not send the upstream's own Host"
+if grep -qF '    proxy_set_header Host $host;' "$relay"; then
+    fail "the relay sends the page's own Host to the upstream"
+fi
 grep -q '    proxy_connect_timeout 5s;' "$relay" || fail "no connect timeout"
 grep -q '    proxy_read_timeout 300s;' "$relay" || fail "no long-lived read timeout"
 grep -q '    proxy_send_timeout 300s;' "$relay" || fail "no long-lived send timeout"
