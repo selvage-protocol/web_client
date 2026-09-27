@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { rosterLabel } from '../src/browser/names.ts';
+import { rosterLabel } from '../src/bridge/index.ts';
 import { persistJoinUrl } from '../src/browser/share.ts';
 import {
   EMPTY_FILE_TITLE,

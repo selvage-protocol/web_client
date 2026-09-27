@@ -27,7 +27,7 @@ import { PeerEngine } from '../src/bridge/index.ts';
 import { listingSource, pageEngine } from '../src/browser/relay.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { rosterLabel } from '../src/browser/names.ts';
+import { rosterLabel } from '../src/bridge/index.ts';
 import { describeJoinError } from '../src/browser/transport.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 import { fetchAndSave, fetchStandMs } from '../src/browser/fetch-download.ts';

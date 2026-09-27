@@ -19,12 +19,8 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  SESSION_ENDED_MESSAGE,
-  dropSession,
-  roomGoneMessage,
-  roomGoneSentence,
-} from '../src/browser/ended.ts';
+import { SESSION_ENDED_MESSAGE, roomGoneSentence } from '../src/bridge/index.ts';
+import { dropSession, roomGoneMessage } from '../src/browser/ended.ts';
 import { endingReason } from '../src/engine/index.ts';
 import { addressBarInvite, resolveJoin, showStartAgain } from '../src/browser/join.ts';
 import { displayShareLink, fitReadout } from '../src/browser/share.ts';

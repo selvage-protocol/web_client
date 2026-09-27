@@ -13,16 +13,18 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  HOST_BACK_STAND_MS,
   RECONNECTING_NOTE,
-  TOAST_STAND_MS,
-  TOASTS_SHOWN,
-  TRANSIENT_STAND_MS,
   disconnectingReading,
-  downloadedSentence,
   graceWording,
   hostBackSentence,
   hostLeftSentence,
+} from '../src/bridge/index.ts';
+import {
+  HOST_BACK_STAND_MS,
+  TOAST_STAND_MS,
+  TOASTS_SHOWN,
+  TRANSIENT_STAND_MS,
+  downloadedSentence,
   wireDownloadToasts,
   wireSessionCard,
 } from '../src/browser/notice.ts';

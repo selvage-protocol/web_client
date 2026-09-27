@@ -91,24 +91,26 @@ import { wireLeave } from './leave.ts';
 import { wireShareBox } from './share-box.ts';
 import {
   HOST_BACK_STAND_MS,
-  RECONNECTING_NOTE,
-  hostBackSentence,
   hostPresent,
   wireDownloadToasts,
   wireFailureAlert,
   wireSessionCard,
   wireTapPeek,
 } from './notice.ts';
-import {
-  SESSION_ENDED_MESSAGE,
-  dropSession,
-  roomGoneSentence,
-} from './ended.ts';
+import { dropSession } from './ended.ts';
 import type { ShareBox } from './share-box.ts';
 import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
-import { peerColour } from '../bridge/index.ts';
+import {
+  RECONNECTING_NOTE,
+  SESSION_ENDED_MESSAGE,
+  guestIdentity,
+  hostBackSentence,
+  hostingIdentity,
+  peerColour,
+  roomGoneSentence,
+  seatColours,
+} from '../bridge/index.ts';
 import { schemeMatchBase, serverBaseOf } from './servers.ts';
-import { seatColours } from './seats.ts';
 import {
   PHONE_QUERY,
   TOUCH_QUERY,
@@ -2498,12 +2500,11 @@ function rememberHostName(): void {
 
 function setSessionIdentity(): void {
   if (hostFolder !== undefined) {
-    sessionIdentity.textContent = `Sharing “${hostFolder.name}”`;
+    sessionIdentity.textContent = hostingIdentity(hostFolder.name);
     return;
   }
   rememberHostName();
-  sessionIdentity.textContent =
-    sessionHostName === undefined ? 'In a shared session' : `In ${sessionHostName}\u2019s session`;
+  sessionIdentity.textContent = guestIdentity(sessionHostName);
 }
 
 function onNotice(notice: BindingNotice): void {

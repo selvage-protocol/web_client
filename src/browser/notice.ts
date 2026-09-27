@@ -17,6 +17,7 @@
  * - **the failure alert** and **the tap-revealed line** are the same mechanism with different copy:
  *   one sentence about a thing that just happened, standing a few seconds and leaving on its own.
  */
+import { disconnectingReading, hostAwaySentence, hostLeftSentence } from '../bridge/index.ts';
 import { iconSpan } from './icons.ts';
 
 export interface NoticeOptions {
@@ -118,86 +119,8 @@ export function hostPresent(members: readonly { role: string }[]): boolean {
 /** The one role that means the host. */
 const HOST_ROLE = 'host';
 
-/**
- * A dropped socket, in the words the desktop clients' own status lines carry: the room is out of
- * reach and the engine's bounded retry is re-dialling it (`§9.1`). A page that said nothing would
- * look healthy for the whole retry — the editor keeps working locally and nothing typed reaches
- * the room.
- */
-export const RECONNECTING_NOTE = 'Connection dropped. Reconnecting…';
-
 /** How long the host's return stands in the card before it takes itself down. */
 export const HOST_BACK_STAND_MS = 5000;
-
-/**
- * How long the grace window reads to a guest: the largest whole unit the window
- * still has one of, rounded down, so the countdown never gives the guest more
- * time than the room has. The window is the server's own number (`room_grace_ms`,
- * echoed on the detach frame), so it can be anything up to an hour, and a raw
- * second count makes the reader divide it.
- */
-export function graceWording(graceMs: number): string {
-  const ms = Math.max(0, graceMs);
-  const seconds = Math.floor(ms / 1000);
-  if (seconds === 0) {
-    return 'a moment';
-  }
-  if (seconds < 60) {
-    return `${seconds} second${seconds === 1 ? '' : 's'}`;
-  }
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) {
-    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-  }
-  const hours = Math.floor(ms / 3_600_000);
-  return `${hours} hour${hours === 1 ? '' : 's'}`;
-}
-
-/**
- * What the card's countdown line reads at `remainingMs` of a window `graceMs` long.
- *
- * A window a person can watch — under a minute, which is every grace a server sends by default — is
- * counted in whole seconds, the way the design draws it (`Disconnecting in 18s`). A longer one is
- * read in the unit `graceWording` picks, because nobody counts 3600 seconds. The second is rounded
- * up: with any part of a second left the room still has a second to come back in, and `0s` is not a
- * thing to show.
- */
-export function disconnectingReading(graceMs: number, remainingMs: number): string {
-  const left = Math.max(0, remainingMs);
-  if (graceMs >= 60_000) {
-    return graceWording(left);
-  }
-  return `${Math.ceil(left / 1000)}s`;
-}
-
-/**
- * The host's absence, in the design's words: the card's headline. The name is the room's, so it can
- * be blank — a guest that joined after the host's socket dropped never saw one — and the sentence
- * then falls back to the role rather than to a gap.
- */
-export function hostLeftSentence(name: string): string {
-  const who = name.trim() === '' ? 'The host' : name.trim();
-  return `${who} left the session`;
-}
-
-/**
- * The host coming back inside the grace, in the words both desktop clients use. The name is
- * the room's to leave blank — the engine's own validation accepts an empty display name — and
- * the sentence falls back to the role rather than to a gap.
- */
-export function hostBackSentence(name: string): string {
-  const who = name.trim() === '' ? 'the host' : name.trim();
-  return `${who} is back. The session continues.`;
-}
-
-/**
- * The window as words, for the sentence a screen reader hears. Rounded to the whole second the
- * countdown line starts on, so the two readings of one window cannot disagree: a server that
- * advertises `29 999 ms` is read as `30s` on the line and `30 seconds` in the announcement.
- */
-function windowWords(graceMs: number): string {
-  return graceWording(Math.ceil(graceMs / 1000) * 1000);
-}
 
 /** What the card shows when the window has run out and the room has not come back. */
 const SESSION_ENDED_SENTENCE = 'The session ended';
@@ -308,12 +231,11 @@ export function wireSessionCard(element: HTMLElement, options: NoticeOptions = {
       grace = Math.max(0, graceMs);
       deadline = now() + grace;
       paint('away');
-      const headline = hostLeftSentence(name);
-      message.textContent = headline;
+      message.textContent = hostLeftSentence(name);
       bar.style.transform = 'scaleX(1)';
       // Said once, with the window as a unit rather than a number the reader has to catch: the
       // ticking line below is hidden from assistive tech.
-      announce(`${headline}. The room disconnects in ${windowWords(grace)}.`);
+      announce(hostAwaySentence(name, grace));
       let shown = '';
       const draw = (): void => {
         const remaining = (deadline ?? 0) - now();

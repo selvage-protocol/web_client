@@ -29,6 +29,8 @@
  * the tests pin (`test/empty-editor.test.ts`).
  */
 
+import { COPY_INVITE_LABEL } from '../bridge/index.ts';
+
 /** The acts the pane can offer, as the page dispatches them. */
 export type EmptyEditorAction =
   | 'new-file'
@@ -142,7 +144,7 @@ export function emptyEditorActionLabel(action: EmptyEditorAction): string {
     case 'new-file':
       return NEW_FILE;
     case 'copy-invite':
-      return 'Copy invite link';
+      return COPY_INVITE_LABEL;
     case 'browse-files':
       return BROWSE_FILES;
     case 'go-to':

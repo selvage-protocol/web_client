@@ -23,7 +23,7 @@ import { PeerEngine } from '../src/bridge/index.ts';
 import { listingSource, pageEngine } from '../src/browser/relay.ts';
 import { CLIENT_ID } from '../src/browser/client-id.ts';
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { seatColours } from '../src/browser/seats.ts';
+import { seatColours } from '../src/bridge/index.ts';
 import { languageForPath } from '../src/browser/languages.ts';
 import { nativeWebSocketFactory } from '../src/browser/transport.ts';
 
