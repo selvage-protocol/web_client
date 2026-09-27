@@ -54,16 +54,18 @@ job_checks() {
   # and those tags are made there rather than read from this checkout.
   say "checks: the release plan, against real tag states"
   scripts/test-release-plan.sh
-  # The release path's own scripts are reached by the release workflow and by nothing else, so
-  # this parse is the last cheap place before a release that they are read at all.
-  say "checks: every shell script this repository tracks parses"
-  files="$(git ls-files '*.sh')"
-  if [ -z "$files" ]; then
-    printf 'git ls-files %s matched nothing, so this check read no script at all\n' "'*.sh'" >&2
-    exit 1
-  fi
-  printf '%s\n' "$files"
-  while read -r script; do bash -n "$script"; done <<< "$files"
+  # Every shell script this repository has is under `scripts/`, and the release workflow is the
+  # only thing that reaches some of them, so this parse is the last cheap place before a release
+  # that they are read at all.
+  say "checks: every shell script this repository has parses"
+  for script in scripts/*.sh; do
+    if [ ! -e "$script" ]; then
+      printf 'scripts/*.sh matched nothing, so this check read no script at all\n' >&2
+      exit 1
+    fi
+    printf '%s\n' "$script"
+    bash -n "$script"
+  done
 }
 
 job_container() {

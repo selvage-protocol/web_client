@@ -49,6 +49,16 @@ name: release
 # ImageMagick 7's `magick` for the sized icons and the GitHub runner image ships ImageMagick 6.
 # `gh` (from trixie) does the two dispatches, and `curl` the registry reads in
 # `scripts/page-image.sh`.
+#
+# Two things a container job needs and a runner job does not, both found by running it:
+#
+#   - its steps default to `sh`, which is dash here — `set -o pipefail` is not an option dash
+#     has, `$SECONDS` is not a variable it keeps and a herestring is a syntax error — so the
+#     shell is named below rather than assumed.
+#   - `actions/checkout` marks the workspace a safe git directory in a *temporary* global
+#     config, for its own commands only. Every later git command then meets `detected dubious
+#     ownership`, because the runner mounts the workspace as another uid; the step after the
+#     checkout makes the same mark for this job, which commits, tags and pushes.
 on:
   workflow_dispatch:
     inputs:
@@ -78,6 +88,9 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     container: node:22-trixie-slim
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 60
     steps:
       - name: refuse a run that is not on main
@@ -98,6 +111,12 @@ jobs:
         with:
           # This job pushes the bump commit and the tag, and reads no other branch.
           persist-credentials: true
+
+      # See the note at the top: the checkout's own safe-directory mark lives in a temporary
+      # global config, so this job's later git commands cannot read the workspace without one of
+      # their own. The container is disposable and nothing outside it is touched.
+      - name: let git read the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # The plan is a read: it refuses, or it prints `current=`, `version=` and `tag=` for the
       # steps below. Its three lines are appended to `$GITHUB_OUTPUT` as they are printed.
