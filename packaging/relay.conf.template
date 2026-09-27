@@ -16,12 +16,17 @@
 # pump; without them the 101 never reaches the guest and the session dies at the
 # handshake. The read and send timeouts sit above the server's own ping, so they
 # only fire on a socket that is genuinely gone.
+#
+# `Host` is the upstream's own name and port, exactly as `proxy_pass` names them and
+# never the page's: a server behind anything that routes by name — the project's own
+# front answers `444` to a name that is not its own — would refuse every request
+# carrying the origin the page happens to be served under.
 location = /session {
     proxy_pass __UPSTREAM__;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
-    proxy_set_header Host $host;
+    proxy_set_header Host $proxy_host;
 
     # For an `https://` base: the upstream's name goes out as SNI and its certificate
     # is verified against the image's own CA bundle, which the base image carries at
@@ -42,7 +47,7 @@ location = /session {
 location = /meta {
     proxy_pass __UPSTREAM__;
     proxy_http_version 1.1;
-    proxy_set_header Host $host;
+    proxy_set_header Host $proxy_host;
 
     # The same TLS handling as `/session` above.
     proxy_ssl_server_name on;
