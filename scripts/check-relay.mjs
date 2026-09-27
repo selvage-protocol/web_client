@@ -14,9 +14,12 @@
  * joins it through that same relay, and the first hears `peer.joined`.
  *
  * Every read is bounded and reports what it was waiting for, so a relay that answers
- * nothing fails here rather than hanging the smoke.
+ * nothing fails here rather than hanging the smoke. A refusal is reported as the
+ * server's own code rather than as a timeout: the socket's frames are read for
+ * `session.error` and for an error response while any event is awaited.
  */
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 
 const base = (process.argv[2] ?? '').replace(/\/+$/, '');
@@ -45,7 +48,22 @@ async function get(path, what) {
   } catch (error) {
     fail(`${what}: ${base}${path} did not answer within ${waitMs}ms (${error.message})`);
   }
-  return { status: response.status, headers: response.headers, body: await response.text() };
+  const body = Buffer.from(await response.arrayBuffer());
+  return { status: response.status, headers: response.headers, body, text: body.toString('utf8') };
+}
+
+/**
+ * The server's own refusal, in either shape the protocol gives it: a `session.error`
+ * event for a fault no request id can be attached to, or an error response to one
+ * that has an id. The code is what a receiver reads, so it is what a failure says.
+ */
+function refusalOf(frame) {
+  if (frame === null || typeof frame !== 'object') return null;
+  const error = frame.event === 'session.error' ? frame.params : frame.error;
+  if (error === null || typeof error !== 'object') return null;
+  if (typeof error.code !== 'string') return null;
+  const message = typeof error.message === 'string' ? `: ${error.message}` : '';
+  return `${error.code}${message}`;
 }
 
 /** A socket that yields one event at a time, with the deadline on the wait. */
@@ -53,6 +71,7 @@ function connect(url) {
   const ws = new WebSocket(url);
   const frames = [];
   const waiters = [];
+  const skipped = [];
   const settle = () => {
     while (waiters.length > 0 && frames.length > 0) waiters.shift()();
   };
@@ -86,14 +105,19 @@ function connect(url) {
           await new Promise((resolve, reject) => {
             waiters.push(resolve);
             setTimeout(
-              () => reject(new Error(`no ${named} within ${waitMs}ms`)),
+              () => reject(
+                new Error(`no ${named} within ${waitMs}ms (frames seen: ${skipped.join(', ') || 'none'})`),
+              ),
               waitMs,
             ).unref();
           });
         }
         const frame = frames.shift();
         if (frame === null) fail(`the socket to ${url} closed while waiting for ${named}`);
+        const refusal = refusalOf(frame);
+        if (refusal !== null) fail(`the server refused over ${url}: ${refusal}`);
         if (frame?.event === named) return frame;
+        skipped.push(frame?.event ?? '(no event)');
       }
     },
     close() {
@@ -152,9 +176,9 @@ if (!(meta.headers.get('content-type') ?? '').includes('application/json')) {
 }
 let body;
 try {
-  body = JSON.parse(meta.body);
+  body = JSON.parse(meta.text);
 } catch {
-  fail(`/meta answered a body that is not JSON: ${meta.body.slice(0, 120)}`);
+  fail(`/meta answered a body that is not JSON: ${meta.text.slice(0, 120)}`);
 }
 if (typeof body.server !== 'string' || !body.server.startsWith('selvaged/')) {
   fail(`/meta answered server ${JSON.stringify(body.server)}, which is not a Selvage server`);
@@ -167,11 +191,21 @@ if (!Array.isArray(body.capabilities)) {
 }
 console.log(`meta ok: ${body.server} via ${base}/meta, ${wire}, content-type application/json`);
 
-const page = await get('/', 'the page');
-if (page.status !== 200 || !/^\s*<!doctype html/i.test(page.body)) {
-  fail(`${base}/ answered ${page.status} without the page's own shell, so the relay is not one origin with the page`);
+const shell = readFileSync(new URL('../dist/index.html', import.meta.url));
+if (shell.length === 0) {
+  fail('dist/index.html is empty, so this check would compare nothing');
 }
-console.log(`one origin: ${base}/ is the page and /meta is the relayed server's`);
+const page = await get('/', 'the page');
+if (page.status !== 200) {
+  fail(`${base}/ answered ${page.status} through the relay, want the page's own 200`);
+}
+if (!page.body.equals(shell)) {
+  fail(
+    `${base}/ did not answer this bundle's dist/index.html byte for byte `
+    + `(${page.body.length} bytes, want ${shell.length}), so the relay is not serving the page this checkout built`,
+  );
+}
+console.log(`one origin: ${base}/ is this bundle's dist/index.html, ${shell.length} bytes, and /meta is the relayed server's`);
 
 const status = await upgrade().catch((error) => fail(`the /session upgrade failed: ${error.message}`));
 if (status !== 101) fail(`/session answered ${status} to an upgrade, want 101`);
