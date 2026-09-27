@@ -18,6 +18,8 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { followEndedByLeaving, followEndedByTyping } from '../src/bridge/index.ts';
+
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const treeView = readFileSync(new URL('../src/browser/tree-view.ts', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
@@ -183,8 +185,10 @@ describe('what the strip states', () => {
     // The ring vanishing with nothing said is the one way a person loses the thread of what just
     // happened. Both sentences are the desktop clients' own, they are raised by the binding, and the
     // page's transient line is where they stand — for the four seconds they always did.
-    assert.match(editor, /Stopped following \$\{name\} because you started typing\./, 'a follow ended by typing says nothing');
-    assert.match(editor, /left the room, so following stopped\./, 'a follow ended by a departure says nothing');
+    assert.equal(followEndedByTyping('Ana'), 'Stopped following Ana because you started typing.');
+    assert.equal(followEndedByLeaving('Ana'), 'Ana left the room, so following stopped.');
+    assert.match(editor, /ended: followEndedByTyping\(name\)/, 'a follow ended by typing says nothing');
+    assert.match(editor, /ended: followEndedByLeaving\(name\)/, 'a follow ended by a departure says nothing');
     assert.match(main, /failureAlert\.show\(ended, FOLLOW_ENDED_STAND_MS\)/,
       'the reason does not reach the page’s transient line');
     assert.match(main, /const FOLLOW_ENDED_STAND_MS = 4000;/, 'the reason never leaves');
@@ -275,9 +279,9 @@ describe('the leave control', () => {
     assert.match(html, /id="leave-anyway"/, 'the destructive answer is missing');
     // The words are the module's, kept verbatim, and the markup carries them so the panel paints
     // before the bundle arrives.
-    const leave = readFileSync(new URL('../src/browser/leave.ts', import.meta.url), 'utf8');
-    assert.match(leave, /LEAVE_ASKING_LABEL = 'Leave anyway'/, 'the destructive answer lost its words');
-    assert.match(leave, /LEAVE_CANCEL_LABEL = 'Cancel'/, 'the quiet answer lost its words');
+    const words = readFileSync(new URL('../src/bridge/words.ts', import.meta.url), 'utf8');
+    assert.match(words, /LEAVE_ASKING_LABEL = 'Leave anyway'/, 'the destructive answer lost its words');
+    assert.match(words, /LEAVE_CANCEL_LABEL = 'Cancel'/, 'the quiet answer lost its words');
     assert.ok(html.includes('>Leave anyway<'), 'the panel’s own answer is not in the shell');
   });
 });

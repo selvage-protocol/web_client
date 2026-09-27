@@ -21,6 +21,13 @@
  * guest's shape, which is what a page between sessions shows.
  */
 
+import {
+  HOST_LEAVE_QUESTION,
+  LEAVE_ASKING_LABEL,
+  LEAVE_CANCEL_LABEL,
+  LEAVE_HOST_LABEL,
+} from '../bridge/index.ts';
+
 /** What the control asks of the page it sits on. */
 export interface LeaveOptions {
   /**
@@ -75,29 +82,6 @@ export interface LeaveControl {
 
 /** The control's name for a guest — the desktop clients' own `Leave the session`. */
 export const LEAVE_TITLE = 'Leave the session';
-
-/**
- * The verb for a host, whose connection is the room.
- *
- * The consequence used to be readable only in the confirmation: the control said `Leave` for both
- * roles, so a host pressed the same word a guest does and learned what it did afterwards. It is the
- * control's own name now, and the question the press opens says what the press costs in full.
- */
-export const LEAVE_HOST_LABEL = 'Leave and end the room';
-
-/** The answer that leaves: the words on the destructive button in the panel. */
-export const LEAVE_ASKING_LABEL = 'Leave anyway';
-
-/** The answer that does not. */
-export const LEAVE_CANCEL_LABEL = 'Cancel';
-
-/**
- * The question a host's first press asks. It names the consequence rather than the countdown that
- * follows it: the room and its invite link go with the host who leaves and the last keystrokes may
- * not reach the folder, and the grace is the room's number, not this panel's.
- */
-export const HOST_LEAVE_QUESTION =
-  'Leaving ends the room for everyone and stops the invite link, and your last few keystrokes may not reach your folder.';
 
 export function wireLeave(options: LeaveOptions): LeaveControl {
   const { panel, question, button, cancel, go, label } = options.surface;

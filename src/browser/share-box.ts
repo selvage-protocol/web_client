@@ -8,6 +8,8 @@
  * did not and put a second, smaller mark in a bar whose one mark is the room's own.
  */
 
+import { COPIED_LABEL, COPIED_STAND_MS } from '../bridge/index.ts';
+
 export interface ShareBoxOptions {
   /** The confirmation the bar morphs to; defaults to `Copied`. */
   confirmLabel?: string;
@@ -29,8 +31,8 @@ export function wireShareBox(
   copy: () => unknown,
   options: ShareBoxOptions = {},
 ): ShareBox {
-  const confirmLabel = options.confirmLabel ?? 'Copied';
-  const confirmMs = options.confirmMs ?? 1800;
+  const confirmLabel = options.confirmLabel ?? COPIED_LABEL;
+  const confirmMs = options.confirmMs ?? COPIED_STAND_MS;
   const schedule = options.schedule ?? ((run, ms) => setTimeout(run, ms));
   const cancel =
     options.cancel ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));

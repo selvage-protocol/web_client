@@ -27,9 +27,8 @@ import {
   LEAVE_ASKING_LABEL,
   LEAVE_CANCEL_LABEL,
   LEAVE_HOST_LABEL,
-  LEAVE_TITLE,
-  wireLeave,
-} from '../src/browser/leave.ts';
+} from '../src/bridge/index.ts';
+import { LEAVE_TITLE, wireLeave } from '../src/browser/leave.ts';
 import { forgetJoinUrl } from '../src/browser/share.ts';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');

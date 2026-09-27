@@ -13,10 +13,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { peerColour } from '../src/bridge/index.ts';
+import { SEAT_LIMIT, SEAT_PALETTE, peerColour, seatColours } from '../src/bridge/index.ts';
 import { renderRoom } from '../src/browser/room.ts';
 import type { RoomPerson } from '../src/browser/room.ts';
-import { SEAT_LIMIT, SEAT_PALETTE, seatColours } from '../src/browser/seats.ts';
 import { GrantTreeView } from '../src/browser/tree-view.ts';
 import { grantLevels } from '../src/browser/tree.ts';
 

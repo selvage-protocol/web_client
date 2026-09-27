@@ -15,10 +15,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MonacoBinding } from '../src/browser/editor.ts';
-import { peerColour } from '../src/bridge/index.ts';
+import { RECONNECTING_NOTE, hostBackSentence, peerColour } from '../src/bridge/index.ts';
 import {
-  RECONNECTING_NOTE,
-  hostBackSentence,
   hostPresent,
   wireFailureAlert,
   wireSessionCard,

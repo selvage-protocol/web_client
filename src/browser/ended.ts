@@ -7,28 +7,11 @@
  * the page leaves in.
  */
 
-import { endingReason } from '../engine/index.ts';
-
 /** The room is gone, in the desktop clients' words, naming the cause. */
 export function roomGoneMessage(reason: string): string {
   const why = reason.trim() === '' ? 'no reason given' : reason.trim();
   return `The room is gone (${why}).`;
 }
-
-/** The room-gone card's sentence: short, and in the person's words rather than the protocol's. */
-export function roomGoneSentence(reason: string): string {
-  const why = reason.trim();
-  if (why === endingReason('closing')) {
-    return 'The host ended the session.';
-  }
-  if (why === endingReason('host-away')) {
-    return 'The host was away too long, so the session ended.';
-  }
-  return why === '' ? SESSION_ENDED_MESSAGE : `The session ended (${why}).`;
-}
-
-/** A terminal disconnect that carried no room-gone reason: reconnection gave up. */
-export const SESSION_ENDED_MESSAGE = 'The session ended.';
 
 /** The handles a live session holds, as the teardown sees them. */
 export interface LiveSession {

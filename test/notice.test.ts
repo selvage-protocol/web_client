@@ -13,16 +13,18 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  HOST_BACK_STAND_MS,
   RECONNECTING_NOTE,
-  TOAST_STAND_MS,
-  TOASTS_SHOWN,
-  TRANSIENT_STAND_MS,
   disconnectingReading,
-  downloadedSentence,
   graceWording,
   hostBackSentence,
   hostLeftSentence,
+} from '../src/bridge/index.ts';
+import {
+  HOST_BACK_STAND_MS,
+  TOAST_STAND_MS,
+  TOASTS_SHOWN,
+  TRANSIENT_STAND_MS,
+  downloadedSentence,
   wireDownloadToasts,
   wireSessionCard,
 } from '../src/browser/notice.ts';
@@ -389,7 +391,8 @@ describe('the column itself', () => {
     assert.ok(!/top:\s*0\s*;/.test(column), 'the column hard-codes a top the bundle is meant to measure');
     // And the card and a toast are one shape, so a column of them reads as one column.
     assert.match(allOf('#session-card'), /color:\s*var\(--warning\)/, 'the card is not the warning colour');
-    assert.match(allOf('.toast'), /color:\s*var\(--mocha-sky\)/, 'a toast is not the design’s sky');
+    assert.match(allOf('.toast'), /color:\s*var\(--sky\)/, 'a toast is not the design’s sky');
+    assert.match(html, /--sky:\s*#89dceb;/i, 'the sky a toast is drawn in is not defined');
     assert.match(allOf("#session-card[data-tone='over']"), /var\(--danger\)/, 'a window that ran out stays a warning');
     assert.match(allOf('#session-card .bar'), /height:\s*2px/, 'the bar is not the design’s 2 px');
   });

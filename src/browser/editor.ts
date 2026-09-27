@@ -4,6 +4,9 @@ import { SessionBridge } from '../bridge/index.ts';
 import type { Cursor, EditorHost, GrantedRead, LineEnding, Report, TextChange } from '../bridge/index.ts';
 import {
   DEFAULT_SAVE_SETTLE_MS,
+  followEndedByFileGone,
+  followEndedByLeaving,
+  followEndedByTyping,
   grantUnion,
   peerColour,
   realTimers,
@@ -427,7 +430,7 @@ export class MonacoBinding implements EditorHost {
       }
     }
     if (followed) {
-      this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because the file is gone.` });
+      this.onNotice({ kind: 'follow', following: undefined, ended: followEndedByFileGone(name) });
     }
   }
 
@@ -783,7 +786,7 @@ export class MonacoBinding implements EditorHost {
     if (outcome === 'gone' && this.followingPeerId === peerId) {
       const name = this.followingName;
       this.clearFollow();
-      this.onNotice({ kind: 'follow', following: undefined, ended: `${name} left the room, so following stopped.` });
+      this.onNotice({ kind: 'follow', following: undefined, ended: followEndedByLeaving(name) });
     }
   }
 
@@ -793,7 +796,7 @@ export class MonacoBinding implements EditorHost {
     }
     const name = this.followingName;
     this.clearFollow();
-    this.onNotice({ kind: 'follow', following: undefined, ended: `Stopped following ${name} because you started typing.` });
+    this.onNotice({ kind: 'follow', following: undefined, ended: followEndedByTyping(name) });
   }
 
   private clearFollow(): void {

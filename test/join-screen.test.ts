@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { SHARED_SESSION_IDENTITY, guestIdentity, hostingIdentity } from '../src/bridge/index.ts';
 import {
   ProtocolError,
   code as errCode,
@@ -264,15 +265,13 @@ describe('brand heading', () => {
 
   it('names the folder a host is exposing, and whose room a guest is in', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
-    assert.match(main, /`Sharing “\$\{hostFolder\.name\}”`/, 'a host cannot read which folder it exposes');
+    assert.equal(hostingIdentity('notes'), 'Sharing “notes”');
+    assert.match(main, /hostingIdentity\(hostFolder\.name\)/, 'a host cannot read which folder it exposes');
     // The apostrophe is the page's: the pre-join card and the room's own copy use the typographic
     // one (`host.ts`), so a straight one here is the same phrase spelled two ways.
-    assert.match(
-      main,
-      /`In \$\{sessionHostName\}\\u2019s session`/,
-      'a guest cannot read whose room it is',
-    );
-    assert.match(main, /'In a shared session'/, 'a guest before the roster arrives reads nothing');
+    assert.equal(guestIdentity('Ana'), 'In Ana\u2019s session');
+    assert.match(main, /guestIdentity\(sessionHostName\)/, 'a guest cannot read whose room it is');
+    assert.equal(SHARED_SESSION_IDENTITY, 'In a shared session');
   });
 
   it('keeps the host’s name while its socket is away', () => {
@@ -291,9 +290,9 @@ describe('brand heading', () => {
       /case 'grace':[\s\S]{0,400}?rememberHostName\(\);/,
       'the name is not taken while the room still names the host',
     );
-    assert.match(
-      main,
-      /sessionHostName === undefined \? 'In a shared session'/,
+    assert.equal(
+      guestIdentity(undefined),
+      'In a shared session',
       'the line does not fall back for a room whose host was never seen',
     );
     assert.match(main, /sessionHostName = undefined;/, 'the name outlives the room it was about');

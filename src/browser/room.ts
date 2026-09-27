@@ -17,9 +17,9 @@
  * without a browser.
  */
 
+import { rosterLabel } from '../bridge/index.ts';
 import type { Role } from '../engine/index.ts';
 import { iconSpan, iconSvg, labelSpan } from './icons.ts';
-import { rosterLabel } from './names.ts';
 import { initials } from './presence.ts';
 
 /**
