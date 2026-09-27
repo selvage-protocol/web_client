@@ -26,8 +26,12 @@ upstream="${SELVAGE_SERVER:-}"
 # Nothing the value carries is escaped before it reaches `proxy_pass`, so its shape is
 # settled here: a space, a newline or a `|` would otherwise reach nginx as a broken or
 # injected directive, with nothing said about where it came from.
+#
+# The refusal carries the value back, and it is a byte string from the environment: a
+# newline in it would land as a second line of output, in a transcript read line by line
+# as the container's own. Non-printable bytes are shown as `?` rather than printed.
 refuse() {
-    printf 'SELVAGE_SERVER: %s\n' "$1" >&2
+    printf 'SELVAGE_SERVER: %s\n' "$(printf '%s' "$1" | tr -c '[:print:]' '?')" >&2
     exit 1
 }
 
