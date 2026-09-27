@@ -33,8 +33,9 @@ Run it directly, against this repository's workflows or a copy of them:
 
 or as this repository's gate runs it: `ci.yml` installs Debian's `python3` and `python3-yaml` in
 the `node:22-trixie-slim` container its job runs in — the one check here that is not Node's — and
-`scripts/ci-local.sh checks` runs the same file through a venv under `.tmp/`, so this needs the
-network once and nothing after that.
+`scripts/ci-local.sh checks` runs the same file on the host's own `python3` where that already
+imports PyYAML, so a host of that shape needs no network at all; where it does not, the gate falls
+back to a venv under `.tmp/` and needs the network once.
 
 ## What it cannot catch, and does not claim to
 

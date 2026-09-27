@@ -10,9 +10,10 @@
 #
 # There is no nix flake here: the checks are node's and the image is Docker's, so the
 # two modes are the two workflows' local halves and nothing else. The `dry_run` guard is the one
-# step that is not Node's — it is Python, and this gate gives it a venv under `.tmp/` because this
-# host's Python carries no PyYAML, where the container's `python3-yaml` is that check's half of
-# `ci.yml`. This host has no
+# step that is not Node's, and it is Python with PyYAML: both jobs install Debian's
+# `python3-yaml` into the container they run in for it, and this gate runs it on a `python3` that
+# already imports the parser where there is one, building a venv for it under `.tmp/` only where
+# there is none. This host has no
 # Docker at all, so `container` is the mode that runs on a runner, and the image
 # workflow's `publish-rehearsal` and `publish` (multi-architecture buildx) have no
 # step here either: they are read from the run, and their logic lives in
@@ -35,26 +36,42 @@ mkdir -p "$TMPDIR"
 
 say() { printf '\n=== %s ===\n' "$*"; }
 
+# The interpreter the `dry_run` guard runs on, printed on stdout.
+#
+# A `python3` that already imports PyYAML is the shape both workflows that run these checks give
+# their job — `node:22-trixie-slim` with Debian's `python3-yaml` — and the venv under `.tmp/` is
+# this checkout's fallback for a machine that is not one of those: `pyyaml==6.0.2` is the version
+# trixie's `python3-yaml` carries, so both shapes run the same parser. A host with neither is the
+# refusal below rather than a skip, because a gate that passed over a check it could not run would
+# report a green run it did not make.
+guard_interpreter() {
+  if python3 -B -c 'import yaml' 2>/dev/null; then
+    # The resolved path rather than the word `python3`, so the section header names the
+    # interpreter this actually ran on.
+    command -v python3
+    return 0
+  fi
+  local venv="$TMPDIR/dry-run-gating-venv"
+  if [ ! -x "$venv/bin/python3" ]; then
+    if ! python3 -m venv "$venv"; then
+      printf 'refusing: the dry_run guard is Python and needs PyYAML, and this host has neither a `python3` that imports it nor one with the `venv` module to install it into; the check has not run, so this gate is not green\n' >&2
+      return 1
+    fi
+    "$venv/bin/pip" install --quiet --disable-pip-version-check pyyaml==6.0.2
+  fi
+  printf '%s\n' "$venv/bin/python3"
+}
+
 job_checks() {
   # The `dry_run` guard is the one check here that is not Node's: it reads `.github/workflows`
-  # back, so no suite below covers it, and it is Python. This host's Python has no PyYAML, so the
-  # gate builds it a venv under `.tmp/` — once — with the version the CI container's
-  # `python3-yaml` carries (`node:22-trixie-slim` is trixie's 6.0.2). The check itself is the same
-  # file `.github/workflows/ci.yml` runs.
+  # back, so no suite below covers it, and it is Python. The check itself is the same
+  # file `.github/workflows/ci.yml` runs, and the same file `release.yml`'s gate runs through this
+  # mode, which is why both of those workflows install the interpreter it needs.
   say "checks: the dry_run guard's Python"
-  guard_venv="$TMPDIR/dry-run-gating-venv"
-  if [ ! -x "$guard_venv/bin/python3" ]; then
-    # A `python3` without `venv` (Ubuntu and Debian ship it as `python3-venv`) cannot build one,
-    # and a gate that skipped the check instead would report a green run it did not make.
-    if ! python3 -m venv "$guard_venv"; then
-      printf 'refusing: the dry_run guard is Python and needs a `python3` with the `venv` module, which this host does not have; the check has not run, so this gate is not green\n' >&2
-      exit 1
-    fi
-    "$guard_venv/bin/pip" install --quiet --disable-pip-version-check pyyaml==6.0.2
-  fi
-  say "checks: the dry_run gating of the workflows that declare it"
-  "$guard_venv/bin/python3" -B scripts/test_check_dry_run_gating.py
-  "$guard_venv/bin/python3" -B scripts/check_dry_run_gating.py .github/workflows
+  guard_python="$(guard_interpreter)" || exit 1
+  say "checks: the dry_run gating of the workflows that declare it, on $guard_python"
+  "$guard_python" -B scripts/test_check_dry_run_gating.py
+  "$guard_python" -B scripts/check_dry_run_gating.py .github/workflows
   say "checks: install"
   npm ci --no-audit --no-fund
   say "checks: typecheck"

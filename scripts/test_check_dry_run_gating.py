@@ -24,8 +24,9 @@ condition that excludes a dry run. So what the tests here have to pin is that th
     states; the test that pins it is here so the claim cannot drift.
 
 It needs `PyYAML`: `ci.yml` gets it from Debian's `python3-yaml` in the container its job runs in,
-and `scripts/ci-local.sh checks` from a venv under `.tmp/`. Run the suite through either, or with
-any Python that has it:
+and `scripts/ci-local.sh checks` from a `python3` that already imports it, or from the venv under
+`.tmp/` it builds where there is no such `python3`. Run the suite through either, or with any
+Python that has it:
 
     python3 -B scripts/test_check_dry_run_gating.py
 """

@@ -19,7 +19,9 @@ name: release
 #      assert a build reproduces it, so a bump that left the bundle behind would make the
 #      commit this job pushes red.
 #   5. runs this repository's own gate, `scripts/ci-local.sh checks`, which is the same set of
-#      commands `.github/workflows/ci.yml` runs on a pull request.
+#      commands `.github/workflows/ci.yml` runs on a pull request — the `dry_run` guard among
+#      them, which is Python and reads the workflows back, so the step below installs the
+#      interpreter and PyYAML it needs, exactly as `ci.yml`'s install step does.
 #   6. commits it as the owner and pushes it **straight to `main`**, then
 #   7. creates and pushes `v<version>` and asks the API to run `image.yml` at that ref.
 #   8. waits for the page image to exist on `ghcr.io` and dispatches this repository's own
@@ -48,7 +50,10 @@ name: release
 # `node:22-trixie-slim` for the same reason `ci.yml` uses it: `npm run build` shells out to
 # ImageMagick 7's `magick` for the sized icons and the GitHub runner image ships ImageMagick 6.
 # `gh` (from trixie) does the two dispatches, and `curl` the registry reads in
-# `scripts/page-image.sh`.
+# `scripts/page-image.sh`. `python3` and Debian's `python3-yaml` are here for the gate in step 5:
+# `scripts/ci-local.sh checks` runs the `dry_run` guard, which is Python and needs the parser, and
+# the `checks` job in `ci.yml` installs the same pair for the same two files — so the part of the
+# two install steps that the gate needs has to be edited in both.
 #
 # Two things a container job needs and a runner job does not, both found by running it:
 #
@@ -101,11 +106,16 @@ jobs:
 
       # Before the checkout: the slim image carries no git and no `/etc/ssl` at all, because
       # the official node images install `ca-certificates` and purge it as auto-removable in
-      # the same layer — node carries its own trusted roots and git does not.
-      - name: install git, ca-certificates, curl, gh and ImageMagick 7
+      # the same layer — node carries its own trusted roots and git does not. ImageMagick 7's
+      # `magick` is here because `npm run build` shells out to it for the sized icons, and
+      # `python3` with Debian's PyYAML is here for the gate in step 5: `scripts/ci-local.sh
+      # checks` runs the `dry_run` guard, which is Python and needs the parser. That much of
+      # this list is `ci.yml`'s `checks` job's, and the two have to stay in step — the release
+      # job's gate is that job's command.
+      - name: install git, ca-certificates, curl, gh, ImageMagick 7 and python3
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl gh git imagemagick
+          apt-get install -y --no-install-recommends ca-certificates curl gh git imagemagick python3 python3-yaml
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
