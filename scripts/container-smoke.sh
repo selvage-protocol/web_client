@@ -320,8 +320,19 @@ printf '%s\n' "$unresolved" | grep -qF 'no-such-host.invalid' || {
     printf '%s\n' "$unresolved" >&2
     fail "the container exited $code without naming the upstream it could not resolve"
 }
+# The name is what both a refusal and nginx would name, so the name alone proves
+# neither: nginx says `host not found in upstream`, and the entrypoint's own refusal
+# would be the validator refusing the value before nginx ever ran.
+printf '%s\n' "$unresolved" | grep -qF 'host not found in upstream' || {
+    printf '%s\n' "$unresolved" >&2
+    fail "the container exited $code without nginx's own 'host not found in upstream', so nginx may never have loaded the relay"
+}
+if printf '%s\n' "$unresolved" | grep -qF 'SELVAGE_SERVER:'; then
+    printf '%s\n' "$unresolved" >&2
+    fail "the exit was the entrypoint refusing the value, not nginx failing to resolve the name"
+fi
 printf '%s\n' "$unresolved" | tail -n 1
-echo "unresolvable upstream: the container exited $code, and its output names no-such-host.invalid"
+echo "unresolvable upstream: the container exited $code, nginx said 'host not found in upstream' and the output names no-such-host.invalid"
 
 echo "=== relay: a server behind the page, and a room joined through it ==="
 # The value below is the one the other repository's compose file writes — the bare service
