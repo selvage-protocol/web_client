@@ -78,3 +78,10 @@ jobs:
       # assertion CI has.
       - name: the suite CI can run
         run: npm run test:ci
+
+      # `scripts/test-bump-version.sh` covers the version bump the release coordinator
+      # calls, in a clone under `.tmp/` of its own so a red run here leaves the tree
+      # above as it was. It needs what the other steps need — node, `magick` and git —
+      # and nothing else, which is why it runs here rather than locally only.
+      - name: the version bump, and the bundle it has to rebuild
+        run: scripts/test-bump-version.sh
