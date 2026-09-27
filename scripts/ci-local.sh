@@ -44,7 +44,12 @@ job_checks() {
   say "checks: the dry_run guard's Python"
   guard_venv="$TMPDIR/dry-run-gating-venv"
   if [ ! -x "$guard_venv/bin/python3" ]; then
-    python3 -m venv "$guard_venv"
+    # A `python3` without `venv` (Ubuntu and Debian ship it as `python3-venv`) cannot build one,
+    # and a gate that skipped the check instead would report a green run it did not make.
+    if ! python3 -m venv "$guard_venv"; then
+      printf 'refusing: the dry_run guard is Python and needs a `python3` with the `venv` module, which this host does not have; the check has not run, so this gate is not green\n' >&2
+      exit 1
+    fi
     "$guard_venv/bin/pip" install --quiet --disable-pip-version-check pyyaml==6.0.2
   fi
   say "checks: the dry_run gating of the workflows that declare it"
