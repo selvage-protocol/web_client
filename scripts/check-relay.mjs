@@ -103,13 +103,17 @@ function connect(url) {
       for (;;) {
         if (frames.length === 0) {
           await new Promise((resolve, reject) => {
-            waiters.push(resolve);
-            setTimeout(
+            const timer = setTimeout(
               () => reject(
                 new Error(`no ${named} within ${waitMs}ms (frames seen: ${skipped.join(', ') || 'none'})`),
               ),
               waitMs,
-            ).unref();
+            );
+            timer.unref();
+            waiters.push(() => {
+              clearTimeout(timer);
+              resolve();
+            });
           });
         }
         const frame = frames.shift();
