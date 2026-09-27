@@ -19,9 +19,8 @@
 #            container. It **cannot say which page build is served**: `dist/index.html`
 #            carries no version, the only version-shaped string in the page lives in the
 #            bundle and is the same on every build, and the delivered HTML is rewritten on
-#            the way out (Cloudflare Rocket Loader, and the front's own `sub_filter`
-#            injecting the terms notice), so no byte comparison through that edge proves
-#            anything. `200` is the whole of what this read can support, and a page that
+#            the way out (Cloudflare Rocket Loader), so no byte comparison through that edge
+#            proves anything. `200` is the whole of what this read can support, and a page that
 #            stops answering is an origin fact, so it fails the run. Skipped, with that
 #            said in words, when no `--ssh-target` is given.
 #   report   the public URL, read from this runner. Cloudflare serves a managed challenge to

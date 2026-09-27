@@ -12,13 +12,6 @@
  * The same technique is what the project used before (`BROWSER_NOTES.md`, "Seen in a browser"),
  * and this file is the small, committed version of it for a visual review.
  *
- * With `--footer` (or `SELVAGE_FOOTER=1`) the demo deployment's footer — the non-commercial notice
- * and its terms link — is served inside the page's own bytes, before `</body>`, which is where that
- * deployment's front puts it; the phone shot then shows whether it is reachable without hunting, and
- * the last run of the empty room measures the same notice once a session is on screen. It also
- * decides the panel's own foot: with a link in the page the foot is shown over it, and without one
- * the foot stays hidden, which is the pair the run checks.
- *
  * The last pass photographs the room's two empty states, which need a folder with nothing in it:
  * the driver leaves the room it built, starts another from an empty folder and joins it as a
  * guest (`13-editor-empty-host.png`, `14-editor-empty-guest.png`).
@@ -28,7 +21,6 @@
  *
  * Usage:
  *   node scripts/tmp-inroom-review.mjs
- *   node scripts/tmp-inroom-review.mjs --footer
  *   SELVAGE_SELVAGED=/path/to/selvaged SELVAGE_CHROMIUM=/path/to/chromium node scripts/tmp-inroom-review.mjs
  *
  * Plain `node` strips the types of the `.ts` files this imports, which needs Node 22.18+ or
@@ -36,7 +28,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -64,7 +56,6 @@ const PHONE = { width: 390, height: 844 };
 const MOUSE_POINTER = [
   '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
 ];
-const FOOTER = process.argv.includes('--footer') || process.env['SELVAGE_FOOTER'] === '1';
 
 function log(...parts) {
   console.log('[inroom-review]', ...parts);
@@ -110,7 +101,7 @@ function selvagedBinary() {
  * origin the guest's own page is served from, which is `PROTOCOL.md` §5.1's shape.
  */
 async function startServer() {
-  const page = servedPage();
+  const page = resolve(ROOT, 'dist');
   if (!existsSync(resolve(page, 'index.html'))) {
     throw new Error('dist/index.html is missing; run `npm run build` first');
   }
@@ -184,44 +175,6 @@ const PICKER_STAND_IN = `(() => {
   };
   window.showDirectoryPicker = () => build();
 })();`;
-
-/**
- * The demo's own banner, byte for byte as its front serves it: the aside it substitutes for
- * `</body>`, with no id on the aside and none on the link — which is why the page's foot finds it
- * by shape rather than by name.
- */
-const FOOTER_ASIDE =
-  '<aside style="box-sizing:border-box;padding:.65rem 1rem;' +
-  'font:14px/1.45 system-ui,sans-serif;text-align:center;color:#a6adc8;background:#181825;' +
-  'border-top:1px solid #313244">Demo instance: ' +
-  '<strong style="color:#f9e2af">non-commercial use only.</strong> Not a hosted product; ' +
-  'rooms are not persisted and may be reset at any time. ' +
-  '<a style="color:#cba6f7" href="/terms">Terms of use</a></aside>';
-
-/**
- * The page the driver serves: `dist/` as it is, or — with `--footer` — a copy of `dist/` carrying the
- * demo's banner in its bytes, where that deployment's front puts it.
- *
- * The aside is not appended by a script, because that is a different page from the one a visitor
- * gets: the banner is in the response, so it is in the DOM before the bundle's own module runs, and a
- * page that adopted the link on `DOMContentLoaded` would be reading a document no visitor has.
- */
-function servedPage() {
-  const page = resolve(ROOT, 'dist');
-  if (!FOOTER) {
-    return page;
-  }
-  const served = resolve(OUT, 'served');
-  rmSync(served, { recursive: true, force: true });
-  cpSync(page, served, { recursive: true });
-  const index = resolve(served, 'index.html');
-  const html = readFileSync(index, 'utf8');
-  if (!html.includes('</body>')) {
-    throw new Error('dist/index.html has no </body>, so the banner has nowhere to land');
-  }
-  writeFileSync(index, html.replace('</body>', `  ${FOOTER_ASIDE}\n  </body>`));
-  return served;
-}
 
 /**
  * The smallest CDP driver this needs: one page, evaluate, screenshot, device metrics.
@@ -473,7 +426,6 @@ const CHROME = `(() => {
     const box = element.getBoundingClientRect();
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width), height: Math.round(box.height) };
   };
-  const terms = document.querySelector('body > aside a[href$="/terms"]');
   const health = document.getElementById('health');
   const share = document.getElementById('share');
   const shareStyle = share === null ? null : getComputedStyle(share);
@@ -582,29 +534,6 @@ const CHROME = `(() => {
     })(),
     editorText: [...document.querySelectorAll('.monaco-editor .view-line')].slice(0, 4).map((line) => line.textContent ?? '').join('\\n'),
     phonePanelOpen: document.getElementById('side')?.hidden !== true,
-    termsLink: terms === null ? null : rect(terms),
-    termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight && terms.getBoundingClientRect().top >= 0,
-    footer: rect(document.querySelector('body > aside')),
-    // The panel's own foot: the deployment's link where the page carries one, and nothing at all
-    // where it does not. Its href is the deployment's, read off the deployment's own aside here, so
-    // the two can be compared rather than assumed.
-    panelFoot: (() => {
-      const foot = document.getElementById('side-foot');
-      const link = document.getElementById('side-terms');
-      if (foot === null || link === null) return null;
-      const style = getComputedStyle(link);
-      const deployed = document.querySelector('body > aside a[href$="/terms"]');
-      return {
-        hidden: foot.hidden,
-        text: link.textContent,
-        href: link.getAttribute('href'),
-        deploymentHref: deployed === null ? null : deployed.getAttribute('href'),
-        colour: style.color,
-        fontSize: style.fontSize,
-        align: getComputedStyle(foot).textAlign,
-        box: rect(foot),
-      };
-    })(),
     joinCard: rect(document.getElementById('join')),
   };
 })()`;
@@ -794,26 +723,17 @@ const MENU = `(() => {
   };
 })()`;
 
-/**
- * The pre-join card on a phone with the demo footer: where the card sits, and whether the
- * footer's terms link is inside the viewport rather than under the fold.
- */
+/** The pre-join card on a phone: where the card sits, and what it offers. */
 const PREJOIN = `(() => {
   const rect = (element) => {
     if (element === null) return null;
     const box = element.getBoundingClientRect();
     return { top: Math.round(box.top), bottom: Math.round(box.bottom), height: Math.round(box.height) };
   };
-  const terms = document.querySelector('body > aside a[href$="/terms"]');
   const card = document.getElementById('join');
-  const atTerms = terms === null ? null : document.elementFromPoint(terms.getBoundingClientRect().left + 4, terms.getBoundingClientRect().top + 8);
   return {
     viewport: { width: window.innerWidth, height: window.innerHeight },
     card: rect(card),
-    footer: rect(document.querySelector('body > aside')),
-    termsLink: rect(terms),
-    termsLinkInViewport: terms !== null && terms.getBoundingClientRect().bottom <= window.innerHeight,
-    overTheTermsLink: atTerms === null ? null : atTerms.tagName + (atTerms.id === '' ? '' : '#' + atTerms.id),
     heading: document.getElementById('join-heading')?.textContent ?? '',
     // The guest card's other intent, as the one quiet line it is worth there: hosting is not what
     // this person came for, and the paragraph about whose tab this is waits on the start card the
@@ -1010,31 +930,6 @@ function checkSeats(faces, failures) {
 }
 
 /**
- * The panel's foot: shown over the deployment's own link when the page carries one, and shown not at
- * all when it does not — a self-hosted copy must not be handed a link to nowhere.
- */
-function checkPanelFoot(chrome, failures) {
-  const foot = chrome.panelFoot;
-  if (foot === null || foot === undefined) {
-    failures.push('the panel draws no foot at all');
-    return;
-  }
-  if (foot.text !== 'Terms') {
-    failures.push(`the panel’s foot reads ${JSON.stringify(foot.text)}, and the design draws Terms`);
-  }
-  if (FOOTER) {
-    if (foot.hidden === true) {
-      failures.push('the panel’s foot is hidden over a deployment that carries a terms link');
-    }
-    if (foot.href !== foot.deploymentHref || foot.href === null) {
-      failures.push(`the panel’s foot points at ${foot.href}, and the deployment’s own link at ${foot.deploymentHref}`);
-    }
-  } else if (foot.hidden !== true) {
-    failures.push('the panel’s foot is shown on a page that carries no terms link');
-  }
-}
-
-/**
  * The chrome the design fixes, checked against the prototype's own numbers. A shot shows a person
  * whether it looks right; these say whether it measures right, and a miss is reported rather than
  * left in a photograph nobody measures.
@@ -1074,7 +969,6 @@ function checkDesktopChrome(chrome, failures) {
     if (!folder.name.endsWith('/')) failures.push(`${folder.name} is not named as a folder`);
     if ((folder.icons ?? []).length !== 2) failures.push(`${folder.name} draws ${folder.icons?.length} folder glyphs`);
   }
-  checkPanelFoot(chrome, failures);
   checkNotices(chrome, failures, { phone: false });
 }
 
@@ -1143,7 +1037,6 @@ function checkPhoneChrome(chrome, failures) {
   if (chrome.fileStripIds?.join(',') !== 'file-strip-path') {
     failures.push(`the phone’s strip carries more than the path: ${JSON.stringify(chrome.fileStripIds)}`);
   }
-  checkPanelFoot(chrome, failures);
   checkNotices(chrome, failures, { phone: true });
 }
 
@@ -1718,23 +1611,21 @@ async function reviewDesktop(page, server, written, failures) {
 /** The touch shots, in the touch browser: the phone's layout, and a guest fetching a file to save. */
 async function reviewTouch(page, server, invite, written, openedPath, failures) {
   const facts = {};
-  if (FOOTER) {
-    // The finding this stands for: the reviewer's phone shot of a guest card, with the notice the
-    // demo appends under the page. A whole invite that names no room shows the card without joining.
-    const key = encodeKey(new Uint8Array(32).fill(9));
-    await page.setViewport(PHONE, { touch: true });
-    await page.navigate(`${server.origin}/?room=r-1&token=tok#k=${key}&h=${key}`);
-    await waitFor(
-      page,
-      'the guest card',
-      `document.getElementById('join-heading')?.hidden === false`,
-      (shown) => shown === true,
-    );
-    await delay(400);
-    facts.prejoin = await page.evaluate(PREJOIN);
-    log('pre-join phone with the demo footer:', JSON.stringify(facts.prejoin));
-    log('wrote', await record(written, page, '03-prejoin-phone-with-footer.png'));
-  }
+  // The pre-join card on a phone, before this browser joins anywhere: a whole invite that names no
+  // room shows the card without joining.
+  const key = encodeKey(new Uint8Array(32).fill(9));
+  await page.setViewport(PHONE, { touch: true });
+  await page.navigate(`${server.origin}/?room=r-1&token=tok#k=${key}&h=${key}`);
+  await waitFor(
+    page,
+    'the guest card',
+    `document.getElementById('join-heading')?.hidden === false`,
+    (shown) => shown === true,
+  );
+  await delay(400);
+  facts.prejoin = await page.evaluate(PREJOIN);
+  log('the pre-join card on a phone:', JSON.stringify(facts.prejoin));
+  log('wrote', await record(written, page, '03-prejoin-phone.png'));
 
   // The phone as a host, before it joins anywhere as a guest: the session's own name is the host's
   // `Sharing “project”`, and it is the bar's identity — whole, or cut by the faces and the way out
@@ -2095,28 +1986,6 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
   })()`);
   await delay(500);
   log('wrote', await record(written, page, '12-download-not-answered-phone.png'));
-  if (FOOTER) {
-    // The demo's notice once a session is on screen: the same page, viewport and notice as the
-    // pre-join shot, with the rule the phone query applies to it while a session is up. The two
-    // measurements are what say whether it shrank, and by how much (design §5 of the session pass).
-    facts.footerInRoom = await page.evaluate(`(() => {
-      const aside = document.querySelector('body > aside');
-      if (aside === null) return null;
-      const box = aside.getBoundingClientRect();
-      const style = getComputedStyle(aside);
-      return {
-        top: Math.round(box.top),
-        bottom: Math.round(box.bottom),
-        height: Math.round(box.height * 100) / 100,
-        fontSize: style.fontSize,
-        padding: style.paddingTop,
-        termsVisible: aside.querySelector('a[href$="/terms"]')?.getClientRects().length > 0,
-        text: aside.innerText,
-      };
-    })()`);
-    log('the demo footer in a room:', JSON.stringify(facts.footerInRoom));
-    log('wrote', await record(written, page, '15-phone-footer-in-room.png'));
-  }
 
   return facts;
 }
@@ -2306,8 +2175,8 @@ async function main() {
   // end, once `facts.json` is written and the browsers are stopped: a check that records `false` and
   // exits 0 is a proof nobody is told about.
   const failures = [];
-  const facts = { footer: FOOTER, shots: written, console: [] };
-  log('serving', server.origin, FOOTER ? 'with the demo footer' : 'without a footer');
+  const facts = { shots: written, console: [] };
+  log('serving', server.origin);
   const browsers = [];
   try {
     const mouse = await launchChromium({ pointer: 'mouse' });
@@ -2335,18 +2204,6 @@ async function main() {
   writeFileSync(resolve(OUT, 'facts.json'), `${JSON.stringify(facts, null, 2)}\n`);
   log('wrote', resolve(OUT, 'facts.json'));
   log('console and page errors:', facts.console.length === 0 ? 'none' : JSON.stringify(facts.console));
-  if (FOOTER) {
-    log(
-      'the demo footer on the card:',
-      JSON.stringify(facts.phone.prejoin?.footer),
-      'terms link in the viewport:',
-      facts.phone.prejoin?.termsLinkInViewport,
-      '| in a room:',
-      JSON.stringify(facts.phone.footerInRoom ?? null),
-      '| the panel’s foot:',
-      JSON.stringify(facts.desktop?.chrome?.panelFoot ?? null),
-    );
-  }
   log('the guest card’s other intent:', JSON.stringify(facts.phone.prejoin?.quietLineVisible), JSON.stringify(facts.phone.prejoin?.quietLine));
   if (failures.length > 0) {
     for (const failure of failures) {
