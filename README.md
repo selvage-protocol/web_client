@@ -96,7 +96,11 @@ an optional `http`/`https` scheme is refused with a sentence saying what is wron
 because the value is substituted into the configuration and nothing in it is escaped.
 An `https://` base is dialled with the upstream's name as SNI and its certificate
 verified against the base image's own CA bundle, a file the image build checks is
-there, so a certificate no public CA signs fails the connection.
+there, so a certificate no public CA signs fails the connection. An `http://` base
+carries the room token over that hop in cleartext, which is the operator's call: it is
+the right shape for a loopback or a private network — the hop between the two
+containers in `compose.yaml` is one — and an `https://` base is the one to name
+wherever the hop is not trusted.
 
 The `Host` a relayed request carries is the upstream's own name and port, exactly as
 `SELVAGE_SERVER` names them, and never the page's. A server behind anything that routes
