@@ -64,10 +64,10 @@ other, relaying the two endpoints to a server that is not on the page's origin
 **One origin.** `selvaged --serve-page <dir>` answers the page, `/meta` and
 `/session` from one listener: a share link is the page's own origin and nothing
 else, the `/meta` read is same-origin and lands, and one terminator in front of
-the one port is enough for TLS. The published server image serves no page of its
-own — it is the server alone — so a deployment that wants this shape mounts a page,
-this bundle built or unpacked, and starts the server with `--serve-page <dir>` over
-it. The public demo is the other shape: a front terminates TLS and routes, with the
+the one port is enough for TLS. The page comes from the directory that flag names,
+so a deployment that wants this shape mounts a page — this bundle, built or
+unpacked — and starts the server with `--serve-page <dir>` over it. The public demo
+is the other shape: a front terminates TLS and routes, with the
 page and the server as containers behind it (`reference_server/deploy/`).
 `npm run serve` is the local stand-in for the page half of it: a plain static
 server with no session protocol beside it.
@@ -95,8 +95,15 @@ is settled before it goes in: anything that is not a host with an optional port 
 an optional `http`/`https` scheme is refused with a sentence saying what is wrong,
 because the value is substituted into the configuration and nothing in it is escaped.
 An `https://` base is dialled with the upstream's name as SNI and its certificate
-verified against the base image's own CA bundle, so a certificate no public CA signs
-fails the connection.
+verified against the base image's own CA bundle, a file the image build checks is
+there, so a certificate no public CA signs fails the connection.
+
+The `Host` a relayed request carries is the upstream's own name and port, exactly as
+`SELVAGE_SERVER` names them, and never the page's. A server behind anything that routes
+by name — the project's own demo front answers `444` to a name that is not its own —
+would otherwise refuse every request carrying the origin the page happens to be served
+under, so the relay sends what its `proxy_pass` names rather than the page's name. A
+bare `selvaged` reads no `Host` and notices neither choice.
 
 That one resolution is also why a name that does not resolve is fatal: a misspelling,
 or a page started before its server, exits the container with `host not found in
@@ -157,9 +164,16 @@ writable: nginx's pid file and temp directories are the runtime's own
 the flags above run it with no mount at all, which
 `scripts/container-smoke.sh` reads back off the daemon's record of the
 container. That smoke is also where the relay is proved end to end: it runs the
-page with `SELVAGE_SERVER` naming `ghcr.io/selvage-protocol/selvaged:latest`, and
-`scripts/check-relay.mjs` reads `/meta`, upgrades `/session` and seats a room
-through the page's published port.
+page with `SELVAGE_SERVER` naming `ghcr.io/selvage-protocol/selvaged:latest` —
+overridable with `SELVAGE_SERVER_IMAGE` — and `scripts/check-relay.mjs` reads
+`/meta`, upgrades `/session` and seats a room through the page's published port.
+A pull of that image that fails ends the smoke, and it ends the CI job in every
+case: the server behind the page is the half being proved, and a green run over a
+stand-in would claim a proof it did not make. The stand-in — `scripts/relay-stub.mjs`
+— is reachable only where `SELVAGE_ALLOW_RELAY_STUB=1` asks for it, which CI never
+sets, for a local host with no route to `ghcr.io`; the downgrade goes out as a
+`::warning::` and every line that names the counterpart, here and in the smoke's own
+banner, names the stub instead of the image.
 
 **What running without an upstream costs.** The page is then an origin of its
 own, a second origin beside every server it fronts. The WebSocket is not
@@ -589,7 +603,8 @@ would be, and whether one may be cut), `page-image.sh` (the anonymous `ghcr.io`
 reads), `verify-page-deploy.sh` (what a page deploy can be verified by),
 `check-page.sh` (the served bytes, types and headers), `container-smoke.sh`,
 `check-relay.mjs` and `relay-stub.mjs` (the room seated through the relay, and the
-stand-in endpoint for a host that cannot pull the server's image),
+stand-in endpoint a local run opts into with `SELVAGE_ALLOW_RELAY_STUB=1` where the
+server's image cannot be pulled),
 `assert-image-page.sh`, `test-relay-config.sh` (the relay the entrypoint writes,
 parsed by an `nginx` where there is one) and `ci-local.sh`.
 
