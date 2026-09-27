@@ -1331,3 +1331,145 @@ describe('moving a file', () => {
     assert.deepEqual(calls, [], 'the file was moved onto a name the folder holds');
   });
 });
+
+describe('moving a folder, which goes with everything the room carries inside it', () => {
+  function movable(overrides = {}) {
+    const calls = [];
+    const said = [];
+    const state = {
+      listing: ['src/main.ts', 'src/api/handler.ts', 'tests/join.rs', 'README.md'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+      canCreate: true,
+      say: (text) => void said.push(text),
+      ...overrides,
+    };
+    state.move =
+      overrides.move ??
+      (async (path, into) => {
+        const leaf = path.split('/').pop();
+        const to = into === '' ? leaf : `${into}/${leaf}`;
+        calls.push([path, into]);
+        return { kind: 'moved', to };
+      });
+    const { pane, view } = makeView(state);
+    return { pane, view, calls, said, state };
+  }
+
+  it('drags a folder onto a folder, marks both, and speaks the move', async () => {
+    const { pane, view, calls, said } = movable();
+    view.render();
+    const transfer = dataTransfer();
+    const src = summaryFor(pane, 'src/');
+    pane.fire('dragstart', { target: src, dataTransfer: transfer });
+    assert.equal(
+      said[0],
+      'Picked up src/. Up and down choose a folder, Enter drops it, Escape leaves it where it is.',
+    );
+    assert.deepEqual(transfer.written, [['text/plain', 'src']]);
+    assert.ok(src.classes.includes('dragging'), 'the folder picked up is not dimmed');
+
+    const tests = summaryFor(pane, 'tests/');
+    let prevented = 0;
+    pane.fire('dragover', { target: tests, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 1, 'a drop on a folder was not accepted');
+    assert.ok(tests.classes.includes('drop-into'), 'the folder is not marked as where it lands');
+
+    pane.fire('drop', { target: tests, dataTransfer: transfer });
+    await until(() => calls.length === 1, 'the move');
+    assert.deepEqual(calls, [['src', 'tests']]);
+    assert.equal(said.at(-1), 'Moved src/ into tests');
+  });
+
+  it('refuses to drop a folder onto itself, or onto anything it holds', async () => {
+    // `src` is open, so `api/` is a row of its own: dropping the folder into either is a folder that
+    // would hold itself, which is not a place it can land.
+    const { pane, view, calls } = movable({ current: 'src/api/handler.ts' });
+    view.render();
+    const transfer = dataTransfer();
+    pane.fire('dragstart', { target: summaryFor(pane, 'src/'), dataTransfer: transfer });
+    for (const name of ['src/', 'api/']) {
+      const onto = summaryFor(pane, name);
+      let prevented = 0;
+      pane.fire('dragover', { target: onto, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+      assert.equal(prevented, 0, `a folder accepted a drop into ${name}`);
+      assert.equal(onto.classes.includes('drop-into'), false, `${name} is marked as where it lands`);
+    }
+    pane.fire('drop', { target: summaryFor(pane, 'src/'), dataTransfer: transfer });
+    assert.deepEqual(calls, [], 'the folder was moved into itself');
+  });
+
+  it('drops a folder at the top level, and says which folder', async () => {
+    const { pane, view, calls, said } = movable({ current: 'src/api/handler.ts' });
+    view.render();
+    const transfer = dataTransfer();
+    pane.fire('dragstart', { target: summaryFor(pane, 'api/'), dataTransfer: transfer });
+    pane.fire('drop', { target: pane, dataTransfer: transfer });
+    await until(() => calls.length === 1, 'the move');
+    assert.deepEqual(calls, [['src/api', '']]);
+    assert.equal(said.at(-1), 'Moved api/ to the top level');
+  });
+
+  it('refuses a folder onto a folder that already holds its name', async () => {
+    const { pane, view, calls } = movable({
+      listing: ['src/main.ts', 'tests/src/join.rs', 'src/api/handler.ts'],
+    });
+    view.render();
+    const transfer = dataTransfer();
+    pane.fire('dragstart', { target: summaryFor(pane, 'src/'), dataTransfer: transfer });
+    const tests = summaryFor(pane, 'tests/');
+    let prevented = 0;
+    pane.fire('dragover', { target: tests, dataTransfer: transfer, preventDefault: () => void (prevented += 1) });
+    assert.equal(prevented, 0, 'a folder name the destination holds was accepted as a drop');
+    assert.equal(tests.classes.includes('drop-into'), false, 'a folder holding the name is marked');
+    pane.fire('drop', { target: tests, dataTransfer: transfer });
+    assert.deepEqual(calls, [], 'the folder was moved onto a name the destination holds');
+  });
+
+  it('is a host’s row to drag, because a guest has nothing on the other side of the drop', () => {
+    const guest = movable({ canCreate: false });
+    guest.view.render();
+    assert.equal(summaryFor(guest.pane, 'src/').draggable, undefined, 'a guest’s folder row is a handle');
+    const host = movable();
+    host.view.render();
+    assert.equal(summaryFor(host.pane, 'src/').draggable, true, 'a host’s folder row is not a handle');
+  });
+
+  it('does not pick a folder up from its own controls, which stand inside its row', () => {
+    // `New file in src/` is drawn inside the folder's summary — a file's chrome is a sibling of its
+    // row instead — so a browser drags the nearest draggable ancestor for anyone who pressed the
+    // control and moved. The control is not a handle, so the folder stays where it is.
+    const { pane, view, said } = movable();
+    view.render();
+    const control = labelled(summaryFor(pane, 'src/'), 'New file in src/');
+    assert.ok(control !== undefined, 'the folder row carries no create control');
+    pane.fire('dragstart', { target: control, dataTransfer: dataTransfer() });
+    assert.deepEqual(said, [], 'a drag that started on a control picked the folder up');
+  });
+
+  it('leaves a refusal the page made for the page to say, and redraws', async () => {
+    // The folder is the one that knows why a move was refused, and the page has the same problem
+    // this view has: a drag leaves no row to stand a sentence beside. What the view owes is the
+    // redraw, and the one sentence it gives is the one about the pickup.
+    let refused = 0;
+    const { pane, view, said } = movable({
+      move: async () => {
+        refused += 1;
+        return { kind: 'refused', sentence: 'src is not in the folder any more, so nothing was moved.' };
+      },
+    });
+    view.render();
+    const transfer = dataTransfer();
+    pane.fire('dragstart', { target: summaryFor(pane, 'src/'), dataTransfer: transfer });
+    pane.fire('drop', { target: summaryFor(pane, 'tests/'), dataTransfer: transfer });
+    await until(() => refused === 1, 'the refusal');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      said.at(-1),
+      'Picked up src/. Up and down choose a folder, Enter drops it, Escape leaves it where it is.',
+      'the view said a sentence the page owns',
+    );
+  });
+});

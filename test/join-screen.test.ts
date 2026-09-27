@@ -302,8 +302,8 @@ describe('brand heading', () => {
   it('gives the card and the workspace one main landmark', () => {
     // The page the demo serves had none — the landing page has one — so a screen-reader user had no
     // landmark to jump to. What the page is for is one thing: the card before a session, and the
-    // workspace in one. The deployment's own notice is appended after it, and the noise the page
-    // keeps outside the content (`live`, `peek`, `alert`) is inside the landmark with it.
+    // workspace in one. What the page keeps outside the content — `live`, `peek`, `alert` — is
+    // inside the landmark with it.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     assert.match(html, /<main id="app">/, 'the page has no main landmark');
     assert.match(html, /<\/main>\s*<script>/, 'the landmark does not close over the whole page');

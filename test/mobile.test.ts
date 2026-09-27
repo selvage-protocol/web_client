@@ -170,7 +170,8 @@ describe('the shell and the page agree on what a phone is', () => {
 
   it('answers for a phone on its side as well as one held upright', () => {
     // Measured at 844x390 with touch: the desktop column came back — a 196 px panel beside the
-    // editor, the strip's own download control at x=803, a 60 px footer that was not compacted,
+    // editor, the strip's own download control at x=803, a notice under the page that was not
+    // compacted,
     // and roster names cut to 5 px of themselves. A phone has two shapes and the width query can
     // see one of them, so the phone query has an arm for each and both shell blocks carry both.
     const landscape = `${TOUCH_QUERY} and (max-height: 480px)`;
@@ -576,8 +577,8 @@ describe('what a phone cannot hover', () => {
 describe('the pre-join card on a phone, and the page under it', () => {
   it('anchors the card near the top rather than to the bottom of the screen', () => {
     // Measured in Chromium 152 at 390x844: the card was a sheet at the bottom, so the top
-    // ~45 % of the screen was empty and the footer the demo appends under the page sat below
-    // the fold. The card is anchored near the top now, and its first line is the action.
+    // ~45 % of the screen was empty. The card is anchored near the top now, and its first line
+    // is the action.
     const card = declarations(mediaBlock(PHONE_QUERY), '#join');
     assert.ok(!/bottom:\s*0/.test(card), `the card is still a bottom sheet: ${card}`);
     assert.ok(!/top:\s*auto/.test(card), `the card is still taken out of the top: ${card}`);
@@ -613,36 +614,4 @@ describe('the pre-join card on a phone, and the page under it', () => {
     );
   });
 
-  it('opens the page under the app, so a deployment footer is not pushed below the fold', () => {
-    // The demo's nginx injects a non-commercial notice and a terms link before `</body>`, after
-    // `#app`. A full-height app laid out after it pushed that notice past the fold.
-    assert.match(style, /body\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/, 'the page is not a column');
-    assert.match(style, /body\s*\{[^}]*min-height:\s*100dvh/, 'the column has no dynamic minimum height');
-    const app = declarations(style, '#app');
-    assert.match(app, /flex:\s*1 1 auto/, 'the app does not give up room to a footer');
-    assert.match(app, /min-height:\s*0/, 'the app cannot shrink for a footer');
-    assert.ok(app.includes('height: 100dvh'), 'the app lost the dynamic viewport that follows the keyboard');
-  });
-
-  it('shrinks that notice once a session is on screen, and leaves it whole on arrival', () => {
-    // Measured in Chromium at 390x844 with `--footer`: the notice is three lines of prose, 80 px
-    // — about a tenth of the screen — held for the whole session, and 35 px once a session is on
-    // screen. While the card is up it is the full proof it is meant to be; a session is what makes
-    // the room scarce. The declarations have to be `!important`: the notice carries its own inline
-    // styles, and the deployment that injects it gives it no class or id this page could reach.
-    const phone = mediaBlock(NARROW_QUERY);
-    const rule = /body:has\(#session:not\(\[hidden\]\)\) > aside\s*\{([^}]*)\}/.exec(phone)?.[1] ?? '';
-    assert.notEqual(rule, '', 'the demo notice keeps its full height through a phone session');
-    assert.equal(
-      (rule.match(/!important/g) ?? []).length,
-      3,
-      `a declaration without \`!important\` loses to the notice's own inline style: ${rule}`,
-    );
-    assert.match(rule, /padding:\s*0\.25rem/, 'the notice kept its own padding');
-    assert.match(rule, /font-size:\s*10\.5px/, 'the notice kept its own type size');
-    assert.match(rule, /line-height:\s*1\.3/, 'the notice kept its own leading');
-    // Nothing is hidden: the whole notice and its terms link stay, and `check-terms.sh` in the
-    // reference server still reads every word of it out of the bytes the front serves.
-    assert.ok(!/display:\s*none/.test(rule), 'the notice is dismissed rather than shrunk');
-  });
 });

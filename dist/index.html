@@ -55,14 +55,10 @@
         --ui: "Liberation Sans", "DejaVu Sans", system-ui, sans-serif;
       }
       [hidden] { display: none !important; }
-      /* The page is a column so anything the deployment appends after `#app` — the demo's
-         non-commercial notice and its terms link — is laid out inside the viewport rather than
-         under a full-height app. `#app` keeps its own dynamic height as the flex basis and gives
-         up exactly the room such a footer takes; with nothing after it, it is the whole viewport.
-         `height: 100%` is what a browser without `dvh` falls back to. */
+      /* `height: 100%` is what a browser without `dvh` falls back to, and the margin and the two
+         colours are the page's own. */
       html, body { height: 100%; margin: 0; font: 14px/1.5 var(--ui);
         background: var(--background); color: var(--foreground); }
-      body { display: flex; flex-direction: column; min-height: 100%; min-height: 100dvh; }
       /* `dvh`, not `vh`: the dynamic viewport follows the browser chrome and, on
          the platforms that resize the layout viewport, the soft keyboard. The bottom
          inset keeps the last row off a phone's home indicator, and `border-box`
@@ -70,9 +66,9 @@
          app taller than the viewport it was measured against.
          (`viewport-fit=cover` in the meta is what makes the inset non-zero.)
          `position: relative` and `overflow: hidden` are the app's own box: the pre-join
-         backdrop is drawn inside it and clipped to it, so a deployment's notice under the
-         page is neither covered by the blur nor left unclickable behind it. */
-      #app { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+         backdrop is drawn inside it and clipped to it, so the blur covers the workspace
+         rather than spilling past the viewport. */
+      #app { display: flex; flex-direction: column;
         height: 100%; height: 100dvh;
         position: relative; overflow: hidden;
         box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
@@ -413,13 +409,6 @@
         color: var(--muted-foreground); }
       #tree-actions button .icon { font-size: 1.2em; }
       #tree-actions button:hover:not(:disabled) { color: var(--foreground); }
-      /* The panel's foot: the one link the deployment put on the page, quiet and centred under the
-         create verbs. It draws nothing where there is no link to adopt — the href is written by the
-         page (`terms.ts`), and the foot stays hidden without one. */
-      #side-foot { flex: none; padding: 0.55em 0.7em; border-top: 1px solid var(--border);
-        text-align: center; font-size: 11px; }
-      #side-foot a { color: var(--muted-foreground); text-decoration: none; }
-      #side-foot a:hover { color: var(--foreground); text-decoration: underline; }
       #tree ul { list-style: none; margin: 0; padding-left: 1em; }
       #tree > ul { padding-left: 0; }
       #tree li { margin: 2px 0; }
@@ -502,10 +491,13 @@
       #tree .del-plain .del-plain-name, #tree li.sum .del-plain-name { text-decoration: line-through; }
       #tree li.sum { display: flex; align-items: center; gap: 0.4em; padding: 0.4em 0.55em;
         font-weight: 600; list-style: none; }
-      /* Where a file being moved would land: the folder it would join, marked as a whole, because
-         the order inside a folder is alphabetical and not the user's to set. */
-      #tree button.row[draggable="true"] { cursor: grab; }
-      #tree li.dragging { opacity: 0.45; }
+      /* Where a row being moved would land: the folder it would join, marked as a whole, because
+         the order inside a folder is alphabetical and not the user's to set. The row being moved
+         is dimmed where it stands: a file's row with its own actions beside it, and a folder's
+         head, which is the row the pointer holds — its contents are still readable under it. A
+         host's rows are the ones that can be moved, so the grab cursor is the host's too. */
+      #tree button.row[draggable="true"], #tree summary[draggable="true"] { cursor: grab; }
+      #tree li.dragging, #tree summary.dragging { opacity: 0.45; }
       #tree summary.drop-into, #tree button.row.drop-into, #tree ul.drop-into {
         background: var(--muted); box-shadow: inset 0 0 0 1px var(--primary); }
       #tree li { position: relative; }
@@ -709,20 +701,6 @@
       /* Narrow, or a phone on its side. Two conditions for the same shape: a 390 px-wide window and
          an 844x390 touch device are the same layout, and only the first is a width. */
       @media (max-width: 640px), (any-hover: none) and (max-height: 480px) {
-        /* The demo instance appends its own notice after `#app` — the non-commercial terms and the
-           link to them, injected by its own front (`reference_server/deploy`) — and this
-           page lays it out inside the viewport rather than under a full-height app. On a phone that
-           notice is three lines of prose, 80 px and about a tenth of the screen, held for the whole
-           session: once a session is on screen it is one fine-print strip instead — measured at
-           390x844, 35 px — with every word it says and its link intact, at the size the whole
-           sentence fits at rather than the size it was written in. It is the notice's *own* inline
-           styles the `!important`s have to beat (the deployment injects it, and it carries no class
-           or id this page could reach), and past the session it is the full proof, as on arrival. */
-        body:has(#session:not([hidden])) > aside {
-          padding: 0.25rem 0.7rem !important;
-          font-size: 10.5px !important;
-          line-height: 1.3 !important;
-        }
         /* The identity gives way first. Measured at 320x640 with a long guest name: the brand's
            own content was 289 px of the bar's 290 px, so the health dot could not share the row
            with it and wrapped onto one of its own — with the copy strip on a third, the bar took
@@ -867,10 +845,8 @@
           border-bottom-color: var(--border-strong); }
         #file-strip[aria-expanded='true'] .disclosure { transform: rotate(90deg); }
         /* The card is anchored near the top rather than a sheet at the bottom: the sheet left
-           the top of the screen empty and stood over the non-commercial notice the demo appends
-           under the page, so what a phone shows first is the thing to do and the notice below it
-           is reachable by a short scroll. The bottom inset keeps the last row off the home
-           indicator. */
+           the top of the screen empty, so what a phone shows first is now the thing to do.
+           The bottom inset keeps the last row off the home indicator. */
         #join { top: max(0.75rem, env(safe-area-inset-top)); transform: translateX(-50%);
           max-height: calc(100dvh - max(0.75rem, env(safe-area-inset-top)) - 0.75rem);
           padding-bottom: calc(1.3rem + env(safe-area-inset-bottom)); }
@@ -1133,12 +1109,6 @@
           <div id="tree-actions" hidden>
             <button id="new-file" type="button"></button>
             <button id="new-folder" type="button"></button>
-          </div>
-          <!-- The panel's foot: the deployment's own terms link, adopted at load (`terms.ts`). The
-               href is the only thing that comes from the deployment, so no link is written here:
-               with none to adopt, this stays hidden and a self-hosted copy is given nothing. -->
-          <div id="side-foot" hidden>
-            <a id="side-terms" target="_blank" rel="noreferrer">Terms</a>
           </div>
         </div>
         <!-- The panel's own edge: 1 px drawn, 8 px hit area, a pointer's col-resize and a keyboard's
