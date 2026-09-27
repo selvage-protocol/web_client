@@ -85,3 +85,31 @@ jobs:
       # and nothing else, which is why it runs here rather than locally only.
       - name: the version bump, and the bundle it has to rebuild
         run: scripts/test-bump-version.sh
+
+      # `scripts/test-release-plan.sh` covers what the release button refuses before it
+      # touches anything — the version whose tag never landed, and a target tag that is
+      # already there. It builds its own remote under `.tmp/`, so it needs git and bash and
+      # reaches no network.
+      - name: the release plan, against real tag states
+        run: scripts/test-release-plan.sh
+
+      # Every shell script this repository has is under `scripts/`, and the release workflow is
+      # the only thing that reaches some of them: its plan runs before the push, while
+      # `page-image.sh` and `verify-page-deploy.sh` run after it, once `main` carries the bump
+      # and the tag exists. So this parse is the last cheap place before a release that they are
+      # read at all. What it catches is a script that does not parse; how each behaves is the
+      # two script suites' business.
+      #
+      # A glob rather than `git ls-files`, and not only because this job's container cannot read
+      # the workspace with git: a glob reaches a script that is not committed yet, too.
+      - name: every shell script this repository has parses
+        run: |
+          set -eu
+          for script in scripts/*.sh; do
+            if [ ! -e "$script" ]; then
+              echo "::error::scripts/*.sh matched nothing, so this check read no script at all" >&2
+              exit 1
+            fi
+            printf '%s\n' "$script"
+            bash -n "$script"
+          done

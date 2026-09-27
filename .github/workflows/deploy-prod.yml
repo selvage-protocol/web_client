@@ -1,0 +1,218 @@
+name: deploy-prod
+
+# This repository's own half of the public demo's deploy: it puts a published page image onto
+# `selvage-demo.dontblameme.dev`, and touches nothing else.
+#
+# **Piece of the demo it moves:** the `selvage-web` container only. The request it sends to
+# the box names `SELVAGE_WEB_IMAGE` and nothing else, and `/usr/local/sbin/selvage-deploy`
+# leaves every line of `/srv/selvage/.env` a request does not name exactly as it is — so a
+# page-only request is the supported, designed case, and `SELVAGED_IMAGE` is not touched by
+# anything in this file. `reference_server/.github/workflows/deploy-prod.yml` is the same
+# chain for the server's container, and neither can move the other's.
+#
+# **What a dispatch may change, and the whole of it:** which published tag of
+# `ghcr.io/selvage-protocol/selvage-web` `.env` names. A version pins, `latest` unpins, and
+# the box's update timer then follows whatever `.env` names. The compose file is not in the
+# request and a run never writes it, so a run cannot add a port, drop a capability or mount a
+# certificate. What the page is *serving* is the published image; what this chooses is which
+# one.
+#
+# **No `environment:` here, and that is not an omission.** This repository's Tailscale
+# federated credential is pinned to the *ref* subject,
+# `repo:selvage-protocol@328844633/web_client@1374139710:ref:refs/heads/main` — this
+# organisation has ID-based OIDC subject claims enabled, so the claim is matched exactly and
+# the plain form is refused. A job that declares an environment presents the environment form
+# of the subject instead and is **refused at the exchange**, so adding the line would break
+# the deploy rather than gate it. The consequence, stated plainly: there is no approval in
+# front of this workflow. What it has instead is that it is `workflow_dispatch` only, so only
+# someone with write access can start it, and only at a ref whose subject it can mint.
+#
+# **The credential is checked before it is used.** Two repository secrets,
+# `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`, and an unset or renamed secret arrives as an empty
+# string — which fails much later as an opaque `400 invalid request` at the Tailscale
+# exchange. The first step refuses an empty one and says what it must contain, so a missing
+# credential reads as a missing credential.
+#
+# **Then Tailscale SSH as `deployci`**, a local user on the box with no password, no key and
+# two permitted root commands — `/usr/local/sbin/selvage-deploy`, whose request arrives on
+# stdin, and `/usr/local/sbin/selvage-install-shape` — each named in sudoers with no argument
+# wildcard. Tailscale SSH cannot restrict the command (the policy's `ssh` rules have no `cmd`
+# field), so the bound lives on the box and is proved there rather than claimed here.
+#
+# **What is verified afterwards, and which read decides it:** see
+# `scripts/verify-page-deploy.sh`, which prints each read under the name of its weight —
+# `strong` (the registry's own digest for the tag, and `latest`) is the check; `weak` (the
+# demo's page answers 200 on the origin) is best effort and cannot name the page build; the
+# public URL is a `report` and never fails the run, because Cloudflare serves a managed
+# challenge to a programmatic client and an edge is not something a deploy can fix.
+#
+# `workflow_dispatch` only: no `pull_request` and no `push` event can reach this file, so no
+# branch deploys itself. Every action is pinned by commit SHA with the version it is in a
+# comment, read back from the action's repository when it was written.
+#
+# `ubuntu-24.04`: this job downloads a Tailscale tarball from `pkgs.tailscale.com`, reads
+# `ghcr.io` and speaks to the tailnet, and `tailscale/github-action@v4.1.3` declares
+# `runs.using: node24`.
+on:
+  workflow_dispatch:
+    inputs:
+      web_version:
+        description: 'selvage-web tag to put on the demo: a published tag (e.g. 0.5.1) or latest'
+        required: true
+      dry_run:
+        description: 'Plan only: build and print the request, join nothing, deploy nothing'
+        type: boolean
+        default: false
+
+# Two deploys never interleave, and a queued one is not silently dropped.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # What mints the OIDC token the Tailscale workload identity exchange needs. Nothing
+      # here writes to the repository.
+      id-token: write
+    steps:
+      # The credential is checked before it is used. A dry run uses none — it joins nothing —
+      # so a plan is not made to require one: that is exactly the dispatch a reader reaches for
+      # while the secret's name is wrong.
+      - name: refuse a missing Tailscale credential
+        if: ${{ !inputs.dry_run }}
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          missing=""
+          add() { missing="${missing}${missing:+; }$1"; }
+          if [ -z "${TS_OAUTH_CLIENT_ID:-}" ]; then
+            add "TS_OAUTH_CLIENT_ID (this repository's Tailscale OIDC client id, from the tailnet admin console's Trust credentials page)"
+          fi
+          if [ -z "${TS_AUDIENCE:-}" ]; then
+            add "TS_AUDIENCE (the audience that client id is paired with, from the same page; a client id and an audience only work as the pair the console holds)"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::the Tailscale deploy credential is missing or empty: $missing. An empty secret is one that is unset or renamed, and the exchange would report it as a bare 400 with no clue which half it was." >&2
+            exit 1
+          fi
+          echo "the two Tailscale secrets are set"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Two refusals before the tailnet is joined, so a name that is not a published tag
+      # fails here rather than pinning a line of `.env` to something that does not exist.
+      # The grammar is the box's own (`reference_server/deploy/deploy.py`'s `_TAG`), applied
+      # here because the value is written into a one-line request: a value carrying a newline
+      # would make it two lines. The second refusal is the registry's: every tag the page
+      # image carries is read anonymously and the input has to be one of them.
+      - name: refuse a version that is not a published tag
+        env:
+          WEB_VERSION: ${{ inputs.web_version }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$WEB_VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::web_version is not an image tag: '$WEB_VERSION'" >&2
+            exit 1
+          fi
+          tags="$(scripts/page-image.sh tags)" || {
+            echo "::error::could not read the tags of ghcr.io/selvage-protocol/selvage-web" >&2
+            exit 1
+          }
+          if ! grep -qxF -- "$WEB_VERSION" <<< "$tags"; then
+            echo "::error::'$WEB_VERSION' is not a published tag of ghcr.io/selvage-protocol/selvage-web; the tags it carries are:" >&2
+            printf '%s\n' "$tags" >&2
+            exit 1
+          fi
+          echo "ghcr.io/selvage-protocol/selvage-web:$WEB_VERSION is a published tag"
+
+      # The request is built here rather than on the box: one line, naming one image, because
+      # the box leaves every line a request does not name exactly as it is.
+      - name: build the request
+        env:
+          WEB_VERSION: ${{ inputs.web_version }}
+        run: |
+          set -euo pipefail
+          request="$RUNNER_TEMP/deploy-request"
+          printf 'SELVAGE_WEB_IMAGE=ghcr.io/selvage-protocol/selvage-web:%s\n' "$WEB_VERSION" > "$request"
+          echo "the request the box will be given on stdin:"
+          cat "$request"
+
+      - name: plan only (dry run)
+        if: ${{ inputs.dry_run }}
+        env:
+          WEB_VERSION: ${{ inputs.web_version }}
+        run: |
+          set -euo pipefail
+          printf 'dry run: nothing was joined and nothing was deployed.\n'
+          printf "  would join the tailnet as an ephemeral tag:ci node, with this repository's federated credential\n"
+          printf '  would hand deployci@selvage-protocol-prod the request above on stdin, pinning SELVAGE_WEB_IMAGE to %s\n' "$WEB_VERSION"
+          printf '  would leave SELVAGED_IMAGE exactly as it is\n'
+          printf '  would then read the registry digest for the tag and the demo page back\n'
+
+      # `ping` and the loop below are the answer to the tailnet being eventually consistent
+      # about a peer that came up seconds ago: verify reachability, then poll the predicate
+      # with a deadline rather than sleep and hope. The ephemeral node is logged out again in
+      # the action's post step, so nothing is left joined between runs.
+      - uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        if: ${{ !inputs.dry_run }}
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+          ping: selvage-protocol-prod
+
+      - name: wait for the box to answer as deployci
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          last=''
+          deadline=$((SECONDS + 150))
+          while :; do
+            if last=$(ssh -o BatchMode=yes -o ConnectTimeout=10 \
+                -o StrictHostKeyChecking=accept-new \
+                deployci@selvage-protocol-prod true 2>&1); then
+              echo "deployci@selvage-protocol-prod answers"
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "deployci@selvage-protocol-prod did not answer within 150s; last: $last" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+      # The only privileged thing this job does, and it is one argument-free command line:
+      # `deployci` may run nothing else as root. The request goes in on stdin because the
+      # sudoers rule deliberately has no argument wildcard.
+      - name: deploy
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=10 \
+            deployci@selvage-protocol-prod \
+            '/usr/bin/sudo /usr/local/sbin/selvage-deploy' \
+            <"$RUNNER_TEMP/deploy-request"
+
+      # A deploy that goes green because `docker compose` exited zero is a deploy nobody
+      # checked. This is the part of the chain that is honest about what it can and cannot
+      # see; `scripts/verify-page-deploy.sh` prints each read under the name of its weight.
+      - name: verify what can be verified
+        if: ${{ !inputs.dry_run }}
+        env:
+          WEB_VERSION: ${{ inputs.web_version }}
+        run: |
+          set -euo pipefail
+          scripts/verify-page-deploy.sh \
+            --web-version "$WEB_VERSION" \
+            --ssh-target deployci@selvage-protocol-prod

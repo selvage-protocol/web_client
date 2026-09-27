@@ -1,33 +1,81 @@
 name: release
 
-# The button that creates a release. A manual dispatch takes the version to
-# release, refuses to proceed unless it matches package.json and no tag
-# already names it, then creates and pushes that tag, and asks `image.yml` to
-# run against it. It does not, itself, touch GHCR or create a GitHub Release
-# — those stay in `image.yml`'s `publish` and `release` jobs, gated on the ref
-# being a `v*` tag (see that file), which this workflow can only satisfy by
-# creating a tag that names the exact commit it is pointed at. A pull request
-# cannot reach `workflow_dispatch` at all, so it still cannot publish or
-# release.
+# The one-click release: a bump word in, a published page image and a demo running it out.
 #
-# The last step asks the API to dispatch `image.yml` rather than relying on
-# the tag push above to trigger it: GitHub does not start a new workflow run
-# for an event a workflow produced with its own `GITHUB_TOKEN` (the
-# loop-prevention rule), and a tag pushed with that token by `git push` two
-# steps up is exactly such an event, so it would land unpublished without
-# this. `workflow_dispatch` is the one event that rule exempts, which is why
-# `image.yml`'s own gate no longer requires the ref to have arrived by
-# `push`: any run against an existing `v*` tag re-checks that tag's name
-# against package.json with the same script this workflow already ran it
-# through, so a dispatch against a ref that is not a matching tag still
-# cannot publish.
+# A dispatch names which part of the version to move — `patch`, `minor` or `major` — and the
+# run, in this order:
+#
+#   1. refuses unless the version `package.json` already carries has a tag on the remote.
+#      That is the invariant that makes a second click safe: a bump that reached `main`
+#      while its tag was never created leaves the manifest naming a version with no tag, and
+#      a re-dispatch must refuse rather than compute the version after it and release twice
+#      (`scripts/release-plan.sh` owns both refusals, and `scripts/test-release-plan.sh`
+#      covers them).
+#   2. computes the target version with `scripts/bump-version.sh "$bump" --dry-run` and
+#      refuses a target whose tag already exists.
+#   3. with `dry_run`, stops there and prints what it would have done.
+#   4. runs `scripts/bump-version.sh "$bump"`, which moves the version in the four files that
+#      carry it **and rebuilds the committed bundle** — `dist/` is committed and the checks
+#      assert a build reproduces it, so a bump that left the bundle behind would make the
+#      commit this job pushes red.
+#   5. runs this repository's own gate, `scripts/ci-local.sh checks`, which is the same set of
+#      commands `.github/workflows/ci.yml` runs on a pull request.
+#   6. commits it as the owner and pushes it **straight to `main`**, then
+#   7. creates and pushes `v<version>` and asks the API to run `image.yml` at that ref.
+#   8. waits for the page image to exist on `ghcr.io` and dispatches this repository's own
+#      `deploy-prod.yml` with `web_version=<version>`, which is how the public demo's page
+#      container lands on the release. The server's line is not named and so is not touched.
+#
+# **Why the bump is pushed straight to `main` rather than through a pull request.** An event
+# created with a workflow's own `GITHUB_TOKEN` starts no workflow run — GitHub's
+# loop-prevention rule — so a bump pull request opened by this job would carry **no checks at
+# all**: the merge would be the only thing that ran anything. The gate in step 5 is what makes
+# the push-reviewed instead, and it runs the commands the pull request's `ci.yml` would have
+# run. Nothing here force-pushes: a push that is not a fast-forward is refused by the remote,
+# and the run fails rather than clobbering what moved `main` underneath it.
+#
+# **Why the tag is dispatched rather than pushed into a run.** The tag is pushed with the same
+# `GITHUB_TOKEN`, so that push starts no run either; `gh workflow run` is the event the
+# loop-prevention rule exempts, and `image.yml`'s `publish` job is gated on the ref being a
+# `v*` tag that agrees with `package.json` rather than on the triggering event, so a dispatch
+# at a ref that is not a matching tag still cannot publish.
+#
+# **`main` only.** The bump is pushed to `main`, and this repository's Tailscale federated
+# credential — which the deploy job in step 8 joins the tailnet with — is pinned to the ref
+# subject for `refs/heads/main`, so a dispatch at any other ref is refused by the first step
+# rather than half-run.
+#
+# `node:22-trixie-slim` for the same reason `ci.yml` uses it: `npm run build` shells out to
+# ImageMagick 7's `magick` for the sized icons and the GitHub runner image ships ImageMagick 6.
+# `gh` (from trixie) does the two dispatches, and `curl` the registry reads in
+# `scripts/page-image.sh`.
+#
+# Two things a container job needs and a runner job does not, both found by running it:
+#
+#   - its steps default to `sh`, which is dash here — `set -o pipefail` is not an option dash
+#     has, `$SECONDS` is not a variable it keeps and a herestring is a syntax error — so the
+#     shell is named below rather than assumed.
+#   - `actions/checkout` marks the workspace a safe git directory in a *temporary* global
+#     config, for its own commands only. Every later git command then meets `detected dubious
+#     ownership`, because the runner mounts the workspace as another uid; the step after the
+#     checkout makes the same mark for this job, which commits, tags and pushes.
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to release, matching package.json'
+      bump:
+        description: 'Which part of the version to move'
         required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Plan only: nothing bumped, committed, tagged, published or deployed'
+        type: boolean
+        default: false
 
+# One release at a time, and a queued one is not silently dropped.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -37,43 +85,149 @@ permissions:
   actions: write
 
 jobs:
-  tag:
+  release:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    container: node:22-trixie-slim
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 60
     steps:
+      - name: refuse a run that is not on main
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::release.yml cuts a release from main only, and this run is at $GITHUB_REF: the bump is pushed to main, and the deploy it dispatches joins the tailnet with a credential pinned to refs/heads/main." >&2
+          exit 1
+
+      # Before the checkout: the slim image carries no git and no `/etc/ssl` at all, because
+      # the official node images install `ca-certificates` and purge it as auto-removable in
+      # the same layer — node carries its own trusted roots and git does not.
+      - name: install git, ca-certificates, curl, gh and ImageMagick 7
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl gh git imagemagick
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # This job pushes the bump commit and the tag, and reads no other branch.
           persist-credentials: true
 
-      # Same rule the publish path enforces on a tag it receives:
-      # `scripts/release-tags.sh` refuses a `v*` ref that disagrees with
-      # package.json, so the input is checked with the exact code a pushed
-      # tag is checked with again in `image.yml`.
-      - name: validate the version against package.json
-        env:
-          VERSION: ${{ inputs.version }}
-        run: scripts/release-tags.sh "v$VERSION" >/dev/null
+      # See the note at the top: the checkout's own safe-directory mark lives in a temporary
+      # global config, so this job's later git commands cannot read the workspace without one of
+      # their own. The container is disposable and nothing outside it is touched.
+      - name: let git read the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: refuse an existing tag
+      # The plan is a read: it refuses, or it prints `current=`, `version=` and `tag=` for the
+      # steps below. Its three lines are appended to `$GITHUB_OUTPUT` as they are printed.
+      - name: plan the release
+        id: plan
         env:
-          VERSION: ${{ inputs.version }}
+          BUMP: ${{ inputs.bump }}
         run: |
-          tag="v$VERSION"
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "tag $tag already exists" >&2
+          set -o pipefail
+          scripts/release-plan.sh "$BUMP" | tee -a "$GITHUB_OUTPUT"
+
+      - name: plan only (dry run)
+        if: ${{ inputs.dry_run }}
+        env:
+          CURRENT: ${{ steps.plan.outputs.current }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          printf 'dry run: nothing was written, committed, tagged, published or deployed.\n'
+          printf '  package.json is at %s, and its tag is on the remote\n' "$CURRENT"
+          printf '  would bump to %s with scripts/bump-version.sh, rebuilding the committed dist/\n' "$VERSION"
+          printf '  would commit "chore(bump): release %s" as the owner and push it to main\n' "$VERSION"
+          printf '  would run scripts/ci-local.sh checks before that push\n'
+          printf '  would create and push v%s\n' "$VERSION"
+          printf '  would dispatch image.yml at v%s\n' "$VERSION"
+          printf '  would wait for ghcr.io/selvage-protocol/selvage-web:%s to exist\n' "$VERSION"
+          printf '  would dispatch deploy-prod.yml with web_version=%s, putting the demo page onto it\n' "$VERSION"
+
+      # The script recomputes the bump from the manifest, so the version it resolves to is
+      # compared with the one the plan read rather than assumed to be the same.
+      - name: bump the version, and rebuild the bundle the commit carries
+        if: ${{ !inputs.dry_run }}
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          scripts/bump-version.sh "$BUMP" | tee "$RUNNER_TEMP/bump.log"
+          bumped="$(tail -n 1 "$RUNNER_TEMP/bump.log")"
+          if [ "$bumped" != "$VERSION" ]; then
+            echo "::error::the bump resolved to $bumped, and the plan computed $VERSION" >&2
             exit 1
           fi
 
-      - name: create and push the tag
+      # The commit that reaches `main` is validated here, because it reaches `main` without a
+      # pull request (see the note at the top): this is the same gate, run the way CI runs it.
+      - name: this repository's own gate, as CI runs it
+        if: ${{ !inputs.dry_run }}
+        run: scripts/ci-local.sh checks
+
+      - name: commit the bump and push it to main
+        if: ${{ !inputs.dry_run }}
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.plan.outputs.version }}
         run: |
+          set -euo pipefail
+          git -c user.name=DontBlameMe -c user.email=dontblameme@noreply.codeberg.org \
+            commit -a -m "chore(bump): release $VERSION"
+          git push origin HEAD:main
+
+      - name: create and push the tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
           tag="v$VERSION"
           git tag "$tag"
           git push origin "$tag"
 
-      - name: run image.yml for the new tag
+      - name: run image.yml at the new tag
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-        run: gh workflow run image.yml --ref "v$VERSION"
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: gh workflow run image.yml --ref "v$VERSION" -R "$GITHUB_REPOSITORY"
+
+      # The image is built by another workflow, so this waits on the registry rather than on a
+      # run: the tag appearing among the image's tags is the effect being waited for, polled
+      # with a deadline that reports the last read rather than sleeping and hoping.
+      - name: wait for the page image to exist
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          last=""
+          while :; do
+            if last="$(scripts/page-image.sh tags 2>&1)" &&
+              grep -qxF -- "$VERSION" <<< "$last"; then
+              echo "ghcr.io/selvage-protocol/selvage-web:$VERSION is published"
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::ghcr.io/selvage-protocol/selvage-web:$VERSION did not appear among the image's tags within 30 minutes; the last read saw: $last" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+
+      # This repository's half of the demo's deploy. It names `web_version` and nothing else,
+      # and the box leaves every line a request does not name exactly as it is, so the server's
+      # container is not touched by anything here.
+      - name: put the demo's page container onto the new tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy-prod.yml --ref main -R "$GITHUB_REPOSITORY" \
+            -f "web_version=$VERSION"
+          echo "dispatched deploy-prod.yml with web_version=$VERSION; the server's line is not named, so it is left as it is"
