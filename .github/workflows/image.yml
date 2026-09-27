@@ -73,9 +73,13 @@ jobs:
     # against the committed `dist/`, the headers, and the shape (a write refused,
     # `/meta` and `/session` 404 with no `SELVAGE_SERVER`) — plus the relay: two runs with
     # `SELVAGE_SERVER` set (an upstream that answers and one whose name does not resolve),
-    # and `scripts/check-relay.mjs` against `ghcr.io/selvage-protocol/selvaged:latest`
-    # behind the page, which reads `/meta` and seats a room through the relay. The daemon
-    # is the runner's own: no buildx, one architecture, nothing pushed.
+    # and `scripts/check-relay.mjs` against a real server behind the page, reading `/meta`
+    # and seating a room through the relay. That counterpart is
+    # `ghcr.io/selvage-protocol/selvaged:latest`, or whatever `SELVAGE_SERVER_IMAGE` names,
+    # and a pull of it that fails fails this job: the stand-in is reachable only through
+    # `SELVAGE_ALLOW_RELAY_STUB`, which is read outside CI, so a green run here is always
+    # against a real server. The daemon is the runner's own: no buildx, one architecture,
+    # nothing pushed.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

@@ -24,9 +24,11 @@
 # proved end to end — `/meta` read, a socket upgraded to `101`, and a room minted on
 # one connection and joined on a second, all through the page's own published port.
 # That last case pulls `ghcr.io/selvage-protocol/selvaged:latest`, the server the
-# relay is for, so it needs a route to `ghcr.io`; where that image cannot be pulled it
-# runs `scripts/relay-stub.mjs` instead and says so, which proves the relay and not
-# the server.
+# relay is for, so it needs a route to `ghcr.io`. A pull that fails is the end of the
+# run — the server half of the proof is the thing being proved — except where
+# `SELVAGE_ALLOW_RELAY_STUB=1` asks for `scripts/relay-stub.mjs` instead, which proves
+# the relay and not the server; that opt-in is refused whenever `GITHUB_ACTIONS` is set,
+# and a downgrade notifies and names the counterpart it used everywhere it is named.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -327,6 +329,8 @@ echo "=== relay: a server behind the page, and a room joined through it ==="
 # contract between the two images.
 server_name="selvaged"
 server_image="${SELVAGE_SERVER_IMAGE:-ghcr.io/selvage-protocol/selvaged:latest}"
+# What the relay was actually proved against, which every line that names it has to say.
+server_label="$server_image"
 network="selvage-web-smoke-$PPID-$$"
 server_container="selvage-web-smoke-server-$PPID-$$"
 containers+=("$server_container")
@@ -337,13 +341,25 @@ if timeout 300 docker pull "$server_image" >"$TMPDIR/server-pull.log" 2>&1; then
     server=(docker run --detach --name "$server_container" --network "$network" \
         --network-alias "$server_name" "$server_image")
 else
-    # The honest counterpart is `selvaged`. Where its image cannot be pulled — no route to
-    # `ghcr.io`, a rate limit, five minutes without an answer — the proof still runs, against
-    # `scripts/relay-stub.mjs`, which answers `/meta` with a Selvage body and upgrades
-    # `/session` in the shape the checker asserts. That proves the relay and not the server,
-    # and the two lines below are the whole of the difference.
-    echo "the published server image could not be pulled: $(tail -n 2 "$TMPDIR/server-pull.log" | tr '\n' ' ')"
-    echo "server under test: scripts/relay-stub.mjs, which proves the relay and not the server"
+    # The honest counterpart is `selvaged`, and nothing else proves that `selvaged` is
+    # what the relay forwards to: a registry hiccup, a deleted `latest` or a renamed
+    # package would otherwise turn the strongest case in this script into a green run
+    # against a stand-in. So a failed pull ends the run here, and in CI always —
+    # `SELVAGE_ALLOW_RELAY_STUB` is read only outside it, where the failure is a
+    # local host with no route to `ghcr.io` rather than a signal about the image.
+    pull_note="$(tail -n 2 "$TMPDIR/server-pull.log" | tr '\n' ' ')"
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        fail "the published server image $server_image could not be pulled, so the relay was not proved against a real server: $pull_note"
+    fi
+    if [ "${SELVAGE_ALLOW_RELAY_STUB:-}" != "1" ]; then
+        fail "the published server image $server_image could not be pulled, so the relay was not proved against a real server: $pull_note (set SELVAGE_ALLOW_RELAY_STUB=1 to run the relay proof against scripts/relay-stub.mjs instead, which proves the relay and not the server)"
+    fi
+    # The stand-in answers `/meta` with a Selvage body and upgrades `/session` in the
+    # shape the checker asserts. That proves the relay and not the server, and the
+    # banner, the label and the final line are the whole of the difference.
+    echo "server under test: scripts/relay-stub.mjs (SELVAGE_ALLOW_RELAY_STUB=1), which proves the relay and not the server"
+    printf '::warning::the relay proof is running against scripts/relay-stub.mjs, not %s, because that image could not be pulled: %s\n' "$server_image" "$pull_note"
+    server_label="scripts/relay-stub.mjs (SELVAGE_ALLOW_RELAY_STUB=1)"
     stub_image="${SELVAGE_STUB_IMAGE:-node:22-alpine}"
     attempt 'docker pull (stub runtime)' docker pull "$stub_image"
     server=(docker run --detach --name "$server_container" --network "$network" \
@@ -385,4 +401,4 @@ attempt 'the relay proof' node scripts/check-relay.mjs "$base"
 echo "=== the relay container's own transcript ==="
 docker logs "$name" || true
 
-echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, refused a write, answered 404 on the two endpoints with no upstream, relayed them when configured without logging the attempt, exited with a name that does not resolve, and seated a room through itself against $server_image"
+echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, refused a write, answered 404 on the two endpoints with no upstream, relayed them when configured without logging the attempt, exited with a name that does not resolve, and seated a room through itself against $server_label"
