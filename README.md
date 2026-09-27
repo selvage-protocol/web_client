@@ -219,9 +219,10 @@ bytes and headers.
 
 ### CI
 
-The repository's two workflows. `ci.yml` is the node checks, on a pull request:
-`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh` and `test:ci`. It runs
-in `node:22-trixie-slim`, because the build shells out to ImageMagick 7's
+The repository's four workflows. `ci.yml` is the node checks, on a pull request:
+`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh`, `test:ci` and the two
+script suites, `scripts/test-bump-version.sh` and `scripts/test-release-plan.sh`.
+It runs in `node:22-trixie-slim`, because the build shells out to ImageMagick 7's
 `magick` and the GitHub runner image ships ImageMagick 6.
 
 `scripts/check-dist.sh` is the build reproducing the committed `dist/`: every
@@ -235,6 +236,34 @@ from, it runs `docker build` and a hardened `docker run` with the assertions
 above (`scripts/container-smoke.sh`), plus a rehearsal of the publish path
 against a registry on the runner's own loopback. On a `v*` tag it publishes the
 three tags and reads the version and the page back off them.
+
+`release.yml` is the button that cuts a release: a dispatch names `bump`
+(`patch`, `minor` or `major`) and `dry_run`. It refuses unless the version
+`package.json` already carries has a tag on the remote — the invariant that makes
+a second click safe rather than a second release — and refuses a target tag that
+is already on the remote; `scripts/release-plan.sh` owns both refusals and
+`scripts/test-release-plan.sh` covers them against real tag states. It then bumps
+with `bump-version.sh`, runs `scripts/ci-local.sh checks` as the pull request's
+`ci.yml` would have, commits as the owner and pushes to `main`, creates the tag
+and dispatches `image.yml` at it, and finally waits for the tag to appear on
+`ghcr.io` before dispatching `deploy-prod.yml`. **A bump does not travel through
+a pull request**, and the reason is mechanical: an event created with a workflow's
+own `GITHUB_TOKEN` starts no run, so a bump pull request would carry no checks at
+all — the gate runs before the push instead. The tag is dispatched into
+`image.yml` for the same reason.
+
+`deploy-prod.yml` is this repository's half of the demo's deploy: it hands the box
+one `SELVAGE_WEB_IMAGE=<tag>` line on stdin and nothing else, and the box leaves
+every line a request does not name exactly as it is, so the server's container is
+not touched. Its job declares no `environment:` — this repository's federated
+credential is pinned to the `main` ref subject and an environment would present a
+different one, so the line would break the deploy rather than gate it — and it
+refuses a `web_version` that is not a published tag. What it can verify afterwards
+is `scripts/verify-page-deploy.sh`, which prints each read under the name of its
+weight: the registry's digest for the tag is the check, the demo's page answering
+200 on the origin is best effort and cannot name the page build, and the public
+read is reported and never failed, because Cloudflare serves a managed challenge
+to a programmatic client and an edge is not something a deploy can fix.
 
 The container steps need a Docker daemon, so `scripts/ci-local.sh container` and
 both smoke scripts are CI runs on a machine without one.
@@ -477,9 +506,11 @@ the one-origin deployment decides, and the bundle copied from the committed
 it and rebuilds the bundle, so a bump leaves a `dist/` this repository's checks
 accept; `test-bump-version.sh` covers it, in a clone of its own. The scripts CI
 reads live beside the proofs: `test-ci.mjs` (the suite a single checkout can
-run), `release-tags.sh` (the release identity), `check-page.sh` (the served
-bytes, types and headers), `container-smoke.sh`, `assert-image-page.sh` and
-`ci-local.sh`.
+run), `release-tags.sh` (the release identity), `release-plan.sh` (what a release
+would be, and whether one may be cut), `page-image.sh` (the anonymous `ghcr.io`
+reads), `verify-page-deploy.sh` (what a page deploy can be verified by),
+`check-page.sh` (the served bytes, types and headers), `container-smoke.sh`,
+`assert-image-page.sh` and `ci-local.sh`.
 
 ## Languages and peer markers
 
