@@ -332,16 +332,16 @@ server_container="selvage-web-smoke-server-$PPID-$$"
 containers+=("$server_container")
 attempt 'docker network create' docker network create "$network"
 
-if docker pull "$server_image" >"$TMPDIR/server-pull.log" 2>&1; then
+if timeout 300 docker pull "$server_image" >"$TMPDIR/server-pull.log" 2>&1; then
     echo "server under test: $server_image, the published reference server"
     server=(docker run --detach --name "$server_container" --network "$network" \
         --network-alias "$server_name" "$server_image")
 else
     # The honest counterpart is `selvaged`. Where its image cannot be pulled — no route to
-    # `ghcr.io`, a rate limit — the proof still runs, against `scripts/relay-stub.mjs`,
-    # which answers `/meta` with a Selvage body and upgrades `/session` in the shape the
-    # checker asserts. That proves the relay and not the server, and the two lines below
-    # are the whole of the difference.
+    # `ghcr.io`, a rate limit, five minutes without an answer — the proof still runs, against
+    # `scripts/relay-stub.mjs`, which answers `/meta` with a Selvage body and upgrades
+    # `/session` in the shape the checker asserts. That proves the relay and not the server,
+    # and the two lines below are the whole of the difference.
     echo "the published server image could not be pulled: $(tail -n 2 "$TMPDIR/server-pull.log" | tr '\n' ' ')"
     echo "server under test: scripts/relay-stub.mjs, which proves the relay and not the server"
     stub_image="${SELVAGE_STUB_IMAGE:-node:22-alpine}"
