@@ -114,8 +114,9 @@ status="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X POST "$base/"
 [ "$status" = "403" ] || fail "a POST to the page answered $status, want 403"
 echo "a write is refused: POST is $status"
 for path in /meta /session; do
-    status="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "$base$path")"
+    status="$(curl -sS --max-time 10 -o "$work/missing" -w '%{http_code}' "$base$path")"
     [ "$status" = "404" ] || fail "$path answers $status; this image serves the page and no endpoint"
+    cmp -s "$work/missing" "$dist/404.html" || fail "$path answers 404 without the page's own 404.html"
     echo "not served: $path is $status"
 done
 

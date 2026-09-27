@@ -77,7 +77,9 @@ if (!inputs.some((input) => input.includes('monaco-editor'))) {
   process.exit(1);
 }
 
-cpSync(resolve(root, 'public/index.html'), resolve(root, 'dist/index.html'));
+for (const page of ['index.html', '404.html']) {
+  cpSync(resolve(root, 'public', page), resolve(root, 'dist', page));
+}
 // Identity: the owner's mark, byte-identical from the site. Sized icons are
 // rendered here, at build time, from the 800px opaque mark — no hand-scaled
 // binaries live in the source tree — and the sizes the site serves (16, 32, 48
