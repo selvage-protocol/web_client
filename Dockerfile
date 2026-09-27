@@ -77,10 +77,11 @@ COPY --chown=101:101 dist/ /usr/share/nginx/html/
 COPY --chown=101:101 LICENSE-MIT LICENSE-APACHE /licenses/
 
 # The relay's TLS directives name this bundle, and whether the base image carries it is
-# a property of the base image rather than of this tree: `nginx -t` parses the path
-# without reading the file, so the build is where the image can be held to it. An image
-# whose bundle is missing fails here rather than shipping an `https://` relay that can
-# verify nothing.
+# a property of the base image rather than of this tree. nginx reads the file when it loads
+# a configuration with an `https://` upstream, so a deployment that configures one fails at
+# startup without it while one that never does would not — which is why the check belongs
+# here, where base-image drift is caught once for every shape instead of in whichever
+# deployment first names an `https://` server.
 RUN test -e /etc/ssl/certs/ca-certificates.crt
 
 # Declared and empty, so the one knob this image has shows up in `docker image
