@@ -26,7 +26,10 @@ name: release
 #   7. creates and pushes `v<version>` and asks the API to run `image.yml` at that ref.
 #   8. waits for the page image to exist on `ghcr.io` and dispatches this repository's own
 #      `deploy-prod.yml` with `web_version=<version>`, which is how the public demo's page
-#      container lands on the release. The server's line is not named and so is not touched.
+#      container lands on the release. It then waits for the run that dispatch created and
+#      fails with it unless that run concludes `success`, so a release that says the demo
+#      moved is not left standing beside a deploy that failed. The server's line is not named
+#      and so is not touched.
 #
 # **Why the bump is pushed straight to `main` rather than through a pull request.** An event
 # created with a workflow's own `GITHUB_TOKEN` starts no workflow run — GitHub's
@@ -96,7 +99,11 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 60
+    # The two waits below are the worst case: the page image's tag may take 30 minutes to
+    # appear, and the deploy may take five more to show up in the run list and then 30 to
+    # finish — `scripts/dispatch-and-wait.sh`'s deadlines, the deploy's own 20-minute bound
+    # plus queue time — besides the gate and the bump. 120 minutes covers them.
+    timeout-minutes: 120
     steps:
       - name: refuse a run that is not on main
         if: ${{ github.ref != 'refs/heads/main' }}
@@ -153,7 +160,8 @@ jobs:
           printf '  would create and push v%s\n' "$VERSION"
           printf '  would dispatch image.yml at v%s\n' "$VERSION"
           printf '  would wait for ghcr.io/selvage-protocol/selvage-web:%s to exist\n' "$VERSION"
-          printf '  would dispatch deploy-prod.yml with web_version=%s, putting the demo page onto it\n' "$VERSION"
+          printf '  would dispatch deploy-prod.yml with web_version=%s, then wait for that run and\n' "$VERSION"
+          printf '    fail the release unless it concludes success\n'
 
       # The script recomputes the bump from the manifest, so the version it resolves to is
       # compared with the one the plan read rather than assumed to be the same.
@@ -230,14 +238,17 @@ jobs:
 
       # This repository's half of the demo's deploy. It names `web_version` and nothing else,
       # and the box leaves every line a request does not name exactly as it is, so the server's
-      # container is not touched by anything here.
-      - name: put the demo's page container onto the new tag
+      # container is not touched by anything here. `gh workflow run` prints no run id, so
+      # `scripts/dispatch-and-wait.sh` reads the workflow's runs on both sides of the dispatch
+      # and waits for the run it created: this step fails unless that run concludes `success`,
+      # which is what keeps a green release from standing beside a red deploy.
+      - name: put the demo's page container onto the new tag, and wait for the deploy
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
           set -euo pipefail
-          gh workflow run deploy-prod.yml --ref main -R "$GITHUB_REPOSITORY" \
+          scripts/dispatch-and-wait.sh --dispatch --workflow deploy-prod.yml --ref main \
             -f "web_version=$VERSION"
-          echo "dispatched deploy-prod.yml with web_version=$VERSION; the server's line is not named, so it is left as it is"

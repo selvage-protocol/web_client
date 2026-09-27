@@ -257,7 +257,8 @@ is already on the remote; `scripts/release-plan.sh` owns both refusals and
 with `bump-version.sh`, runs `scripts/ci-local.sh checks` as the pull request's
 `ci.yml` would have, commits as the owner and pushes to `main`, creates the tag
 and dispatches `image.yml` at it, and finally waits for the tag to appear on
-`ghcr.io` before dispatching `deploy-prod.yml`. **A bump does not travel through
+`ghcr.io`, dispatches `deploy-prod.yml`, and waits for the deploy's own run, failing the
+release unless it concludes `success`. **A bump does not travel through
 a pull request**, and the reason is mechanical: an event created with a workflow's
 own `GITHUB_TOKEN` starts no run, so a bump pull request would carry no checks at
 all — the gate runs before the push instead. The tag is dispatched into
