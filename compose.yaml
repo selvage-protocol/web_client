@@ -4,10 +4,11 @@
 # `selvaged` named in the share link (or built into the page), and this service
 # answers the page and nothing else. Set `SELVAGE_SERVER` and it is the single
 # origin of a room instead: the image relays `/session` and `/meta` to that server,
-# so a guest's browser reads the room's server at the page's own origin. The
-# one-origin default — `selvaged --serve-page` wearing this same `dist/` — is the
-# reference server's own compose file, and stays the default. README.md §Serving
-# the page owns the choice and what each shape costs.
+# so a guest's browser reads the room's server at the page's own origin. One origin
+# is still the default shape of a deployment — a `selvaged --serve-page` listener
+# with a page mounted under it — and this file is the page half of the other one;
+# README.md §Serving the page owns the choice, what each shape costs, and what the
+# relay does not do that `PROTOCOL.md` §12 asks of a public front.
 #
 # `v0.1.0` published `ghcr.io/selvage-protocol/selvage-web`, so the page can be
 # pulled from the registry; `build: .` still builds it from this checkout and
@@ -46,12 +47,23 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
-# Two containers, one origin. The page fronts the server: it publishes on loopback
+# Two containers, one origin. The page relays to the server: it publishes on loopback
 # 8080, the server publishes nothing and is reachable only from the page, and
-# `SELVAGE_SERVER` points the page's relay at the server's service name. A guest's
-# invite link is then the page's own address — `http://127.0.0.1:8080/?room=…` — and
-# `/meta` and `/session` answer from that same origin. Uncomment both services and
-# drop the `selvage-web` service above, or run them as a second compose file.
+# `SELVAGE_SERVER` points the relay at the server's service name. A guest's invite link
+# is then the page's own address — `http://127.0.0.1:8080/?room=…` — and `/meta` and
+# `/session` answer from that same origin. Here the page is a route to the server, not
+# the front `PROTOCOL.md` §12 asks a public deployment for: a terminator or a proxy in
+# front is what supplies the connection cap, the idle deadline and the rate limit, the
+# way `reference_server/deploy/proxy/` does.
+#
+# `depends_on` below is not decoration. nginx resolves the upstream's name once, when it
+# loads its configuration at startup, and holds that address for the life of the process:
+# a page started before the server exists exits with `host not found in upstream`, which is
+# why it starts after, and a recreated server can come back at a different address that the
+# page goes on dialling until it restarts — hence `restart: true`.
+#
+# Uncomment both services and drop the `selvage-web` service above, or run them as a
+# second compose file.
 #
 #   docker compose up --detach   # http://127.0.0.1:8080/
 #
@@ -61,6 +73,10 @@ services:
 #     image: selvage-web:latest
 #     environment:
 #       SELVAGE_SERVER: http://selvaged:8080
+#     depends_on:
+#       selvaged:
+#         condition: service_started
+#         restart: true
 #     ports:
 #       - "127.0.0.1:8080:8080"
 #     read_only: true

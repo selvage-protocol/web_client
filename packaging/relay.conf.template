@@ -3,6 +3,14 @@
 # `/session` and `/meta` are proxied there and everything else, the page included,
 # is served from this image. With no server configured the file is empty and
 # `default.conf`'s include adds nothing.
+#
+# Both locations inherit the server block's `add_header` lines rather than declaring
+# their own, which is what nginx does when a location adds no header: a relayed
+# response carries the policy the path's name has (so a relayed `/meta` is
+# `no-cache`, which is what an advisory read on every page load wants), `no-referrer`,
+# `nosniff` and the page's policy. `selvaged`'s own `/meta` sends none of those four;
+# on a JSON read they cost nothing, and one origin with one policy is the point of
+# this image rather than a difference to preserve.
 
 # `/session` is a WebSocket, so the two upgrade headers are what make nginx a byte
 # pump; without them the 101 never reaches the guest and the session dies at the
@@ -15,6 +23,15 @@ location = /session {
     proxy_set_header Connection $connection_upgrade;
     proxy_set_header Host $host;
 
+    # For an `https://` base: the upstream's name goes out as SNI and its certificate
+    # is verified against the image's own CA bundle, which the base image carries at
+    # that path. Written for an `http://` base too, where they apply to nothing, so
+    # that one template renders both and no scheme branch can leave the verification
+    # out.
+    proxy_ssl_server_name on;
+    proxy_ssl_verify on;
+    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+
     proxy_connect_timeout 5s;
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
@@ -26,6 +43,11 @@ location = /meta {
     proxy_pass __UPSTREAM__;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
+
+    # The same TLS handling as `/session` above.
+    proxy_ssl_server_name on;
+    proxy_ssl_verify on;
+    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
 
     proxy_connect_timeout 5s;
     proxy_read_timeout 30s;

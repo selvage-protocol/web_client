@@ -7,23 +7,22 @@
 # One origin is the default and stays it: `selvaged --serve-page` answers the
 # page, `/meta` and `/session` together, which is what makes a single terminator
 # enough for TLS and what lets the page's advisory `/meta` read land. This image
-# is the page half on its own. Configured with `SELVAGE_SERVER` it is also the
-# origin relay, so the page in front of a server that cannot serve one is still
-# the single origin of a room: `/session` and `/meta` are proxied to that server
-# and everything else, the page included, is served here. With no server
-# configured the relay is absent and the two endpoints answer 404. The README
-# owns the two shapes and what each costs.
+# is the page half on its own. Configured with `SELVAGE_SERVER` it also relays
+# `/session` and `/meta` to that server, so a page whose server cannot serve one is
+# still the single origin of a room: those two paths are proxied there and everything
+# else, the page included, is served here. With no server configured the relay is absent
+# and the two endpoints answer 404. The README owns the two shapes and what each costs,
+# including that this relay is a route on the origin and not the front
+# `PROTOCOL.md` §12 asks a public deployment for.
 #
 # The bundle is the `dist/` committed in this repository, copied rather than
-# rebuilt here. The reference server's image clones this repository at a pinned
-# revision and runs `npm ci && npm run build` inside its own build, and its round
-# recorded that the two are byte-identical; the `checks` job in
-# .github/workflows/ci.yml re-proves that on every pull request (`npm run build`, then
-# `scripts/check-dist.sh` against the commit's own copy), so what this COPY takes is the
-# reviewed bytes. What a rebuild inside the image would add is nothing the checks job
-# does not already assert, and it would add a node toolchain, a fetch and ImageMagick 7
-# to this build for it. A page that must be built somewhere else is served by mounting a
-# `dist/` over `/usr/share/nginx/html` instead, which needs no command override.
+# rebuilt here. The `checks` job in .github/workflows/ci.yml rebuilds the bundle on
+# every pull request and compares it byte for byte with the commit's own copy
+# (`scripts/check-dist.sh`), so what this COPY takes is the reviewed bytes. What a
+# rebuild inside the image would add is nothing that job does not already assert, and
+# it would add a node toolchain, a fetch and ImageMagick 7 to this build for it. A
+# page that must be built somewhere else is served by mounting a `dist/` over
+# `/usr/share/nginx/html` instead, which needs no command override.
 #
 # The runtime is `nginxinc/nginx-unprivileged`, nginx with two changes of its own:
 # it runs as uid 101 and it listens on 8080, so nothing in the image needs a
@@ -46,7 +45,10 @@
 # that writes the two proxied locations from `SELVAGE_SERVER` into a file under
 # `/dev/shm` — the runtime's tmpfs, because the root filesystem is read-only — that
 # `packaging/default.conf` includes. With no server configured it writes an empty
-# file, so the include adds nothing and the image is what it was before.
+# file, so the include adds nothing and the image is what it was before. The value's
+# shape is checked there rather than interpolated as it arrives, and an `https://`
+# base is verified against the base image's own CA bundle with the upstream's name
+# sent as SNI.
 FROM nginxinc/nginx-unprivileged:1.30-alpine-slim
 
 # The version comes from package.json in the release path
@@ -67,9 +69,16 @@ LABEL org.opencontainers.image.title="selvage-web" \
 
 COPY --chown=101:101 packaging/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=101:101 packaging/default.conf /etc/nginx/conf.d/default.conf
-COPY --chown=101:101 --chmod=755 packaging/40-selvage-relay.sh /docker-entrypoint.d/40-selvage-relay.sh
+# The entrypoint runs a `*.sh` here only when it is executable, and this file is mode 755
+# in the tree, which COPY carries over; `scripts/test-relay-config.sh` asserts the mode.
+COPY --chown=101:101 packaging/40-selvage-relay.sh /docker-entrypoint.d/40-selvage-relay.sh
 COPY --chown=101:101 packaging/relay.conf.template /etc/nginx/relay.conf.template
 COPY --chown=101:101 dist/ /usr/share/nginx/html/
 COPY --chown=101:101 LICENSE-MIT LICENSE-APACHE /licenses/
+
+# Declared and empty, so the one knob this image has shows up in `docker image
+# inspect`, and the image with nothing set is what it has always been: the page on
+# its own, with `/session` and `/meta` answering 404.
+ENV SELVAGE_SERVER=""
 
 EXPOSE 8080

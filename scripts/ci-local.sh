@@ -96,8 +96,9 @@ job_checks() {
   scripts/test-release-plan.sh
   # The image's origin relay is written at startup by an entrypoint script from
   # `SELVAGE_SERVER`, so this runs that script directly and reads the nginx config it
-  # feeds: the `container` job is not the first place a broken relay is seen, and a
-  # machine with no Docker can still check it.
+  # feeds — and has an `nginx` parse that config where one is installed, which the
+  # `checks` job's container has and this host may not: the `container` job is not the
+  # first place a broken relay is seen, and a machine with no Docker can still check it.
   say "checks: the origin relay's config against SELVAGE_SERVER"
   scripts/test-relay-config.sh
   # Every shell script this repository has is under `scripts/`, and the release workflow is the
