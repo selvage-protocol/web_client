@@ -4,9 +4,11 @@
  *
  * `scripts/container-smoke.sh` runs the page image with `SELVAGE_SERVER=selvaged:8080`
  * against `ghcr.io/selvage-protocol/selvaged:latest`, because a relay is only worth
- * anything in front of the server it is for. Where that image cannot be pulled — no
- * route to `ghcr.io`, a rate limit — the same assertions run against this process
- * instead: `/meta` with a Selvage body, and a WebSocket that seats a room, in the shape
+ * anything in front of the server it is for. There that image is the only counterpart a
+ * failure may fall back from: a pull that fails ends the run, and this process is reached
+ * only where `SELVAGE_ALLOW_RELAY_STUB=1` asked for it — a local host with no route to
+ * `ghcr.io`, a rate limit — with the same assertions then run against it instead: `/meta`
+ * with a Selvage body, and a WebSocket that seats a room, in the shape
  * `scripts/check-relay.mjs` asserts.
  *
  * **This proves the relay and not the server.** Whether `selvaged` serves those two
