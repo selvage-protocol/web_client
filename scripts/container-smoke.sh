@@ -71,7 +71,7 @@ fail() {
     printf '%s\n' "$*" >&2
     # A red run is read from the API, where a job's transcript is not readable without
     # a signed-in session; an annotation carries the reason to where it can be read.
-    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    if [ -n "${GITHUB_ACTIONS+set}" ]; then
         printf '::error::%s\n' "$*"
     fi
     exit 1
@@ -273,7 +273,7 @@ attempt 'docker exec (relay) cat' docker exec "$name" cat /dev/shm/selvage-relay
 
 # The token an invite URL carries, in every request a guest makes through the page: the
 # page itself, and the two endpoints the relay proxies. Nothing here is a secret; what it
-# proves is that no byte of a request line reaches the transcript.
+# proves is that this token reaches no transcript, in the format the image ships.
 sentinel="SELVAGE-SMOKE-TRANSCRIPT-SENTINEL-4f1c"
 for path in /meta /session; do
     status="$(curl -sS --max-time 10 -o "$TMPDIR/relay-body" -w '%{http_code}' "$base$path?room=smoke-room&token=$sentinel")"
@@ -303,7 +303,9 @@ fi
 # The whole transcript and the invite URL's own token: the fault-level grep above only
 # reaches what the relay logged about its upstream, and a regression to
 # `access_log /dev/stdout` keeps no fault at all — what it keeps is
-# `"GET /?room=…&token=…" 200`, which is exactly what must not be kept.
+# `"GET /?room=…&token=…" 200`, which is exactly what must not be kept. A log format
+# narrowed to the room and not the token would slip past this grep; that is the config's
+# own `access_log off;`, which `scripts/test-relay-config.sh` asserts directly.
 if printf '%s\n' "$transcript" | grep -qF "$sentinel"; then
     printf '%s\n' "$transcript" >&2
     fail "the invite URL's token reached the container's transcript, which PROTOCOL.md §12 forbids a deployment to log"
@@ -357,7 +359,8 @@ echo "=== relay: a server behind the page, and a room joined through it ==="
 # name and port — so this pins `SELVAGE_SERVER`, `/meta`, `/session` and one origin as the
 # contract between the two images.
 server_name="selvaged"
-server_image="${SELVAGE_SERVER_IMAGE:-ghcr.io/selvage-protocol/selvaged:latest}"
+default_server_image="ghcr.io/selvage-protocol/selvaged:latest"
+server_image="${SELVAGE_SERVER_IMAGE:-$default_server_image}"
 # What the relay was actually proved against, which every line that names it has to say.
 server_label="$server_image"
 network="selvage-web-smoke-$PPID-$$"
@@ -369,12 +372,19 @@ if timeout 300 docker pull "$server_image" >"$TMPDIR/server-pull.log" 2>&1; then
     # The build the daemon now holds under that tag: `latest` moves, so a tag alone cannot
     # say which server this run seated a room against. Empty where the daemon reports no
     # repository digest, which is a locally built image.
+    # The provenance sentence is true of the tag this project publishes and of nothing
+    # else: `SELVAGE_SERVER_IMAGE` exists for a run against a build of the server.
+    if [ "$server_image" = "$default_server_image" ]; then
+        server_origin="the published reference server"
+    else
+        server_origin="a SELVAGE_SERVER_IMAGE override, not the published tag"
+    fi
     server_digest="$(docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$server_image" 2>/dev/null || true)"
     if [ -n "$server_digest" ]; then
         server_label="$server_image ($server_digest)"
-        echo "server under test: $server_image, the published reference server, pulled as $server_digest"
+        echo "server under test: $server_image, $server_origin, pulled as $server_digest"
     else
-        echo "server under test: $server_image, the published reference server, whose build the daemon reports no digest for"
+        echo "server under test: $server_image, $server_origin, whose build the daemon reports no digest for"
     fi
     server=(docker run --detach --name "$server_container" --network "$network" \
         --network-alias "$server_name" "$server_image")
@@ -386,7 +396,7 @@ else
     # `SELVAGE_ALLOW_RELAY_STUB` is read only outside it, where the failure is a
     # local host with no route to `ghcr.io` rather than a signal about the image.
     pull_note="$(tail -n 2 "$TMPDIR/server-pull.log" | tr '\n' ' ')"
-    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    if [ -n "${GITHUB_ACTIONS+set}" ]; then
         fail "the published server image $server_image could not be pulled, so the relay was not proved against a real server: $pull_note"
     fi
     if [ "${SELVAGE_ALLOW_RELAY_STUB:-}" != "1" ]; then
