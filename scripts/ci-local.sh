@@ -3,7 +3,7 @@
 # Runs the steps of this repository's workflows on this machine, so a red job is
 # found here rather than on a runner.
 #
-#   scripts/ci-local.sh checks     # the `checks` job: install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts
+#   scripts/ci-local.sh checks     # the `checks` job: install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, every shell script parses
 #   scripts/ci-local.sh container  # the `image` workflow's `container` job: docker build, a hardened run, the page asserted (needs Docker)
 #   scripts/ci-local.sh all        # `checks`, which is what a push has to be green on
 #
@@ -50,6 +50,20 @@ job_checks() {
   # In a clone of its own, so a red run here leaves the tree above as it was.
   say "checks: the version bump, and the bundle it has to rebuild"
   scripts/test-bump-version.sh
+  # A throwaway remote under `.tmp/`, for the same reason: the refusals are about tag state,
+  # and those tags are made there rather than read from this checkout.
+  say "checks: the release plan, against real tag states"
+  scripts/test-release-plan.sh
+  # The release path's own scripts are reached by the release workflow and by nothing else, so
+  # this parse is the last cheap place before a release that they are read at all.
+  say "checks: every shell script this repository tracks parses"
+  files="$(git ls-files '*.sh')"
+  if [ -z "$files" ]; then
+    printf 'git ls-files %s matched nothing, so this check read no script at all\n' "'*.sh'" >&2
+    exit 1
+  fi
+  printf '%s\n' "$files"
+  while read -r script; do bash -n "$script"; done <<< "$files"
 }
 
 job_container() {
