@@ -366,7 +366,16 @@ containers+=("$server_container")
 attempt 'docker network create' docker network create "$network"
 
 if timeout 300 docker pull "$server_image" >"$TMPDIR/server-pull.log" 2>&1; then
-    echo "server under test: $server_image, the published reference server"
+    # The build the daemon now holds under that tag: `latest` moves, so a tag alone cannot
+    # say which server this run seated a room against. Empty where the daemon reports no
+    # repository digest, which is a locally built image.
+    server_digest="$(docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$server_image" 2>/dev/null || true)"
+    if [ -n "$server_digest" ]; then
+        server_label="$server_image ($server_digest)"
+        echo "server under test: $server_image, the published reference server, pulled as $server_digest"
+    else
+        echo "server under test: $server_image, the published reference server, whose build the daemon reports no digest for"
+    fi
     server=(docker run --detach --name "$server_container" --network "$network" \
         --network-alias "$server_name" "$server_image")
 else
