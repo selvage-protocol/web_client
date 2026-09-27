@@ -55,7 +55,9 @@ project emits `access-control-*`, so such a join skips the advisory `/meta` read
 (the server's identity, its capabilities and the reconnect grace it carries)
 while the WebSocket handshake still proceeds and enforces compatibility.
 `selvaged --serve-page` is one origin, where the page, `/meta` and `/session`
-share it and the read lands.
+share it and the read lands; the page-only image with `SELVAGE_SERVER` set is the
+other, relaying the two endpoints to a server that is not on the page's origin
+(see _Serving the page_).
 
 ### Serving the page
 
@@ -68,33 +70,45 @@ the one port is enough for TLS. `npm run serve` is the local stand-in for the
 page half of it: a plain static server with no session protocol beside it.
 
 **The page-only image.** This repository publishes the bundle on its own, so the
-page can live on an origin of its own, in front of several `selvaged` instances.
-The preferred way to run it is `compose.yaml`, which builds the page from this
-checkout and answers on the standard web port:
+page can live on an origin of its own. Two shapes, and `compose.yaml` documents
+both:
 
-```sh
-docker compose up --build --detach   # http://localhost/
-```
+- **Page only.** The service answers the page and nothing else, and a share link
+  is a whole wire invite (`ws://host:8080/session?room=…&token=…`) for a room
+  whose server serves no page of its own. This is the default: `docker compose up
+  --build --detach` builds the page from this checkout and answers on the
+  standard web port, `http://localhost/`.
+- **Origin relay.** Set `SELVAGE_SERVER` to an `http://`, `https://` or bare
+  `host:port` base and the image proxies `/session` and `/meta` there, so the
+  page's own origin is the room's server, a share link is a page link
+  (`/?room=…&token=…`), and the advisory `/meta` read lands same-origin. With no
+  `SELVAGE_SERVER` the relay is absent entirely and the two paths answer 404, so
+  the image is exactly what it was before. `compose.yaml` carries a two-container
+  example: the page publishing `127.0.0.1:8080:8080` and fronting a `selvaged`
+  that publishes nothing and is reachable only from the page.
 
-The service publishes `80:8080`: the host answers on port 80 while the container
-keeps listening on 8080, which it must, because `nginx-unprivileged` runs as uid
-101 with every capability dropped and cannot bind a port below 1024.
-`compose.yaml` carries the same hardening as `reference_server`'s (`read_only`,
-`cap_drop: [ALL]`, `no-new-privileges`, no volumes) and
-`scripts/container-smoke.sh` asserts it. To evaluate on this machine only,
-rebind the published port to `127.0.0.1:8080:8080` there.
+The service publishes `80:8080` by default: the host answers on port 80 while
+the container keeps listening on 8080, which it must, because
+`nginx-unprivileged` runs as uid 101 with every capability dropped and cannot
+bind a port below 1024. `compose.yaml` carries the same hardening as
+`reference_server`'s (`read_only`, `cap_drop: [ALL]`, `no-new-privileges`, no
+volumes) and `scripts/container-smoke.sh` asserts it. To evaluate on this machine
+only, rebind the published port to `127.0.0.1:8080:8080` there.
 
 **The image is on the registry.** `v0.1.0` published
 `ghcr.io/selvage-protocol/selvage-web`, and every `v*` tag republishes it
 (`.github/workflows/image.yml`) with the tags `<version>-<sha>`, `<version>` and
 `latest`. `docker compose pull` fetches the published page; the compose file
 builds from this checkout when the registry name is absent. The hand run is the
-same page:
+same page, and `--env SELVAGE_SERVER=<base>` makes it the room's server as well:
 
 ```sh
 docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --publish 80:8080 ghcr.io/selvage-protocol/selvage-web:latest
 ```
+
+On its own it serves the page and no endpoint: `/meta` and `/session` answer 404
+with the page's own `404.html`.
 
 The image carries this repository's committed `dist/` (the checks job proves a
 build of `src/` reproduces it, so the image cannot fall behind its source). The
@@ -103,19 +117,24 @@ media types, the cache policy and the content-security policy that `selvaged`'s
 own page handler decides for the one-origin shape: a hashed chunk pinned for a
 year, everything else revalidating, `no-referrer`, `nosniff`. It holds nothing
 writable: nginx's pid file and temp directories are the runtime's own
-`/dev/shm`, so the flags above run it with no mount at all, which
+`/dev/shm`, and the relay's location blocks are written there at startup too, so
+the flags above run it with no mount at all, which
 `scripts/container-smoke.sh` reads back off the daemon's record of the
 container.
 
-**What the second shape costs.** The page becomes a second origin. The WebSocket
-is not CORS-bound, so the page dials whatever server a pasted wire invite names
-and the handshake is where compatibility is enforced. The `/meta` read is a
-cross-origin fetch, though, and this project emits no `access-control-*`
-headers, so it is skipped, which costs the recognition of the origin as a
-Selvage server and the reconnect grace it carries, and nothing else. An invite
-is a page link, though, so a guest handed one is sent to the room's own page,
-wherever it is served from; this image is for fronting servers that cannot serve
-a page themselves, handed on as `ws://` invites. One origin is the default.
+**What running without an upstream costs.** The page is then an origin of its
+own, a second origin beside every server it fronts. The WebSocket is not
+CORS-bound, so the page dials whatever server a pasted wire invite names and the
+handshake is where compatibility is enforced. The `/meta` read is a cross-origin
+fetch, though, and this project emits no `access-control-*` headers, so it is
+skipped, which costs the recognition of the origin as a Selvage server, the
+reconnect grace it carries, and the ability to host from this page at all, since
+the page hosts only where its own origin answers `/meta`. Setting
+`SELVAGE_SERVER` is what removes that: the page's origin is then the room's
+server and the read lands. An invite is a page link, so a guest handed one is
+sent to the room's own page, wherever it is served from; without a relay this
+image is for fronting servers that cannot serve a page themselves, handed on as
+`ws://` invites. One origin is the default.
 
 ### Join a room
 
@@ -154,7 +173,7 @@ Five things that shape it:
 - **Chromium only, and only where the page's origin is the server.**
   `showDirectoryPicker` is Chrome and Edge; Firefox and Safari get a sentence
   where the button would be, and joining still works there. A page that is not
-  served by a Selvage server (the page-only image in front of other servers, a
+  served by a Selvage server (the page-only image with no `SELVAGE_SERVER`, a
   static dev server) says so instead of offering a control that could only
   refuse (see _Sessions on the wire_).
 - **Read and write.** The picker asks for both, because the room's settled text
@@ -513,8 +532,11 @@ the wire's proof in a real browser; `prove-fb2.mjs`, the owner-feedback proof;
 
 `Dockerfile`, `.dockerignore` and `packaging/` are the page-only image: nginx's
 own configuration, with the media types, the cache policy and the page's policy
-the one-origin deployment decides, and the bundle copied from the committed
-`dist/`. `bump-version.sh` moves the page's version in every file that carries
+the one-origin deployment decides, the bundle copied from the committed `dist/`,
+and the origin relay — `packaging/40-selvage-relay.sh` and
+`packaging/relay.conf.template` — that turns `SELVAGE_SERVER` into the two
+proxied locations at startup, so this image can be the single origin of a room
+too. `bump-version.sh` moves the page's version in every file that carries
 it and rebuilds the bundle, so a bump leaves a `dist/` this repository's checks
 accept; `test-bump-version.sh` covers it, in a clone of its own. The scripts CI
 reads live beside the proofs: `test-ci.mjs` (the suite a single checkout can
@@ -522,7 +544,8 @@ run), `release-tags.sh` (the release identity), `release-plan.sh` (what a releas
 would be, and whether one may be cut), `page-image.sh` (the anonymous `ghcr.io`
 reads), `verify-page-deploy.sh` (what a page deploy can be verified by),
 `check-page.sh` (the served bytes, types and headers), `container-smoke.sh`,
-`assert-image-page.sh` and `ci-local.sh`.
+`assert-image-page.sh`, `test-relay-config.sh` (the relay the entrypoint writes)
+and `ci-local.sh`.
 
 ## Languages and peer markers
 

@@ -4,7 +4,7 @@
 # found here rather than on a runner.
 #
 #   scripts/ci-local.sh checks     # the `checks` job: the dry_run guard's Python and the gating of the workflows
-#                                 # that declare it, install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, every shell script parses
+#                                 # that declare it, install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, the origin relay's config against SELVAGE_SERVER, every shell script parses
 #   scripts/ci-local.sh container  # the `image` workflow's `container` job: docker build, a hardened run, the page asserted (needs Docker)
 #   scripts/ci-local.sh all        # `checks`, which is what a push has to be green on
 #
@@ -94,6 +94,12 @@ job_checks() {
   # and those tags are made there rather than read from this checkout.
   say "checks: the release plan, against real tag states"
   scripts/test-release-plan.sh
+  # The image's origin relay is written at startup by an entrypoint script from
+  # `SELVAGE_SERVER`, so this runs that script directly and reads the nginx config it
+  # feeds: the `container` job is not the first place a broken relay is seen, and a
+  # machine with no Docker can still check it.
+  say "checks: the origin relay's config against SELVAGE_SERVER"
+  scripts/test-relay-config.sh
   # Every shell script this repository has is under `scripts/`, and the release workflow is the
   # only thing that reaches some of them, so this parse is the last cheap place before a release
   # that they are read at all.

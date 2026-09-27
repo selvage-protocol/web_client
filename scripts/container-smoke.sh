@@ -16,7 +16,9 @@
 # page is served from the image's own copy of `dist/` — every file's media type,
 # the bytes of the shell and of a content-hashed chunk, and the headers the
 # one-origin deployment decides; a write is refused; and `/meta` and `/session`,
-# which this image does not have, are 404.
+# which this image does not have with no upstream, are 404. A second run with
+# `SELVAGE_SERVER` set proves the other shape: an unreachable upstream is a 502 on
+# those two paths and nothing else about the page changes.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -210,7 +212,45 @@ scripts/check-page.sh "$base" || {
     exit 1
 }
 
-echo "=== the container's own transcript ==="
+echo "=== relay: no SELVAGE_SERVER leaves the include empty ==="
+# `check-page.sh` above asserted one half of the absence — `/meta` and `/session`
+# are 404 — and this is the other: the file the entrypoint wrote is empty, so
+# nothing about the container names an upstream or resolves a name.
+attempt 'docker exec (unconfigured) cat' docker exec "$name" cat /dev/shm/selvage-relay.conf
+
+# A literal address inside the container that nothing listens on. nginx resolves
+# no name there, the relay is present, and an unreachable upstream answers 502
+# rather than the page's own 404 — which is what tells a wired relay from an
+# absent one. The page itself is unchanged.
+echo "=== relay: with SELVAGE_SERVER set the two endpoints are proxied ==="
+docker rm -f "$name" >/dev/null
+name="selvage-web-smoke-relay-$PPID-$$"
+attempt 'docker run (relay)' docker run --detach --name "$name" "${hardening[@]}" \
+    --env SELVAGE_SERVER=http://127.0.0.1:9 \
+    --publish "127.0.0.1:$port:8080" \
+    "$image"
+
+deadline=$((SECONDS + 30))
+last=""
+until last="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "$base/" 2>&1)"; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "$base/ did not answer within 30s with a relay configured (last: $last)"
+    sleep 0.5
+done
+[ "$last" = "200" ] || fail "the page answered $last with a relay configured, want 200"
+echo "the page is still served with a relay configured: / is $last"
+
+attempt 'docker exec (relay) cat' docker exec "$name" cat /dev/shm/selvage-relay.conf
+
+for path in /meta /session; do
+    status="$(curl -sS --max-time 10 -o "$TMPDIR/relay-body" -w '%{http_code}' "$base$path")"
+    [ "$status" = "502" ] || fail "$path answered $status with SELVAGE_SERVER set, want 502 from the relay"
+    if cmp -s "$TMPDIR/relay-body" "$repo_root/dist/404.html"; then
+        fail "$path answered the page's own 404 page, so the relay is not proxying"
+    fi
+    echo "relayed: $path is $status, from the configured upstream"
+done
+
+echo "=== the relay container's own transcript ==="
 docker logs "$name" || true
 
-echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, and refused a write"
+echo "container smoke OK: $image built, ran hardened and unmounted, served $base from its own dist/, refused a write, answered 404 on the two endpoints with no upstream, and relayed them when configured"

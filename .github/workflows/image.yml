@@ -69,8 +69,9 @@ jobs:
     # `docker build`, `docker run` under the hardening a public deployment needs, and
     # the assertions of `scripts/check-page.sh` — every file's media type, the bytes
     # against the committed `dist/`, the headers, and the shape (a write refused,
-    # `/meta` and `/session` absent). The daemon is the runner's own: no buildx, one
-    # architecture, nothing pushed.
+    # `/meta` and `/session` 404 with no `SELVAGE_SERVER`) — plus a second run with
+    # `SELVAGE_SERVER` set that proves the origin relay. The daemon is the runner's
+    # own: no buildx, one architecture, nothing pushed.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

@@ -11,7 +11,8 @@
 # the wrong hash, which a status check cannot see); and the headers are not the
 # ones the one-origin deployment decides (the cache policy the name carries,
 # no-referrer, nosniff, and the page's own policy). It also asserts the shape: a
-# write is refused, and `/meta` and `/session` are not served here.
+# write is refused, and `/meta` and `/session` — which a page image with no
+# `SELVAGE_SERVER` does not have — answer 404 with the page's own not-found page.
 #
 # Needs curl, sha256sum and node. Shared by `scripts/container-smoke.sh` and
 # `scripts/assert-image-page.sh`, so the pull request's proof and the release's
@@ -109,7 +110,7 @@ require_header chunk "cache-control: public, max-age=31536000, immutable"
 require_header manifest "content-type: application/manifest+json; charset=utf-8"
 echo "headers ok: the shell revalidates, a hashed chunk is pinned, the policy and the hardening are the page's"
 
-echo "=== shape: the page and nothing else ==="
+echo "=== shape: with no upstream, the page and nothing else ==="
 status="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X POST "$base/")"
 [ "$status" = "403" ] || fail "a POST to the page answered $status, want 403"
 echo "a write is refused: POST is $status"

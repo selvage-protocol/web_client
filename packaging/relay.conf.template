@@ -1,0 +1,32 @@
+# The origin relay, written at startup by `docker-entrypoint.d/40-selvage-relay.sh`
+# from `SELVAGE_SERVER`: the page's own origin is then the room's server, so
+# `/session` and `/meta` are proxied there and everything else, the page included,
+# is served from this image. With no server configured the file is empty and
+# `default.conf`'s include adds nothing.
+
+# `/session` is a WebSocket, so the two upgrade headers are what make nginx a byte
+# pump; without them the 101 never reaches the guest and the session dies at the
+# handshake. The read and send timeouts sit above the server's own ping, so they
+# only fire on a socket that is genuinely gone.
+location = /session {
+    proxy_pass __UPSTREAM__;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+}
+
+# One small JSON read on every page load, so it needs neither the upgrade nor a
+# long-lived timeout.
+location = /meta {
+    proxy_pass __UPSTREAM__;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 30s;
+}
