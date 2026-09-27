@@ -3,7 +3,7 @@
 # Runs the steps of this repository's workflows on this machine, so a red job is
 # found here rather than on a runner.
 #
-#   scripts/ci-local.sh checks     # the `checks` job: install, typecheck, build, the build reproduces dist/, the suite CI can run
+#   scripts/ci-local.sh checks     # the `checks` job: install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts
 #   scripts/ci-local.sh container  # the `image` workflow's `container` job: docker build, a hardened run, the page asserted (needs Docker)
 #   scripts/ci-local.sh all        # `checks`, which is what a push has to be green on
 #
@@ -47,6 +47,9 @@ job_checks() {
   scripts/check-dist.sh "$TMPDIR/dist-committed"
   say "checks: the suite CI can run"
   npm run test:ci
+  # In a clone of its own, so a red run here leaves the tree above as it was.
+  say "checks: the version bump, and the bundle it has to rebuild"
+  scripts/test-bump-version.sh
 }
 
 job_container() {
