@@ -271,14 +271,24 @@ echo "the page is still served with a relay configured: / is $last"
 
 attempt 'docker exec (relay) cat' docker exec "$name" cat /dev/shm/selvage-relay.conf
 
+# The token an invite URL carries, in every request a guest makes through the page: the
+# page itself, and the two endpoints the relay proxies. Nothing here is a secret; what it
+# proves is that no byte of a request line reaches the transcript.
+sentinel="SELVAGE-SMOKE-TRANSCRIPT-SENTINEL-4f1c"
 for path in /meta /session; do
-    status="$(curl -sS --max-time 10 -o "$TMPDIR/relay-body" -w '%{http_code}' "$base$path")"
+    status="$(curl -sS --max-time 10 -o "$TMPDIR/relay-body" -w '%{http_code}' "$base$path?room=smoke-room&token=$sentinel")"
     [ "$status" = "502" ] || fail "$path answered $status with SELVAGE_SERVER set, want 502 from the relay"
     if cmp -s "$TMPDIR/relay-body" "$repo_root/dist/404.html"; then
         fail "$path answered the page's own 404 page, so the relay is not proxying"
     fi
     echo "relayed: $path is $status, from the configured upstream"
 done
+
+# An invite is a page link carrying the room and its token, so it is the request whose
+# line must not be kept, and the status it answers is the page's own.
+invite="$base/?room=smoke-room&token=$sentinel"
+invite_status="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "$invite")"
+[ "$invite_status" = "200" ] || fail "an invite-shaped request answered $invite_status, want the page's own 200"
 
 # That 502 is below the level this image's error log keeps and its access log is off, so
 # the container's own transcript has nothing about the request or the upstream it could
@@ -290,7 +300,15 @@ if printf '%s\n' "$transcript" | grep -qE '127\.0\.0\.1:9|connect\(\) failed|no 
     printf '%s\n' "$transcript" >&2
     fail "the 502 reached the container's transcript, which an invite URL's token would reach too"
 fi
-echo "the 502 left nothing on the transcript: the error log is at crit and the access log is off"
+# The whole transcript and the invite URL's own token: the fault-level grep above only
+# reaches what the relay logged about its upstream, and a regression to
+# `access_log /dev/stdout` keeps no fault at all — what it keeps is
+# `"GET /?room=…&token=…" 200`, which is exactly what must not be kept.
+if printf '%s\n' "$transcript" | grep -qF "$sentinel"; then
+    printf '%s\n' "$transcript" >&2
+    fail "the invite URL's token reached the container's transcript, which PROTOCOL.md §12 forbids a deployment to log"
+fi
+echo "the 502 left nothing on the transcript, and neither did the invite URL's token: the error log is at crit and the access log is off"
 
 echo "=== relay: a name that does not resolve stops the container, naming it ==="
 # `proxy_pass` resolves its host while nginx loads its configuration, so a misspelled
