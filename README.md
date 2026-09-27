@@ -62,12 +62,15 @@ other, relaying the two endpoints to a server that is not on the page's origin
 ### Serving the page
 
 **One origin.** `selvaged --serve-page <dir>` answers the page, `/meta` and
-`/session` from one listener, which is what the demo and the published server
-image run: `reference_server` bakes this bundle into `/page` and starts with
-`--serve-page /page`. A share link is then the page's own origin and nothing
+`/session` from one listener: a share link is the page's own origin and nothing
 else, the `/meta` read is same-origin and lands, and one terminator in front of
-the one port is enough for TLS. `npm run serve` is the local stand-in for the
-page half of it: a plain static server with no session protocol beside it.
+the one port is enough for TLS. The published server image serves no page of its
+own — it is the server alone — so a deployment that wants this shape mounts a page,
+this bundle built or unpacked, and starts the server with `--serve-page <dir>` over
+it. The public demo is the other shape: a front terminates TLS and routes, with the
+page and the server as containers behind it (`reference_server/deploy/`).
+`npm run serve` is the local stand-in for the page half of it: a plain static
+server with no session protocol beside it.
 
 **The page-only image.** This repository publishes the bundle on its own, so the
 page can live on an origin of its own. Two shapes, and `compose.yaml` documents
@@ -84,8 +87,41 @@ both:
   (`/?room=…&token=…`), and the advisory `/meta` read lands same-origin. With no
   `SELVAGE_SERVER` the relay is absent entirely and the two paths answer 404, so
   the image is exactly what it was before. `compose.yaml` carries a two-container
-  example: the page publishing `127.0.0.1:8080:8080` and fronting a `selvaged`
+  example: the page publishing `127.0.0.1:8080:8080` and relaying to a `selvaged`
   that publishes nothing and is reachable only from the page.
+
+**The upstream.** It is read once, when nginx loads its configuration, and its shape
+is settled before it goes in: anything that is not a host with an optional port and
+an optional `http`/`https` scheme is refused with a sentence saying what is wrong,
+because the value is substituted into the configuration and nothing in it is escaped.
+An `https://` base is dialled with the upstream's name as SNI and its certificate
+verified against the base image's own CA bundle, so a certificate no public CA signs
+fails the connection.
+
+That one resolution is also why a name that does not resolve is fatal: a misspelling,
+or a page started before its server, exits the container with `host not found in
+upstream` instead of serving a page whose every join 502s. The other failure is
+quieter, and it is why the compose example carries `restart: true`: a server
+recreated at a new address leaves the page dialling the address it resolved, since
+nginx does not resolve again, so `/meta` and `/session` answer 502 until the page
+container restarts. That 502 is below the `crit` level this image logs at, and its
+access log is off, so nothing about it reaches the container's transcript — an
+invite URL carries the room token, and `PROTOCOL.md` §12 is why no request line is
+kept.
+
+**A route on one origin, not a front.** `PROTOCOL.md` §12 requires a deployment
+reachable by anyone else to put a terminator or a proxy in front that supplies a
+connection cap, an idle deadline and a rate limit. The relay supplies none of the
+three: nothing bounds how many sockets one source may hold at `/session`, nothing but
+the server's own ping and the 300 s read timeout ends an idle one, and nothing
+rate-limits the handshake. What it supplies is the origin — one address for the page,
+`/meta` and `/session` — and a deployment on the public internet still wants the shape
+`reference_server/deploy/proxy/` documents, whose front is where those three live.
+
+A relayed response carries the server block's own headers, a location that adds none
+inheriting them: a relayed `/meta` is `no-cache` because of the name it is asked for,
+and it carries `no-referrer`, `nosniff` and the page's policy. `selvaged` sends none of
+those four on its own `/meta`; one origin with one policy is what this image is for.
 
 The service publishes `80:8080` by default: the host answers on port 80 while
 the container keeps listening on 8080, which it must, because
@@ -120,7 +156,10 @@ writable: nginx's pid file and temp directories are the runtime's own
 `/dev/shm`, and the relay's location blocks are written there at startup too, so
 the flags above run it with no mount at all, which
 `scripts/container-smoke.sh` reads back off the daemon's record of the
-container.
+container. That smoke is also where the relay is proved end to end: it runs the
+page with `SELVAGE_SERVER` naming `ghcr.io/selvage-protocol/selvaged:latest`, and
+`scripts/check-relay.mjs` reads `/meta`, upgrades `/session` and seats a room
+through the page's published port.
 
 **What running without an upstream costs.** The page is then an origin of its
 own, a second origin beside every server it fronts. The WebSocket is not
@@ -245,15 +284,20 @@ runs it, and its own suite, on the host's `python3` where that already imports
 PyYAML and through a venv under `.tmp/` where it does not; `ci.yml`'s container
 installs Debian's `python3-yaml` for the same two files, and so does `release.yml`'s
 release job, whose gate before the bump reaches `main` is `scripts/ci-local.sh checks`.
+The two install steps carry the same packages, `nginx-light` among them, for that same
+reason.
 
 ### CI
 
 The repository's four workflows. `ci.yml` is the node checks, on a pull request:
-`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh`, `test:ci` and the two
-script suites, `scripts/test-bump-version.sh` and `scripts/test-release-plan.sh`,
-and the `dry_run` guard, `scripts/check_dry_run_gating.py`.
+`npm ci`, `typecheck`, `build`, `scripts/check-dist.sh`, `test:ci` and the three
+script suites, `scripts/test-bump-version.sh`, `scripts/test-release-plan.sh` and
+`scripts/test-relay-config.sh`, and the `dry_run` guard,
+`scripts/check_dry_run_gating.py`.
 It runs in `node:22-trixie-slim`, because the build shells out to ImageMagick 7's
-`magick` and the GitHub runner image ships ImageMagick 6.
+`magick` and the GitHub runner image ships ImageMagick 6, and that job's install step
+carries Debian's `nginx-light` so the relay's generated configuration is parsed there
+by an `nginx` rather than only read.
 
 `scripts/check-dist.sh` is the build reproducing the committed `dist/`: every
 file the bundler writes, byte for byte, and the six sized icons at their six
@@ -544,8 +588,10 @@ run), `release-tags.sh` (the release identity), `release-plan.sh` (what a releas
 would be, and whether one may be cut), `page-image.sh` (the anonymous `ghcr.io`
 reads), `verify-page-deploy.sh` (what a page deploy can be verified by),
 `check-page.sh` (the served bytes, types and headers), `container-smoke.sh`,
-`assert-image-page.sh`, `test-relay-config.sh` (the relay the entrypoint writes)
-and `ci-local.sh`.
+`check-relay.mjs` and `relay-stub.mjs` (the room seated through the relay, and the
+stand-in endpoint for a host that cannot pull the server's image),
+`assert-image-page.sh`, `test-relay-config.sh` (the relay the entrypoint writes,
+parsed by an `nginx` where there is one) and `ci-local.sh`.
 
 ## Languages and peer markers
 
