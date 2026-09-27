@@ -5,16 +5,16 @@
 #
 #   scripts/test-bump-version.sh
 #
-# Seven properties:
+# Eight properties:
 #
 #   - anything that is not one of `major`, `minor`, `patch` — nothing at all, a
 #     version such as `0.5.1` or `1.2.3.4`, a misspelling, `--dry-run` in the bump's
 #     place, a second argument that is not `--dry-run`, a third argument — is refused
-#     with a message naming it and a non-zero exit, and the tree is untouched
-#     afterwards, down to not creating the scratch directory;
+#     with a message naming it, exit 2, and the tree untouched afterwards, down to not
+#     creating the scratch directory;
 #   - the next version is computed from the manifest rather than from anything else, so
-#     from `0.5.9` a `patch` is `0.5.10` and not `0.5.20`, a `minor` carries into
-#     `0.6.0`, and a `major` into `1.0.0`;
+#     a patch on a manifest whose patch is nine is a two-digit one and not `20`, and a
+#     minor and a major carry into the next minor and the next major;
 #   - a manifest version that is not three numbers is refused, with the version named;
 #   - the resulting version is the last line of stdout and nothing else is on it,
 #     because the release workflow names the tag and the Release from it;
@@ -26,7 +26,8 @@
 #     again rather than remembering the version;
 #   - a file that has fallen behind is repaired and named, never skipped, and a build
 #     still reproduces the committed `dist/` afterwards (`scripts/check-dist.sh`),
-#     which is the property the release workflow depends on.
+#     which is the property the release workflow depends on;
+#   - a run that fails after it has started writing leaves the tree as it found it.
 #
 # The six sized icons are outside that file set, and deliberately: ImageMagick renders
 # them at build time and its version decides their bytes, so a runner carrying trixie's
@@ -72,14 +73,18 @@ moved() { status | grep -Ev "$rendered" || true; }
 
 bump() { "$tree/scripts/bump-version.sh" "$@"; }
 
-# `out` is everything the run said, `code` its exit status, and `last` the last line of
-# what it wrote — the line a caller names the tag from.
-out=""
+# `stdout` and `stderr` are kept apart, not merged: `expect_last` is about the line a
+# caller names the tag from, which is stdout alone, and a refusal's `::error::`
+# annotation belongs in the message being asserted on rather than replayed into this
+# run's transcript. `last` is the last line of stdout.
+stdout=""
+stderr=""
 last=""
 code=0
 run() {  # run <args...>
-    out="$(bump "$@" 2>&1)" && code=0 || code=$?
-    last="$(printf '%s\n' "$out" | tail -n 1)"
+    stdout="$("$tree/scripts/bump-version.sh" "$@" 2> "$work/stderr")" && code=0 || code=$?
+    stderr="$(cat "$work/stderr")"
+    last="$(printf '%s\n' "$stdout" | tail -n 1)"
 }
 
 expect_clean() {  # expect_clean <label>
@@ -103,17 +108,19 @@ $(status)"
 }
 
 expect_last() {  # expect_last <label> <expected-version>
-    [ "$code" -eq 0 ] || fail "$1: exit status $code, and it said:
-$out"
-    [ "$last" = "$2" ] || fail "$1: stdout's last line is '$last', want '$2'; the whole output was:
-$out"
+    [ "$code" -eq 0 ] || fail "$1: exit status $code, and it said on stderr:
+$stderr"
+    [ "$last" = "$2" ] || fail "$1: stdout's last line is '$last', want '$2'; stdout was:
+$stdout
+stderr was:
+$stderr"
 }
 
 expect_named() {  # expect_named <label> <path>
-    case "$out" in
+    case "$stdout" in
         *"$2"*) ;;
-        *) fail "$1: it did not report $2 as moved; it said:
-$out" ;;
+        *) fail "$1: it did not report $2 as moved; stdout was:
+$stdout" ;;
     esac
 }
 
@@ -176,16 +183,16 @@ check_refusal() {  # check_refusal <bump-argument-1> <bump-argument-2|-> <must-n
         shown="'$label $second'"
         run "$label" "$second"
     fi
-    [ "$code" -ne 0 ] || fail "$shown was accepted; want a refusal"
-    [ -n "$out" ] || fail "$shown was refused with no message"
+    [ "$code" -eq 2 ] || fail "$shown exited $code; want the refusal's 2"
+    [ -n "$stderr" ] || fail "$shown was refused with no message"
     if [ "$must" != "-" ]; then
-        case "$out" in
+        case "$stderr" in
             *"$must"*) ;;
-            *) fail "the refusal of $shown does not name '$must': $out" ;;
+            *) fail "the refusal of $shown does not name '$must': $stderr" ;;
         esac
     fi
     expect_clean "after refusing $shown"
-    printf 'refused %-30s exit %s: %s\n' "$shown" "$code" "$out"
+    printf 'refused %-30s exit %s: %s\n' "$shown" "$code" "$stderr"
 }
 
 check_refusal "" - -
@@ -201,20 +208,20 @@ check_refusal "minor" "patch --dry-run" "patch --dry-run"
 
 # A third argument is one too many, whichever it is.
 run patch --dry-run --dry-run
-[ "$code" -ne 0 ] || fail "three arguments were accepted; want a refusal"
-case "$out" in
+[ "$code" -eq 2 ] || fail "three arguments exited $code; want the refusal's 2"
+case "$stderr" in
     *"patch --dry-run --dry-run"*) ;;
-    *) fail "the refusal of three arguments does not name them: $out" ;;
+    *) fail "the refusal of three arguments does not name them: $stderr" ;;
 esac
 expect_clean "after refusing three arguments"
-printf 'refused %-30s exit %s: %s\n' "'patch --dry-run --dry-run'" "$code" "$out"
+printf 'refused %-30s exit %s: %s\n' "'patch --dry-run --dry-run'" "$code" "$stderr"
 
 # No argument at all is a different thing from an empty one, and neither is a bump.
 run
-[ "$code" -ne 0 ] || fail "no argument at all was accepted; want a refusal"
-[ -n "$out" ] || fail "no argument at all was refused with no message"
+[ "$code" -eq 2 ] || fail "no argument at all exited $code; want the refusal's 2"
+[ -n "$stderr" ] || fail "no argument at all was refused with no message"
 expect_clean "after refusing no argument at all"
-printf 'refused %-30s exit %s: %s\n' "(none)" "$code" "$out"
+printf 'refused %-30s exit %s: %s\n' "(none)" "$code" "$stderr"
 
 say "--dry-run computes the next version and writes nothing"
 for pair in "patch:$want_patch" "minor:$want_minor" "major:$want_major"; do
@@ -225,27 +232,35 @@ for pair in "patch:$want_patch" "minor:$want_minor" "major:$want_major"; do
 done
 
 say "the next version is computed from the manifest, carrying when it has to"
-seed_manifest 0.5.9
+# A seed that is never the version the manifest already carries, so this case always
+# moves something: the minor is one past the current one. Its patch is the nine that
+# makes a patch bump a two-digit number, which is where a version written as a string
+# rather than counted goes wrong.
+seed="$cur_major.$((10#$cur_minor + 1)).9"
+seed_patch="$cur_major.$((10#$cur_minor + 1)).10"
+seed_minor="$cur_major.$((10#$cur_minor + 2)).0"
+seed_major="$((10#$cur_major + 1)).0.0"
+seed_manifest "$seed"
 expect_status "after seeding the manifest" " M package.json"
-for pair in "patch:0.5.10" "minor:0.6.0" "major:1.0.0"; do
+for pair in "patch:$seed_patch" "minor:$seed_minor" "major:$seed_major"; do
     run "${pair%%:*}" --dry-run
-    expect_last "from 0.5.9, --dry-run ${pair%%:*}" "${pair#*:}"
+    expect_last "from $seed, --dry-run ${pair%%:*}" "${pair#*:}"
     # The lockfile and the identity source are behind the seeded manifest, and a dry run
     # still leaves them exactly as they were.
     expect_status "after --dry-run ${pair%%:*}" " M package.json"
-    printf '0.5.9 + %-6s -> %-8s (last line of stdout)\n' "${pair%%:*}" "$last"
+    printf '%s + %-6s -> %-8s (last line of stdout)\n' "$seed" "${pair%%:*}" "$last"
 done
 
 say "a manifest version that is not three numbers is refused"
 seed_manifest 0.5
 run patch
-[ "$code" -ne 0 ] || fail "a two-part manifest version was accepted; want a refusal"
-case "$out" in
+[ "$code" -eq 1 ] || fail "a two-part manifest version exited $code; want a refusal"
+case "$stderr" in
     *0.5*) ;;
-    *) fail "the refusal does not name the manifest's version 0.5: $out" ;;
+    *) fail "the refusal does not name the manifest's version 0.5: $stderr" ;;
 esac
 expect_status "after refusing a two-part manifest version" " M package.json"
-printf 'refused from a manifest of 0.5, exit %s: %s\n' "$code" "$out"
+printf 'refused from a manifest of 0.5, exit %s: %s\n' "$code" "$stderr"
 
 # Put the clone back where it was, so the write-mode cases below run against the state
 # this repository is actually in.
@@ -263,7 +278,7 @@ expect_status "after patch" "$expected_bump"
 for file in package.json package-lock.json src/browser/client-id.ts dist/app.js; do
     expect_named "the patch bump" "$file"
 done
-printf '%s\n' "$out"
+printf '%s\n' "$stdout"
 
 grep -q "^  \"version\": \"$want_patch\",\$" "$tree/package.json" ||
     fail "package.json does not name $want_patch"
@@ -303,7 +318,7 @@ want_next="$cur_major.$cur_minor.$((10#$cur_patch + 2))"
 run patch
 expect_last "the second patch" "$want_next"
 expect_status "after the second patch" "$expected_bump"
-printf '%s\n' "$out"
+printf '%s\n' "$stdout"
 
 say "a file that has fallen behind is repaired and named, in a run that says so"
 # Two shapes of file behind the manifest: the identity the bundle is built from, and the
@@ -332,6 +347,35 @@ grep -qE "web_client/${want_repair//./\\.}([^0-9.]|\$)" "$tree/src/browser/clien
 grep -qE "web_client/${want_repair//./\\.}([^0-9.]|\$)" "$tree/dist/app.js" ||
     fail "the bundle was not repaired"
 check_reproduces "after the repair"
+
+say "a run that fails once it has written leaves the tree as it found it"
+# The failure is a build that cannot run at all: `npm run build` empties `dist/` and
+# then reads this entry point, so a file that does not parse fails after the three
+# writes and inside the rebuild — both halves of what the rollback covers.
+cp "$tree/src/browser/main.ts" "$work/main.ts"
+cp "$tree/dist/app.js" "$work/app.before-the-failure.js"
+printf '\nthis is not a module\n' >> "$tree/src/browser/main.ts"
+run patch
+[ "$code" -ne 0 ] || fail "a tree whose entry point does not parse was accepted"
+case "$stderr" in
+    *"npm run build failed"*) ;;
+    *) fail "the run did not fail in the build: $stderr" ;;
+esac
+# Each of the three files, and the bundle, is back at the version this case started from.
+grep -q "^  \"version\": \"$want_repair\",\$" "$tree/package.json" ||
+    fail "a failed run left package.json at the version it was moving to"
+[ "$(grep -c "^ *\"version\": \"$want_repair\",\$" "$tree/package-lock.json")" = 2 ] ||
+    fail "a failed run left package-lock.json at the version it was moving to"
+grep -qE "web_client/${want_repair//./\\.}([^0-9.]|\$)" "$tree/src/browser/client-id.ts" ||
+    fail "a failed run left the identity source at the version it was moving to"
+cmp "$work/app.before-the-failure.js" "$tree/dist/app.js" ||
+    fail "a failed run did not put the bundle back: it is not the bundle the tree started with"
+expect_status "after a run that failed mid-build" "$expected_bump
+ M src/browser/main.ts"
+
+cp "$work/main.ts" "$tree/src/browser/main.ts"
+expect_status "after putting the entry point back" "$expected_bump"
+printf 'the tree is as it was, and the version files still name %s\n' "$want_repair"
 
 say "nothing was committed and no tag was made or moved, on any of those runs"
 [ "$(git -C "$tree" rev-parse HEAD)" = "$head_before" ] ||
