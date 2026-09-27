@@ -222,8 +222,10 @@ reads `.github/workflows` back and refuses a workflow that declares a `dry_run`
 input and leaves a step below its plan step without a condition that excludes a
 dry run — `release.yml` and `deploy-prod.yml` both declare one, and `actionlint`
 cannot see the condition a step does *not* carry. `scripts/ci-local.sh checks`
-runs it, and its own suite, through a venv under `.tmp/`; `ci.yml`'s container
-installs Debian's `python3-yaml` for the same two files.
+runs it, and its own suite, on the host's `python3` where that already imports
+PyYAML and through a venv under `.tmp/` where it does not; `ci.yml`'s container
+installs Debian's `python3-yaml` for the same two files, and so does `release.yml`'s
+release job, whose gate before the bump reaches `main` is `scripts/ci-local.sh checks`.
 
 ### CI
 
