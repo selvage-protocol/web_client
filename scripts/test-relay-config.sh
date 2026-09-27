@@ -158,6 +158,23 @@ refuse '::1' "more than one ':'"
 [ "$refused_ok" = "13" ] || fail "$refused_ok refusals ran, want the 13 this test names"
 [ ! -s "$relay" ] || fail "a refused value left a relay behind: $(cat "$relay")"
 
+# The refusal echoes the value, and the value is an environment variable: a newline in it
+# must not become a second line of the container's output, where a reader of the transcript
+# would take it for a line of nginx's own.
+generate 1 "$(printf 'http://server\n[crit] forged line')"
+lines="$(wc -l <"$work/err" | tr -d ' ')"
+[ "$lines" = "1" ] || {
+    cat "$work/err" >&2
+    fail "a refused value carrying a newline produced $lines lines, want one"
+}
+head -n 1 "$work/err" | grep -q '^SELVAGE_SERVER: ' \
+    || fail "the refusal for a value carrying a newline does not name SELVAGE_SERVER: $(cat "$work/err")"
+if grep -q '^\[crit\]' "$work/err"; then
+    cat "$work/err" >&2
+    fail "a value carrying a newline forged a line beginning with [crit]"
+fi
+echo "a value carrying a newline stays one line, under the name of the variable it came from"
+
 # A bracketed IPv6 address with a port is a host the other rules would refuse.
 generate 0 "http://[fe80::1]:8080"
 grep -q 'proxy_pass http://\[fe80::1\]:8080;' "$relay" || fail "a bracketed IPv6 address was not taken"
