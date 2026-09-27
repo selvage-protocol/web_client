@@ -28,6 +28,15 @@
 #     still reproduces the committed `dist/` afterwards (`scripts/check-dist.sh`),
 #     which is the property the release workflow depends on.
 #
+# The six sized icons are outside that file set, and deliberately: ImageMagick renders
+# them at build time and its version decides their bytes, so a runner carrying trixie's
+# 7.1.1.x re-encodes what this checkout's 7.1.2 committed. `scripts/check-dist.sh`
+# excludes exactly those six from its byte comparison for the same reason, asserting
+# only their names and sizes, and this check makes the same exclusion — the file set
+# asserted here is then the same one on a runner and in a checkout. Everything the
+# exclusion does not cover is compared whole, so a script that starts editing something
+# else still fails.
+#
 # `scripts/ci-local.sh checks` runs this.
 set -euo pipefail
 
@@ -56,6 +65,11 @@ fail() {
 }
 
 status() { git -C "$tree" status --porcelain -uall; }
+
+# The six the renderer decides, the same expression `scripts/check-dist.sh` uses.
+rendered='/(apple-touch-icon|favicon-16x16|favicon-32x32|icon-48|icon-192|icon-512)\.png$'
+moved() { status | grep -Ev "$rendered" || true; }
+
 bump() { "$tree/scripts/bump-version.sh" "$@"; }
 
 # `out` is everything the run said, `code` its exit status, and `last` the last line of
@@ -77,11 +91,15 @@ $have"
 
 expect_status() {  # expect_status <label> <expected>
     local have
-    have="$(status)"
-    [ "$have" = "$2" ] || fail "$1: the tree holds
+    have="$(moved)"
+    if [ "$have" != "$2" ]; then
+        fail "$1: the tree holds
 ${have:-nothing}
 want exactly
-$2"
+$2
+everything git reports, the six rendered icons included:
+$(status)"
+    fi
 }
 
 expect_last() {  # expect_last <label> <expected-version>
