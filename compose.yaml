@@ -1,11 +1,13 @@
 # One-command self-host for the browser client's page on an origin of its own.
 #
-# This is the page-only shape: the bundle this image carries dials the `selvaged`
-# named in the share link (or built into the page), and this service answers the
-# page and nothing else. The one-origin default — `selvaged --serve-page` wearing
-# this same `dist/` — is the reference server's own compose file, and stays the
-# default. README.md §Serving the page owns the choice and what the second shape
-# costs.
+# This is the page-only shape by default: the bundle this image carries dials the
+# `selvaged` named in the share link (or built into the page), and this service
+# answers the page and nothing else. Set `SELVAGE_SERVER` and it is the single
+# origin of a room instead: the image relays `/session` and `/meta` to that server,
+# so a guest's browser reads the room's server at the page's own origin. The
+# one-origin default — `selvaged --serve-page` wearing this same `dist/` — is the
+# reference server's own compose file, and stays the default. README.md §Serving
+# the page owns the choice and what each shape costs.
 #
 # `v0.1.0` published `ghcr.io/selvage-protocol/selvage-web`, so the page can be
 # pulled from the registry; `build: .` still builds it from this checkout and
@@ -23,6 +25,12 @@ services:
   selvage-web:
     build: .
     image: selvage-web:latest
+    environment:
+      # Empty by default: no upstream, no relay, the page on its own. Set it to an
+      # `http://`, `https://` or bare `host:port` base to make this origin the
+      # room's server. With the two-container example below it is
+      # `http://selvaged:8080`, the server's service name and port.
+      SELVAGE_SERVER: ${SELVAGE_SERVER:-}
     ports:
       # The container listens on 8080 and must: it runs as uid 101
       # (nginx-unprivileged) with every capability dropped, and a non-root
@@ -37,3 +45,38 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
+
+# Two containers, one origin. The page fronts the server: it publishes on loopback
+# 8080, the server publishes nothing and is reachable only from the page, and
+# `SELVAGE_SERVER` points the page's relay at the server's service name. A guest's
+# invite link is then the page's own address — `http://127.0.0.1:8080/?room=…` — and
+# `/meta` and `/session` answer from that same origin. Uncomment both services and
+# drop the `selvage-web` service above, or run them as a second compose file.
+#
+#   docker compose up --detach   # http://127.0.0.1:8080/
+#
+# services:
+#   selvage-web:
+#     build: .
+#     image: selvage-web:latest
+#     environment:
+#       SELVAGE_SERVER: http://selvaged:8080
+#     ports:
+#       - "127.0.0.1:8080:8080"
+#     read_only: true
+#     cap_drop:
+#       - ALL
+#     security_opt:
+#       - no-new-privileges:true
+#     restart: unless-stopped
+#   selvaged:
+#     image: ghcr.io/selvage-protocol/selvaged:latest
+#     # The server half of the split: the page is served above, so this one only
+#     # listens and answers `/session` and `/meta`.
+#     command: ["--listen", "0.0.0.0:8080"]
+#     read_only: true
+#     cap_drop:
+#       - ALL
+#     security_opt:
+#       - no-new-privileges:true
+#     restart: unless-stopped

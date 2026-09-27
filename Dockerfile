@@ -7,10 +7,12 @@
 # One origin is the default and stays it: `selvaged --serve-page` answers the
 # page, `/meta` and `/session` together, which is what makes a single terminator
 # enough for TLS and what lets the page's advisory `/meta` read land. This image
-# is the second shape. The README owns the choice between them and says plainly
-# what the second one costs — the cross-origin `/meta` read the page then skips,
-# and a link shape that always names the room's own page — because the socket is
-# not CORS-bound while `/meta` is.
+# is the page half on its own. Configured with `SELVAGE_SERVER` it is also the
+# origin relay, so the page in front of a server that cannot serve one is still
+# the single origin of a room: `/session` and `/meta` are proxied to that server
+# and everything else, the page included, is served here. With no server
+# configured the relay is absent and the two endpoints answer 404. The README
+# owns the two shapes and what each costs.
 #
 # The bundle is the `dist/` committed in this repository, copied rather than
 # rebuilt here. The reference server's image clones this repository at a pinned
@@ -38,6 +40,13 @@
 # itself. That is what lets this image run under `--read-only` with every
 # capability dropped and nothing mounted at all, which scripts/container-smoke.sh
 # asserts against the daemon's own record of the container.
+#
+# The relay is the same shape as `reference_server/deploy/proxy`'s: the base
+# image's entrypoint runs `packaging/40-selvage-relay.sh` before nginx starts, and
+# that writes the two proxied locations from `SELVAGE_SERVER` into a file under
+# `/dev/shm` — the runtime's tmpfs, because the root filesystem is read-only — that
+# `packaging/default.conf` includes. With no server configured it writes an empty
+# file, so the include adds nothing and the image is what it was before.
 FROM nginxinc/nginx-unprivileged:1.30-alpine-slim
 
 # The version comes from package.json in the release path
@@ -58,6 +67,8 @@ LABEL org.opencontainers.image.title="selvage-web" \
 
 COPY --chown=101:101 packaging/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=101:101 packaging/default.conf /etc/nginx/conf.d/default.conf
+COPY --chown=101:101 --chmod=755 packaging/40-selvage-relay.sh /docker-entrypoint.d/40-selvage-relay.sh
+COPY --chown=101:101 packaging/relay.conf.template /etc/nginx/relay.conf.template
 COPY --chown=101:101 dist/ /usr/share/nginx/html/
 COPY --chown=101:101 LICENSE-MIT LICENSE-APACHE /licenses/
 

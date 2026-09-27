@@ -1,7 +1,8 @@
-# What the image is built from, and nothing else: `dist/`, the two nginx config
-# files, the licences. A build context otherwise carries a checkout's whole
-# working tree — 300 MB of `node_modules`, every worktree, the browser proofs'
-# profiles — for four paths' worth of image.
+# What the image is built from, and nothing else: `dist/`, the nginx configuration,
+# the origin relay's entrypoint script and template, the licences. A build context
+# otherwise carries a checkout's whole working tree — 300 MB of `node_modules`,
+# every worktree, the browser proofs' profiles — for a handful of paths' worth of
+# image.
 *
 !Dockerfile
 !dist
