@@ -116,13 +116,18 @@ jobs:
       # the same layer — node carries its own trusted roots and git does not. ImageMagick 7's
       # `magick` is here because `npm run build` shells out to it for the sized icons, and
       # `python3` with Debian's PyYAML is here for the gate in step 5: `scripts/ci-local.sh
-      # checks` runs the `dry_run` guard, which is Python and needs the parser. That much of
-      # this list is `ci.yml`'s `checks` job's, and the two have to stay in step — the release
-      # job's gate is that job's command.
-      - name: install git, ca-certificates, curl, gh, ImageMagick 7 and python3
+      # checks` runs the `dry_run` guard, which is Python and needs the parser, and
+      # `scripts/test-relay-config.sh`, which hands the relay's generated configuration to an
+      # `nginx` — hence `nginx-light`, with the `policy-rc.d` line below keeping a container
+      # whose service manager does not exist from starting one. That much of this list is
+      # `ci.yml`'s `checks` job's, and the two have to stay in step — the release job's gate is
+      # that job's command.
+      - name: install git, ca-certificates, curl, gh, ImageMagick 7, nginx and python3
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl gh git imagemagick python3 python3-yaml
+          printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+          chmod +x /usr/sbin/policy-rc.d
+          apt-get install -y --no-install-recommends ca-certificates curl gh git imagemagick nginx-light python3 python3-yaml
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

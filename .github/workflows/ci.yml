@@ -41,10 +41,19 @@ jobs:
       # checks`, the same commands this job runs, and it runs in this same container — so its
       # install step carries python3 and python3-yaml for the same reason: an edit here that
       # moves what the guard needs has to move there with it.
-      - name: install git, ca-certificates, ImageMagick 7 and python3
+      #
+      # `nginx-light` is for `scripts/test-relay-config.sh`, which hands the origin relay's
+      # generated configuration to an `nginx` when the host has one — the image's own
+      # configuration, parsed rather than grepped. Debian's package is the whole of what that
+      # needs: the binary and the http proxy module. The `policy-rc.d` line is because a
+      # container has no init to start a service with, and the package's own postinst would
+      # otherwise leave an nginx running on the default configuration beside the test.
+      - name: install git, ca-certificates, ImageMagick 7, python3 and nginx
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git imagemagick python3 python3-yaml
+          printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+          chmod +x /usr/sbin/policy-rc.d
+          apt-get install -y --no-install-recommends ca-certificates git imagemagick nginx-light python3 python3-yaml
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -116,8 +125,10 @@ jobs:
 
       # `scripts/test-relay-config.sh` runs the page image's entrypoint script with and
       # without `SELVAGE_SERVER` and reads the nginx configuration it feeds, so the origin
-      # relay's presence and absence are checked here, on this checkout alone. It needs no
-      # Docker: the daemon's own relay assertions are the `container` job's.
+      # relay's presence, absence, TLS handling and refusals are checked here, on this
+      # checkout alone — and, since the step above installs an nginx, that configuration is
+      # parsed by a real one rather than only read. It needs no Docker: the daemon's own
+      # relay assertions, and the room joined through it, are the `container` job's.
       - name: the origin relay's config against SELVAGE_SERVER
         run: scripts/test-relay-config.sh
 
