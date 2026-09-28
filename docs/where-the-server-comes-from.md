@@ -3,9 +3,10 @@
 **The link is the server.** An invite is `https://<host>/?room=…&token=…`: the page the room's own
 server serves, carrying the room and its token, and nothing else. The server is read from that
 link's own origin and from nowhere else, so a room cannot be linked at a page that dials a different
-server. `src/browser/servers.ts` holds the two halves of the derivation — `pageOriginOf` (the server
-as the page a browser opens: `wss://` as `https://`, `ws://` as `http://`) and `serverBaseOf` (the
-page read back as the server) — and the same rule is in both editor clients.
+server. [`src/browser/servers.ts`](../src/browser/servers.ts) holds the two halves of the derivation
+— `pageOriginOf` (the server as the page a browser opens: `wss://` as `https://`, `ws://` as
+`http://`) and `serverBaseOf` (the page read back as the server) — and the same rule is in both
+editor clients.
 
 The page derives the server from its own address for a link it was opened with, and from the link's
 address for one pasted into a bare open. So a page served from one origin, given an invite naming

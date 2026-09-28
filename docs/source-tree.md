@@ -2,7 +2,7 @@
 
 `src/engine/` and `src/bridge/` are copies of `vscode_client/src/{engine,bridge}`, never edited
 here. Refresh them with `npm run sync-engine`, which records the upstream SHA in
-`scripts/sync-engine.sh`.
+[`scripts/sync-engine.sh`](../scripts/sync-engine.sh).
 
 The copy carries `selvage/2`'s session layer with the rest of the engine: `src/engine/sealed.ts` is
 `CANONICAL.md` §6.1's bytes, `src/engine/peer.ts` is `PROTOCOL.md` §13, `src/engine/host.ts` is

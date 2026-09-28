@@ -99,18 +99,18 @@ nav bar paints (`scripts/mark-level.mjs`).
 a real browser; `prove-fb2.mjs`, the owner-feedback proof; `prove-tls.mjs` and `prove-flow2.mjs`)
 and the live check (`check-content-types.mjs`). `test/` holds the suite.
 
-`Dockerfile`, `.dockerignore` and `packaging/` are the page-only image: nginx's own configuration,
-with the media types, the cache policy and the page's policy the one-origin deployment decides, the
-bundle copied from the committed `dist/`, and the origin relay — `packaging/40-selvage-relay.sh` and
-`packaging/relay.conf.template` — that turns `SELVAGE_SERVER` into the two proxied locations at
-startup, so this image can be the single origin of a room too. `bump-version.sh` moves the page's
-version in every file that carries it and rebuilds the bundle, so a bump leaves a `dist/` this
-repository's checks accept; `test-bump-version.sh` covers it, in a clone of its own. The scripts CI
-reads live beside the proofs: `test-ci.mjs` (the suite a single checkout can run), `release-tags.sh`
-(the release identity), `release-plan.sh` (what a release would be, and whether one may be cut),
-`page-image.sh` (the anonymous `ghcr.io` reads), `verify-page-deploy.sh` (what a page deploy can be
-verified by), `check-page.sh` (the served bytes, types and headers), `container-smoke.sh`,
-`check-relay.mjs` and `relay-stub.mjs` (the room seated through the relay, and the stand-in endpoint
-a local run opts into with `SELVAGE_ALLOW_RELAY_STUB=1` where the server's image cannot be pulled),
-`assert-image-page.sh`, `test-relay-config.sh` (the relay the entrypoint writes, parsed by an
-`nginx` where there is one) and `ci-local.sh`.
+[`Dockerfile`](../Dockerfile), `.dockerignore` and `packaging/` are the page-only image: nginx's own
+configuration, with the media types, the cache policy and the page's policy the one-origin
+deployment decides, the bundle copied from the committed `dist/`, and the origin relay —
+`packaging/40-selvage-relay.sh` and `packaging/relay.conf.template` — that turns `SELVAGE_SERVER`
+into the two proxied locations at startup, so this image can be the single origin of a room too.
+`bump-version.sh` moves the page's version in every file that carries it and rebuilds the bundle, so
+a bump leaves a `dist/` this repository's checks accept; `test-bump-version.sh` covers it, in a
+clone of its own. The scripts CI reads live beside the proofs: `test-ci.mjs` (the suite a single
+checkout can run), `release-tags.sh` (the release identity), `release-plan.sh` (what a release would
+be, and whether one may be cut), `page-image.sh` (the anonymous `ghcr.io` reads),
+`verify-page-deploy.sh` (what a page deploy can be verified by), `check-page.sh` (the served bytes,
+types and headers), `container-smoke.sh`, `check-relay.mjs` and `relay-stub.mjs` (the room seated
+through the relay, and the stand-in endpoint a local run opts into with `SELVAGE_ALLOW_RELAY_STUB=1`
+where the server's image cannot be pulled), `assert-image-page.sh`, `test-relay-config.sh` (the
+relay the entrypoint writes, parsed by an `nginx` where there is one) and `ci-local.sh`.

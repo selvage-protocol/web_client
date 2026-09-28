@@ -10,7 +10,7 @@ shape: a front terminates TLS and routes, with the page and the server as contai
 static server with no session protocol beside it.
 
 **The page-only image.** This repository publishes the bundle on its own, so the page can live on an
-origin of its own. Two shapes, and `compose.yaml` documents both:
+origin of its own. Two shapes, and [`compose.yaml`](../compose.yaml) documents both:
 
 - **Page only.** The service answers the page and nothing else, and a share link is a whole wire
   invite (`ws://host:8080/session?room=…&token=…`) for a room whose server serves no page of its own.
