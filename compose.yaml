@@ -7,7 +7,7 @@
 # so a guest's browser reads the room's server at the page's own origin. One origin
 # is still the default shape of a deployment — a `selvaged --serve-page` listener
 # with a page mounted under it — and this file is the page half of the other one;
-# README.md §Serving the page owns the choice, what each shape costs, and what the
+# `docs/serving-the-page.md` owns the choice, what each shape costs, and what the
 # relay does not do that `PROTOCOL.md` §12 asks of a public front.
 #
 # `v0.1.0` published `ghcr.io/selvage-protocol/selvage-web`, so the page can be

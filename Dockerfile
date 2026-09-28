@@ -11,8 +11,8 @@
 # `/session` and `/meta` to that server, so a page whose server cannot serve one is
 # still the single origin of a room: those two paths are proxied there and everything
 # else, the page included, is served here. With no server configured the relay is absent
-# and the two endpoints answer 404. The README owns the two shapes and what each costs,
-# including that this relay is a route on the origin and not the front
+# and the two endpoints answer 404. `docs/serving-the-page.md` owns the two shapes and what each
+# costs, including that this relay is a route on the origin and not the front
 # `PROTOCOL.md` §12 asks a public deployment for.
 #
 # The bundle is the `dist/` committed in this repository, copied rather than
