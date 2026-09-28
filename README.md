@@ -9,10 +9,8 @@ Firefox or Safari, and a page can only host where the server that serves it also
 
 ## Status
 
-The page joins a room in any browser, and hosts one in Chrome and Edge, where the page's own origin
-answers `/meta`. The image is published on `ghcr.io`, the checks rebuild the committed bundle and
-compare it with the commit's copy byte for byte, and the proofs drive the page's own code against a
-real `selvaged`.
+The image is published on `ghcr.io`, the checks rebuild the committed bundle and compare it with
+the commit's copy byte for byte, and the proofs drive the page's own code against a real `selvaged`.
 
 ## Get it working
 
