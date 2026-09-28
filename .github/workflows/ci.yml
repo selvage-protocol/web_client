@@ -54,12 +54,12 @@ jobs:
       # needs: the binary and the http proxy module. The `policy-rc.d` line is because a
       # container has no init to start a service with, and the package's own postinst would
       # otherwise leave an nginx running on the default configuration beside the test.
-      - name: install git, ca-certificates, ImageMagick 7, python3 and nginx
+      - name: install git, ca-certificates, curl, ImageMagick 7, python3 and nginx
         run: |
           apt-get update
           printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
           chmod +x /usr/sbin/policy-rc.d
-          apt-get install -y --no-install-recommends ca-certificates git imagemagick nginx-light python3 python3-yaml
+          apt-get install -y --no-install-recommends ca-certificates curl git imagemagick nginx-light python3 python3-yaml
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,7 +69,7 @@ jobs:
       # `scripts/ci-local.sh` takes `lychee` from PATH and falls back to `nix shell`, which this
       # container has no nix for. It is installed into `/usr/local/bin`, which is writable here:
       # this job's container runs as root, as the install step above it already relies on.
-      # `curl`, `tar` and `sha256sum` are in the image; `ca-certificates` is installed above.
+      # `tar` and `sha256sum` are in the image; `ca-certificates` and `curl` are installed above.
       - name: install lychee
         run: |
           curl -fsSL -o "$RUNNER_TEMP/lychee.tar.gz" \
