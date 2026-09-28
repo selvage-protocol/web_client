@@ -13,4 +13,7 @@ takes, pasted into the box a bare open shows, for a room whose server serves no 
 
 Either way the card carries a heading, one question (your name) and one confirm, over a blurred
 preview of the editor. Type the name and press Join or Enter, and the first shared file opens
-focused. A pasted page link lands in the address bar, so a reload rejoins from it.
+focused. A pasted page link whose own origin is this page's is written into the address bar, so a
+reload rejoins from it; the write is `history.replaceState`, which refuses a URL from another
+origin, so a link from elsewhere leaves the bar alone and stays in the session bar, and a reload
+starts from the card again.
