@@ -9,8 +9,7 @@
 #   scripts/page-image.sh digest <tag>    `ghcr.io`'s own digest for that tag
 #
 # No credential is used and none is needed: the package is public, so a pull token from
-# the registry's own anonymous endpoint is the whole of the auth, which is the call
-# `docs/runbook-release.md` §6 gives for exactly this check.
+# the registry's own anonymous endpoint is the whole of the auth.
 #
 # The token and the tag list are read out of the JSON with `grep` and `sed` rather than a
 # JSON parser, because the two places this runs carry different ones — the release job is a

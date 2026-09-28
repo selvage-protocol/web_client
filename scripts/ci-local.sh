@@ -4,16 +4,18 @@
 # found here rather than on a runner.
 #
 #   scripts/ci-local.sh checks     # the `checks` job: the dry_run guard's Python and the gating of the workflows
-#                                 # that declare it, install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, the origin relay's config against SELVAGE_SERVER, every shell script parses
+#                                 # that declare it, install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, the origin relay's config against SELVAGE_SERVER, every shell script parses, the links in README.md and docs/
+#   scripts/ci-local.sh links      # the link check alone: lychee over README.md and docs/, to run it while editing prose
 #   scripts/ci-local.sh container  # the `image` workflow's `container` job: docker build, a hardened run, the page asserted (needs Docker)
 #   scripts/ci-local.sh all        # `checks`, which is what a push has to be green on
 #
-# There is no nix flake here: the checks are node's and the image is Docker's, so the
-# two modes are the two workflows' local halves and nothing else. The `dry_run` guard is the one
-# step that is not Node's, and it is Python with PyYAML: both jobs install Debian's
-# `python3-yaml` into the container they run in for it, and this gate runs it on a `python3` that
-# already imports the parser where there is one, building a venv for it under `.tmp/` only where
-# there is none. This host has no
+# There is no nix flake here: the checks are node's and lychee's, and the image is Docker's, so the
+# modes are the workflows' local halves. Two of the steps are not Node's: the `dry_run` guard is
+# Python with PyYAML, and the link check is lychee. Each workflow that runs them installs what they
+# need into its container (Debian's `python3-yaml` for the guard, the pinned lychee release for the
+# links, since that container has no nix for `run_lychee`'s fallback). This gate runs the guard on a
+# `python3` that already imports the parser where there is one, building a venv for it under `.tmp/`
+# only where there is none. This host has no
 # Docker at all, so `container` is the mode that runs on a runner, and the image
 # workflow's `publish-rehearsal` and `publish` (multi-architecture buildx) have no
 # step here either: they are read from the run, and their logic lives in
@@ -35,6 +37,14 @@ export TMPDIR="$repo_root/.tmp"
 mkdir -p "$TMPDIR"
 
 say() { printf '\n=== %s ===\n' "$*"; }
+
+run_lychee() {
+  if command -v lychee >/dev/null 2>&1; then
+    lychee "$@"
+  else
+    nix shell nixpkgs#lychee -c lychee "$@"
+  fi
+}
 
 # The interpreter the `dry_run` guard runs on, printed on stdout.
 #
@@ -113,6 +123,16 @@ job_checks() {
     printf '%s\n' "$script"
     bash -n "$script"
   done
+  # The link check is over this repository's prose, which is `README.md` and the `docs/`
+  # tree it indexes. The two are named rather than globbed so a docs file nobody links
+  # to is read too, and every relative link has to resolve: a moved paragraph breaks one
+  # silently, and no other step here reads either file.
+  job_links
+}
+
+job_links() {
+  say "links: lychee over README.md and docs/"
+  run_lychee --config lychee.toml --no-progress README.md docs
 }
 
 job_container() {
@@ -122,10 +142,11 @@ job_container() {
 
 case "${1:-all}" in
   checks) job_checks ;;
+  links) job_links ;;
   container) job_container ;;
   all) job_checks ;;
   *)
-    printf 'usage: %s [checks|container|all]\n' "$0" >&2
+    printf 'usage: %s [checks|links|container|all]\n' "$0" >&2
     exit 2
     ;;
 esac

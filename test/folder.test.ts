@@ -5,7 +5,7 @@
  * The doubles here are the two things the module is written against structurally — a directory
  * handle and a file handle — so the whole module runs without a browser. Where the double has to
  * imitate Chromium rather than an ideal filesystem, the test says so and names what was observed
- * (`BROWSER_NOTES.md`, the symbolic-link probe).
+ * (the symbolic-link probe below).
  */
 
 import { describe, it } from 'node:test';
@@ -226,7 +226,7 @@ describe('the listing', () => {
 
   it('folds case, because a browser cannot tell whether the folder does', async () => {
     // The shared rule's answer for an unknown host. A case-sensitive checkout loses `Build/`
-    // here; sharing less is the safer error, and the residual is stated in BROWSER_NOTES.md.
+    // here; sharing less is the safer error.
     const { folder } = projection(dir({ 'Build': dir({ 'out.txt': file('o') }), 'src': dir({ 'a.txt': file('a') }) }));
     assert.deepEqual(await folder.list(), ['src/a.txt']);
   });
@@ -363,7 +363,7 @@ describe('the read', () => {
   it('is what a symbolic link gets: not found, as Chromium answers', async () => {
     // Observed on Chromium 152 with a real folder handle: a link is listed by nothing and
     // answers `NotFoundError` when asked for by name, in the folder or out of it. The page
-    // cannot tell it got a link, because it never gets one (BROWSER_NOTES.md).
+    // cannot tell it got a link, because it never gets one.
     const { folder } = projection(dir({ 'escape': { kind: 'file', text: '', lastModified: 1, fails: 'NotFoundError' } }));
     assert.deepEqual(await folder.read('escape'), { kind: 'refused', cause: 'missing' });
   });

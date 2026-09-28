@@ -104,6 +104,13 @@ jobs:
     # finish — `scripts/dispatch-and-wait.sh`'s deadlines, the deploy's own 20-minute bound
     # plus queue time — besides the gate and the bump. 120 minutes covers them.
     timeout-minutes: 120
+    env:
+      # The pinned lychee release, and the checksum published beside its archive. The gate in
+      # step 5 now includes the link check, and this container has no nix for
+      # `scripts/ci-local.sh`'s fallback, so the binary is installed from the release below.
+      # `ci.yml`'s `checks` job pins the same pair.
+      LYCHEE_VERSION: "0.24.2"
+      LYCHEE_SHA256: "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a"
     steps:
       - name: refuse a run that is not on main
         if: ${{ github.ref != 'refs/heads/main' }}
@@ -128,6 +135,20 @@ jobs:
           printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
           chmod +x /usr/sbin/policy-rc.d
           apt-get install -y --no-install-recommends ca-certificates curl gh git imagemagick nginx-light python3 python3-yaml
+
+      # The link check's binary, from the pinned release rather than a package manager, because
+      # `scripts/ci-local.sh` takes `lychee` from PATH and falls back to `nix shell`, which this
+      # container has no nix for. It is installed into `/usr/local/bin`, which is writable here:
+      # this job's container runs as root, as the install step above it already relies on. The
+      # version and the checksum are `ci.yml`'s, and the two move together.
+      - name: install lychee
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/lychee.tar.gz" \
+            "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${LYCHEE_SHA256}  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP" --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
+          install -m 0755 "$RUNNER_TEMP/lychee" /usr/local/bin/lychee
+          lychee --version
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

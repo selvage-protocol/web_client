@@ -28,6 +28,12 @@ jobs:
     runs-on: ubuntu-24.04
     container: node:22-trixie-slim
     timeout-minutes: 20
+    env:
+      # The pinned lychee release, and the checksum published beside its archive. The version
+      # is the one `site/.github/workflows/ci.yml` pins, so both repositories check their links
+      # with the same binary; the two move together.
+      LYCHEE_VERSION: "0.24.2"
+      LYCHEE_SHA256: "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a"
     steps:
       # Before the checkout: the slim image carries no git and, more to the point, no
       # `/etc/ssl` at all, because the official node images install `ca-certificates`
@@ -48,16 +54,30 @@ jobs:
       # needs: the binary and the http proxy module. The `policy-rc.d` line is because a
       # container has no init to start a service with, and the package's own postinst would
       # otherwise leave an nginx running on the default configuration beside the test.
-      - name: install git, ca-certificates, ImageMagick 7, python3 and nginx
+      - name: install git, ca-certificates, curl, ImageMagick 7, python3 and nginx
         run: |
           apt-get update
           printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
           chmod +x /usr/sbin/policy-rc.d
-          apt-get install -y --no-install-recommends ca-certificates git imagemagick nginx-light python3 python3-yaml
+          apt-get install -y --no-install-recommends ca-certificates curl git imagemagick nginx-light python3 python3-yaml
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # The link check's binary, from the pinned release rather than a package manager, because
+      # `scripts/ci-local.sh` takes `lychee` from PATH and falls back to `nix shell`, which this
+      # container has no nix for. It is installed into `/usr/local/bin`, which is writable here:
+      # this job's container runs as root, as the install step above it already relies on.
+      # `tar` and `sha256sum` are in the image; `ca-certificates` and `curl` are installed above.
+      - name: install lychee
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/lychee.tar.gz" \
+            "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${LYCHEE_SHA256}  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP" --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
+          install -m 0755 "$RUNNER_TEMP/lychee" /usr/local/bin/lychee
+          lychee --version
 
       # The guard around a workflow's `dry_run` input (`scripts/check_dry_run_gating.py`):
       # `release.yml` and `deploy-prod.yml` both declare one, its plan step prints what the run
@@ -152,3 +172,10 @@ jobs:
             printf '%s\n' "$script"
             bash -n "$script"
           done
+
+      # This repository's prose is `README.md` and the `docs/` tree it indexes, and both are named
+      # rather than globbed so a docs file nobody links to is read too. Every relative link there
+      # has to resolve, which is the one thing a moved paragraph breaks silently; no other step in
+      # this job opens either file.
+      - name: links over the README and docs
+        run: scripts/ci-local.sh links

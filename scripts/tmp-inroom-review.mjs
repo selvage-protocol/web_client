@@ -9,8 +9,8 @@
  * system, hosts a room, opens one of its files, and screenshots the result at a desktop and a
  * phone width. Only the dialog is stubbed; everything after the pick is the real API.
  *
- * The same technique is what the project used before (`BROWSER_NOTES.md`, "Seen in a browser"),
- * and this file is the small, committed version of it for a visual review.
+ * The same technique is what the project's earlier browser reviews used, and this file is the
+ * small, committed version of it for a visual review.
  *
  * The last pass photographs the room's two empty states, which need a folder with nothing in it:
  * the driver leaves the room it built, starts another from an empty folder and joins it as a
