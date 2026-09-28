@@ -3,10 +3,9 @@
  * in.
  *
  * `§5` gives the request and its confirmation words, and the desktop clients
- * already carry them (`docs/studies/client-command-parity.md` §5): the sentence
- * pinned here is theirs, word for word, because a person who uses both clients
- * must not have to learn a second line for the same moment. The refusal is where
- * the clients already differ, so it is this page's own.
+ * already carry them: the sentence pinned here is theirs, word for word, because a
+ * person who uses both clients must not have to learn a second line for the same
+ * moment. The refusal is where the clients already differ, so it is this page's own.
  *
  * The page cannot be driven here — `main.ts` is the entry module and runs on
  * import — so the action lives in `src/browser/rename.ts` and the page hands it
@@ -47,7 +46,7 @@ function renamingPage(seated: string, failure?: string) {
 
 describe('the sentence a rename is confirmed with', () => {
   it('is the desktop clients’ own line, word for word', () => {
-    // `docs/studies/client-command-parity.md` §5, "Display name, set".
+    // The desktop clients' own confirmation for this moment.
     assert.equal(renamedSentence('ada'), 'display name set to "ada"');
     assert.equal(renamedSentence('Ada Lovelace'), 'display name set to "Ada Lovelace"');
   });

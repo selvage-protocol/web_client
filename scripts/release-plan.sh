@@ -72,7 +72,7 @@ current="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json | head -n 1)"
     refuse "package.json names '$current', which is not MAJOR.MINOR.PATCH, so there is no version to release"
 
 if ! remote_has_tag "v$current"; then
-    refuse "package.json names $current and $remote carries no tag v$current: the tag for this version never landed, and clicking release again would compute the version after it rather than release this one — create v$current and dispatch image.yml at it (docs/runbook-release.md §6) instead"
+    refuse "package.json names $current and $remote carries no tag v$current: the tag for this version never landed, and clicking release again would compute the version after it rather than release this one — create v$current and dispatch image.yml at it instead"
 fi
 
 # `bump-version.sh` computes it from the manifest, prints it as the last line of stdout and

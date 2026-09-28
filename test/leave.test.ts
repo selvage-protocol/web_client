@@ -130,7 +130,7 @@ describe('the way out of a session', () => {
   });
 
   it('is a control in the chrome, named the way both desktop clients name it', () => {
-    // `docs/studies/client-command-parity.md` §5, "Leave": `Leave the session`.
+    // The desktop clients' own label for this action: `Leave the session`.
     assert.match(
       html,
       /<button id="leave" type="button" aria-label="Leave the session"[^>]*>Leave<\/button>/,

@@ -36,7 +36,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 image=ghcr.io/selvage-protocol/selvage-web
 # The name the deployment's front is the server for, and the one it answers; a request
-# naming any other Host is closed rather than served. `docs/runbook-prod-demo.md` owns it.
+# naming any other Host is closed rather than served.
 demo_host=selvage-demo.dontblameme.dev
 ssh_connect_timeout_seconds=10
 curl_max_seconds=15

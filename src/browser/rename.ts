@@ -8,9 +8,9 @@
  * under itself (`selfName`), sends the change over the bridge, and answers for the outcome.
  *
  * The two sentences are the vocabulary's, not this module's invention: the
- * confirmation is the desktop clients' own line for the moment, word for word
- * (`docs/studies/client-command-parity.md` §5), and the refusal is where the
- * clients already differ, so it is this page's wording. They are separated from
+ * confirmation is the desktop clients' own line for the moment, word for word,
+ * and the refusal is where the clients already differ, so it is this page's
+ * wording. They are separated from
  * the page so a suite can pin the words and the order they are said in without a
  * browser: the page's entry module runs on import and cannot be one.
  */

@@ -8,8 +8,8 @@
  * and two faces can wear one of them.
  *
  * The words a pair of clients share live here too, and are pinned in both: `Go to`,
- * `Follow`, `Stop following`, `not in a file yet` and the rename intent
- * (`docs/studies/client-command-parity.md` §5). Only one string here is the browser's own,
+ * `Follow`, `Stop following`, `not in a file yet` and the rename intent that both
+ * desktop clients give their own command. Only one string here is the browser's own,
  * and it is the way back out of a person's menu.
  *
  * What is drawn is a read of the room as it stands, so each draw replaces the children of
@@ -111,9 +111,9 @@ export interface EveryoneMenuView {
 }
 
 /**
- * The rename intent's words, which both desktop clients give their command
- * (`docs/studies/client-command-parity.md` §5): the control's own text is the verb, and
- * this is what a screen reader and a pointer read on it.
+ * The rename intent's words, which both desktop clients give their command:
+ * the control's own text is the verb, and this is what a screen reader and a
+ * pointer read on it.
  */
 const RENAME_LABEL = 'Set the name other participants see';
 
