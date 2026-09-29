@@ -39,6 +39,11 @@ interface FileNode {
   size?: number;
   /** Set when the leaf must behave as something other than a plain readable file. */
   fails?: string;
+  /**
+   * Set on a leaf the double presents the way Chromium presents a symbolic link: omitted from its
+   * directory's listing and answered `NotFoundError` when asked for by name (the probe below).
+   */
+  link?: boolean;
 }
 
 interface DirNode {
@@ -49,6 +54,8 @@ interface DirNode {
    * removal may go wrong after a write has landed, which is the half-move a move can be.
    */
   removeFails?: Record<string, string>;
+  /** A directory Chromium presents as a link: see {@link FileNode.link}. */
+  link?: boolean;
 }
 
 type TreeNode = FileNode | DirNode;
@@ -73,10 +80,20 @@ interface Log {
   writes: string[];
   removed: string[];
   aborted: number;
+  /** Every name a handle lookup was asked for, so a read that never happened can be shown absent. */
+  lookups: string[];
 }
 
 function domError(name: string): Error {
   return new DOMException(`${name} from the double`, name);
+}
+
+/**
+ * Whether a leaf is a link the double models as Chromium presents one: not there to a listing and
+ * not answered by name, either.
+ */
+function linkOf(node: TreeNode | undefined): boolean {
+  return node?.link === true;
 }
 
 function fileHandleOf(name: string, node: FileNode, log: Log): FolderFileHandle {
@@ -121,10 +138,14 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
     name,
     async *values(): AsyncIterableIterator<FolderEntry> {
       for (const [childName, child] of Object.entries(node.children)) {
+        if (linkOf(child)) {
+          continue;
+        }
         yield { name: childName, kind: child.kind };
       }
     },
     async getDirectoryHandle(childName: string, options?: { create?: boolean }) {
+      log.lookups.push(`${name}/${childName}`);
       let child = node.children[childName];
       if (child === undefined) {
         if (options?.create !== true) {
@@ -132,6 +153,9 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
         }
         child = dir({});
         node.children[childName] = child;
+      }
+      if (linkOf(child)) {
+        throw domError('NotFoundError');
       }
       if (child.kind !== 'directory') {
         // The real API tells the two apart: absent is `NotFoundError`, present-and-not-a-
@@ -141,6 +165,7 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
       return dirHandleOf(childName, child, log);
     },
     async getFileHandle(childName: string, options?: { create?: boolean }) {
+      log.lookups.push(`${name}/${childName}`);
       let child = node.children[childName];
       if (child === undefined) {
         if (options?.create !== true) {
@@ -149,6 +174,9 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
         createdStamps += 1;
         child = file('', createdStamps);
         node.children[childName] = child;
+      }
+      if (linkOf(child)) {
+        throw domError('NotFoundError');
       }
       if (child.kind !== 'file') {
         throw domError('TypeMismatchError');
@@ -176,7 +204,7 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
 }
 
 function projection(tree: DirNode): { folder: FolderWorkingCopy; tree: DirNode; log: Log } {
-  const log: Log = { writes: [], removed: [], aborted: 0 };
+  const log: Log = { writes: [], removed: [], aborted: 0, lookups: [] };
   return { folder: new FolderWorkingCopy(dirHandleOf('project', tree, log)), tree, log };
 }
 
@@ -234,7 +262,7 @@ describe('the listing', () => {
   it('leaves a directory it cannot descend into out whole rather than failing the walk', async () => {
     // A grant is a listing and not a promise: a subtree that vanished between the listing and
     // the descent is left out, and the walk still publishes everything else it found.
-    const log: Log = { writes: [], aborted: 0 };
+    const log: Log = { writes: [], removed: [], aborted: 0, lookups: [] };
     const top = file('t');
     const folder = new FolderWorkingCopy({
       kind: 'directory',
@@ -366,6 +394,134 @@ describe('the read', () => {
     // cannot tell it got a link, because it never gets one.
     const { folder } = projection(dir({ 'escape': { kind: 'file', text: '', lastModified: 1, fails: 'NotFoundError' } }));
     assert.deepEqual(await folder.read('escape'), { kind: 'refused', cause: 'missing' });
+  });
+});
+
+/**
+ * A tree whose two ignore files would change its listing, with `sub/.gitignore` and `.git` placed
+ * either as ordinary entries of the folder or as the links Chromium presents as nothing.
+ *
+ * `<root>/.gitignore` drops `hidden.txt` at every depth; `sub/.gitignore` holds `!hidden.txt` and
+ * `.git/info/exclude` holds `drop.txt`. The `real` placement is what makes both deeper rules apply,
+ * so `linked` equalling "no rule applied" is a statement about the link and not two empty results
+ * agreeing.
+ */
+function ignoreLinkTree(linked: boolean): DirNode {
+  const git = dir({ 'info': dir({ 'exclude': file('drop.txt\n') }) });
+  if (linked) {
+    git.link = true;
+  }
+  return dir({
+    '.gitignore': file('hidden.txt\n'),
+    '.git': git,
+    'hidden.txt': file('ignored by the folder\n'),
+    'drop.txt': file('kept unless the repository exclude is read\n'),
+    'sub': dir({
+      '.gitignore': linked
+        ? { kind: 'file', text: '!hidden.txt\n', lastModified: 1, link: true }
+        : file('!hidden.txt\n'),
+      'hidden.txt': file('re-included only when the deeper source is read\n'),
+    }),
+  });
+}
+
+/**
+ * The folder's own ignore files, read the way the desktop clients read them:
+ * `<folder>/.git/info/exclude` at the lowest precedence, then every `.gitignore` at or below the
+ * folder, the last matching pattern deciding. The page reads them through the handles it already
+ * holds, so the picked folder remains the bound on what it reads.
+ */
+describe("the folder's own ignore files", () => {
+  it('narrow the listing and bind a peer\u2019s read', async () => {
+    const { folder } = projection(
+      dir({
+        '.gitignore': file('*.log\n!keep.log\nroot-only/\n'),
+        '.git': dir({ 'info': dir({ 'exclude': file('*.tmp\n') }) }),
+        'keep.log': file('kept by a negation\n'),
+        'drop.log': file('dropped at the root\n'),
+        'notes.tmp': file('dropped by the repository exclude\n'),
+        'root-only': dir({ 'inside.txt': file('behind an anchored directory\n') }),
+        'src': dir({
+          '.gitignore': file('generated/\n'),
+          'main.ts': file('listed\n'),
+          'generated': dir({ 'out.ts': file('dropped by a deeper source\n') }),
+        }),
+      }),
+    );
+    // `.git/info/exclude` is the lowest precedence source and the root `.gitignore` overrides it
+    // (`!keep.log` brings a name back); the deeper source drops a subtree, the anchored pattern
+    // names a directory at the root only, and an ignored directory is never descended into.
+    // `.gitignore` is an ordinary name of the folder, so it is listed like any other.
+    assert.deepEqual(await folder.list(), [
+      '.gitignore',
+      'keep.log',
+      'src/.gitignore',
+      'src/main.ts',
+    ]);
+    // A path a peer names is held to the same rules, and one that is there and ignored is refused
+    // the silent `not-granted` an excluded name gets.
+    assert.deepEqual(await folder.read('drop.log'), { kind: 'refused', cause: 'not-granted' });
+    assert.deepEqual(await folder.read('notes.tmp'), { kind: 'refused', cause: 'not-granted' });
+    assert.deepEqual(await folder.read('root-only/inside.txt'), { kind: 'refused', cause: 'not-granted' });
+    assert.deepEqual(await folder.read('src/generated/out.ts'), { kind: 'refused', cause: 'not-granted' });
+  });
+
+  it('refuse an ignored path before any listing, and after the ignore file changes', async () => {
+    const tree = dir({
+      '.gitignore': file('*.log\n'),
+      '.git': dir({ 'info': dir({ 'exclude': file('*.tmp\n') }) }),
+      'drop.log': file('dropped\n'),
+      'notes.tmp': file('dropped by the repository exclude\n'),
+      'kept.txt': file('kept\n'),
+    });
+    const { folder } = projection(tree);
+    // Before the first listing there is no listing gate, so the folder's own ignore files are the
+    // only thing holding a peer's request; a path that is not there keeps `missing` as before.
+    assert.deepEqual(await folder.read('drop.log'), { kind: 'refused', cause: 'not-granted' });
+    assert.deepEqual(await folder.read('notes.tmp'), { kind: 'refused', cause: 'not-granted' });
+    assert.deepEqual(await folder.read('kept.txt'), { kind: 'text', text: 'kept\n' });
+    assert.deepEqual(await folder.read('gone.log'), { kind: 'refused', cause: 'missing' });
+    // The listing the room was given is not a promise the folder keeps: the ignore file can change
+    // under it, and a read is held to the rules as they are now, not to the listing.
+    await folder.list();
+    (tree.children['.gitignore'] as FileNode).text = 'kept.txt\n';
+    assert.deepEqual(await folder.read('kept.txt'), { kind: 'refused', cause: 'not-granted' });
+  });
+
+  it('read an ignore file only as an ordinary file, never through something Chromium hides', async () => {
+    // The double models Chromium: a link is listed by nothing and answers `NotFoundError` by name
+    // (the probe above). The `real` case is the control — the same bytes as ordinary files change
+    // the listing — so the `linked` case is not two empty results agreeing.
+    const real = projection(ignoreLinkTree(false));
+    const linked = projection(ignoreLinkTree(true));
+    assert.deepEqual(await real.folder.list(), ['.gitignore', 'sub/.gitignore', 'sub/hidden.txt']);
+    assert.deepEqual(await linked.folder.list(), ['.gitignore', 'drop.txt']);
+    // The linked names are never even asked for: an ignore file is read only where the directory
+    // that holds it listed it, so a link is not a name this host reaches for.
+    assert.ok(real.log.lookups.includes('project/.git'), 'the control never read .git at all');
+    assert.ok(real.log.lookups.includes('sub/.gitignore'), 'the control never read the deeper source');
+    assert.ok(!linked.log.lookups.includes('project/.git'), 'a linked .git was opened');
+    assert.ok(!linked.log.lookups.includes('sub/.gitignore'), 'a linked .gitignore was read');
+    // What this cannot reach: the double's entries are only `file` and `directory`, so it has no
+    // way to present a link the way an implementation that listed and followed one would — a link
+    // offered as an ordinary file. This module has no `lstat` to catch that shape; it is the
+    // residual stated in `folder.ts` and `docs/hosting-from-the-page.md`.
+  });
+
+  it('honor no `.gitignore` above the picked folder, because the handle is the bound', async () => {
+    // The page was handed `outer/project`, and `outer/.gitignore` names `project/src/`: the shape of
+    // a folder shared from inside a repository. The module holds only the `project` handle, so a
+    // rule above it is not a name it can reach. This cannot fail through any route the module has —
+    // there is no handle above the folder to read, which is the point pinned here — where the
+    // desktop clients walk a real path and must stop at the folder themselves.
+    const outer = dir({
+      '.gitignore': file('project/src/\n'),
+      'project': dir({ 'src': dir({ 'main.ts': file('listed despite the rule above\n') }) }),
+    });
+    const log: Log = { writes: [], removed: [], aborted: 0, lookups: [] };
+    const project = await dirHandleOf('outer', outer, log).getDirectoryHandle('project');
+    const folder = new FolderWorkingCopy(project);
+    assert.deepEqual(await folder.list(), ['src/main.ts']);
   });
 });
 
@@ -504,7 +660,7 @@ describe('asking for the folder', () => {
     const asked: unknown[] = [];
     const outcome = await pickFolder(async (options) => {
       asked.push(options);
-      return dirHandleOf('project', dir({ 'a.txt': file('a') }), { writes: [], aborted: 0 });
+      return dirHandleOf('project', dir({ 'a.txt': file('a') }), { writes: [], removed: [], aborted: 0, lookups: [] });
     });
     assert.equal(outcome.kind, 'picked');
     assert.equal(outcome.kind === 'picked' ? outcome.folder.name : '', 'project');
