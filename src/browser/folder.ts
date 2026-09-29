@@ -10,6 +10,12 @@
  * shared rule that decides which names a session shares at all (`GRANT_EXCLUDED_DIRS`, `.env`,
  * the key names, the size and format bounds), which is why `../bridge/` is imported here.
  *
+ * The folder's own ignore files narrow that rule the way they narrow a `git status`: the repository
+ * exclude at the lowest precedence, then every `.gitignore` at or below the folder, the last
+ * matching pattern deciding. They are read through the same handles, so the folder is still the
+ * bound — nothing above it is read, and neither git's user-wide ignore nor any other rule outside
+ * it is — and they bind a path a peer names as well as the listing.
+ *
  * The exclusion rules are evaluated as though the folder's filesystem folds case, which is the
  * shared rule's answer for a host whose platform it cannot read (`foldsCase('')`): the browser
  * cannot tell whether the person picked a case-insensitive volume, and sharing less is the
@@ -36,9 +42,10 @@ import {
   MAX_GRANT_PATHS,
   isBinaryNamedPath,
   isGrantedPath,
+  isIgnoredPath,
   sortGrant,
 } from '../bridge/index.ts';
-import type { GrantRefusal, GrantedRead, LineEnding } from '../bridge/index.ts';
+import type { GrantRefusal, GrantedRead, IgnoreSource, LineEnding } from '../bridge/index.ts';
 
 /**
  * The platform handed to the shared exclusion rule: none. A browser knows neither the host
@@ -58,6 +65,12 @@ export const FOLDER_PLATFORM = '';
  * same reasoning as the VS Code adapter's walk.
  */
 export const MAX_FOLDER_NODES = 20_000;
+
+/** The ignore file any directory of the folder may state for its children. */
+const IGNORE_FILE = '.gitignore';
+
+/** The repository exclude a `.git` folder may state, under `info/`. */
+const EXCLUDE_FILE = 'exclude';
 
 /** One file as the page reads it: the stamp the stale-file guard compares, and the bytes. */
 export interface FolderFile {
@@ -498,7 +511,7 @@ export class FolderWorkingCopy implements FolderWork {
     const paths: string[] = [];
     const folders: string[] = [];
     const budget = { nodes: MAX_FOLDER_NODES };
-    await this.walk(this.handle, '', paths, folders, budget);
+    await this.walk(this.handle, '', paths, folders, budget, await rootIgnores(this.handle));
     const sorted = sortGrant(paths);
     this.listed = new Set(sorted);
     this.folders = folders.sort();
@@ -538,10 +551,11 @@ export class FolderWorkingCopy implements FolderWork {
 
   private async walk(
     dir: FolderDirectoryHandle,
-    prefix: string,
+    relative: string,
     out: string[],
     folders: string[],
     budget: { nodes: number },
+    inherited: readonly IgnoreSource[],
   ): Promise<void> {
     if (out.length >= MAX_GRANT_PATHS || budget.nodes <= 0) {
       return;
@@ -552,15 +566,31 @@ export class FolderWorkingCopy implements FolderWork {
     } catch {
       return;
     }
+    // This directory's own ignore file governs its children, and it is read whether or not some
+    // pattern would leave it out, as git reads it; `.gitignore` itself stays a shareable name. A
+    // source's `dir` is the directory's path in the spelling this walk uses for the path itself —
+    // `relative` here, the same string that prefixes its children. `isIgnoredPath` reads the
+    // source's patterns against the path relative to `dir` and matches `dir` against the path's own
+    // leading segments, so `dir` and the path must be spelled alike; `list` starts the walk at
+    // `''`, so a nested source is `{ dir: 'src', text }` and the repository exclude is
+    // `{ dir: '', text }`.
+    const own = await ignoreFileIn(dir, entries, IGNORE_FILE);
+    const sources = own === undefined ? inherited : [...inherited, { dir: relative, text: own }];
     for (const entry of entries) {
       if (out.length >= MAX_GRANT_PATHS || budget.nodes <= 0) {
         return;
       }
       budget.nodes -= 1;
-      const child = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      const child = relative === '' ? entry.name : `${relative}/${entry.name}`;
       // The excludes, and the unsafe-name rule, are the shared ones: a `.env`, a key, a
       // `.git` and a path that escapes the folder are the same names here as on the desktop.
       if (!isGrantedPath(child, FOLDER_PLATFORM)) {
+        continue;
+      }
+      // The folder's own ignore files, read the way git reads them: an ignored child is left out,
+      // and an ignored directory is never descended into, so nothing below one is listed however a
+      // deeper source reads it.
+      if (isIgnoredPath(sources, child, entry.kind === 'directory', FOLDER_PLATFORM)) {
         continue;
       }
       if (entry.kind === 'directory') {
@@ -568,7 +598,14 @@ export class FolderWorkingCopy implements FolderWork {
           // Recorded before the descent: a directory that cannot be read is still one the listing
           // has no file under, and the tree has a row for it either way.
           folders.push(child);
-          await this.walk(await dir.getDirectoryHandle(entry.name), child, out, folders, budget);
+          await this.walk(
+            await dir.getDirectoryHandle(entry.name),
+            child,
+            out,
+            folders,
+            budget,
+            sources,
+          );
         } catch {
           // Gone or unreadable between the listing and the descent.
         }
@@ -602,7 +639,8 @@ export class FolderWorkingCopy implements FolderWork {
   /**
    * A file's text, or why the room has none: the path is one a peer named, so the shared
    * excludes are applied to it before anything is resolved, and once the folder has been
-   * listed, a path the listing did not offer is refused the same way.
+   * listed, a path the listing did not offer is refused the same way. The folder's own ignore
+   * files bind it too, because what the listing leaves out is not this host's to serve either.
    *
    * A successful read records the file's stamp, which is what the write guard compares against.
    */
@@ -627,6 +665,12 @@ export class FolderWorkingCopy implements FolderWork {
     } catch (error: unknown) {
       return { kind: 'refused', cause: namedRefusal(error) };
     }
+    // The check follows the name's resolution, so a path that is not there keeps `missing`, and a
+    // path that is there and the folder's ignore files leave out is refused `not-granted`, the
+    // silent no an excluded name gets, which says nothing about whether a guess was worth making.
+    if (isIgnoredPath(await this.governingIgnores(path), path, false, FOLDER_PLATFORM)) {
+      return { kind: 'refused', cause: 'not-granted' };
+    }
     if (file.size > MAX_GRANT_FILE_BYTES) {
       return { kind: 'refused', cause: 'too-large' };
     }
@@ -643,6 +687,48 @@ export class FolderWorkingCopy implements FolderWork {
     this.stamps.set(path, file.lastModified);
     this.layouts.set(path, { eol: eolOf(text), bom: hasByteOrderMark(bytes) });
     return { kind: 'text', text };
+  }
+
+  /**
+   * The ignore sources that govern `path`: `<folder>/.git/info/exclude` first, then the `.gitignore`
+   * of every directory from the folder down to the one holding `path`, lowest precedence first.
+   *
+   * Each `.gitignore` is read only where the directory that holds it lists it as an ordinary file,
+   * and each step down is a name the directory before it lists as an ordinary directory, so the
+   * sources come from directories the path's own resolution accepted. Nothing above the folder is
+   * read.
+   */
+  private async governingIgnores(path: string): Promise<IgnoreSource[]> {
+    const sources = await rootIgnores(this.handle);
+    const segments = path.split('/');
+    segments.pop();
+    let dir = this.handle;
+    for (let depth = 0; depth <= segments.length; depth += 1) {
+      const relative = segments.slice(0, depth).join('/');
+      let entries: FolderEntry[];
+      try {
+        entries = await folderEntries(dir);
+      } catch {
+        break;
+      }
+      const own = await ignoreFileIn(dir, entries, IGNORE_FILE);
+      if (own !== undefined) {
+        sources.push({ dir: relative, text: own });
+      }
+      if (depth === segments.length) {
+        break;
+      }
+      const name = segments[depth] ?? '';
+      if (!entries.some((entry) => entry.name === name && entry.kind === 'directory')) {
+        break;
+      }
+      try {
+        dir = await dir.getDirectoryHandle(name);
+      } catch {
+        break;
+      }
+    }
+    return sources;
   }
 
   /**
@@ -1254,6 +1340,109 @@ async function folderEntries(dir: FolderDirectoryHandle): Promise<FolderEntry[]>
   }
   entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   return entries;
+}
+
+/** A directory's entries, or `undefined` when this host cannot list it. */
+async function listingOf(dir: FolderDirectoryHandle): Promise<FolderEntry[] | undefined> {
+  return folderEntries(dir).catch(() => undefined);
+}
+
+/**
+ * The ignore source that governs everything under the folder: `<folder>/.git/info/exclude`, the
+ * lowest precedence source there is, under every `.gitignore` the walk reads below it.
+ *
+ * A folder need not be a repository, `.git` may be a file rather than a directory (a linked
+ * worktree, a submodule), and a lookup may throw; each of those is a folder with no repository
+ * exclude, which is what an absent one means. `.git` and `info` are read only where the directory
+ * that holds each lists it as an ordinary directory, and `exclude` only where `info` lists it as an
+ * ordinary file (`ignoreFileIn`), so a `.git` that is a link to a repository elsewhere cannot
+ * supply rules here.
+ */
+async function rootIgnores(root: FolderDirectoryHandle): Promise<IgnoreSource[]> {
+  const git = await childDirectory(root, '.git');
+  if (git === undefined) {
+    return [];
+  }
+  const info = await childDirectory(git, 'info');
+  if (info === undefined) {
+    return [];
+  }
+  const text = await ignoreFileIn(info, undefined, EXCLUDE_FILE);
+  return text === undefined ? [] : [{ dir: '', text }];
+}
+
+/**
+ * The child directory `name` of `dir`, or `undefined` when `dir` neither lists it as an ordinary
+ * directory nor can open it.
+ *
+ * A name the listing does not carry is not opened, so a name that is not a directory of the folder
+ * — a link, or a link to one — contributes nothing.
+ */
+async function childDirectory(
+  dir: FolderDirectoryHandle,
+  name: string,
+): Promise<FolderDirectoryHandle | undefined> {
+  const entries = await listingOf(dir);
+  if (
+    entries === undefined ||
+    !entries.some((entry) => entry.name === name && entry.kind === 'directory')
+  ) {
+    return undefined;
+  }
+  try {
+    return await dir.getDirectoryHandle(name);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The text of the ignore file `name` at `dir`, or `undefined` when no ignore file this host reads
+ * is there.
+ *
+ * `name` counts only where the directory's own listing reports it as an ordinary file, never a
+ * directory. The File System Access API offers no `lstat` and no `realpath`, so the `kind` of the
+ * entry a directory enumerates is the whole of what this module can learn about what a name is; it
+ * cannot tell a link from the file it points at. What keeps a linked `.gitignore` from supplying
+ * rules is the API's own refusal, not a check here: Chromium neither lists a symbolic link nor
+ * answers for one by name — `getFileHandle` throws `NotFoundError`, pinned by the suite's probe — so
+ * a link never reaches this function as a file. The listing check is kept anyway, so the read is
+ * bounded by the rule "only a name the directory itself listed" rather than by that behavior.
+ *
+ * What this cannot pin, stated rather than claimed: the structural handle interface does not carry
+ * that refusal, because it is the implementation's and not the API's, so an implementation that
+ * listed a link as a file would have its target's bytes read here (no `lstat` can tell); and a name
+ * swapped for something else between the listing and the read is a second resolution of one name
+ * this API cannot close, the same window the leaf read already has. Neither is reachable through
+ * Chromium's own file access layer.
+ *
+ * A file larger than one this host shares is no ignore file either: a browser tab reads these bytes
+ * into memory, and no `.gitignore` that large is a project's rule.
+ *
+ * `entries` is the directory's own listing when the caller already holds it, so a walk does not
+ * read the same directory twice.
+ */
+async function ignoreFileIn(
+  dir: FolderDirectoryHandle,
+  entries: readonly FolderEntry[] | undefined,
+  name: string,
+): Promise<string | undefined> {
+  const listing = entries ?? (await listingOf(dir));
+  if (
+    listing === undefined ||
+    !listing.some((entry) => entry.name === name && entry.kind === 'file')
+  ) {
+    return undefined;
+  }
+  try {
+    const file = await (await dir.getFileHandle(name)).getFile();
+    if (file.size > MAX_GRANT_FILE_BYTES) {
+      return undefined;
+    }
+    return decodableText(new Uint8Array(await file.arrayBuffer()));
+  } catch {
+    return undefined;
+  }
 }
 
 /** The last segment of a path that `isGrantedPath` has already accepted. */
