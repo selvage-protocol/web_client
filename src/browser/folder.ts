@@ -479,10 +479,13 @@ export async function pickFolder(picker: PickFolder | undefined): Promise<Folder
  * `rootIgnores` is handed the root's own entries, which the walk has just read, so the folder is
  * listed once per walk; `.git` and `info` are different directories from it.
  *
- * The names the walk refuses are the shared rule's, and it reads a host platform from `process`:
- * a page has none, so the walk folds case, which excludes more rather than less.
+ * The names the walk refuses are the shared rule's, and which of a name's cases are the same name is
+ * the file system's answer — so the seam names {@link FOLDER_PLATFORM} rather than a global: a page
+ * cannot read the volume's case folding, and the empty platform keeps the fold, which excludes more
+ * rather than less.
  */
 const FOLDER_SOURCE: ListingWalkSource<FolderDirectoryHandle> = {
+  platform: FOLDER_PLATFORM,
   entries: (dir) => listingOf(dir),
   ignoreText: (dir, entries) => ignoreFileIn(dir, entries, IGNORE_FILE),
   shareable: (dir, name) => shareableFile(dir, name),
