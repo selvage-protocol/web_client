@@ -47,7 +47,13 @@ import type { GrantChild } from './tree.ts';
 
 /** The slice of the session binding the tree reads. */
 export interface TreeSource {
-  /** The room's listing: its grant unioned with the documents it holds open. */
+  /**
+   * The room's listing: its grant unioned with the documents it holds open.
+   *
+   * The tree keys its memo on this array's identity, so it must be the source's own held
+   * array rather than a fresh one per call: `editor.ts` builds the union once and drops it
+   * when a room event moves what it reads (`grantChanged`, `documentsChanged`).
+   */
   grantListing(): string[];
   /** The immediate children of `directory` in that listing. */
   grantTree(directory?: string): GrantChild[];
@@ -171,6 +177,15 @@ export class GrantTreeView {
   private readonly options: TreeViewOptions;
   /** What the rows were last built from, so a frame that changes none of it rebuilds none. */
   private drawnRows = '';
+  /**
+   * The listing-derived half of that key, held against the listing it was read from.
+   *
+   * Both parts are O(listing) — every path joined, and the room asked about every path — and a
+   * presence frame, which is every cursor move every peer makes, moves neither. The identity of
+   * the array is what says the listing moved: the source hands back the same one until a room
+   * event rebuilds it.
+   */
+  private listingKeys: ListingKeys | undefined;
   /** Each file row's badge container, so a badge repaint has somewhere to land. */
   private readonly hosts = new Map<string, HTMLElement>();
   /** What each row's badges were last drawn with. */
@@ -244,7 +259,8 @@ export class GrantTreeView {
   render(): void {
     const listing = this.source.grantListing();
     const current = this.source.currentPath();
-    const rows = rowsKey(listing, {
+    const keyed = this.listingKey(listing, current);
+    const rows = rowsKey({
       current,
       touch: this.touch(),
       draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draftHome()}`,
@@ -255,7 +271,8 @@ export class GrantTreeView {
         this.holding === undefined || this.holding.pointer
           ? ''
           : `${this.holding.path}\u0000${this.holding.into}`,
-      marks: this.markKey(listing, current),
+      paths: keyed.paths,
+      marks: keyed.marks,
     });
     if (rows === this.drawnRows) {
       this.refreshBadges();
@@ -268,6 +285,7 @@ export class GrantTreeView {
   /** Empties the pane and forgets the tree, for the end of a session. */
   reset(): void {
     this.drawnRows = '';
+    this.listingKeys = undefined;
     this.hosts.clear();
     this.badges.clear();
     this.draft = undefined;
@@ -692,6 +710,30 @@ export class GrantTreeView {
         return mark.kind === 'none' ? `${path}:` : `${path}:${mark.kind}`;
       })
       .join('\n');
+  }
+
+  /**
+   * The listing-derived half of the rows key, read once per listing.
+   *
+   * The marks are read for the key alone: what a row draws from them is the download control, and
+   * that follows the room's held set, which is what rebuilds the listing. A document's text
+   * arriving moves neither, and nothing drawn follows it.
+   */
+  private listingKey(listing: readonly string[], current: string | undefined): ListingKeys {
+    const host = this.canCreate();
+    const known = this.listingKeys;
+    if (known !== undefined && known.listing === listing && known.current === current && known.host === host) {
+      return known;
+    }
+    const keyed: ListingKeys = {
+      listing,
+      current,
+      host,
+      paths: listing.join('\n'),
+      marks: this.markKey(listing, current),
+    };
+    this.listingKeys = keyed;
+    return keyed;
   }
 
   /** What the room knows about a path, in the shape `roomMark` reads. */
@@ -1711,6 +1753,18 @@ function allIn(node: TreeElement): TreeElement[] {
     found.push(child, ...allIn(child));
   }
   return found;
+}
+
+/**
+ * The listing-derived half of the rows key, with the listing and the two things the marks are read
+ * with that the listing's own text cannot carry: the open file, and whether this window hosts.
+ */
+interface ListingKeys {
+  listing: readonly string[];
+  current: string | undefined;
+  host: boolean;
+  paths: string;
+  marks: string;
 }
 
 /**

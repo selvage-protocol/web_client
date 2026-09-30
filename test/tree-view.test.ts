@@ -227,11 +227,11 @@ function ceilingListing() {
   );
 }
 
-function makeView(state) {
+function makeView(state, source = {}) {
   const pane = makeElement('div');
   const view = new GrantTreeView({
     pane,
-    source: makeSource(state),
+    source: { ...makeSource(state), ...source },
     pinned: state.pinned ?? new Set(),
     touch: () => state.touch ?? false,
     canCreate: () => state.canCreate ?? false,
@@ -442,6 +442,30 @@ describe('a listing at the ceiling', () => {
     );
     assert.ok(elapsed < 5_000, `the render took ${elapsed} ms for ${state.listing.length} paths`);
   });
+
+  it('is read once per listing, not once per presence frame', () => {
+    const state = { listing: ceilingListing(), current: undefined, touch: false, opened: [], participants: [] };
+    let asked = 0;
+    const source = makeSource(state);
+    const { pane, view } = makeView(state, {
+      isOpenInRoom: (path) => {
+        asked += 1;
+        return source.isOpenInRoom(path);
+      },
+    });
+    view.render();
+    assert.ok(asked > 0, 'the first render never asked the room about a path');
+    const built = pane.children[0];
+    asked = 0;
+    world.created = 0;
+
+    state.participants = [participant('p-1', 'ada', '#112233', 'src/mod000/file000000.ts')];
+    view.render();
+
+    assert.equal(asked, 0, `a presence frame asked the room about ${asked} paths`);
+    assert.equal(pane.children[0], built, 'a presence frame rebuilt the rows');
+    assert.equal(world.created, 0, `a presence frame made ${world.created} elements`);
+  });
 });
 
 describe('what a row says about the room', () => {
@@ -494,8 +518,11 @@ describe('what a row says about the room', () => {
       0,
       'a host is offered a download for a file the room does not hold',
     );
-    // The room opens it: the row gains the control, and only a rebuild puts it there.
+    // The room opens it: the row gains the control, and only a rebuild puts it there. The room's
+    // document set moving is what the binding rebuilds the listing for (`editor.ts`), so the array
+    // the tree is handed is a fresh one and the tree's memo reads the marks again.
     state.inRoom = ['main.rs'];
+    state.listing = [...state.listing];
     view.render();
     assert.notEqual(pane.children[0], built, 'the room opening a document redrew nothing');
     assert.equal(

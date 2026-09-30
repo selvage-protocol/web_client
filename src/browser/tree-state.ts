@@ -11,7 +11,14 @@
  * path), so joining the listing is unambiguous: two listings that read the same have the same key.
  */
 
-/** What the tree draws a row from besides where everyone is. */
+/**
+ * What the tree draws a row from besides where everyone is.
+ *
+ * The last two fields are the listing's own, kept apart from the rest because a listing of a
+ * hundred thousand paths is what makes them expensive: every path joined, and what the room knows
+ * about every path. A frame that moves neither — every presence frame — must not read them again,
+ * so whoever builds this holds them against the listing it read (`tree-view.ts`).
+ */
 export interface RowChrome {
   /** The open file, whose row is lit. */
   current: string | undefined;
@@ -30,6 +37,8 @@ export interface RowChrome {
   asking: string;
   /** The file picked up for a move, as `path` and the folder it would land in, or `''`. */
   moving: string;
+  /** The listing: every path, in order, line-feed joined. Two listings that read alike key alike. */
+  paths: string;
   /**
    * What each row says about the room: its text is here, the room holds it, it reads empty.
    *
@@ -41,7 +50,7 @@ export interface RowChrome {
   marks: string;
 }
 
-export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
+export function rowsKey(chrome: RowChrome): string {
   return [
     chrome.current ?? '',
     chrome.touch ? '1' : '0',
@@ -50,7 +59,7 @@ export function rowsKey(listing: readonly string[], chrome: RowChrome): string {
     chrome.asking,
     chrome.moving,
     chrome.marks,
-    listing.join('\n'),
+    chrome.paths,
   ].join('\u0000');
 }
 
