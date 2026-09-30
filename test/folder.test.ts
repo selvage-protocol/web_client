@@ -451,7 +451,7 @@ describe('the listing ceiling', () => {
     assert.equal(folder.listingCut(), 'budget', 'the walk gave up in silence');
   });
 
-  it('does not call a listing cut when the listing holds everything', async () => {
+  it('does not report a cut when it named every shareable file', async () => {
     // Exactly what one listing carries, plus a file beside them that no listing can name. The
     // oversized file is not a path the room would ever be given, so it is not what makes the listing
     // stop: a walk that cut here would tell a host its own complete listing was short.
@@ -462,9 +462,39 @@ describe('the listing ceiling', () => {
     const folder = new FolderWorkingCopy(
       flatDir(names, (name) => (name === 'zz-too-large.md' ? MAX_GRANT_FILE_BYTES + 1 : 1)),
     );
-    assert.equal((await folder.list()).length, MAX_GRANT_PATHS);
+    const listing = await folder.list();
+    assert.equal(listing.length, MAX_GRANT_PATHS, 'a shareable path is missing from the listing');
+    assert.ok(listing.includes(numbered(0, '.md')), 'the listing holds something else');
     assert.equal(folder.listingWasCut(), false, 'a complete listing was reported as cut');
     assert.equal(folder.listingCut(), undefined);
+  });
+
+  it('does not report a cut at the byte bound when the candidate is one it would not name', async () => {
+    // The same shape at the byte bound, and cheap enough to reach without a hundred thousand files:
+    // 1026 paths of 4086 UTF-8 bytes fill all but a few thousand of the 4 MiB a listing carries, and
+    // the file that follows them is one no listing names. Its own path would not have fitted either,
+    // so a bound decided on the candidate rather than on what is published reports a cut here.
+    const long = `p${'あ'.repeat(1360)}`;
+    assert.equal(
+      new TextEncoder().encode(long).length,
+      4081,
+      'the name is not the size this test means',
+    );
+    const names = [
+      ...Array.from({ length: 1026 }, (_, index) => `${String(index).padStart(4, '0')}-${long}`),
+      `z${'a'.repeat(3499)}`,
+    ];
+    const folder = new FolderWorkingCopy(
+      flatDir(names, (name) => (name.startsWith('z') ? MAX_GRANT_FILE_BYTES + 1 : 1)),
+    );
+    const listing = await folder.list();
+    assert.equal(folder.listingCut(), undefined, 'a complete listing was reported as cut');
+    assert.equal(listing.length, 1026, `the listing is short: ${listing.length} listed`);
+    const bytes = listing.reduce((total, path) => total + new TextEncoder().encode(path).length, 0);
+    assert.ok(
+      bytes + 3500 > MAX_GRANT_LISTING_BYTES,
+      'the candidate no longer reaches past the bound, so the test proves nothing',
+    );
   });
 });
 
