@@ -511,7 +511,7 @@ describe('the host is told its own listing was cut', () => {
 
     const cut = new FolderWorkingCopy(flatDir(longNames()));
     await cut.list();
-    notice.say(cut.listingCut());
+    notice.say(cut, cut.listingCut());
     assert.deepEqual(alert.shown, [listingCutSentence('bytes')]);
     assert.ok(
       !(alert.shown[0] ?? '').includes('Selvage'),
@@ -522,17 +522,41 @@ describe('the host is told its own listing was cut', () => {
     // as far past the bound as it was: the cut is a fact about the folder, so it is said for the
     // folder rather than once per act.
     await cut.list();
-    notice.say(cut.listingCut());
+    notice.say(cut, cut.listingCut());
     assert.equal(alert.shown.length, 1, 'the same cut was said again');
 
     const whole = new FolderWorkingCopy(flatDir(['a.md']));
     await whole.list();
-    notice.say(whole.listingCut());
+    notice.say(whole, whole.listingCut());
     assert.equal(alert.shown.length, 1, 'a complete listing was said to the host');
 
     // A complete walk is not the end of the news either: a cut after it is said.
-    notice.say('paths');
+    notice.say(whole, 'paths');
     assert.equal(alert.shown.length, 2, 'a cut after a complete walk was not said');
+  });
+
+  it('says a cut again for a folder hosted after the session that was cut', async () => {
+    const alert = alertLine();
+    const notice = wireListingCutNotice(alert);
+
+    // The first room: the host hears the bound its folder stopped at.
+    const first = new FolderWorkingCopy(flatDir(longNames()));
+    await first.list();
+    notice.say(first, first.listingCut());
+    assert.deepEqual(alert.shown, [listingCutSentence('bytes')]);
+
+    // The room ends and the person hosts another folder, cut at the same bound. That host has not
+    // been told: the cut belongs to the session, so a sentence the page has already said is news
+    // again for the room that follows.
+    const second = new FolderWorkingCopy(flatDir(longNames()));
+    await second.list();
+    assert.equal(second.listingCut(), first.listingCut(), 'the two sessions cut at different bounds');
+    notice.say(second, second.listingCut());
+    assert.deepEqual(
+      alert.shown,
+      [listingCutSentence('bytes'), listingCutSentence('bytes')],
+      'a new session was not told its own cut',
+    );
   });
 });
 

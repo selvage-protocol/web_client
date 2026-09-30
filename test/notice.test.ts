@@ -438,6 +438,11 @@ describe('the host’s own listing cut', () => {
     const said = main.match(/sayListingCut\(folder\)/g) ?? [];
     assert.equal(said.length, 3, 'a walk this page makes does not say its cut');
     assert.match(main, /wireListingCutNotice\(failureAlert\)/, 'the cut has no line to stand on');
+    assert.match(
+      main,
+      /listingCutNotice\.say\(folder, folder\.listingCut\(\)\)/,
+      'the cut is not keyed to the folder whose session it belongs to',
+    );
     for (const part of ['grant.ts', 'words.ts', 'index.ts']) {
       const bridge = readFileSync(new URL(`../src/bridge/${part}`, import.meta.url), 'utf8');
       assert.ok(!bridge.includes('listingCutSentence'), `${part} carries a host-only sentence`);
