@@ -39,17 +39,20 @@
 
 import {
   MAX_GRANT_FILE_BYTES,
-  MAX_GRANT_LISTING_BYTES,
-  MAX_GRANT_NODES,
-  MAX_GRANT_PATHS,
   isBinaryNamedPath,
   isGrantedPath,
   isIgnoredPath,
-  sortGrant,
+  walkListing,
 } from '../bridge/index.ts';
-import type { GrantRefusal, GrantedRead, IgnoreSource, LineEnding } from '../bridge/index.ts';
-import { listingBound, listingPathBytes } from '../engine/limits.ts';
-import type { ListingBound, ListingCeiling } from '../engine/limits.ts';
+import type {
+  GrantRefusal,
+  GrantedRead,
+  IgnoreSource,
+  LineEnding,
+  ListingCut,
+  ListingWalkSource,
+  WalkEntry,
+} from '../bridge/index.ts';
 
 /**
  * The platform handed to the shared exclusion rule: none. A browser knows neither the host
@@ -63,25 +66,10 @@ import type { ListingBound, ListingCeiling } from '../engine/limits.ts';
 export const FOLDER_PLATFORM = '';
 
 /**
- * The bounds one room listing carries, from the shared bridge's one home for them: the most paths,
- * and the most bytes those paths take on the wire. The walk stops at whichever binds first, so what
- * it publishes is a listing the engine's seal takes whole rather than one it shortens in silence.
+ * Which bound stopped a walk, as this page's consumers read it: the shared walk's own `ListingCut`,
+ * under the name they already import (`notice.ts`).
  */
-const FOLDER_CEILING: ListingCeiling = {
-  paths: MAX_GRANT_PATHS,
-  bytes: MAX_GRANT_LISTING_BYTES,
-};
-
-/**
- * Which bound stopped a walk: either of the listing's two, or the work the walk pays for.
- *
- * `paths` and `bytes` are recorded only where a file the walk would have named did not fit, so a
- * listing that holds every shareable file of the folder reports no cut. A budget cut is the walk's
- * own — the directory reads and the shareability checks it spends — and not a bound on a listing,
- * which is why it is not one of `ListingBound`: a spent budget leaves the rest of the folder unread,
- * so it says the walk stopped and not that anything was left out.
- */
-export type FolderCut = ListingBound | 'budget';
+export type FolderCut = ListingCut;
 
 /**
  * What the page says when its own walk stopped short of the folder.
@@ -100,18 +88,6 @@ export function listingCutSentence(cut: FolderCut): string {
     case 'budget':
       return 'Reading this folder took more work than one listing walk pays for, so the room may be missing some of its files. Share a smaller folder to give the room all of it.';
   }
-}
-
-/**
- * What one walk carries as it descends: the listing, its size in path bytes, the work it has left to
- * spend, the directories it entered, and the bound that stopped it.
- */
-interface WalkState {
-  readonly paths: string[];
-  readonly folders: string[];
-  bytes: number;
-  nodes: number;
-  cut: FolderCut | undefined;
 }
 
 /** The ignore file any directory of the folder may state for its children. */
@@ -494,6 +470,27 @@ export async function pickFolder(picker: PickFolder | undefined): Promise<Folder
 }
 
 /**
+ * This page's folder, as the shared walk's seam: each call is one of the five the rule makes, in the
+ * File System Access API's own words.
+ *
+ * The entry type is the API's own `kind`, which is `'file'` or `'directory'` and nothing else — a
+ * browser neither lists nor follows a symbolic link — so nothing here is ever `other`.
+ *
+ * `rootIgnores` is handed the root's own entries, which the walk has just read, so the folder is
+ * listed once per walk; `.git` and `info` are different directories from it.
+ *
+ * The names the walk refuses are the shared rule's, and it reads a host platform from `process`:
+ * a page has none, so the walk folds case, which excludes more rather than less.
+ */
+const FOLDER_SOURCE: ListingWalkSource<FolderDirectoryHandle> = {
+  entries: (dir) => listingOf(dir),
+  ignoreText: (dir, entries) => ignoreFileIn(dir, entries, IGNORE_FILE),
+  shareable: (dir, name) => shareableFile(dir, name),
+  child: (dir, name) => childOf(dir, name),
+  rootIgnores: (dir, entries) => rootIgnores(dir, entries),
+};
+
+/**
  * A folder as the room's working copy: its listing, a read for a peer's request, and the write
  * of the text the room settled on — behind the stale-file guard.
  *
@@ -563,29 +560,17 @@ export class FolderWorkingCopy implements FolderWork {
    * shares. A directory that cannot be listed is one this host cannot share and is left out
    * whole rather than failing the walk, because a grant is a listing and not a promise.
    *
-   * The walk stops at whichever binds first of the listing's two bounds — `MAX_GRANT_PATHS` paths or
-   * `MAX_GRANT_LISTING_BYTES` of their UTF-8 bytes — and, failing both, at the work budget. A bound
-   * is decided at the first path the room would be given that does not fit under it, so a listing
-   * that holds everything it could is complete rather than reported as cut. The budget pays for the
-   * work that costs a call: one node for a directory read, one for the shareability check asked of a
-   * candidate file. A name the walk can drop on its own — an excluded or ignored one, a binary-named
-   * one, an entry that is not a plain file — costs nothing, because the assets a folder carries are
-   * no part of what it shares.
+   * The walk itself is the bridge's (`walkListing`), which is the whole of why this page shares
+   * the same files the desktop clients do: the bounds, the charge points and the cut reason do not
+   * vary with the editor. What is here is the folder's half — `FileSystemDirectoryHandle`, and the
+   * folder's own ignore sources.
    */
   async list(): Promise<string[]> {
-    const state: WalkState = {
-      paths: [],
-      folders: [],
-      bytes: 0,
-      nodes: MAX_GRANT_NODES,
-      cut: undefined,
-    };
-    await this.walk(this.handle, '', state, await rootIgnores(this.handle));
-    const sorted = sortGrant(state.paths);
-    this.listed = new Set(sorted);
-    this.folders = state.folders.sort();
-    this.cut = state.cut;
-    return sorted;
+    const result = await walkListing(FOLDER_SOURCE, [{ dir: this.handle, name: this.name }]);
+    this.listed = new Set(result.paths);
+    this.folders = result.entered.sort();
+    this.cut = result.cut;
+    return result.paths;
   }
 
   /**
@@ -631,109 +616,6 @@ export class FolderWorkingCopy implements FolderWork {
       }
     }
     return this.folders.filter((folder) => !holds.has(folder));
-  }
-
-  private async walk(
-    dir: FolderDirectoryHandle,
-    relative: string,
-    state: WalkState,
-    inherited: readonly IgnoreSource[],
-  ): Promise<void> {
-    if (state.cut !== undefined) {
-      return;
-    }
-    // Entering a directory is a read, and a read is what the budget pays for.
-    if (state.nodes <= 0) {
-      state.cut = 'budget';
-      return;
-    }
-    state.nodes -= 1;
-    let entries: FolderEntry[];
-    try {
-      entries = await folderEntries(dir);
-    } catch {
-      return;
-    }
-    // This directory's own ignore file governs its children, and it is read whether or not some
-    // pattern would leave it out, as git reads it; `.gitignore` itself stays a shareable name. A
-    // source's `dir` is the directory's path in the spelling this walk uses for the path itself —
-    // `relative` here, the same string that prefixes its children. `isIgnoredPath` reads the
-    // source's patterns against the path relative to `dir` and matches `dir` against the path's own
-    // leading segments, so `dir` and the path must be spelled alike; `list` starts the walk at
-    // `''`, so a nested source is `{ dir: 'src', text }` and the repository exclude is
-    // `{ dir: '', text }`.
-    const own = await ignoreFileIn(dir, entries, IGNORE_FILE);
-    const sources = own === undefined ? inherited : [...inherited, { dir: relative, text: own }];
-    for (const entry of entries) {
-      if (state.cut !== undefined) {
-        return;
-      }
-      const child = relative === '' ? entry.name : `${relative}/${entry.name}`;
-      // The excludes, and the unsafe-name rule, are the shared ones: a `.env`, a key, a
-      // `.git` and a path that escapes the folder are the same names here as on the desktop.
-      if (!isGrantedPath(child, FOLDER_PLATFORM)) {
-        continue;
-      }
-      // The folder's own ignore files, read the way git reads them: an ignored child is left out,
-      // and an ignored directory is never descended into, so nothing below one is listed however a
-      // deeper source reads it.
-      if (isIgnoredPath(sources, child, entry.kind === 'directory', FOLDER_PLATFORM)) {
-        continue;
-      }
-      if (entry.kind === 'directory') {
-        try {
-          // Recorded before the descent: a directory that cannot be read is still one the listing
-          // has no file under, and the tree has a row for it either way.
-          state.folders.push(child);
-          await this.walk(await dir.getDirectoryHandle(entry.name), child, state, sources);
-        } catch {
-          // Gone or unreadable between the listing and the descent.
-        }
-        continue;
-      }
-      // A file whose name declares a format a room cannot carry is left out: the read refuses
-      // every one of them as `binary`, so naming it would offer a guest a file no fetch fills.
-      if (isBinaryNamedPath(child)) {
-        continue;
-      }
-      const size = listingPathBytes(child);
-      // The shareability check is the one call this entry costs, whether or not it ends in a name.
-      // The budget stop is here, before the call: a spent budget leaves the rest of the folder
-      // unread, so what it cut is not a listing bound and cannot be named as one.
-      if (state.nodes <= 0) {
-        state.cut = 'budget';
-        return;
-      }
-      state.nodes -= 1;
-      if (!(await this.shareable(dir, entry.name))) {
-        continue;
-      }
-      // This entry is one the room would be given, so the listing's own bound is what it is held
-      // to: an entry the room was never going to be told about cannot be what makes a complete
-      // listing look cut. The bound is decided at the path that would cross it, and that path is
-      // left out — so a listing holds everything under the bound and names the bound when it stops.
-      const bound = listingBound(FOLDER_CEILING, state.paths.length, state.bytes, size);
-      if (bound !== undefined) {
-        state.cut = bound;
-        return;
-      }
-      state.paths.push(child);
-      state.bytes += size;
-    }
-  }
-
-  /**
-   * Whether the leaf is a plain file small enough for one `Y.Text`. The walk reads no bytes to
-   * decide this, so a binary whose name declares no format stays listed and is refused with the
-   * truth when someone asks for it.
-   */
-  private async shareable(dir: FolderDirectoryHandle, name: string): Promise<boolean> {
-    try {
-      const file = await (await dir.getFileHandle(name)).getFile();
-      return file.size <= MAX_GRANT_FILE_BYTES;
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -799,18 +681,18 @@ export class FolderWorkingCopy implements FolderWork {
    * read.
    */
   private async governingIgnores(path: string): Promise<IgnoreSource[]> {
-    const sources = await rootIgnores(this.handle);
+    // The root's own listing is read here and handed to `rootIgnores`, which together with each
+    // step below reads every directory on the way exactly once.
+    let entries = await listingOf(this.handle);
+    const sources = await rootIgnores(this.handle, entries ?? []);
     const segments = path.split('/');
     segments.pop();
     let dir = this.handle;
     for (let depth = 0; depth <= segments.length; depth += 1) {
-      const relative = segments.slice(0, depth).join('/');
-      let entries: FolderEntry[];
-      try {
-        entries = await folderEntries(dir);
-      } catch {
+      if (entries === undefined) {
         break;
       }
+      const relative = segments.slice(0, depth).join('/');
       const own = await ignoreFileIn(dir, entries, IGNORE_FILE);
       if (own !== undefined) {
         sources.push({ dir: relative, text: own });
@@ -822,11 +704,12 @@ export class FolderWorkingCopy implements FolderWork {
       if (!entries.some((entry) => entry.name === name && entry.kind === 'directory')) {
         break;
       }
-      try {
-        dir = await dir.getDirectoryHandle(name);
-      } catch {
+      const below = await childOf(dir, name);
+      if (below === undefined) {
         break;
       }
+      dir = below;
+      entries = await listingOf(dir);
     }
     return sources;
   }
@@ -1226,10 +1109,8 @@ export class FolderWorkingCopy implements FolderWork {
     path: string,
     dirs: string[],
   ): Promise<string | undefined> {
-    let entries: FolderEntry[];
-    try {
-      entries = await folderEntries(dir);
-    } catch {
+    const entries = await listingOf(dir);
+    if (entries === undefined) {
       return path;
     }
     for (const entry of entries) {
@@ -1431,20 +1312,33 @@ export class FolderWorkingCopy implements FolderWork {
   }
 }
 
-/** A directory's entries in name order, so which paths survive a cap does not depend on the
- * filesystem's own order. */
-async function folderEntries(dir: FolderDirectoryHandle): Promise<FolderEntry[]> {
+/**
+ * A directory's entries, ascending by name, or `undefined` when this host cannot list it.
+ *
+ * The order is this module's own: a walk that stops at a bound must not let the file system's order
+ * decide which paths survive it, and a refusal that names the first stranger under a folder must
+ * name the same one twice.
+ */
+async function listingOf(dir: FolderDirectoryHandle): Promise<FolderEntry[] | undefined> {
   const entries: FolderEntry[] = [];
-  for await (const entry of dir.values()) {
-    entries.push({ name: entry.name, kind: entry.kind });
+  try {
+    for await (const entry of dir.values()) {
+      entries.push({ name: entry.name, kind: entry.kind });
+    }
+  } catch {
+    return undefined;
   }
   entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   return entries;
 }
 
-/** A directory's entries, or `undefined` when this host cannot list it. */
-async function listingOf(dir: FolderDirectoryHandle): Promise<FolderEntry[] | undefined> {
-  return folderEntries(dir).catch(() => undefined);
+/**
+ * Whether a listing holds `name` as exactly `kind`, by the type the directory itself reported and
+ * never by a lookup: the File System Access API has no `lstat`, and a lookup answers what the name
+ * is now rather than what the listing saw.
+ */
+function holdsKind(entries: readonly WalkEntry[], name: string, kind: WalkEntry['kind']): boolean {
+  return entries.some((entry) => entry.name === name && entry.kind === kind);
 }
 
 /**
@@ -1457,13 +1351,26 @@ async function listingOf(dir: FolderDirectoryHandle): Promise<FolderEntry[] | un
  * that holds each lists it as an ordinary directory, and `exclude` only where `info` lists it as an
  * ordinary file (`ignoreFileIn`), so a `.git` that is a link to a repository elsewhere cannot
  * supply rules here.
+ *
+ * `entries` is the root's own listing, which the walk that calls this has just read: the folder is
+ * not listed a second time for its excludes, and `.git` and `info` are different directories.
  */
-async function rootIgnores(root: FolderDirectoryHandle): Promise<IgnoreSource[]> {
-  const git = await childDirectory(root, '.git');
+async function rootIgnores(
+  root: FolderDirectoryHandle,
+  entries: readonly WalkEntry[],
+): Promise<IgnoreSource[]> {
+  if (!holdsKind(entries, '.git', 'directory')) {
+    return [];
+  }
+  const git = await childOf(root, '.git');
   if (git === undefined) {
     return [];
   }
-  const info = await childDirectory(git, 'info');
+  const held = await listingOf(git);
+  if (held === undefined || !holdsKind(held, 'info', 'directory')) {
+    return [];
+  }
+  const info = await childOf(git, 'info');
   if (info === undefined) {
     return [];
   }
@@ -1472,27 +1379,34 @@ async function rootIgnores(root: FolderDirectoryHandle): Promise<IgnoreSource[]>
 }
 
 /**
- * The child directory `name` of `dir`, or `undefined` when `dir` neither lists it as an ordinary
- * directory nor can open it.
+ * The child directory `name` of `dir`, or `undefined` when the handle will not open it.
  *
- * A name the listing does not carry is not opened, so a name that is not a directory of the folder
- * — a link, or a link to one — contributes nothing.
+ * The walk calls this only for an entry its own listing reported as a directory, so the entry type
+ * is the check: a link, or a directory that is gone between the listing and this call, contributes
+ * nothing.
  */
-async function childDirectory(
+async function childOf(
   dir: FolderDirectoryHandle,
   name: string,
 ): Promise<FolderDirectoryHandle | undefined> {
-  const entries = await listingOf(dir);
-  if (
-    entries === undefined ||
-    !entries.some((entry) => entry.name === name && entry.kind === 'directory')
-  ) {
-    return undefined;
-  }
   try {
     return await dir.getDirectoryHandle(name);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Whether the leaf is a plain file small enough for one `Y.Text`. The walk reads no bytes to
+ * decide this, so a binary whose name declares no format stays listed and is refused with the
+ * truth when someone asks for it.
+ */
+async function shareableFile(dir: FolderDirectoryHandle, name: string): Promise<boolean> {
+  try {
+    const file = await (await dir.getFileHandle(name)).getFile();
+    return file.size <= MAX_GRANT_FILE_BYTES;
+  } catch {
+    return false;
   }
 }
 
@@ -1524,7 +1438,7 @@ async function childDirectory(
  */
 async function ignoreFileIn(
   dir: FolderDirectoryHandle,
-  entries: readonly FolderEntry[] | undefined,
+  entries: readonly WalkEntry[] | undefined,
   name: string,
 ): Promise<string | undefined> {
   const listing = entries ?? (await listingOf(dir));

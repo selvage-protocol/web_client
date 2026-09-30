@@ -254,11 +254,22 @@ describe('the listing', () => {
     assert.deepEqual(await folder.list(), ['exact', 'small.txt']);
   });
 
-  it('folds case, because a browser cannot tell whether the folder does', async () => {
-    // The shared rule's answer for an unknown host. A case-sensitive checkout loses `Build/`
+  it('folds case, because a page has no host platform to ask', async () => {
+    // The shared rule folds case when it cannot tell what the host file system does, and it asks
+    // `process` for that: a browser page has none, while the runner here is Node, so the global is
+    // taken away for the walk and put back after it. A case-sensitive checkout loses `Build/`
     // here; sharing less is the safer error.
-    const { folder } = projection(dir({ 'Build': dir({ 'out.txt': file('o') }), 'src': dir({ 'a.txt': file('a') }) }));
-    assert.deepEqual(await folder.list(), ['src/a.txt']);
+    const holder = globalThis as { process?: unknown };
+    const saved = holder.process;
+    delete holder.process;
+    try {
+      const { folder } = projection(
+        dir({ 'Build': dir({ 'out.txt': file('o') }), 'src': dir({ 'a.txt': file('a') }) }),
+      );
+      assert.deepEqual(await folder.list(), ['src/a.txt']);
+    } finally {
+      holder.process = saved;
+    }
   });
 
   it('leaves a directory it cannot descend into out whole rather than failing the walk', async () => {
