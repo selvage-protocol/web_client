@@ -544,6 +544,12 @@ export class GrantTreeView {
       }
       if (details.open) {
         this.pinned.add(child.path);
+        // The level this folder was shut behind is built here, the first time it is opened, and
+        // kept for the next opening. Presence is read now rather than taken from the render that
+        // drew this row: frames since then have repainted badges without rebuilding the rows.
+        if (details.children.length === 1) {
+          details.appendChild(this.level(child.path, depth + 1, current, this.presenceByPath()));
+        }
       } else {
         this.pinned.delete(child.path);
       }
@@ -573,7 +579,11 @@ export class GrantTreeView {
       head.classList.add('drop-into');
     }
     details.appendChild(head);
-    details.appendChild(this.level(child.path, depth + 1, current, presence));
+    // A shut folder is one row: its children are built when it is opened, so a listing of a
+    // hundred thousand paths costs the levels a person has opened and no more.
+    if (details.open) {
+      details.appendChild(this.level(child.path, depth + 1, current, presence));
+    }
     return details;
   }
 
