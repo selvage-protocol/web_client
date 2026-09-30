@@ -84,6 +84,8 @@ interface Log {
   aborted: number;
   /** Every name a handle lookup was asked for, so a read that never happened can be shown absent. */
   lookups: string[];
+  /** Every directory enumeration, in order, so a directory listed twice can be counted rather than read. */
+  listed: string[];
 }
 
 function domError(name: string): Error {
@@ -139,6 +141,7 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
     kind: 'directory',
     name,
     async *values(): AsyncIterableIterator<FolderEntry> {
+      log.listed.push(name);
       for (const [childName, child] of Object.entries(node.children)) {
         if (linkOf(child)) {
           continue;
@@ -206,7 +209,7 @@ function dirHandleOf(name: string, node: DirNode, log: Log): FolderDirectoryHand
 }
 
 function projection(tree: DirNode): { folder: FolderWorkingCopy; tree: DirNode; log: Log } {
-  const log: Log = { writes: [], removed: [], aborted: 0, lookups: [] };
+  const log: Log = { writes: [], removed: [], aborted: 0, lookups: [], listed: [] };
   return { folder: new FolderWorkingCopy(dirHandleOf('project', tree, log)), tree, log };
 }
 
@@ -275,7 +278,7 @@ describe('the listing', () => {
   it('leaves a directory it cannot descend into out whole rather than failing the walk', async () => {
     // A grant is a listing and not a promise: a subtree that vanished between the listing and
     // the descent is left out, and the walk still publishes everything else it found.
-    const log: Log = { writes: [], removed: [], aborted: 0, lookups: [] };
+    const log: Log = { writes: [], removed: [], aborted: 0, lookups: [], listed: [] };
     const top = file('t');
     const folder = new FolderWorkingCopy({
       kind: 'directory',
@@ -318,6 +321,26 @@ describe('the listing', () => {
     // the walk's answer for a name a room may not see — a folder this page may not name is not one it
     // may offer as a row.
     assert.deepEqual(folder.emptyFolders(), ['notes', 'src/api', 'src/api/v2']);
+  });
+
+  it('lists the shared root once, and takes its exclude from that read', async () => {
+    // The folder the person picked is one directory the walk reads, and its repository exclude is
+    // taken from what that read returned: listing it again for the exclude would pay for the whole
+    // folder twice, and a folder rich in assets would spend its budget before the walk began.
+    const { folder, log } = projection(
+      dir({
+        '.git': dir({ 'info': dir({ 'exclude': file('excluded.md\n') }) }),
+        '.gitignore': file('ignored.md\n'),
+        'excluded.md': file('e'),
+        'ignored.md': file('i'),
+        'kept.md': file('k'),
+      }),
+    );
+    assert.deepEqual(await folder.list(), ['.gitignore', 'kept.md']);
+    const roots = log.listed.filter((at) => at === 'project');
+    assert.equal(roots.length, 1, `the folder was listed ${roots.length} times`);
+    assert.ok(log.listed.includes('.git'), 'the repository directory was never read');
+    assert.ok(log.listed.includes('info'), 'the repository exclude was never looked for');
   });
 
   it('names no folder before the walk it reads has run', async () => {
@@ -774,7 +797,7 @@ describe("the folder's own ignore files", () => {
       '.gitignore': file('project/src/\n'),
       'project': dir({ 'src': dir({ 'main.ts': file('listed despite the rule above\n') }) }),
     });
-    const log: Log = { writes: [], removed: [], aborted: 0, lookups: [] };
+    const log: Log = { writes: [], removed: [], aborted: 0, lookups: [], listed: [] };
     const project = await dirHandleOf('outer', outer, log).getDirectoryHandle('project');
     const folder = new FolderWorkingCopy(project);
     assert.deepEqual(await folder.list(), ['src/main.ts']);
@@ -916,7 +939,7 @@ describe('asking for the folder', () => {
     const asked: unknown[] = [];
     const outcome = await pickFolder(async (options) => {
       asked.push(options);
-      return dirHandleOf('project', dir({ 'a.txt': file('a') }), { writes: [], removed: [], aborted: 0, lookups: [] });
+      return dirHandleOf('project', dir({ 'a.txt': file('a') }), { writes: [], removed: [], aborted: 0, lookups: [], listed: [] });
     });
     assert.equal(outcome.kind, 'picked');
     assert.equal(outcome.kind === 'picked' ? outcome.folder.name : '', 'project');
