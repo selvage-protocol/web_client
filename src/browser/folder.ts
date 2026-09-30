@@ -39,6 +39,8 @@
 
 import {
   MAX_GRANT_FILE_BYTES,
+  MAX_GRANT_LISTING_BYTES,
+  MAX_GRANT_NODES,
   MAX_GRANT_PATHS,
   isBinaryNamedPath,
   isGrantedPath,
@@ -46,6 +48,8 @@ import {
   sortGrant,
 } from '../bridge/index.ts';
 import type { GrantRefusal, GrantedRead, IgnoreSource, LineEnding } from '../bridge/index.ts';
+import { listingBound, listingPathBytes } from '../engine/limits.ts';
+import type { ListingBound, ListingCeiling } from '../engine/limits.ts';
 
 /**
  * The platform handed to the shared exclusion rule: none. A browser knows neither the host
@@ -59,12 +63,53 @@ import type { GrantRefusal, GrantedRead, IgnoreSource, LineEnding } from '../bri
 export const FOLDER_PLATFORM = '';
 
 /**
- * How many entries a walk will look at before it stops. The path count is the listing's own
- * bound; this is the one that keeps a directory with a hundred thousand entries in it from
- * costing a hundred thousand `getFile()` calls before anything is published. Same value and
- * same reasoning as the VS Code adapter's walk.
+ * The bounds one room listing carries, from the shared bridge's one home for them: the most paths,
+ * and the most bytes those paths take on the wire. The walk stops at whichever binds first, so what
+ * it publishes is a listing the engine's seal takes whole rather than one it shortens in silence.
  */
-export const MAX_FOLDER_NODES = 20_000;
+const FOLDER_CEILING: ListingCeiling = {
+  paths: MAX_GRANT_PATHS,
+  bytes: MAX_GRANT_LISTING_BYTES,
+};
+
+/**
+ * Which bound stopped a walk: either of the listing's two, or the work the walk pays for.
+ *
+ * A budget cut is the walk's own — the directory reads and the shareability checks it spends — and
+ * not a bound on a listing, which is why it is not one of `ListingBound`.
+ */
+export type FolderCut = ListingBound | 'budget';
+
+/**
+ * What the page says when its own walk stopped short of the folder.
+ *
+ * The host is the only one who can act on it — a short listing is a listing like any other, and no
+ * frame carries a cut — so this is said in the host's own window and nowhere else. The bounds are
+ * the protocol's, but the person sharing the folder is not the protocol: each sentence names what
+ * the folder is holding, and what sharing a smaller one would give the room.
+ */
+export function listingCutSentence(cut: FolderCut): string {
+  switch (cut) {
+    case 'paths':
+      return 'This folder holds more files than one room listing carries, so the room has only the first part of it. Share a smaller folder to give the room all of it.';
+    case 'bytes':
+      return 'This folder’s paths are longer in total than one room listing carries, so the room has only the first part of it. Share a folder with shorter paths to give the room all of it.';
+    case 'budget':
+      return 'Reading this folder took more work than one listing walk pays for, so the room has only the first part of it. Share a smaller folder to give the room all of it.';
+  }
+}
+
+/**
+ * What one walk carries as it descends: the listing, its size in path bytes, the work it has left to
+ * spend, the directories it entered, and the bound that stopped it.
+ */
+interface WalkState {
+  readonly paths: string[];
+  readonly folders: string[];
+  bytes: number;
+  nodes: number;
+  cut: FolderCut | undefined;
+}
 
 /** The ignore file any directory of the folder may state for its children. */
 const IGNORE_FILE = '.gitignore';
@@ -472,6 +517,14 @@ export class FolderWorkingCopy implements FolderWork {
    */
   private listed: ReadonlySet<string> | undefined;
   /**
+   * The bound the last {@link list} stopped at, or `undefined` when it read the whole folder.
+   *
+   * A walk that stopped short is a fact about the folder rather than about the listing, and the page
+   * is the one that says it: without this the person sharing a folder the room only holds part of is
+   * told nothing at all.
+   */
+  private cut: FolderCut | undefined;
+  /**
    * Every directory the last walk entered, ascending.
    *
    * Held apart from the listing, which is files: a directory is in a listing only through the files
@@ -506,16 +559,44 @@ export class FolderWorkingCopy implements FolderWork {
    * The folder's listing: files only, ascending by UTF-16 code unit, the paths the shared rule
    * shares. A directory that cannot be listed is one this host cannot share and is left out
    * whole rather than failing the walk, because a grant is a listing and not a promise.
+   *
+   * The walk stops at whichever binds first of the listing's two bounds — `MAX_GRANT_PATHS` paths or
+   * `MAX_GRANT_LISTING_BYTES` of their UTF-8 bytes — and, failing both, at the work budget. A bound
+   * is decided at the first path the room would be given that does not fit under it, so a listing
+   * that holds everything it could is complete rather than reported as cut. The budget pays for the
+   * work that costs a call: one node for a directory read, one for the shareability check asked of a
+   * candidate file. A name the walk can drop on its own — an excluded or ignored one, a binary-named
+   * one, an entry that is not a plain file — costs nothing, because the assets a folder carries are
+   * no part of what it shares.
    */
   async list(): Promise<string[]> {
-    const paths: string[] = [];
-    const folders: string[] = [];
-    const budget = { nodes: MAX_FOLDER_NODES };
-    await this.walk(this.handle, '', paths, folders, budget, await rootIgnores(this.handle));
-    const sorted = sortGrant(paths);
+    const state: WalkState = {
+      paths: [],
+      folders: [],
+      bytes: 0,
+      nodes: MAX_GRANT_NODES,
+      cut: undefined,
+    };
+    await this.walk(this.handle, '', state, await rootIgnores(this.handle));
+    const sorted = sortGrant(state.paths);
     this.listed = new Set(sorted);
-    this.folders = folders.sort();
+    this.folders = state.folders.sort();
+    this.cut = state.cut;
     return sorted;
+  }
+
+  /**
+   * Whether the last walk stopped short of the folder, and which bound stopped it.
+   *
+   * One fact in two shapes: a caller that only says it happened reads the first, and one that says
+   * which bound it was reads the second.
+   */
+  listingWasCut(): boolean {
+    return this.cut !== undefined;
+  }
+
+  listingCut(): FolderCut | undefined {
+    return this.cut;
   }
 
   /**
@@ -552,14 +633,18 @@ export class FolderWorkingCopy implements FolderWork {
   private async walk(
     dir: FolderDirectoryHandle,
     relative: string,
-    out: string[],
-    folders: string[],
-    budget: { nodes: number },
+    state: WalkState,
     inherited: readonly IgnoreSource[],
   ): Promise<void> {
-    if (out.length >= MAX_GRANT_PATHS || budget.nodes <= 0) {
+    if (state.cut !== undefined) {
       return;
     }
+    // Entering a directory is a read, and a read is what the budget pays for.
+    if (state.nodes <= 0) {
+      state.cut = 'budget';
+      return;
+    }
+    state.nodes -= 1;
     let entries: FolderEntry[];
     try {
       entries = await folderEntries(dir);
@@ -577,10 +662,9 @@ export class FolderWorkingCopy implements FolderWork {
     const own = await ignoreFileIn(dir, entries, IGNORE_FILE);
     const sources = own === undefined ? inherited : [...inherited, { dir: relative, text: own }];
     for (const entry of entries) {
-      if (out.length >= MAX_GRANT_PATHS || budget.nodes <= 0) {
+      if (state.cut !== undefined) {
         return;
       }
-      budget.nodes -= 1;
       const child = relative === '' ? entry.name : `${relative}/${entry.name}`;
       // The excludes, and the unsafe-name rule, are the shared ones: a `.env`, a key, a
       // `.git` and a path that escapes the folder are the same names here as on the desktop.
@@ -597,15 +681,8 @@ export class FolderWorkingCopy implements FolderWork {
         try {
           // Recorded before the descent: a directory that cannot be read is still one the listing
           // has no file under, and the tree has a row for it either way.
-          folders.push(child);
-          await this.walk(
-            await dir.getDirectoryHandle(entry.name),
-            child,
-            out,
-            folders,
-            budget,
-            sources,
-          );
+          state.folders.push(child);
+          await this.walk(await dir.getDirectoryHandle(entry.name), child, state, sources);
         } catch {
           // Gone or unreadable between the listing and the descent.
         }
@@ -616,9 +693,29 @@ export class FolderWorkingCopy implements FolderWork {
       if (isBinaryNamedPath(child)) {
         continue;
       }
-      if (await this.shareable(dir, entry.name)) {
-        out.push(child);
+      const size = listingPathBytes(child);
+      // The shareability check is the one call this entry costs, whether or not it ends in a name.
+      // The budget stop is here, before the call: a spent budget leaves the rest of the folder
+      // unread, so what it cut is not a listing bound and cannot be named as one.
+      if (state.nodes <= 0) {
+        state.cut = 'budget';
+        return;
       }
+      state.nodes -= 1;
+      if (!(await this.shareable(dir, entry.name))) {
+        continue;
+      }
+      // This entry is one the room would be given, so the listing's own bound is what it is held
+      // to: an entry the room was never going to be told about cannot be what makes a complete
+      // listing look cut. The bound is decided at the path that would cross it, and that path is
+      // left out — so a listing holds everything under the bound and names the bound when it stops.
+      const bound = listingBound(FOLDER_CEILING, state.paths.length, state.bytes, size);
+      if (bound !== undefined) {
+        state.cut = bound;
+        return;
+      }
+      state.paths.push(child);
+      state.bytes += size;
     }
   }
 

@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_GRANT_FILE_BYTES } from '../src/bridge/index.ts';
+import { MAX_GRANT_FILE_BYTES, MAX_GRANT_LISTING_BYTES, MAX_GRANT_NODES, MAX_GRANT_PATHS } from '../src/bridge/index.ts';
 import {
   FOLDER_PICKER_OPTIONS,
   FolderWorkingCopy,
@@ -21,6 +21,7 @@ import {
   folderPickerOf,
   folderRemoveSentence,
   folderWriteSentence,
+  listingCutSentence,
   pickFolder,
 } from '../src/browser/folder.ts';
 import type {
@@ -29,6 +30,7 @@ import type {
   FolderFileHandle,
   FolderWritable,
 } from '../src/browser/folder.ts';
+import { wireListingCutNotice } from '../src/browser/notice.ts';
 
 interface FileNode {
   kind: 'file';
@@ -312,6 +314,195 @@ describe('the listing', () => {
     assert.deepEqual(folder.emptyFolders(), [], 'a folder was named before anything had been read');
     await folder.list();
     assert.deepEqual(folder.emptyFolders(), ['notes']);
+  });
+});
+
+/**
+ * A directory of plain files, made as the walk reads it: the names are given and the leaves are built
+ * on demand, so a tree of a hundred thousand paths costs one array rather than a hundred thousand
+ * file nodes, and none of it touches a disk.
+ *
+ * `sizeOf` is the size each leaf reports, which is how a bound is driven without writing bytes: a
+ * file past `MAX_GRANT_FILE_BYTES` is one the walk checks and cannot share.
+ */
+function flatDir(
+  names: readonly string[],
+  sizeOf: (name: string) => number = () => 1,
+): FolderDirectoryHandle {
+  const leaf = (name: string): FolderFileHandle => ({
+    kind: 'file',
+    name,
+    async getFile() {
+      return { lastModified: 1, size: sizeOf(name), arrayBuffer: async () => new ArrayBuffer(0) };
+    },
+    async createWritable(): Promise<FolderWritable> {
+      throw domError('NotAllowedError');
+    },
+  });
+  return {
+    kind: 'directory',
+    name: 'project',
+    async *values(): AsyncIterableIterator<FolderEntry> {
+      for (const name of names) {
+        yield { name, kind: 'file' };
+      }
+    },
+    async getDirectoryHandle() {
+      throw domError('NotFoundError');
+    },
+    async getFileHandle(name: string) {
+      return leaf(name);
+    },
+    async removeEntry() {
+      throw domError('NotFoundError');
+    },
+  };
+}
+
+/** A name that sorts where its number says, so a listing can be read against the order it was made in. */
+function numbered(index: number, suffix: string): string {
+  return `f-${String(index).padStart(7, '0')}${suffix}`;
+}
+
+/**
+ * A `.md` name of exactly `bytes` UTF-8 bytes, `index` keeping it distinct from its neighbours. The
+ * grant holds a path to 4096 bytes, so a name this long is still one a room would carry.
+ */
+function nameOfBytes(bytes: number, index: number): string {
+  const head = `${String(index).padStart(4, '0')}-`;
+  return `${head}${'a'.repeat(bytes - head.length - '.md'.length)}.md`;
+}
+
+/** The names of a folder whose paths fill more than one listing's byte bound. */
+function longNames(count = 1500, bytes = 3000): string[] {
+  return Array.from({ length: count }, (_, index) => nameOfBytes(bytes, index));
+}
+
+describe('the listing ceiling', () => {
+  it('lists a folder of six thousand shareable files whole', async () => {
+    // The bound this wave raised: five thousand was a number the protocol does not name, and a folder
+    // at six thousand is an ordinary project rather than a pathological one.
+    const count = 6000;
+    const folder = new FolderWorkingCopy(
+      flatDir(Array.from({ length: count }, (_, index) => numbered(index, '.md'))),
+    );
+    const listing = await folder.list();
+    assert.equal(listing.length, count, `the listing stopped short of the folder: ${listing.length}`);
+    assert.equal(folder.listingWasCut(), false, 'a folder inside the bound was reported as cut');
+  });
+
+  it('does not let a folder of assets starve the walk', async () => {
+    // The defect this accounting exists for: a tree rich in assets and poor in sources. Every one of
+    // these names is dropped by the name alone — a format a room cannot carry — so the walk spends
+    // nothing on them, where charging for each entry would spend the whole budget before the first
+    // source and publish a listing that names none of them.
+    const assets = Array.from({ length: MAX_GRANT_NODES }, (_, index) => `a-${numbered(index, '.png')}`);
+    const sources = Array.from({ length: 5 }, (_, index) => `z-${numbered(index, '.md')}`);
+    const folder = new FolderWorkingCopy(flatDir([...assets, ...sources]));
+    const listing = await folder.list();
+    assert.equal(listing.length, 5, `assets starved the walk: ${listing.length} listed`);
+    assert.equal(folder.listingWasCut(), false, 'a complete listing was reported as cut');
+  });
+
+  it('stops at the path count one listing carries, and names that bound', async () => {
+    const folder = new FolderWorkingCopy(
+      flatDir(Array.from({ length: MAX_GRANT_PATHS + 1 }, (_, index) => numbered(index, '.md'))),
+    );
+    const listing = await folder.list();
+    assert.equal(folder.listingCut(), 'paths', 'the walk read past the ceiling in silence');
+    assert.equal(listing.length, MAX_GRANT_PATHS, 'the listing is not one ceiling wide');
+  });
+
+  it('stops when the paths it lists reach the byte bound, and names that bound', async () => {
+    // Names of 3000 bytes each, so the byte bound is the one that binds: fewer paths than the count
+    // bound, and more bytes than one listing carries.
+    const names = longNames();
+    assert.equal(
+      new TextEncoder().encode(names[0] ?? '').length,
+      3000,
+      'the names are not the size this test means',
+    );
+    const folder = new FolderWorkingCopy(flatDir(names));
+    const listing = await folder.list();
+    assert.equal(folder.listingCut(), 'bytes', 'the walk read past the byte bound in silence');
+    const bytes = listing.reduce((total, path) => total + new TextEncoder().encode(path).length, 0);
+    assert.ok(listing.length > 0, 'the byte bound stopped the walk at the first path');
+    assert.ok(listing.length < names.length, 'every path was listed');
+    assert.ok(bytes <= MAX_GRANT_LISTING_BYTES, `the listing is over the bound: ${bytes}`);
+    assert.ok(bytes + 3000 > MAX_GRANT_LISTING_BYTES, `the walk stopped short of the bound: ${bytes}`);
+  });
+
+  it('stops when its budget is spent, and says so rather than listing nothing', async () => {
+    // The budget pays for the shareability check every candidate costs, so a folder of files too
+    // large to share spends it without naming one. Two small files sort first and are listed; the
+    // bound that stops the walk is the budget and not the listing.
+    const names = [
+      'a-granted.md',
+      'a-granted-too.md',
+      ...Array.from({ length: MAX_GRANT_NODES + 1 }, (_, index) => numbered(index, '.md')),
+    ];
+    const folder = new FolderWorkingCopy(
+      flatDir(names, (name) =>
+        name.startsWith('a-') ? 1 : MAX_GRANT_FILE_BYTES + 1,
+      ),
+    );
+    const listing = await folder.list();
+    assert.deepEqual(listing, ['a-granted-too.md', 'a-granted.md'], 'the walk listed the wrong paths');
+    assert.equal(folder.listingCut(), 'budget', 'the walk gave up in silence');
+  });
+
+  it('does not call a listing cut when the listing holds everything', async () => {
+    // Exactly what one listing carries, plus a file beside them that no listing can name. The
+    // oversized file is not a path the room would ever be given, so it is not what makes the listing
+    // stop: a walk that cut here would tell a host its own complete listing was short.
+    const names = [
+      ...Array.from({ length: MAX_GRANT_PATHS }, (_, index) => numbered(index, '.md')),
+      'zz-too-large.md',
+    ];
+    const folder = new FolderWorkingCopy(
+      flatDir(names, (name) => (name === 'zz-too-large.md' ? MAX_GRANT_FILE_BYTES + 1 : 1)),
+    );
+    assert.equal((await folder.list()).length, MAX_GRANT_PATHS);
+    assert.equal(folder.listingWasCut(), false, 'a complete listing was reported as cut');
+    assert.equal(folder.listingCut(), undefined);
+  });
+});
+
+describe('the host is told its own listing was cut', () => {
+  /** The line the sentence stands on: what it was shown, in order. */
+  function alertLine(): { shown: string[]; show: (text: string) => void; dismiss: () => void } {
+    const shown: string[] = [];
+    return { shown, show: (text) => void shown.push(text), dismiss: () => {} };
+  }
+
+  it('says a cut once, and says nothing for a walk that holds the folder', async () => {
+    const alert = alertLine();
+    const notice = wireListingCutNotice(alert);
+
+    const cut = new FolderWorkingCopy(flatDir(longNames()));
+    await cut.list();
+    notice.say(cut.listingCut());
+    assert.deepEqual(alert.shown, [listingCutSentence('bytes')]);
+    assert.ok(
+      !(alert.shown[0] ?? '').includes('Selvage'),
+      'the page wrapped its own sentence in the client’s prefix',
+    );
+
+    // Every act that changes the folder is followed by a walk of its own, and the folder is exactly
+    // as far past the bound as it was: the cut is a fact about the folder, so it is said for the
+    // folder rather than once per act.
+    await cut.list();
+    notice.say(cut.listingCut());
+    assert.equal(alert.shown.length, 1, 'the same cut was said again');
+
+    const whole = new FolderWorkingCopy(flatDir(['a.md']));
+    await whole.list();
+    notice.say(whole.listingCut());
+    assert.equal(alert.shown.length, 1, 'a complete listing was said to the host');
+
+    // A complete walk is not the end of the news either: a cut after it is said.
+    notice.say('paths');
+    assert.equal(alert.shown.length, 2, 'a cut after a complete walk was not said');
   });
 });
 

@@ -16,8 +16,12 @@
  *   counted by a `+N more` pill.
  * - **the failure alert** and **the tap-revealed line** are the same mechanism with different copy:
  *   one sentence about a thing that just happened, standing a few seconds and leaving on its own.
+ *   The host's own listing cut is said on the alert: it is a fact about the folder this window
+ *   shares, and the guest is told nothing, because a short listing is a listing like any other.
  */
 import { disconnectingReading, hostAwaySentence, hostLeftSentence } from '../bridge/index.ts';
+import { listingCutSentence } from './folder.ts';
+import type { FolderCut } from './folder.ts';
 import { iconSpan } from './icons.ts';
 
 export interface NoticeOptions {
@@ -102,6 +106,36 @@ export function wireFailureAlert(element: HTMLElement, options: NoticeOptions = 
 /** Wires the tap-revealed line, with the same empty-is-hidden rule as the alert. */
 export function wireTapPeek(element: HTMLElement, options: NoticeOptions = {}): TapPeek {
   return wireTransientLine(element, options);
+}
+
+/** What the host's own cut is said through: one line, and one saying per cut. */
+export interface ListingCutNotice {
+  /** Reads the bound the last walk stopped at, or `undefined`, and says it if it is news. */
+  say(cut: FolderCut | undefined): void;
+}
+
+/**
+ * The host's own news that its walk stopped short of the folder, said once per cut.
+ *
+ * A cut is a fact about the folder and not about one walk, and every act that changes the folder is
+ * followed by a walk of its own: a sentence that simply followed every walk would be said again for
+ * a removal that left the folder exactly as far past the bound as it was. So it is said when it
+ * appears and when the bound changes, and not again while it stands. A folder trimmed until it fits
+ * says nothing, and one that grows past a bound again is said again.
+ */
+export function wireListingCutNotice(alert: FailureAlert): ListingCutNotice {
+  let said: FolderCut | undefined;
+  return {
+    say(cut: FolderCut | undefined): void {
+      if (cut === said) {
+        return;
+      }
+      said = cut;
+      if (cut !== undefined) {
+        alert.show(listingCutSentence(cut));
+      }
+    },
+  };
 }
 
 /**
