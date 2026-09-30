@@ -332,39 +332,40 @@ describe('what a tree re-render reads', () => {
     local: '',
     asking: '',
     moving: '',
+    paths: 'src/main.ts\nsrc/lib.ts',
     marks: 'src/main.ts:in-room\nsrc/lib.ts:',
   };
 
   it('is a function of the listing and the row chrome', () => {
-    const key = rowsKey(['src/main.ts', 'src/lib.ts'], chrome);
+    const key = rowsKey(chrome);
     // The same rows and the same chrome read the same, whatever else moved: this is
     // what lets a presence frame repaint badges instead of rebuilding the tree.
-    assert.equal(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts', 'src/new.ts'], chrome), key);
-    assert.notEqual(rowsKey(['src/lib.ts', 'src/main.ts'], chrome), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, current: 'src/lib.ts' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, touch: true }), key);
+    assert.equal(rowsKey({ ...chrome }), key);
+    assert.notEqual(rowsKey({ ...chrome, paths: 'src/main.ts\nsrc/lib.ts\nsrc/new.ts' }), key);
+    assert.notEqual(rowsKey({ ...chrome, paths: 'src/lib.ts\nsrc/main.ts' }), key);
+    assert.notEqual(rowsKey({ ...chrome, current: 'src/lib.ts' }), key);
+    assert.notEqual(rowsKey({ ...chrome, touch: true }), key);
     // The create row and the folders this session made are row chrome too: a frame that changes one
     // of them has to redraw the rows it changed.
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, draft: 'file:src' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, local: 'docs' }), key);
+    assert.notEqual(rowsKey({ ...chrome, draft: 'file:src' }), key);
+    assert.notEqual(rowsKey({ ...chrome, local: 'docs' }), key);
     // What the room knows about a document is chrome as well: a path is listed from the grant alone,
     // so a document arriving changes it while the listing reads exactly the same — and that is what
     // a host's row reads to offer its download.
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, marks: 'src/main.ts:empty' }), key);
+    assert.notEqual(rowsKey({ ...chrome, marks: 'src/main.ts:empty' }), key);
     // The two rows that are states of the tree are chrome as well: the row asking to be taken out,
     // and the file a move is holding. Both are drawn in place and both move the marking.
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, asking: 'file:src/lib.ts' }), key);
-    assert.notEqual(rowsKey(['src/main.ts', 'src/lib.ts'], { ...chrome, moving: 'src/lib.ts\u0000src' }), key);
+    assert.notEqual(rowsKey({ ...chrome, asking: 'file:src/lib.ts' }), key);
+    assert.notEqual(rowsKey({ ...chrome, moving: 'src/lib.ts\u0000src' }), key);
   });
 
   it('separates the row chrome from the listing', () => {
     // The parts cannot be read as one another: a path carries no NUL and no line feed
     // (a name with a control character is not a granted path), and the chrome's own
     // fields come before the listing's.
-    const blank = { ...chrome, current: undefined };
-    assert.notEqual(rowsKey(['a'], blank), rowsKey([], { ...blank, current: 'a' }));
-    assert.notEqual(rowsKey([], blank), rowsKey([], { ...blank, draft: 'file:' }));
-    assert.notEqual(rowsKey([], blank), rowsKey([], { ...blank, local: 'docs' }));
+    const blank = { ...chrome, current: undefined, paths: '' };
+    assert.notEqual(rowsKey({ ...blank, paths: 'a' }), rowsKey({ ...blank, current: 'a' }));
+    assert.notEqual(rowsKey(blank), rowsKey({ ...blank, draft: 'file:' }));
+    assert.notEqual(rowsKey(blank), rowsKey({ ...blank, local: 'docs' }));
   });
 });
