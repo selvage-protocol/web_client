@@ -183,10 +183,25 @@ function participant(peerId, displayName, colour, path) {
   return { peerId, displayName, role: 'guest', colour, path };
 }
 
+/**
+ * The page's binding as the tree reads it.
+ *
+ * The levels are held until the listing moves, the way `editor.ts` holds them: a level asked for is
+ * the same call however many folders ask, and a double that re-derived a hundred thousand paths per
+ * call would measure itself rather than the view.
+ */
 function makeSource(state) {
+  let levels;
+  let at;
   return {
     grantListing: () => state.listing,
-    grantTree: (directory = '') => grantLevels(state.listing).get(directory) ?? [],
+    grantTree: (directory = '') => {
+      if (at !== state.listing) {
+        at = state.listing;
+        levels = grantLevels(state.listing);
+      }
+      return levels.get(directory) ?? [];
+    },
     currentPath: () => state.current,
     isOpenInRoom: (path) => (state.inRoom ?? []).includes(path),
     hasText: (path) => (state.textHere ?? []).includes(path),
@@ -203,12 +218,21 @@ function listing(count) {
   );
 }
 
+/** A listing at the protocol's own ceiling: 100 000 paths, which is what a monorepo can be. */
+function ceilingListing() {
+  return Array.from(
+    { length: 100_000 },
+    (_, index) =>
+      `src/mod${String(index % 100).padStart(3, '0')}/file${String(index).padStart(6, '0')}.ts`,
+  );
+}
+
 function makeView(state) {
   const pane = makeElement('div');
   const view = new GrantTreeView({
     pane,
     source: makeSource(state),
-    pinned: new Set(),
+    pinned: state.pinned ?? new Set(),
     touch: () => state.touch ?? false,
     canCreate: () => state.canCreate ?? false,
     localFolders: () => state.local ?? new Set(),
@@ -248,23 +272,28 @@ describe('the grant tree redraws what changed', () => {
     const { pane, view } = makeView(state);
     view.render();
     const built = pane.children[0];
-    assert.ok(world.created > 100, 'the first render built the tree');
+    // The open file's folder is the one level that is built: a shut folder's rows are not drawn
+    // until it is opened, so what the peer moves between below is a folder row and a file row.
+    assert.ok(rowOf(pane, 'src/mod00/file000.ts') !== undefined, 'the open file’s folder drew no rows');
+    assert.equal(rowOf(pane, 'src/mod01/file010.ts'), undefined, 'a shut folder drew its rows');
     world.created = 0;
 
     // One peer's cursor moves to another file: the row it left and the row it entered, and the two
     // folders those files sit in — a shut folder wears the badges of the peers inside it, so a peer
-    // moving between two of its files changes that row as well.
+    // moving between two of its files changes that row as well. The file it moved into is in a shut
+    // folder, so the row that changed there is the folder's own.
     state.participants = [participant('p-1', 'ada', '#112233', 'src/mod03/file033.ts')];
     view.render();
 
     assert.equal(pane.children[0], built, 'a presence move rebuilt the tree');
     assert.ok(world.created <= 2, `a presence move made ${world.created} elements`);
-    const wearing = allWithClass(pane, 'presence').filter((span) => span.children.length === 1);
-    assert.equal(wearing.length, 2, 'the rows the peer entered wear no badge');
     const folder = allWithClass(pane, 'presence').find((span) => span.title === 'Inside src/mod03/');
-    assert.equal(folder?.children.length, 1, 'the folder the peer moved into wears no badge');
+    assert.equal(folder?.children.length, 1, 'the shut folder the peer moved into wears no badge');
     const left = allWithClass(pane, 'presence').find((span) => span.title === 'Inside src/mod00/');
     assert.equal(left?.children.length, 0, 'the folder the peer left still wears their badge');
+    const leftRow = rowOf(pane, 'src/mod00/file000.ts');
+    const leftBadges = leftRow?.children.find((child) => child.className === 'presence');
+    assert.equal(leftBadges?.children.length, 0, 'the file row the peer left still wears their badge');
   });
 
   it('a listing that moved rebuilds the tree', () => {
@@ -309,8 +338,109 @@ describe('the grant tree redraws what changed', () => {
     const state = { listing: ['src/main.ts'], current: undefined, touch: false, opened: [], participants: [] };
     const { pane, view } = makeView(state);
     view.render();
+    openFolder(pane, 'src/');
     rowFor(pane, 'main.ts').click();
     assert.deepEqual(state.opened, ['src/main.ts']);
+  });
+});
+
+describe('a level of the tree', () => {
+  it('is built when its folder is opened, not before', () => {
+    const state = { listing: ['src/main.ts', 'src/lib.ts'], current: undefined, touch: false, opened: [], participants: [] };
+    const { pane, view } = makeView(state);
+    view.render();
+    assert.deepEqual(
+      allWithClass(pane, 'row').map((row) => row.dataset.open),
+      [],
+      'a shut folder drew its children',
+    );
+
+    const details = openFolder(pane, 'src/');
+    assert.deepEqual(
+      allWithClass(pane, 'row').map((row) => row.dataset.open),
+      ['src/lib.ts', 'src/main.ts'],
+      'opening the folder did not draw its children',
+    );
+
+    // A folder that is shut again keeps the level it built: the browser hides it, and reopening
+    // it is a disclosure, not a redraw.
+    details.open = false;
+    details.fire('toggle');
+    assert.equal(allWithClass(pane, 'row').length, 2, 'shutting the folder threw its level away');
+    openFolder(pane, 'src/');
+    assert.equal(allWithClass(pane, 'row').length, 2, 'reopening the folder built a second level');
+  });
+
+  it('draws a path that arrives while its folder is open', () => {
+    const state = { listing: ['src/main.ts'], current: undefined, touch: false, opened: [], participants: [] };
+    const { pane, view } = makeView(state);
+    view.render();
+    openFolder(pane, 'src/');
+    assert.ok(rowOf(pane, 'src/main.ts') !== undefined, 'the folder opened empty');
+
+    state.listing = ['src/main.ts', 'src/late.ts'];
+    view.render();
+    assert.ok(rowOf(pane, 'src/late.ts') !== undefined, 'a path that arrived is not drawn in the open folder');
+  });
+
+  it('a nested row arrives when the folder holding it is opened', () => {
+    // A folder is in a listing only through the paths inside it, so `src/api/` is drawn at `src`'s
+    // own level: it takes one opening to reach it rather than two.
+    const state = {
+      listing: ['src/main.ts', 'src/api/handler.ts'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    openFolder(pane, 'src/');
+    assert.ok(summaryFor(pane, 'api/') !== undefined, 'the nested folder row was not drawn');
+    assert.equal(rowOf(pane, 'src/api/handler.ts'), undefined, 'a shut nested folder drew its rows');
+    openFolder(pane, 'api/');
+    assert.ok(rowOf(pane, 'src/api/handler.ts') !== undefined, 'the nested level did not build');
+  });
+
+  it('takes the badges of the room into a level it builds later', () => {
+    // A presence frame repaints badges without rebuilding rows, so the level built on a later
+    // opening must read where everyone is now rather than where they were when the row was drawn.
+    const state = {
+      listing: ['src/main.ts'],
+      current: undefined,
+      touch: false,
+      opened: [],
+      participants: [],
+    };
+    const { pane, view } = makeView(state);
+    view.render();
+    state.participants = [participant('p-1', 'ada', '#112233', 'src/main.ts')];
+    view.render();
+    openFolder(pane, 'src/');
+    const row = rowOf(pane, 'src/main.ts');
+    const badges = row.children.find((child) => child.className === 'presence');
+    assert.equal(badges?.children.length, 1, 'the level was built without the peer that is in the room');
+    assert.equal(badges?.children[0].textContent, 'ad');
+  });
+});
+
+describe('a listing at the ceiling', () => {
+  it('draws the levels a person opened, not a row per path', () => {
+    const state = { listing: ceilingListing(), current: undefined, touch: false, opened: [], participants: [] };
+    const { pane, view } = makeView(state);
+    world.created = 0;
+    const started = Date.now();
+    view.render();
+    const elapsed = Date.now() - started;
+
+    assert.equal(state.listing.length, 100_000, 'the listing is not the one the ceiling names');
+    assert.equal(allWithClass(pane, 'row').length, 0, 'a shut tree drew file rows');
+    assert.equal(allWithClass(pane, 'folder').length / 2, 1, 'the top level drew more than its one folder');
+    assert.ok(
+      world.created < 100,
+      `the render made ${world.created} elements for a listing of ${state.listing.length} paths`,
+    );
+    assert.ok(elapsed < 5_000, `the render took ${elapsed} ms for ${state.listing.length} paths`);
   });
 });
 
@@ -1005,6 +1135,17 @@ function summaryFor(pane, name) {
   return label.parentElement;
 }
 
+/**
+ * Opens a folder the way a person does: the browser sets `open` and fires the toggle the view
+ * listens for, and only a trusted toggle is the guest's own.
+ */
+function openFolder(pane, name) {
+  const details = summaryFor(pane, name).parentElement;
+  details.open = true;
+  details.fire('toggle');
+  return details;
+}
+
 /** A drag's own data transfer, which is the one browser object the handlers read. */
 function dataTransfer() {
   const written = [];
@@ -1021,6 +1162,9 @@ describe('the row that asks to be taken out', () => {
       touch: false,
       opened: [],
       participants: [],
+      // The guest opened these, as clicks do: a shut folder's rows are not drawn, and every nested
+      // row these tests reach for is inside them.
+      pinned: new Set(['src', 'src/api', 'tests']),
       canCreate: true,
       remove: async (path) => {
         calls.push(path);
@@ -1198,6 +1342,7 @@ describe('moving a file', () => {
       touch: false,
       opened: [],
       participants: [],
+      pinned: new Set(['src']),
       canCreate: true,
       say: (text) => void said.push(text),
       ...overrides,
