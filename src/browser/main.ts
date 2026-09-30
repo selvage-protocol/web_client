@@ -264,19 +264,20 @@ const toasts = wireDownloadToasts(
 /** Failures of an action the guest took: shown, then gone on their own. */
 const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLElement);
 /**
- * The host's own news that a walk stopped short of the folder it shares, said once per cut. The
- * person who can act on it is the host, and the guest learns nothing: a short listing is a listing
- * like any other, and no frame carries a cut.
+ * The host's own news that a walk stopped short of the folder it shares, said once per cut the
+ * session makes. The person who can act on it is the host, and the guest learns nothing: a short
+ * listing is a listing like any other, and no frame carries a cut.
  */
 const listingCutNotice = wireListingCutNotice(failureAlert);
 
 /**
  * Says the bound the walk that just ran left on the folder, if it is news. Every walk this page
  * makes its own goes through here: the one that mints the room from the listing, the one a removal
- * or a move triggers, and the one a create publishes.
+ * or a move triggers, and the one a create publishes. The folder is the session's own, so a second
+ * room hosted from this page is told a cut at the same bound again.
  */
 function sayListingCut(folder: FolderWorkingCopy): void {
-  listingCutNotice.say(folder.listingCut());
+  listingCutNotice.say(folder, folder.listingCut());
 }
 /**
  * What a fingertip touched: the words a `title` would have shown a pointer, and

@@ -108,29 +108,36 @@ export function wireTapPeek(element: HTMLElement, options: NoticeOptions = {}): 
   return wireTransientLine(element, options);
 }
 
-/** What the host's own cut is said through: one line, and one saying per cut. */
+/** What the host's own cut is said through: one line, and one saying per cut, per session. */
 export interface ListingCutNotice {
-  /** Reads the bound the last walk stopped at, or `undefined`, and says it if it is news. */
-  say(cut: FolderCut | undefined): void;
+  /**
+   * Reads the bound one session's walk stopped at, or `undefined`, and says it if it is news to
+   * that session. `session` is what the cut belongs to: the folder this window serves. Two sessions
+   * are news separately, because a page can end a room and host again, so a second folder that
+   * stops at the first one's bound is a cut its host has not been told.
+   */
+  say(session: object, cut: FolderCut | undefined): void;
 }
 
 /**
- * The host's own news that its walk stopped short of the folder, said once per cut.
+ * The host's own news that its walk stopped short of the folder, said once per cut and per session.
  *
  * A cut is a fact about the folder and not about one walk, and every act that changes the folder is
  * followed by a walk of its own: a sentence that simply followed every walk would be said again for
  * a removal that left the folder exactly as far past the bound as it was. So it is said when it
- * appears and when the bound changes, and not again while it stands. A folder trimmed until it fits
- * says nothing, and one that grows past a bound again is said again.
+ * appears and when the bound changes, and not again while it stands — while it is the same
+ * session's, because the memory is the session's and not the page's. The session key is held
+ * weakly, so a room that has ended does not pin the folder it served. A folder trimmed until it
+ * fits says nothing, and one that grows past a bound again is said again.
  */
 export function wireListingCutNotice(alert: FailureAlert): ListingCutNotice {
-  let said: FolderCut | undefined;
+  const said = new WeakMap<object, FolderCut | undefined>();
   return {
-    say(cut: FolderCut | undefined): void {
-      if (cut === said) {
+    say(session: object, cut: FolderCut | undefined): void {
+      if (said.has(session) && said.get(session) === cut) {
         return;
       }
-      said = cut;
+      said.set(session, cut);
       if (cut !== undefined) {
         alert.show(listingCutSentence(cut));
       }
