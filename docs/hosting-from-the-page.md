@@ -40,6 +40,10 @@ Seven things that shape it:
   the file a guest asks for as well as the listing: a path that is there and ignored is refused the
   same silent `not-granted` an excluded name gets, and a path that is not there is refused `missing`
   like any other absent path, which says nothing about the ignore rule either.
+  One room listing carries a bounded number of paths and a bounded number of path bytes. A folder
+  past either is shared in part, the walk stopping at the first path that would cross the bound, and
+  that is said **to the host** — once for the cut, on the page's transient line — because the host is
+  the one who can share a smaller folder. A guest sees a listing and never a cut.
 - **The folder is the bound on what the page reads.** A `.gitignore` above the picked folder is not
   read, so a folder shared from inside a repository does not honor the rules above it, and neither
   git's user-wide ignore (`core.excludesFile`) nor any other rule outside the folder is read. What
