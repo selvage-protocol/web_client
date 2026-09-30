@@ -94,6 +94,7 @@ import {
   hostPresent,
   wireDownloadToasts,
   wireFailureAlert,
+  wireListingCutNotice,
   wireSessionCard,
   wireTapPeek,
 } from './notice.ts';
@@ -262,6 +263,21 @@ const toasts = wireDownloadToasts(
 );
 /** Failures of an action the guest took: shown, then gone on their own. */
 const failureAlert = wireFailureAlert(document.getElementById('alert') as HTMLElement);
+/**
+ * The host's own news that a walk stopped short of the folder it shares, said once per cut. The
+ * person who can act on it is the host, and the guest learns nothing: a short listing is a listing
+ * like any other, and no frame carries a cut.
+ */
+const listingCutNotice = wireListingCutNotice(failureAlert);
+
+/**
+ * Says the bound the walk that just ran left on the folder, if it is news. Every walk this page
+ * makes its own goes through here: the one that mints the room from the listing, the one a removal
+ * or a move triggers, and the one a create publishes.
+ */
+function sayListingCut(folder: FolderWorkingCopy): void {
+  listingCutNotice.say(folder.listingCut());
+}
 /**
  * What a fingertip touched: the words a `title` would have shown a pointer, and
  * the reason a disabled action would have given on hover. It stands briefly and
@@ -558,6 +574,9 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<CreateRes
     // did land is never reported as one that did not.
     return { kind: 'refused', sentence: `${path} was not created: ${describe(error)}` };
   }
+  // The create's own re-walk is where a folder past a bound shows up, and the cut is the page's to
+  // say whether or not the rest of the act finished.
+  sayListingCut(folder);
   // A directory is not in a listing (a room's listing is files), so the page remembers the ones
   // this session made and draws them as its own rows: a folder that vanished the moment it was
   // made would be a control that lied about what it did.
@@ -594,6 +613,7 @@ async function publishFolder(): Promise<string | undefined> {
   }
   try {
     await republishGrant?.(await folder.list());
+    sayListingCut(folder);
     return undefined;
   } catch (error: unknown) {
     return describe(error);
@@ -1160,6 +1180,7 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
   // A host's listing is what the room's state is sealed from (`§7.1`), so the walk has to come
   // before the mint: a host that minted first would put an empty room in front of its first guest.
   const listing = listingSource(await folder.list());
+  sayListingCut(folder);
   const engine = await hostRoom(base, displayName, listing);
   const session = engine.session();
   await seatSession({
