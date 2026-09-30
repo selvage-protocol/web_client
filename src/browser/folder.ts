@@ -75,8 +75,11 @@ const FOLDER_CEILING: ListingCeiling = {
 /**
  * Which bound stopped a walk: either of the listing's two, or the work the walk pays for.
  *
- * A budget cut is the walk's own — the directory reads and the shareability checks it spends — and
- * not a bound on a listing, which is why it is not one of `ListingBound`.
+ * `paths` and `bytes` are recorded only where a file the walk would have named did not fit, so a
+ * listing that holds every shareable file of the folder reports no cut. A budget cut is the walk's
+ * own — the directory reads and the shareability checks it spends — and not a bound on a listing,
+ * which is why it is not one of `ListingBound`: a spent budget leaves the rest of the folder unread,
+ * so it says the walk stopped and not that anything was left out.
  */
 export type FolderCut = ListingBound | 'budget';
 
@@ -95,7 +98,7 @@ export function listingCutSentence(cut: FolderCut): string {
     case 'bytes':
       return 'This folder’s paths are longer in total than one room listing carries, so the room has only the first part of it. Share a folder with shorter paths to give the room all of it.';
     case 'budget':
-      return 'Reading this folder took more work than one listing walk pays for, so the room has only the first part of it. Share a smaller folder to give the room all of it.';
+      return 'Reading this folder took more work than one listing walk pays for, so the room may be missing some of its files. Share a smaller folder to give the room all of it.';
   }
 }
 
