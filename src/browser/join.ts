@@ -197,7 +197,7 @@ export function resolveJoin(
 function serverOfPage(pageAddress: string): SessionBase {
   const base = sessionBase(serverBaseOf(pageAddress));
   if (base === undefined) {
-    throw new Error('This page names no server to join. Open the link the host sent you.');
+    throw new Error('This page has no server to join. Open the link the host sent you.');
   }
   return base;
 }

@@ -99,7 +99,7 @@ describe('the server a link names', () => {
     // the room may not be on.
     assert.throws(
       () => resolveJoin(new URLSearchParams('room=r-1&token=tok'), '', 'file:///srv/dist/index.html'),
-      /This page names no server to join\. Open the link the host sent you\./,
+      /This page has no server to join\. Open the link the host sent you\./,
     );
   });
 
