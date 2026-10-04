@@ -139,8 +139,9 @@ const NO_PATH = 'not in a file yet';
 
 /**
  * The headline a refused go-to wears, over the room's own reason for it. The reason is the notice's
- * — `<name> is not in a document`, `<name>'s caret does not resolve here` — and this is the part
- * that is the page's, so the design's two lines are two elements.
+ * — `<name> is not in a file`, `<name>’s cursor could not be found in this file` — and this is the
+ * part that is the page's, so the design's two lines are two elements. The reason never repeats the
+ * headline, because the two are read as one line.
  */
 export const NOTHING_TO_GO_TO = 'Nothing to go to';
 
