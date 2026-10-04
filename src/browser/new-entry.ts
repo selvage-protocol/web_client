@@ -56,12 +56,12 @@ export type CreateOutcome = FolderCreate | { kind: 'incomplete'; path: string; s
 
 /** What a create that reached the folder but not the room says. */
 export function listingNotPublishedSentence(path: string, reason: string): string {
-  return `${path} is in the folder, but the room was not told the listing changed: ${reason}. The folder holds it, and the next listing this page publishes carries it.`;
+  return `${path} is in the folder, but the room\u2019s file list was not updated: ${reason}. It appears there with the next update.`;
 }
 
 /** What a created file that could not be opened says: the room has the path and not its text. */
 export function createdFileNotOpenedSentence(path: string, reason: string): string {
-  return `${path} is in the folder and the room lists it, but this page could not open it: ${reason}. Its text reaches the room when it is opened.`;
+  return `${path} is in the folder and the room lists it, but opening it failed: ${reason}. Open it again to bring its text into the room.`;
 }
 
 /**
@@ -191,7 +191,7 @@ export function checkNewEntry(context: NewEntryContext): NewEntryCheck {
     return refuse(`${path} is not a path this room shares.`);
   }
   if (context.kind === 'file' && isBinaryNamedPath(path)) {
-    return refuse(`${path} declares a format a room cannot carry. Name a text file.`);
+    return refuse(`${path} is not a text file, and a room carries only text.`);
   }
   if (isTaken(path, context)) {
     return refuse(

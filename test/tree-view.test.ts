@@ -1028,7 +1028,7 @@ describe('a row’s own actions', () => {
     view.render();
     withClass(pane, 'download').fire('click');
     const feedback = calls[0].feedback;
-    const costs = 'Fetching opens notes.md in the room, so every peer receives it.';
+    const costs = 'Downloading notes.md opens it in the room, so everyone there gets its text.';
     feedback.note(costs);
     feedback.note('notes.md is still empty. The host sent no text for it.', [
       { label: 'Try again', run: () => {} },
@@ -1239,7 +1239,7 @@ describe('the row that asks to be taken out', () => {
     assert.equal(row.parentElement.dataset.dir, 'src');
     assert.equal(row.parentElement.open, true, 'the folder shut under the person');
     assert.equal(row.attributes['aria-label'], 'Delete src/ and its 3 files?');
-    assert.equal(row.attributes['aria-description'], 'Enter on Delete confirms, Escape leaves it');
+    assert.equal(row.attributes['aria-description'], 'Enter on Delete confirms, Escape keeps it');
     const mark = withClass(row, 'del-mark');
     assert.equal(mark.attributes['aria-hidden'], 'true');
     assert.ok(mark.innerHTML.includes('<svg'), 'the mark is not the trash');
@@ -1438,7 +1438,7 @@ describe('moving a file', () => {
 
     // The choice walks every folder the listing has, in order, and the top level last.
     pane.fire('keydown', { target: row(), key: 'ArrowUp' });
-    assert.equal(said[1], 'Already into src', 'the folder it is in is not read as where it already is');
+    assert.equal(said[1], 'Already in src', 'the folder it is in is not read as where it already is');
     pane.fire('keydown', { target: row(), key: 'ArrowDown' });
     assert.equal(said[2], 'Drops into tests');
     assert.ok(summaryFor(pane, 'tests/').classes.includes('drop-into'), 'the choice is not marked');
@@ -1484,7 +1484,7 @@ describe('moving a file', () => {
     assert.equal(allWithClass(pane, 'drop-into').length, 0, 'the folder it is already in is marked');
     pane.fire('keydown', { target: rowFor(pane, 'main.ts'), key: 'Enter' });
     assert.deepEqual(calls, [], 'the file was moved into the folder it was already in');
-    assert.equal(said.at(-1), 'Already into src');
+    assert.equal(said.at(-1), 'Already in src');
   });
 
   it('does not move a file onto a name the folder already holds', () => {

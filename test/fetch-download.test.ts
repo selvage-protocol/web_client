@@ -255,7 +255,7 @@ describe('a path whose text has not been fetched', () => {
   });
 
   it('says what a fetch costs only when a fetch is what comes next', () => {
-    // `Fetching opens …` is about an act: a path this window holds is answered out of its own
+    // `Downloading … opens it in the room` is about an act: a path this window holds is answered out of its own
     // document, with no open behind it, so the sentence would describe a fetch that never happens.
     // It stood over the open file — a file this window plainly has — as well.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
@@ -301,7 +301,7 @@ describe('what the row says', () => {
     assert.equal(fetchingSentence('src/main.rs'), 'Asking the host for src/main.rs…');
     assert.equal(
       fetchCostsSentence('src/main.rs'),
-      'Fetching opens src/main.rs in the room, so every peer receives it.',
+      'Downloading src/main.rs opens it in the room, so everyone there gets its text.',
     );
   });
 

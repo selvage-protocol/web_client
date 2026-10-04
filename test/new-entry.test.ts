@@ -286,7 +286,7 @@ describe('the create, from the page to the room', () => {
     assert.equal(outcome.kind, 'incomplete');
     assert.match(
       outcome.kind === 'incomplete' ? outcome.sentence : '',
-      /notes\.md is in the folder, but the room was not told the listing changed: the relay closed/,
+      /notes\.md is in the folder, but the room’s file list was not updated: the relay closed/,
     );
     // It is there, which is what the sentence had to say; the open is past the failure and did not run.
     assert.equal((app.tree.children['notes.md'] as FileNode | undefined)?.kind, 'file');
@@ -309,7 +309,7 @@ describe('the create, from the page to the room', () => {
     assert.equal(outcome.kind, 'incomplete');
     assert.match(
       outcome.kind === 'incomplete' ? outcome.sentence : '',
-      /the room lists it, but this page could not open it: the editor is gone/,
+      /the room lists it, but opening it failed: the editor is gone/,
     );
     // The listing did go out, which is what the sentence says: the room has the path, not the text.
     assert.deepEqual(app.published, [['notes.md']]);
@@ -390,7 +390,7 @@ describe('the live checks', () => {
   it('refuses a format a room cannot carry, and names the alternative', () => {
     const check = checkNewEntry(context({ raw: 'logo.png' }));
     assert.equal(check.error, true);
-    assert.equal(check.line, 'logo.png declares a format a room cannot carry. Name a text file.');
+    assert.equal(check.line, 'logo.png is not a text file, and a room carries only text.');
     // A directory named after a format is governed by the directory excludes alone: the binary
     // rule is about files, which is the rule the folder itself applies.
     assert.equal(checkNewEntry(context({ raw: 'assets.png', kind: 'directory' })).error, false);

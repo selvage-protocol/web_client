@@ -1036,7 +1036,7 @@ describe('the create, which is a name the host typed', () => {
     // The rule is about the format a file's name declares, so a directory may wear the name.
     assert.equal((await folder.create('assets.png', 'directory')).kind, 'created');
     assert.equal((tree.children['assets.png'] as DirNode).kind, 'directory');
-    assert.match(folderCreateSentence('binary', 'logo.png'), /declares a format a room cannot carry/);
+    assert.match(folderCreateSentence('binary', 'logo.png'), /is not a text file, and a room carries only text/);
   });
 
   it('will not overwrite or adopt a name the folder already holds', async () => {
@@ -1060,7 +1060,7 @@ describe('the create, which is a name the host typed', () => {
     assert.equal((tree.children['docs'] as TreeNode | undefined), undefined);
     // A segment that is a file is not a directory to walk through either.
     assert.equal(refusalCause(await folder.create('notes.txt/inner.md', 'file')), 'not-a-file');
-    assert.match(folderCreateSentence('missing', 'docs/notes.md'), /has to exist/);
+    assert.match(folderCreateSentence('missing', 'docs/notes.md'), /goes into a folder that does not exist/);
   });
 
   it('says the person lost write access rather than blaming the name', async () => {
@@ -1395,7 +1395,7 @@ describe('moving a file or a folder, which is a write at the new name and a remo
     const outcome = await folder.move('src', 'gone/src');
     assert.equal(refusalCause(outcome), 'missing');
     assert.match(outcome.sentence, /^src was not moved: gone\/src/, 'the source was blamed for the destination');
-    assert.match(outcome.sentence, /has to exist before a name inside it can be created/);
+    assert.match(outcome.sentence, /goes into a folder that does not exist\. Create that folder first\./);
   });
 
   it('blames the destination for a file too, whose folder is the thing that went', async () => {

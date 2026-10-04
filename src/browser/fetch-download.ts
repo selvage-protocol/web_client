@@ -111,7 +111,7 @@ export function fetchingSentence(path: string): string {
 
 /** What opening a file costs the room, said once in a session, before the first fetch. */
 export function fetchCostsSentence(path: string): string {
-  return `Fetching opens ${path} in the room, so every peer receives it.`;
+  return `Downloading ${path} opens it in the room, so everyone there gets its text.`;
 }
 
 /** What a fetch the room has not answered says: a wait, and not an emptiness it cannot know. */
