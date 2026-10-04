@@ -7,6 +7,8 @@ import {
   followEndedByFileGone,
   followEndedByLeaving,
   followEndedByTyping,
+  goToCursorNotFound,
+  goToNotInFile,
   grantUnion,
   peerColour,
   realTimers,
@@ -713,7 +715,7 @@ export class MonacoBinding implements EditorHost {
           kind: 'status',
           topic: 'refusal',
           peerId,
-          text: `${this.displayLabel(peerId)} is not in a file`,
+          text: goToNotInFile(this.displayLabel(peerId)),
         });
         return 'refused';
       }
@@ -756,7 +758,7 @@ export class MonacoBinding implements EditorHost {
           kind: 'status',
           topic: 'refusal',
           peerId,
-          text: `${this.displayLabel(peerId)}\u2019s cursor could not be found in this file`,
+          text: goToCursorNotFound(this.displayLabel(peerId)),
         });
       }
       return 'refused';
