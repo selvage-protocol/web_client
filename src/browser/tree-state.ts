@@ -83,10 +83,8 @@ export function dirOpen(path: string, pinned: ReadonlySet<string>, current: stri
  * `inRoom` is the room's own open-document set, which both roles receive, so the reading means the
  * same thing on both sides.
  *
- * The row draws nothing from the mark itself — the tags that said `empty` and `not fetched yet` were
- * the page's own account of a document, on rows whose job is to be names in a list of names, and the
- * design draws neither. What reads it is the row chrome's own key: whether the room holds a path
- * open is what a host's row offers its download for (`tree-view.ts`).
+ * The row draws nothing from the mark itself. What reads it is the row chrome's own key: whether
+ * the room holds a path open is what a host's row offers its download for (`tree-view.ts`).
  */
 export interface RoomRowState {
   /** The room holds this path open. */

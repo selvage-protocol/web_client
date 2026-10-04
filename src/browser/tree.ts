@@ -5,8 +5,7 @@
  * implies a `src`, and that implication is a rendering decision of the receiver's. The
  * editor clients render it on disk — a join fills the window's folder, so the Explorer's
  * own tree draws the directories — while this page has no disk and must synthesize them.
- * The helper lived in the shared bridge until the VS Code client stopped needing it; it
- * belongs to the adapter that still renders a tree.
+ * It belongs to the adapter that still renders a tree.
  */
 
 import { isGrantedPath } from '../bridge/index.ts';

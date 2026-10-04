@@ -15,13 +15,10 @@
  *
  * **The test for all of that is `has`, and never whether the document is open in front of the
  * editor.** An open document is not an answered one: a guest that taps a row's ⤓ on the file it has
- * just opened holds a model whose text is `''` until the room replies, and treating that as the
- * person's own file is how the 0-byte download came back. What is here and answered — an empty
- * document included, which is the room saying the file it read is empty, or a buffer this window
- * has already written into — is the person's own copy of the file as it stands, and a path with no
- * document here is a fetch. Reading an empty buffer as the room's answer instead told a guest who
- * had cleared their own file that the host had sent no text for it, and asked them to save the empty
- * file they had already asked for.
+ * just opened holds a model whose text is `''` until the room replies, and that model must not be
+ * saved. What is here and answered — an empty document included, which is the room saying the file
+ * it read is empty, or a buffer this window has already written into — is the person's own copy of
+ * the file as it stands, and a path with no document here is a fetch.
  *
  * Asking is done with the engine's own `open`, the same call opening a file makes, because that is
  * what makes the room send the text — there is no read-only fetch in the protocol, and a second
@@ -159,8 +156,7 @@ export async function fetchAndSave(
   // The wait is for the *answer*, and the answer is the document: a document carrying text is the
   // text, and a document holding none is the room saying the file it read is empty. Both are
   // answers, so the loop stops at `has` — reading on for text is reading on for a second thing that
-  // this protocol never sends, and it cost the whole stand: measured against a real `selvaged`, a
-  // room answered in 101 ms and the fetch reported it 3 007 ms later.
+  // this protocol never sends.
   const polls = options.polls ?? Math.max(1, Math.ceil((options.standMs ?? FETCH_STAND_MS) / POLL_MS));
   for (let poll = 0; poll < polls && !ports.has(path); poll += 1) {
     await wait(POLL_MS);

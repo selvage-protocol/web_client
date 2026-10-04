@@ -1,5 +1,5 @@
 /**
- * A small Monarch set for TOML, which Monaco 0.52.2 does not ship. It covers
+ * A small Monarch set for TOML, which Monaco does not ship. It covers
  * the room's own `Cargo.toml`: comments, table headers, keys, the four string
  * forms, numbers and dates. The loader is dynamic, so the body stays in a
  * `lang-*.js` chunk and costs nothing until a TOML document opens.

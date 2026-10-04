@@ -299,10 +299,9 @@ describe('brand heading', () => {
   });
 
   it('gives the card and the workspace one main landmark', () => {
-    // The page the demo serves had none — the landing page has one — so a screen-reader user had no
-    // landmark to jump to. What the page is for is one thing: the card before a session, and the
-    // workspace in one. What the page keeps outside the content — `live`, `peek`, `alert` — is
-    // inside the landmark with it.
+    // A screen-reader user needs a landmark to jump to. What the page is for is one thing: the card
+    // before a session, and the workspace in one. What the page keeps outside the content — `live`,
+    // `peek`, `alert` — is inside the landmark with it.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     assert.match(html, /<main id="app">/, 'the page has no main landmark');
     assert.match(html, /<\/main>\s*<script>/, 'the landmark does not close over the whole page');
@@ -593,8 +592,8 @@ describe('failure display and diagnostics', () => {
 
 /**
  * The session bar's own markup: from the bar's opening tag to the notices column under it, which is
- * the next thing the shell draws. The bar used to end at the follow banner's id, and the banner is
- * gone — a slice that runs to a missing id silently reads the whole page instead.
+ * the next thing the shell draws. The slice must end at an id the shell still draws — one that runs
+ * to a missing id silently reads the whole page instead.
  */
 function barOf(source: string): string {
   const from = source.indexOf('<div id="session"');
@@ -649,8 +648,8 @@ describe('joined chrome', () => {
   });
 
   it('the stop control lives in the person’s menu and nowhere else', () => {
-    // The roster used to carry a stop of its own beside the strip's segment; both are gone, and the
-    // one control that ends a follow is the toggle in the menu of the person being followed.
+    // The one control that ends a follow is the toggle in the menu of the person being followed:
+    // the roster and the strip carry no stop of their own.
     const room = readFileSync(new URL('../src/browser/room.ts', import.meta.url), 'utf8');
     assert.ok(!/labelSpan\('Stop'\)/.test(main), 'a stop survived on the page');
     assert.match(room, /labelSpan\(follows \? 'Stop following' : 'Follow'\)/,

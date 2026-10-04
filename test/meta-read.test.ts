@@ -1,12 +1,10 @@
 /**
  * The card's read of its own origin: three answers, told apart.
  *
- * Two states used to be one. The page's one best-effort `/meta` read returned `undefined` for both
- * "this origin answered and was not a Selvage server" and "nothing answered in time", so a
- * `selvaged` whose `/meta` took longer than the deadline was reported to a person as a page "not
- * served by a Selvage server", with the host action withdrawn for the life of the load. This file
- * pins the two facts apart: a response that arrived is an answer about the server whatever it was,
- * and a deadline that passed is not.
+ * Two answers, told apart: a response that arrived is an answer about the server whatever it was,
+ * and a deadline that passed is not. Reading them as one would report a `selvaged` whose `/meta`
+ * took longer than the deadline as a page "not served by a Selvage server", withdrawing the host
+ * action for the life of the load.
  *
  * The doubles are the fetch the engine is handed (`fetchMeta`'s own seam), so what is exercised
  * is this module's reading of a real response object rather than a stub of its own shape.
@@ -156,9 +154,9 @@ describe('the three answers a read can give', () => {
   });
 
   it('says nothing where a gateway answered in the server’s place', async () => {
-    // The M1 defect through another path: `fetchMeta` does not check the status, so a proxy's
-    // error page parsed as nothing and the offer went for the life of the load — on the page whose
-    // own server was cold or restarting, which the module header names as the case to keep.
+    // `fetchMeta` does not check the status, so a proxy's error page must not parse as an empty
+    // answer: that would withdraw the offer for the life of the load, on the page whose own server
+    // was cold or restarting — the case the module header names as the one to keep.
     for (const status of [500, 502, 503, 504]) {
       const read = await readServerMeta(BASE, {
         fetchImpl: answering('<html>Service Unavailable</html>', {

@@ -2,24 +2,20 @@
  * The card's mark: the renderer's own resample of the owner's export, and a curve that is applied
  * to the samples in JS.
  *
- * **The curve is the identity, and that is the point.** It was 2.4, lifting a mark whose shaded
- * glyph tones sit between `#2d111e` and `#7cc9c0` to a median ink of 4.9:1 on this page's ground:
- * the unlevelled render measures 1.72:1, under the 3:1 floor WCAG sets for a non-text mark beside
- * text. That floor does not apply here. `1.4.11` exempts logotypes — "text that is part of a logo
- * or brand name has no contrast requirement" — and this mark is the owner's own artwork, which is
- * worn unmodified everywhere it appears. Levelling it was a change to somebody else's drawing made
- * to satisfy a rule that exempts it.
+ * **The curve is the identity, and that is the point.** The mark's shaded glyph tones sit between
+ * `#2d111e` and `#7cc9c0`, and it is the owner's own artwork, worn unmodified everywhere it
+ * appears. `1.4.11` exempts logotypes — "text that is part of a logo or brand name has no contrast
+ * requirement" — so no contrast floor applies and a curve here would be a change to somebody
+ * else's drawing.
  *
  * Nothing here is a redraw or a recolour either way: the curve is `pow(value, 1/gamma)` on the
  * colour channels, alpha untouched. At 1 it returns every sample as it arrived.
  *
- * The resample is this module's too, and for a reason CI found: the mark is an *alpha* image, and
- * resampling one — premultiply, average, unpremultiply — is not the same in every ImageMagick
- * release this page is built with. Trixie's 7.1.1 rendered different pixels from the 7.1.2 the
- * committed mark came from, red on the first two pushes of the branch that added it; the six sized
- * icons, which come from the *opaque* master, reproduce byte for byte in that image and always have.
- * So the whole mark is a function of the master's bytes and one arithmetic here: one area-weighted
- * average in premultiplied space, one curve, one encoder.
+ * The resample is this module's too: the mark is an *alpha* image, and resampling one —
+ * premultiply, average, unpremultiply — is not the same in every ImageMagick release this page is
+ * built with, while the six sized icons, which come from the *opaque* master, reproduce byte for
+ * byte. So the whole mark is a function of the master's bytes and one arithmetic here: one
+ * area-weighted average in premultiplied space, one curve, one encoder.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -27,8 +23,7 @@ import { deflateSync, inflateSync } from 'node:zlib';
 
 /**
  * The curve the mark's colour channels are put through: the identity, so the mark the page paints
- * is the mark the owner exported. See the module note for why the 2.4 it used to be was the wrong
- * answer to the wrong rule.
+ * is the mark the owner exported. See the module note for why no curve is the right answer here.
  */
 export const MARK_GAMMA = 1.0;
 

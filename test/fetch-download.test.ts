@@ -1,13 +1,12 @@
 /**
  * Saving a room path this window has no text for yet.
  *
- * The defect this suite exists for is a data defect and not a UI gap: a download that saves
- * `text(path)` before the room has answered writes an empty file under the right name, and nothing
- * about that file says it is wrong. So the assertions here are the halves of the fix — the save
- * happens only once text has arrived here, and it saves the text that arrived and not the empty
- * string that was there first — and the one that keeps them honest: nothing arriving is not the
- * same state as the room answering with an empty document, and the page says the wait instead of
- * claiming the room said the file is empty.
+ * This is a data rule and not a UI one: a download that saves `text(path)` before the room has
+ * answered writes an empty file under the right name, and nothing about that file says it is wrong.
+ * So the save happens only once text has arrived here, it saves the text that arrived and not the
+ * empty string that was there first, and nothing arriving is not the same state as the room
+ * answering with an empty document — the page says the wait instead of claiming the room said the
+ * file is empty.
  */
 
 import { readFileSync } from 'node:fs';
@@ -79,10 +78,9 @@ describe('a path this window already holds', () => {
 
   it('is saved as it stands when what it holds is nothing, and is never said to be the host’s empty one', async () => {
     // The person's own emptied file, in front of the editor or behind it: it is saved under its own
-    // name with nothing in it, and the row says nothing about the host. What the page used to do
-    // instead — read the empty copy as the room's answer — told somebody who had cleared a file
-    // themselves, and then switched to another one, that `notes.md is still empty — the host sent no
-    // text for it`, and offered to save the empty file they had already asked for.
+    // name with nothing in it, and the row says nothing about the host. Reading the empty copy as
+    // the room's answer would tell somebody who had cleared a file themselves, and then switched to
+    // another one, that `notes.md is still empty — the host sent no text for it`.
     const emptied = room('');
     emptied.deliver();
     const outcome = await fetchAndSave('notes.md', emptied.ports, { wait: emptied.wait });
@@ -125,10 +123,10 @@ describe('a path whose text has not been fetched', () => {
   });
 
   it('fetches a document that is open in front of the editor and not yet answered', async () => {
-    // The blocking defect. A guest taps the row's ⤓ on the file it has just opened, before the room
-    // has sent its text: the model behind the editor is empty, and the row saved *that* — a 0-byte
-    // file named after the one the person asked for, with nothing to say it was wrong. An open
-    // document is not an answered one, so this is a fetch: it waits, and it saves what arrived.
+    // A guest taps the row's ⤓ on the file it has just opened, before the room has sent its text:
+    // the model behind the editor is empty, and saving *that* writes a 0-byte file named after the
+    // one the person asked for, with nothing to say it was wrong. An open document is not an
+    // answered one, so this is a fetch: it waits, and it saves what arrived.
     const opened = room('fn main() {}\n', { after: 2 });
     const outcome = await fetchAndSave('notes.md', opened.ports, { wait: opened.wait, polls: 5 });
     assert.deepEqual(outcome, { kind: 'saved', text: 'fn main() {}\n' });
@@ -243,9 +241,9 @@ describe('a path whose text has not been fetched', () => {
 
   it('asks the room whether it has answered, and never whether the file is open here', () => {
     // What the page reads for its decision. It is the room's answer that decides — the presence of a
-    // document for the path — and the document in front of the editor is not that answer. The two
-    // were once the same test (`openHere || canSaveAtOnce(text)`), which is what made the blocking
-    // defect: `openHere` was true while the text was still coming, and the empty model was saved.
+    // document for the path — and the document in front of the editor is not that answer. Testing
+    // them as one (`openHere || canSaveAtOnce(text)`) saves the empty model, because `openHere` is
+    // true while the text is still coming.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
     assert.match(download, /const holds = binding\.hasText\(path\) === true;/, 'the page no longer reads the room’s receipt');
@@ -273,11 +271,9 @@ describe('a path whose text has not been fetched', () => {
 
 describe('what the fetch must not do', () => {
   it('never opens anything, and never moves the editor', () => {
-    // A fetch is a background act: it is what puts a path in the room's open set, and the page used
-    // to answer a changed set by opening the first document the room named. On a phone that is the
-    // defect the in-room driver photographed: a guest downloads a file it has never opened, the
-    // room's set moves, a *different* document opens, the panel collapses, and the row the person
-    // acted on — with its note and its actions — is inside the closed panel. Opening a file is the
+    // A fetch is a background act: it is what puts a path in the room's open set, and it must not
+    // open anything. Answering a changed set by opening the first document the room named would, on
+    // a phone, collapse the panel over the very row the person acted on. Opening a file is the
     // person's act; the one open the page makes for them is the room's own seat (`openFirst`).
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const documents = sliceBetween(main, "case 'documents':", "case 'peers':");

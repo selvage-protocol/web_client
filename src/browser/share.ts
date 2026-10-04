@@ -182,11 +182,10 @@ const READOUT_SIZE_SLACK = 1.15;
  *
  * The readout is a preview of a secret, and a preview of a secret is a leak — a screen share, a
  * screenshot or someone standing behind the guest defeats any mask that is still made of the
- * link's own characters. Blurring the value was the attempt before this one and it was not enough:
- * a real reviewer read `?room=…&token=…` straight through it. So nothing legible is in the field to
- * begin with, the run is a fixed length so the pill's width leaks nothing either, and the link
- * becomes readable in exactly one place — the clipboard-less fallback, where the field is focused
- * and selected for a person to copy by hand (`hand-copy.ts`).
+ * link's own characters. So nothing legible is in the field to begin with, the run is a fixed
+ * length so the pill's width leaks nothing either, and the link becomes readable in exactly one
+ * place — the clipboard-less fallback, where the field is focused and selected for a person to
+ * copy by hand (`hand-copy.ts`).
  */
 export const SHARE_MASK = '••••••••••••••••';
 

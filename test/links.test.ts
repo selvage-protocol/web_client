@@ -139,7 +139,7 @@ describe('no file: references in the served output', () => {
   }
 
   /**
-   * Audited runtime-code atoms (S3, 2026-09-18): TypeScript inside the
+   * Audited runtime-code atoms: TypeScript inside the
    * language worker builds file: URL *strings* it never fetches — the
    * CPU-profiler node URL and the disk-path serializer. They are pinned as
    * exact quoted/template atoms, so a real `file:///…` URL can never hide

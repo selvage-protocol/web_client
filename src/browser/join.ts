@@ -241,12 +241,11 @@ export function saveDisplayName(storage: Pick<Storage, 'setItem'>, name: string)
 }
 
 /**
- * A join attempted before the page finishes loading (S2, 2026-09-18): the
- * bundle's own code is still arriving, so the gate holds the attempt. One
- * queued join at most, run once the `load` event fires, while the card reads
- * `Joining…` throughout. A second submit while queued or running is a
- * duplicate, never a second join; a refused join releases the gate so the
- * guest can retry.
+ * A join attempted before the page finishes loading: the bundle's own code is
+ * still arriving, so the gate holds the attempt. One queued join at most, run
+ * once the `load` event fires, while the card reads `Joining…` throughout. A
+ * second submit while queued or running is a duplicate, never a second join;
+ * a refused join releases the gate so the guest can retry.
  */
 export interface JoinGate {
   /**
@@ -389,10 +388,10 @@ export function primaryActionOf(
  * the first paint, so the card never grows a paste box, a heading or a name under
  * the reader — and this is the same wiring taking over with the same answer.
  *
- * One guarantee the slow-load defect taught: the remembered name prefills only an
- * untouched field, so anything typed before the bundle arrives stays. The name is
- * the card's own question in either intent — both actions need it — so the caller
- * offers focus to that field, past first paint, and never to one already typed in.
+ * The remembered name prefills only an untouched field, so anything typed before the
+ * bundle arrives stays. The name is the card's own question in either intent — both
+ * actions need it — so the caller offers focus to that field, past first paint, and
+ * never to one already typed in.
  */
 export function initJoinCard(
   elements: JoinCardElements,
@@ -412,12 +411,9 @@ export function initJoinCard(
 /**
  * The name's own refusal, at the field it is about.
  *
- * The card's two actions both need the name, and each of them has an error line under its own
- * button — which is a screen away from where the name is asked, and said nothing about which
- * field was wrong: pressing the primary action with an empty name left focus on the button that
- * was pressed and the field unmarked, so the sentence read as the button's own failure. The
- * refusal stands beside the field now, focus goes to the field, and the field wears the
- * `aria-invalid` that says the same thing to a screen reader.
+ * The name is asked for above both actions, and each action's own error line is a screen away from
+ * the field: so the refusal stands beside the field, focus goes to the field, and the field wears
+ * the `aria-invalid` that says the same thing to a screen reader.
  *
  * A field is only invalid while the card is saying so: typing clears both, because the sentence
  * is about the value that was submitted and the value has changed.

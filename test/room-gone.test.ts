@@ -3,10 +3,10 @@
  *
  * The binding still ends the session on the room-gone report — the roster
  * empties, the editor goes read-only, and a change that slips through echoes
- * the end rather than publishing into nowhere. What the *page* does with that
- * report changed: it leaves the session and says why on the card, so the
- * resting terminal chrome (a frozen tree, a dead roster, a retired link) is
- * gone — see `test/session-over.test.ts` for that half.
+ * the end rather than publishing into nowhere. The *page* leaves the session on
+ * that report and says why on the card, so no resting terminal chrome (a frozen
+ * tree, a dead roster, a dead link) is left standing — see
+ * `test/session-over.test.ts` for that half.
  */
 
 import { describe, it } from 'node:test';

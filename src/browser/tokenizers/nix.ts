@@ -1,5 +1,5 @@
 /**
- * A small Monarch set for Nix, which Monaco 0.52.2 does not ship. It covers the
+ * A small Monarch set for Nix, which Monaco does not ship. It covers the
  * room's own `flake.nix`: comments, the keywords, the common builtins, plain and
  * indented strings with `${}` interpolation, paths, numbers and the punctuation.
  * The loader is dynamic, so the body stays in a `lang-*.js` chunk and costs

@@ -37,8 +37,7 @@
 # The fourth is why this is a script rather than a few edits the caller could make
 # itself: `dist/` is committed and `scripts/check-dist.sh` asserts that a build
 # reproduces the commit, so a bump that left the bundle naming the previous version
-# would make this repository's own gate red. That is what happened at 0.5.1, where the
-# bump landed and the rebuilt bundle had to follow it in a second commit. The build
+# would make this repository's own gate red. The build
 # runs here instead, once, and every file the run moved is reported — a file that had
 # fallen behind is named and repaired, never skipped.
 set -euo pipefail
@@ -82,8 +81,8 @@ bump="${1:-}"
 case "$bump" in
     major | minor | patch) ;;
     *)
-        # A version here was the shape this script used to take; say so rather than
-        # leaving the caller to read the three words as a spelling mistake.
+        # This branch may hold a version rather than a misspelling of the bump word;
+        # the two refuse with different messages, so say which one it is.
         if [[ "$bump" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             die "this takes a bump word, not a version: pass major, minor or patch, not $bump" 2
         fi

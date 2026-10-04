@@ -15,8 +15,8 @@
 # need into its container (Debian's `python3-yaml` for the guard, the pinned lychee release for the
 # links, since that container has no nix for `run_lychee`'s fallback). This gate runs the guard on a
 # `python3` that already imports the parser where there is one, building a venv for it under `.tmp/`
-# only where there is none. This host has no
-# Docker at all, so `container` is the mode that runs on a runner, and the image
+# only where there is none. Where a host has no
+# Docker, `container` is the mode that runs on a runner, and the image
 # workflow's `publish-rehearsal` and `publish` (multi-architecture buildx) have no
 # step here either: they are read from the run, and their logic lives in
 # `scripts/release-tags.sh` and `scripts/assert-image-page.sh`, which the local

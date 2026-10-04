@@ -125,11 +125,6 @@ import {
     label === 'typescript' || label === 'javascript' ? 'ts.worker.js' : 'editor.worker.js',
 };
 
-/**
- * Whether this browser has no pointer that can hover: a phone or a tablet, and
- * the one question the page asks about the device. A narrow window on a machine
- * with a mouse answers no, and keeps the layout it has — see `mobile.ts`.
- */
 /** The live touch query; `watchTouchQuery` re-decides when a pointer arrives. */
 const touchLayout = window.matchMedia(TOUCH_QUERY);
 let touchOnly = touchLayout.matches;
@@ -444,10 +439,9 @@ void offerHosting();
  *
  * A chat app that truncates a link cuts the fragment first: it is the longest part of the link and
  * it sits after the `#`, so the room and the token arrive whole while `§5.1`'s two keys do not. The
- * guest, who did nothing wrong, used to meet the engine's own sentence about a 32-byte key only
- * after filling the card in. The fragment is checked here against the link the join would dial, the
- * card says what a person can act on — the link is incomplete and the host has to send it again —
- * and the precise reason stays in the console (and on the card under `?debug=1`).
+ * fragment is checked here against the link the join would dial, the card says what a person can act
+ * on — the link is incomplete and the host has to send it again — and the precise reason stays in the
+ * console (and on the card under `?debug=1`).
  */
 function reportIncompleteInvite(): void {
   if (cardIntent !== 'join') {
@@ -831,11 +825,11 @@ hostButton.addEventListener('click', () => {
 });
 
 /**
- * The single-flight gate for joins (S2, 2026-09-18): a submit that lands
- * before the page finishes loading queues until `load` instead of failing,
- * and a second submit while queued or running never starts a second join.
- * Declared before the replay below uses it: the replay runs during this
- * module's own evaluation, so a later declaration would still be unborn.
+ * The single-flight gate for joins: a submit that lands before the page finishes
+ * loading queues until `load` instead of failing, and a second submit while
+ * queued or running never starts a second join. Declared before the replay below
+ * uses it: the replay runs during this module's own evaluation, so a later
+ * declaration would still be unborn.
  */
 const joinGate = createJoinGate(
   () => document.readyState === 'complete',
@@ -1238,8 +1232,7 @@ async function attemptHost(): Promise<void> {
     const picked = await pickFolder(folderPicker);
     if (picked.kind === 'cancelled') {
       // A dismissed prompt is not a failure: the person changed their mind, and the card is simply
-      // as it was. The red `No folder was chosen…` this used to write made a decision look like a
-      // mistake, and it is the one refusal the person already knows the answer to.
+      // as it was. It is the one refusal the person already knows the answer to, so nothing is said.
       return;
     }
     if (picked.kind === 'refused') {
@@ -1322,10 +1315,10 @@ function showHosting(picker: boolean, read: ServerRead): void {
   lastServerRead = read;
   const availability = hostAvailability({ picker, read });
   const offered = availability.kind === 'offered' || availability.kind === 'unchecked';
-  // A guest asked to join, and a page that cannot host has nothing to say to them: the four-line
-  // refusal that stood under Join was about an action this card is not offering, on the card of
-  // somebody who never asked for it. The quiet verb goes with it — a press that could only lead to
-  // a card with no action on it is worse than no verb — and what is left is the way in.
+  // A guest asked to join, and a page that cannot host has nothing to say to them: a refusal
+  // there would be about an action this card is not offering, on the card of somebody who never
+  // asked for it. The quiet verb goes with it — a press that could only lead to a card with no
+  // action on it is worse than no verb — and what is left is the way in.
   if (cardIntent === 'join') {
     hostWrap.hidden = !offered;
     hostQuiet.hidden = !offered;
@@ -1343,9 +1336,9 @@ function showHosting(picker: boolean, read: ServerRead): void {
   // 34 px of space around whatever it holds, and holding nothing it drew an empty rule under Join.
   hostWrap.hidden = !offered && hostNote.textContent === '';
   hostButton.hidden = !offered;
-  // A page that cannot start a room leads with the way in it does have. The invite path opens —
-  // joining was behind a 11.9 px summary and a four-line refusal led the card — and Join takes the
-  // card's own action, because the one thing this card can do is the one thing it should offer.
+  // A page that cannot start a room leads with the way in it does have. The invite path opens, and
+  // Join takes the card's own action, because the one thing this card can do is the one thing it
+  // should offer.
   joinPane.classList.toggle('no-host', !offered);
   if (!offered) {
     invitePath.open = true;
@@ -2171,16 +2164,9 @@ function runEmptyEditorAction(action: EmptyEditorAction, peerId: string | undefi
  * The file strip: the open file, in one line above the editor — the directory muted, the leaf bold,
  * and nothing else.
  *
- * It is where the things that used to be said elsewhere now live, and which file is open is the one
- * of them the design draws: nothing said it at all on a phone, where the same row is also the
- * panel's disclosure. The read-only state, the empty document, the write the folder refused and the
- * peer being followed all had a chip or a segment here; the design models none of them, and the
- * four said what the reader could see for themselves or what a failure alert says better. A follow
- * is the face's dashed ring and its eye, and `Stop following` is in that person's menu.
- *
- * It carried a `⤓` that saved the open file to the person's own disk, which the tree's per-row
- * download already does for every file the room holds — including the one on screen. Two controls
- * for one act, and the strip is not the place a room's files are.
+ * Which file is open is the one thing the design draws here, and on a phone the same row is also
+ * the panel's disclosure. A follow is the face's dashed ring and its eye, and `Stop following` is
+ * in that person's menu.
  */
 function syncStrip(): void {
   const path = binding?.currentPath();
@@ -2341,9 +2327,7 @@ const downloadSink: DownloadSink = {
  * A follow, and the reason one ended.
  *
  * The follow itself is drawn nowhere here: it is the dashed ring and the eye on the followed face in
- * the bar, and the control that stops it is `Stop following` in that person's menu. The strip used to
- * carry a segment for it, which said a second time what the face already said, and the design draws
- * the face alone.
+ * the bar, and the control that stops it is `Stop following` in that person's menu.
  *
  * A follow that ends without the person pressing Stop leaves the reason on the page's transient line
  * for four seconds: the ring vanishing with nothing said is the one way a person loses the thread of
@@ -2460,13 +2444,12 @@ function leaveSession(sentence: string): void {
  * The status topics the page routes, and where each one goes.
  *
  * The binding raises every topic and this is where the page decides. Three of them have a surface of
- * their own and no case here at all: a follow's sentences are the file strip's own segment (who is
- * followed, and a Stop control in it), the faces in the bar are where a peer's arrival and
- * departure read, and a room that is over comes back as the card carrying the room's own sentence.
+ * their own and no case here at all: a follow is the followed face's ring and eye, the faces in the
+ * bar are where a peer's arrival and departure read, and a room that is over comes back as the card
+ * carrying the room's own sentence.
  *
- * - `role` is a state rather than a sentence: the strip's `Read-only` chip, which stays while it is
- *   true instead of a toast the person had to have caught. It is announced once, because a chip
- *   that appears with no words is a change a screen reader would otherwise miss.
+ * - `role` is a state rather than a sentence: the editor goes read-only, and the role is announced
+ *   once, because a change with no words is a change a screen reader would otherwise miss.
  * - `refusal` is a go-to the room could not answer: the menu of the face that asked when one stands
  *   for it, and the alert otherwise (`showGoToRefusal`).
  * - `error` is the room's own word about the session, and nothing on screen is about it: it is the
@@ -2483,11 +2466,6 @@ function statusRoute(topic: StatusTopic): 'role' | 'refusal' | 'error' | undefin
   }
 }
 
-/**
- * The bar's dot, which is the glanceable half of room health: a healthy room says nothing, and the
- * two states that change what typing means say their own name. The sentence with the countdown in it
- * is the strip below.
- */
 /**
  * The bar's dot, which is the glanceable half of room health: a healthy room paints nothing, and a
  * socket being re-dialled paints its name beside the dot. A host that is away is the session card's
@@ -2563,9 +2541,9 @@ function onNotice(notice: BindingNotice): void {
         const present = binding.participants();
         // The membership report is the room's own word on who is here, so a
         // report that names the host ends the warning the attach frame may
-        // never have delivered (S1, 2026-09-18). It ends the countdown and
-        // not the line: the host's return may be standing there, and the
-        // card is the only place the guest reads it.
+        // never have delivered. It ends the countdown and not the line: the
+        // host's return may be standing there, and the card is the only place
+        // the guest reads it.
         if (hostPresent(present)) {
           sessionCard.endAway();
         }
@@ -2612,9 +2590,8 @@ function onNotice(notice: BindingNotice): void {
       // Where each topic goes, and why: `statusRoute` and the two functions it names.
       switch (statusRoute(notice.topic)) {
         case 'role':
-          // A viewer's documents are read-only, and the page draws no chip for that any more: the
-          // strip is the open file and nothing else, so the role is announced and the editor's own
-          // refusal to type is what a person meets.
+          // A viewer's documents are read-only, and the strip is the open file and nothing else,
+          // so the role is announced and the editor's own refusal to type is what a person meets.
           syncStrip();
           announce(VIEWER_SENTENCE);
           break;
@@ -2635,11 +2612,10 @@ function onNotice(notice: BindingNotice): void {
       syncFollow(notice.following, notice.ended);
       break;
     case 'failure':
-      // Something the person asked for was refused, and the sentence says why. A write's refusal
-      // used to stand on the row it was about, and no row carries a mark for it any more: the page's
-      // transient line is where a failure with no other home goes, and the folder's own words are the
-      // whole of what a person can act on. A write that lands afterwards has nothing to take down —
-      // the sentence went on the alert's own clock.
+      // Something the person asked for was refused, and the sentence says why. The page's transient
+      // line is where a failure with no other home goes, and the folder's own words are the whole of
+      // what a person can act on. A write that lands afterwards has nothing to take down — the
+      // sentence went on the alert's own clock.
       failureAlert.show(notice.text);
       break;
   }

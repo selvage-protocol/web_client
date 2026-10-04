@@ -1,9 +1,9 @@
 /**
  * The slow-load join card: the shell paints from inline HTML before the bundle
  * arrives, so a guest may type ahead of it — and the wiring must never blow
- * that away. Owner defect (2026-09-18): the late bundle overwrote the name
- * field with the remembered name and parked focus pre-load (Firefox: `Layout
- * was forced before the page was fully loaded`).
+ * that away. The late bundle must not overwrite the name field with the
+ * remembered name, nor park focus pre-load (Firefox: `Layout was forced before
+ * the page was fully loaded`).
  */
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
@@ -223,7 +223,7 @@ describe('join card wiring in main.ts', () => {
     // The replay runs during this module's own evaluation: a gate declared
     // later would still be unborn (temporal dead zone), the replay would
     // throw, and the rest of the module — every listener below it — would
-    // never run, leaving the card stuck at Joining… (2026-09-18).
+    // never run, leaving the card stuck at Joining….
     const armed = main.indexOf('__selvageJoinArmed = true');
     const gate = main.indexOf('const joinGate = createJoinGate');
     assert.ok(gate !== -1, 'no join gate in main.ts');

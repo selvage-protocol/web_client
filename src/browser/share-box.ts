@@ -4,8 +4,7 @@
  * the confirmation briefly, then hides. The link readout never leaves the
  * bar, so the morph changes nothing outside the control and shifts no layout.
  *
- * The confirmation is the words alone. It carried a tick beside them, which said nothing the words
- * did not and put a second, smaller mark in a bar whose one mark is the room's own.
+ * The confirmation is the words alone.
  */
 
 import { COPIED_LABEL, COPIED_STAND_MS } from '../bridge/index.ts';

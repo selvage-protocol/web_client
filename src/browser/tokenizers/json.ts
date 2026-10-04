@@ -1,5 +1,5 @@
 /**
- * A small Monarch set for JSON, which Monaco 0.52.2 does not ship as a basic
+ * A small Monarch set for JSON, which Monaco does not ship as a basic
  * language: its JSON support is the schema-aware language service, whose worker
  * this page does not carry. This covers the room's own `package.json` and
  * friends — colour, not validation. The loader is dynamic, so the body stays in

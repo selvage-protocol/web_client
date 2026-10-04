@@ -1,13 +1,10 @@
 /**
- * The join card and the session chrome after the owner's live pass.
+ * The join card and the session chrome.
  *
- * Four findings from the served page: the confirm button's label sat left and
- * ran large, the card was a page of prose before the one question it asks, the
- * invite link snapped into view and was still too revealing in the bar, and
- * the `#status` element was still there — the fourth time it was called out.
- * The session chrome also gets the same Mocha language as the landing page.
- *
- * Every check below failed before its change.
+ * The confirm button's label is centred and one size, the card asks its one
+ * question rather than reading as a page of prose, the invite link is masked in
+ * the bar, and there is no `#status` element. The session chrome carries the
+ * same Mocha language as the landing page.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -188,7 +185,7 @@ describe('the status element is gone for good', () => {
       assert.ok(style.includes(id), `${id} is unstyled`);
     }
     assert.ok(/#alert:empty/.test(style), 'an empty live region still paints its box');
-    // Nothing is anchored to the bottom centre any more: the column is the one home, and it is out
+    // The column is the one home: nothing is anchored to the bottom centre, and the column is out
     // of the flow and takes no click.
     assert.ok(!/#alert\s*\{[^}]*position:\s*fixed/.test(style), 'the alert is pinned to the page again');
     assert.ok(!/#peek\s*\{[^}]*position:\s*fixed/.test(style), 'the tap line is pinned to the page again');
@@ -267,8 +264,8 @@ describe('the invite link', () => {
   it('is masked at rest, and the one reveal is the hand copy', () => {
     // The link *is* the room key, so it belongs on the clipboard rather than on a screen: a
     // screen-share, a screenshot or someone standing behind the guest defeats any state that
-    // revealed it. A blur was the earlier answer and a reviewer read the room id and the token
-    // straight through it, so the value itself is a fixed run of bullets now.
+    // revealed it. The value itself is a fixed run of bullets, so no pointer-reachable state can
+    // put the room id and the token on screen.
     const base = rule('#share');
     assert.match(base, /color:\s*transparent/, 'the readout is not masked at rest');
     assert.match(base, /text-shadow:\s*0 0 5px/, 'the masked value is not drawn as a blur');
@@ -419,11 +416,8 @@ describe('the landing page language', () => {
 describe('the side panel holds what a roster row is made of', () => {
   it('is wide enough for a name beside two labelled verbs', () => {
     // Measured in Chromium 152 at 1440x900, the real bundle, one host and one
-    // guest: at 19rem the row's name column was 69 px for a name needing 82 px,
-    // so the guest's own `Guest One` painted as `Guest ...` while two dead verbs
-    // took 132 px of a 234 px row; following a nine-character peer elided that
-    // name too (`demo-h... Following`). At 21rem both fit, and the editor keeps
-    // 1125 px of the 1440 px window.
+    // guest: 21rem is the width at which a name and its two labelled verbs both
+    // fit, and the editor keeps 1125 px of the 1440 px window.
     const width = /#side\s*\{[^}]*width:\s*([\d.]+)rem/.exec(style);
     assert.ok(width !== null, 'the panel has no fixed width');
     assert.ok(Number(width[1]) >= 21, `the panel is ${width[1]}rem: a peer's name elides beside its own verbs`);
@@ -476,10 +470,10 @@ describe('the message homes', () => {
   });
 
   it('the page routes the status topics with no other surface, and only those', () => {
-    // The owner's own pass: the follow banner already reads "Following vscodium" with a Stop
-    // control, and the notice bar was saying "Following vscodium in test" right above it — the
-    // same fact twice, one of them chrome that appears and disappears. The binding still raises
-    // every topic; the page's own routing is where the ones with another surface stop.
+    // The followed face's ring and the person's menu are where a follow reads, so the notice bar
+    // must not say "Following vscodium in test" right above it — the same fact twice, one of them
+    // chrome that appears and disappears. The binding still raises every topic; the page's own
+    // routing is where the ones with another surface stop.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const route = /function statusRoute\(topic: StatusTopic\)[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
     assert.ok(route !== '', 'the page has no routing for the status topics');
@@ -616,8 +610,7 @@ describe('the message homes', () => {
   // The one transient that is not chatter. A retry runs for as long as the room's advertised
   // grace, and through all of it the editor keeps working locally while nothing typed can reach
   // the room: the line stands until the room answers, rather than for a guessed number of
-  // seconds, and it is the reason `Connection dropped. Reconnecting…` is no longer on the list
-  // above.
+  // seconds, which is why `Connection dropped. Reconnecting…` is not on the list above.
   it('the page shows the dropped line and the all-clear that ends it', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.ok(

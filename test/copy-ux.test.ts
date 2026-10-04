@@ -1,12 +1,6 @@
 /**
  * Owner batch: copy control behaviour, link privacy, abbreviated host,
  * join button presence, runtime placeholder, and the plain-words copy pass.
- *
- * Each item below failed before its fix (the morph removed the link, the
- * cursor covered the bar only, the page confirmed the copy outside the
- * control, the link
- * read in full at rest, the host showed untruncated, the button was small,
- * the placeholder was a fixed this-page example with no name example).
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -111,9 +105,9 @@ describe('no top-right copy sentence', () => {
 
 describe('link privacy', () => {
   it('the readout carries bullets, not the link, and the field is a real one for the hand copy', () => {
-    // The link *is* the room key: it belongs on the clipboard, not on a screen. A blur was the
-    // earlier attempt and a reviewer read the room id and the token straight through it, so the
-    // value itself is a fixed run of bullets now (`SHARE_MASK`). The words beside it are the
+    // The link *is* the room key: it belongs on the clipboard, not on a screen. The value itself
+    // is a fixed run of bullets (`SHARE_MASK`), so no pointer-reachable state can put the room id
+    // and the token on screen. The words beside it are the
     // affordance instead, and the field stays a real readonly input, because the clipboard-less
     // fallback has to be able to select what is in it.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -136,9 +130,9 @@ describe('link privacy', () => {
   });
 
   it('nothing the readout carries names the link outside a copy in progress', () => {
-    // The defect this guard is for was invisible to any style test: the field's `title` held the
-    // whole invite, so resting a pointer on the pill for a second showed the room key in a native
-    // tooltip. The value and every attribute are checked, not the paint.
+    // No style test can catch this: the field's `title` holding the whole invite would show the
+    // room key in a native tooltip when a pointer rests on the pill. The value and every attribute
+    // are checked, not the paint.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const shareTag = /<input id="share"[^>]*>/.exec(html)?.[0] ?? '';
@@ -235,8 +229,8 @@ describe('join button', () => {
 
 describe('placeholders', () => {
   it('the invite hint is schematic and short enough to show whole', () => {
-    // The field is 1rem tall type in a 24rem card: a hint carrying the whole
-    // origin was 300 px wide in a 254 px field, so it read as a clipped prefix.
+    // The field is 1rem tall type in a 24rem card, so a hint carrying the whole
+    // origin would be 300 px wide in a 254 px field and read as a clipped prefix.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
     const shown = card.slice(card.indexOf('<input id="invite"')).match(/placeholder="([^"]*)"/)?.[1] ?? '';
@@ -249,8 +243,8 @@ describe('placeholders', () => {
   });
 
   it('the name field carries no example: a greyed value reads as a filled one', () => {
-    // The card carried `placeholder="Ada"`, which is the same defect the create row removed: a
-    // person reads a greyed example as something already typed, and presses Join with no name.
+    // The name field carries no example: a person reads a greyed `placeholder="Ada"` as something
+    // already typed, and presses Join with no name.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     const card = html.slice(html.indexOf('<div id="join" class="card-start">'), html.indexOf('id="workspace"'));
     const name = card.slice(
@@ -262,10 +256,9 @@ describe('placeholders', () => {
   });
 
   it('labels the name field in two words, and still labels it', () => {
-    // The owner read the card's own words: "that my display name will be my display name as
-    // well". A field still needs a name — a bare box under the heading says nothing to a screen
-    // reader, and the refusal under it is a sentence about the name — so the words are short
-    // rather than gone.
+    // A field still needs a name — a bare box under the heading says nothing to a screen reader,
+    // and the refusal under it is a sentence about the name — so the words are short rather than
+    // gone, and do not repeat the heading.
     const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
     assert.match(html, /<label>Your name\s+<input id="name"/, 'the name field lost its label');
     assert.ok(

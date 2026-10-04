@@ -8,9 +8,8 @@ would hand `deployci` on the box — and every step after each of them carries `
 The flag is worth exactly as much as that: the plan step is a `run:` block printing a promise, and
 what keeps the promise is the conditions on the steps below it. A step added later with no
 condition does what the plan said it would not — cuts a release, or points the public demo at
-another image — which is what happened in `reference_server`, whose `release.yml` printed "nothing
-was resolved, written, committed, pushed or dispatched" and then cut a release. This is that
-repository's checker (`reference_server/scripts/check_dry_run_gating.py`), carried here because a
+another image. This is the checker `reference_server` carries
+(`reference_server/scripts/check_dry_run_gating.py`), kept here too because a
 regression in either file is otherwise found by a dispatch rather than by CI.
 
 `actionlint` cannot see it. Every step in a file like these is syntactically valid, every `if:` is

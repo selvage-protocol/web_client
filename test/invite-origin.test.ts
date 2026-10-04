@@ -59,9 +59,9 @@ describe('the server a link names', () => {
   });
 
   it('a link pasted into a page on another origin talks to the link\'s server', () => {
-    // The case a `server=` parameter used to carry: the page is served from one
-    // origin and the room lives on another. The guest's page must dial the
-    // room's server — the link's own origin — and never the page's.
+    // The page is served from one origin and the room lives on another. The
+    // guest's page must dial the room's server — the link's own origin — and never
+    // the page's.
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'https://room.example/?room=r-1&token=tok', PAGE),
       { base: 'wss://room.example', room: 'r-1', token: 'tok', fragment: '' },

@@ -41,8 +41,7 @@ export const PHONE_QUERY =
  *
  * The minimap is off on both, and the current line is unmarked on both: the
  * design draws neither — its gutter is numbers and nothing else, in one colour
- * — and the minimap this page used to turn on for a pointer was a grey texture
- * beside the code. What is left is a phone's own three: 16 px is the floor under
+ * — so what is left is a phone's own three: 16 px is the floor under
  * which iOS zooms a focused field, and the editor's own input is a focused field;
  * and a fingertip needs a scrollbar it can see, never the 10 px hairline.
  *

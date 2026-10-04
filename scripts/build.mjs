@@ -16,7 +16,7 @@ import { renderIcon } from './dist-icons.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Fresh dist every build (S1, 2026-09-18): chunk names carry content hashes,
+// Fresh dist every build: chunk names carry content hashes,
 // so an incremental dist accumulates orphaned bundles — still served, still
 // scanned, and never referenced. Everything below is generated (bundles,
 // rendered icons, written manifest, copied shell), so the directory is
@@ -28,7 +28,7 @@ const shared = {
   bundle: true,
   platform: 'browser',
   target: 'es2022',
-  // Minified (S3, 2026-09-18): the served bytes carry no library doc
+  // Minified: the served bytes carry no library doc
   // comments — including their `file://` URI samples, which a served-page
   // scan cannot tell apart from real references. Only runtime-code literals
   // remain (see test/links.test.ts), each audited there.
@@ -47,7 +47,7 @@ const app = await build({
   format: 'esm',
   splitting: true,
   metafile: true,
-  // No sourcesContent (S3, 2026-09-18): maps carry names and mappings only,
+  // No sourcesContent: maps carry names and mappings only,
   // never the original sources with their own `file://` doc samples.
   sourcemap: true,
   sourcesContent: false,

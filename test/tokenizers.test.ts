@@ -2,8 +2,7 @@
  * The page's own Monarch sets — JSON, TOML and Nix — driven through the real
  * lexer. `test/languages.test.ts` maps a room path to a language id; nothing
  * tokenized the sets those ids load, so a set that threw on its first
- * assignment line still passed every test (B1, 2026-09-18: `Cargo.toml` lost
- * its colour and raised an uncaught page error on every pass).
+ * assignment line would pass every test. This drives the real lexer over each set.
  *
  * The path here is Monaco's own: `compile()` the language definition, then
  * `MonarchTokenizer` over the lines. That is the whole point of the shape —

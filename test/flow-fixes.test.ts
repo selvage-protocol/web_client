@@ -1,5 +1,5 @@
 /**
- * Flow-review regressions: what a landing says, what the room knows about a
+ * The flow review's fixes: what a landing says, what the room knows about a
  * file, the drop signal reaches the page as a notice, duplicate names
  * disambiguate, the join URL persists, unreachable servers read plainly, and
  * tree directories keep their openness.

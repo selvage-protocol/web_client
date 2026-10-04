@@ -484,9 +484,9 @@ describe('what a row says about the room', () => {
   }
 
   it('draws no tag for what the page knows about a document', () => {
-    // `empty` and `not fetched yet` said what the page had been told about a document's text, on a
-    // row whose job is to be a name in a list of names. The design draws neither, and the row keeps
-    // no state for a host that is away either: the session card says that, where the countdown is.
+    // A row's job is to be a name in a list of names, so it carries no tag for what the page knows
+    // about a document's text. The row keeps no state for a host that is away either: the session
+    // card says that, where the countdown is.
     const row = rowState({ inRoom: ['main.rs'], textHere: ['main.rs'], textEmpty: ['main.rs'] });
     for (const gone of ['empty-tag', 'pending-tag', 'unsaved', 'in-room']) {
       assert.equal(allWithClass(row, gone).length, 0, `a row still draws .${gone}`);
@@ -1123,7 +1123,7 @@ describe('an empty listing', () => {
     assert.equal(withClass(guest.pane, 'empty').textContent, 'The host has not shared any files yet.');
 
     // The host's own line is the short one: the explanation and the two acts are the editor pane's
-    // beside it (design §7.2), and this panel's header carries the verbs it used to describe.
+    // beside it (design §7.2), and this panel's header carries only its own verbs.
     const host = makeView({ ...state, canCreate: true });
     host.view.render();
     const line = withClass(host.pane, 'empty').textContent;

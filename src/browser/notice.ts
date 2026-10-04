@@ -150,8 +150,8 @@ export function wireListingCutNotice(alert: FailureAlert): ListingCutNotice {
  * as present. Either one is the all-clear the warning needs: the attach frame is
  * the only thing that says the host is back, so a guest whose socket was down at
  * that instant would otherwise read the countdown — and then a deadline that had
- * already passed — for the rest of the session (S1, 2026-09-18). The room's own
- * word on who is here carries the same news on every membership frame.
+ * already passed — for the rest of the session. The room's own word on who is
+ * here carries the same news on every membership frame.
  */
 export function hostPresent(members: readonly { role: string }[]): boolean {
   return members.some((member) => member.role === HOST_ROLE);

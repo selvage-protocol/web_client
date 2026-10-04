@@ -1,15 +1,14 @@
 /**
- * S1 (2026-09-18): the serving layer decides the Content-Type of every
- * emitted extension — never the host's mime.types. A hashed chunk answered
- * as text/html blocks the module load. This pins that the contract in
- * scripts/check-content-types.mjs covers everything dist/ emits.
+ * The serving layer decides the Content-Type of every emitted extension — never
+ * the host's mime.types. A hashed chunk answered as text/html blocks the module
+ * load. This pins that the contract in scripts/check-content-types.mjs covers
+ * everything dist/ emits.
  *
  * The types are pinned where they are decided: `content_type` in
  * `reference_server`'s `page.rs` has its own unit test, and the live check
  * (`npm run check:types`) asserts status and type for every dist/ file against
- * the deployed page. The one origin (2026-09-19) made `selvaged` that serving
- * layer, retiring `serve.py`; the third copy this file used to compare against
- * went with it.
+ * the deployed page. `selvaged` is the serving layer, so this file compares
+ * against the one contract rather than a second copy.
  */
 import { readdirSync } from 'node:fs';
 import { describe, it } from 'node:test';

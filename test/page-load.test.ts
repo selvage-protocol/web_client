@@ -7,9 +7,9 @@
  * itself is what is unborn, and `editorApi?.layout()` throws `Cannot access 'editorApi' before
  * initialization` rather than doing nothing. Every bundler in use lowers a top-level `let` to `var`,
  * so the fault is invisible in `dist/` — the shipped page is fine — and only the unbundled module
- * shows it. Two fix passes fixed one instance at a time for that reason; this is the guard for the
- * class: load the module, in both device shapes the page loads in, and let a read of an unborn
- * binding fail the test with its own stack, which names the reader and the declaration.
+ * shows it. This is the guard for the class rather than for one instance: load the module, in both
+ * device shapes the page loads in, and let a read of an unborn binding fail the test with its own
+ * stack, which names the reader and the declaration.
  *
  * The document, window and `matchMedia` here are the smallest stand-in the module needs to reach its
  * own end, and they are deliberately permissive: this test is about the *order* the module's own

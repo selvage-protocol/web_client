@@ -1,10 +1,10 @@
 /**
  * Leaving a session: the control, the host's question, and the address bar.
  *
- * Review finding. There was no way out of a session but closing the tab: the
- * page's teardown (`leaveSession`) ran only when the room ended under it, so a
- * guest who wanted out had to lose the page, and a host had no way to say it was
- * done that was different from crashing.
+ * Review finding. The page provides a way out of a session other than closing
+ * the tab: the teardown (`leaveSession`) runs when the room ends under the page,
+ * so a guest who wants out must be able to say so, and a host must be able to end
+ * the room on purpose.
  *
  * A host's leaving is not the same act as a guest's. The room's state is signed
  * by the host key and the room is destroyed `room_grace_ms` after its **last**
@@ -104,10 +104,10 @@ function control(hosting: boolean, options: { label?: boolean } = {}) {
 
 describe('the way out of a session', () => {
   it('tells a host what leaving costs before the press, not only in the question after it', () => {
-    // The control said `Leave` for both roles, so a host learned that its press ends the room for
-    // everyone in it only from the confirmation — one press too late. The role names the control as
-    // the seat is taken (`showRole`), and the name is what a screen reader and a pointer read: the
-    // design's icon is the control at every width, so the words themselves are never painted.
+    // A host's press ends the room for everyone in it, so that is not a thing to learn from the
+    // confirmation. The role names the control as the seat is taken (`showRole`), and the name is
+    // what a screen reader and a pointer read: the design's icon is the control at every width, so
+    // the words themselves are never painted.
     const guest = control(false);
     guest.leave.showRole(false);
     assert.equal(guest.button.attributes['aria-label'], LEAVE_TITLE, 'a guest\u2019s way out is unnamed');
@@ -136,8 +136,8 @@ describe('the way out of a session', () => {
       /<button id="leave" type="button" aria-label="Leave the session"[^>]*>Leave<\/button>/,
       'the chrome carries no leave control, or not in the clients’ own words',
     );
-    // Its own border, and the destructive colour: the reviewer read the old borderless label as
-    // text rather than as the way out, and for a host this press ends the room for everyone.
+    // Its own border, and the destructive colour: a borderless label reads as text rather than as
+    // the way out, and for a host this press ends the room for everyone.
     const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
     assert.match(
       style,
@@ -146,11 +146,10 @@ describe('the way out of a session', () => {
     );
     assert.match(main, /getElementById\('leave'\)/, 'the page never reaches the control');
     assert.match(main, /leaveControl\.press\(\)/, 'the control is never pressed');
-    // A phone drew the design's icon over the words, and the words were not dropped with the paint:
-    // they moved into a span (`leave.ts`'s own `label`) that the stylesheet clipped. The icon is the
-    // control at every width now, so the span and its clip are the shell's own rules — the words are
-    // the control's name and its tooltip, and nothing a person reads on screen. The icon is built
-    // from the icon set, never a second copy of the glyph in the shell.
+    // The icon is the control at every width, and the words are not dropped with the paint: they
+    // live in a span (`leave.ts`'s own `label`) the stylesheet clips, so they are the control's name
+    // and its tooltip and nothing a person reads on screen. The icon is built from the icon set,
+    // never a second copy of the glyph in the shell.
     assert.match(main, /iconSpan\('leave'\)/, 'the way out is drawn without the design’s icon');
     assert.match(main, /label: leaveLabel/, 'the icon has no words to keep in the DOM');
   });
@@ -242,8 +241,8 @@ describe('the way out of a session', () => {
   });
 
   it('asks no timer: a slow reader’s answer is still there when they get to it', () => {
-    // The earlier two-step morphed the control’s words and reverted them after six seconds, so a
-    // person still reading the question pressed a button that had changed back under them.
+    // No timer: a slow reader's answer must still be there when they get to it, and a button that
+    // changed back under them would be one that reverted while they were still reading.
     const host = control(true);
     host.leave.press();
     assert.equal(host.leave.asking(), true);

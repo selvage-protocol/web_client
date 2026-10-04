@@ -12,11 +12,6 @@
  * - **it did not answer**: `/meta` is advisory (`PROTOCOL.md` §2), so a timeout is not a claim
  *   about the server — a page whose own server was slow, cold or behind a hiccup still is its
  *   own server, and the card keeps the offer and says what was not read.
- *
- * Reading `undefined` for the last two states is the defect this module exists to close: it told
- * a person on `selvaged`'s own page, whose `/meta` had taken more than the deadline, that the
- * page "was not served by a Selvage server", and took the one action that would have worked off
- * the card for the life of the load.
  */
 
 import { fetchMeta } from '../engine/index.ts';

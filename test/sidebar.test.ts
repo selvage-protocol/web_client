@@ -116,8 +116,8 @@ describe('a device with no panel of its own width', () => {
   }
 
   it('leaves the panel’s own state to the disclosure it is on a phone', () => {
-    // On a phone the separator is not rendered at all. A separator that wrote `hidden` there reopened
-    // the panel the person shut — on a rotation, on the soft keyboard, on any resize.
+    // On a phone the separator is not rendered at all, and it never writes `hidden`: that would
+    // reopen the panel the person shut — on a rotation, on the soft keyboard, on any resize.
     const views: boolean[] = [];
     globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
     const side = element();
@@ -188,9 +188,9 @@ describe('the page’s own wiring', () => {
 
   it('states the width the panel renders at: its own box and not its content', () => {
     // The separator's `aria-valuenow` is the width `paint()` writes, so what it writes has to be
-    // the width the panel renders at. The shell's other boxes are `border-box`; `#side` was not, so
-    // the 0.7em of padding each side sat outside the declared width and a 374 px value rendered
-    // 394 px at the reviewer's window, with `aria-valuetext` reading 26.7 rem for a 28.1 rem panel.
+    // the width the panel renders at. The shell's other boxes are `border-box`; `#side` must be too,
+    // or the 0.7em of padding each side sits outside the declared width and a 374 px value renders
+    // 394 px, with `aria-valuetext` reading 26.7 rem for a 28.1 rem panel.
     assert.match(
       style,
       /#side \{[^}]*box-sizing:\s*border-box/,

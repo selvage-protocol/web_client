@@ -623,10 +623,10 @@ export class GrantTreeView {
   /**
    * A directory's own chrome: the folder's own two acts, drawn directly rather than behind a `⋯`.
    *
-   * The design's folder row carries `New file in <dir>/` and `Delete <dir>/` and nothing else — the
-   * `⋯` was this build's own, and a menu one press deep is a worse place for the folder's only two
-   * actions than the row itself. The stylesheet draws them always on a touch device, where there is
-   * no hover to reveal them with.
+   * The design's folder row carries `New file in <dir>/` and `Delete <dir>/` and nothing else, and
+   * a menu one press deep is a worse place for the folder's only two actions than the row itself.
+   * The stylesheet draws them always on a touch device, where there is no hover to reveal them
+   * with.
    */
   private directoryChrome(child: GrantChild): HTMLElement {
     const chrome = document.createElement('span');
@@ -798,7 +798,7 @@ export class GrantTreeView {
    * Not by element: a fetch that lands rebuilds the tree, and a control reached after that — the
    * `Try again` on the line the row is showing, say — would otherwise write its progress and its
    * next sentence into the row a rebuild has already thrown away, and a person pressing it would
-   * see nothing happen at all. That was a real defect, found by the in-room driver.
+   * see nothing happen at all.
    */
   private rowFeedback(path: string): RowFeedback {
     const label = `Download ${leafOf(path)}`;
@@ -1816,10 +1816,6 @@ function splitTyped(path: string): [string, string] {
   return cut === -1 ? ['', path] : [path.slice(0, cut + 1), path.slice(cut + 1)];
 }
 
-/**
- * Who is in one file — or, on a shut folder, who is inside it — as initials badges in peer colours:
- * where someone is reads on the tree, glanceable, instead of path text under a face in the bar.
- */
 /** What a badge says under a pointer: whose caret this is, and the role where there is one. */
 function badgeNodes(present: readonly Participant[]): HTMLElement[] {
   return present.map((participant) => {

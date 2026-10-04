@@ -361,7 +361,7 @@ describe('a peer name is text in the hover, never markup', () => {
    * Monaco renders a hover message as markdown and the room supplies the peer
    * name, so an unescaped name is a request the guest never made: a host
    * called `![](http://…/l.png)` fits the protocol's 32-unit display-name
-   * bound, and every guest's browser fetched that URL on hover (2026-09-18).
+   * bound, so its URL must not be fetched when a guest hovers the peer's name.
    */
   const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
 

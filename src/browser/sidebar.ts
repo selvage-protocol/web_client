@@ -191,8 +191,7 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
     }
     // One number, and it is the number the panel renders at: the width is brought inside the window's
     // bounds here, so what the style declares, what the separator states and what the next write
-    // remembers are the same width. Read unclamped from storage, a width from a wider window used to
-    // paint one number and report another.
+    // remembers are the same width.
     width = clampWidth(width, options.viewportWidth(), options.remPx());
     const rounded = Math.round(width);
     side.style.width = `${rounded}px`;

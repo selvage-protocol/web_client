@@ -46,8 +46,8 @@ export type BindingNotice =
   | { kind: 'grant'; paths: string[] }
   /**
    * The follow as it stands. `ended` is the reason a follow the person did *not* stop has just
-   * gone — the follow bar's own words, since the state it described has left the screen and nothing
-   * else says why.
+   * gone; the page says it on its transient line, since the state it described has left the screen
+   * and nothing else says why.
    */
   | { kind: 'follow'; following: Following | undefined; ended?: string }
   /** The editor put `path` in front by itself: a go-to landing, or a file following its move. */
@@ -86,8 +86,8 @@ export type BindingNotice =
  * - `refusal`: a go-to the room could not answer. The click had no other answer, and the sentence
  *   is carried with the peer it is about (`peerId`) so the page can stand it where that press was
  *   made.
- * - `follow`: a follow landing and the end of a follow. The follow banner names who and offers
- *   Stop, the tree and the buffer show where, and the faces show who left.
+ * - `follow`: a follow landing and the end of a follow. The followed face's ring and eye show
+ *   who, the tree and the buffer show where, and the faces show who left.
  * - `error`: what the room said about the session itself. Nothing else carries it.
  * - `terminal`: the room is over. The card comes back with the room's own sentence.
  */
@@ -323,6 +323,11 @@ export class MonacoBinding implements EditorHost {
     return this.path;
   }
 
+  /** Whether the room is over: the faces are empty, the editor read-only. */
+  isTerminal(): boolean {
+    return this.terminalReason !== undefined;
+  }
+
   /**
    * Puts a room path in front of the editor: asks the room for it on first
    * open, builds the model from the replica, and hands it to the bridge.
@@ -330,11 +335,6 @@ export class MonacoBinding implements EditorHost {
    * re-opened on every frame would answer its own open with the room event
    * that supersedes it, and follow could never land.
    */
-  /** Whether the room is over: the faces are empty, the editor read-only. */
-  isTerminal(): boolean {
-    return this.terminalReason !== undefined;
-  }
-
   async openDocument(path: string): Promise<void> {
     if (this.disposed) {
       return;
@@ -768,8 +768,8 @@ export class MonacoBinding implements EditorHost {
       this.editor.revealPositionInCenter({ lineNumber: position.lineNumber, column: position.column });
     }
     this.scheduleSelection();
-    // A follow re-landing says who and where: the strip's own segment carries both, so a sentence
-    // here would be the same fact in a second place.
+    // A follow re-landing says who and where: the followed face's ring and the file strip carry
+    // both, so a sentence here would be the same fact in a second place.
     this.onNotice(mode === 'follow' ? { kind: 'follow', following: this.following() } : { kind: 'landed', path });
     return 'landed';
   }
@@ -899,8 +899,7 @@ export class MonacoBinding implements EditorHost {
     if (this.engine.has(path)) {
       // The room already holds the path, and the replica is LF whatever the file is (`toCrdt`). A
       // file a guest opened first is the one this reaches: building the model from the replica will
-      // not do, because the host's first keystroke would then put every line back as LF — 0.4.3 did
-      // that for a guest's edit through the bridge's render, and this is the host's own typing. The
+      // not do, because the host's first keystroke would then put every line back as LF. The
       // ending is the one the read of this path recorded, which is the file's own.
       return render(this.engine.text(path), this.folder.layout(path)?.eol ?? '\n');
     }

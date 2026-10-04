@@ -4,15 +4,13 @@
  * Owner: "if the room is closed the instance should just disconnect with a
  * toast/popup similar to the joining one". So the page leaves the session —
  * socket disconnected, chrome gone, no half-dead roster, tree or link — and
- * says why on the card, with the paste box open for a fresh link. This
- * supersedes the resting terminal state: the stale tree, the dead roster and
- * the retired share link are deleted with it.
+ * says why on the card, with the paste box open for a fresh link — no resting
+ * terminal state is left: the tree, the roster and the share link go with the
+ * session.
  *
- * Two clipping defects found in the served page:
- * 1. `#share` was 148 px wide against a 413 px value — the bar showed a prefix.
- * 2. the bare card's paste hint was 300 px wide in a 254 px field — clipped.
- *
- * Every check below failed before its change.
+ * Two things a served link must not do: `#share` must be wide enough for a
+ * 413 px value rather than showing a prefix, and the bare card's paste hint must
+ * fit its 254 px field rather than being clipped.
  */
 
 import { readFileSync } from 'node:fs';
@@ -264,10 +262,10 @@ describe('the share bar shows the link, not a prefix of it', () => {
   });
 
   it("shortens the fragment of a sealed link, which is where its length is", () => {
-    // Two keys of 43 characters each, and the display shortened only the query: a `selvage/2` link
-    // read 134 characters, and the pill measured 1249 px of a 1440 px bar. The keys stay whole — a
-    // shortened key would read as a different key — and each value becomes the marker the rest of
-    // the display is shortened with, so the bar still says the link carries more than its query.
+    // A `selvage/2` link is two 43-character keys plus a query, and the display shortens each
+    // value, in the query and in the fragment. The keys stay whole — a shortened key would read
+    // as a different key — and each value becomes the marker the rest of the display is shortened
+    // with, so the bar still says the link carries more than its query.
     const key = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcdefg';
     const hostKey = 'ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210-_gfedcba';
     const shown = displayShareLink(
