@@ -13,9 +13,10 @@
  *
  * The resample is this module's too: the mark is an *alpha* image, and resampling one —
  * premultiply, average, unpremultiply — is not the same in every ImageMagick release this page is
- * built with, while the six sized icons, which come from the *opaque* master, reproduce byte for
- * byte. So the whole mark is a function of the master's bytes and one arithmetic here: one
- * area-weighted average in premultiplied space, one curve, one encoder.
+ * built with, while the six sized icons, which come from the *opaque* master, are compared by
+ * name and size alone for that reason (`scripts/check-dist.sh`). So the whole mark is a function
+ * of the master's bytes and one arithmetic here: one area-weighted average in premultiplied
+ * space, one curve, one encoder.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
