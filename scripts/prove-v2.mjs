@@ -31,6 +31,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 
 import { PeerEngine } from '../src/bridge/index.ts';
+import { LEAVE_TITLE } from '../src/browser/leave.ts';
 import { parseInvite } from '../src/engine/peer.ts';
 import { encodeKey } from '../src/engine/sealed.ts';
 
@@ -484,16 +485,16 @@ async function main() {
       leave.click();
       return leave.textContent;
     })()`);
-    if (pressed !== 'Leave') {
+    if (pressed !== LEAVE_TITLE) {
       throw new Error(`the leave control reads ${JSON.stringify(pressed)}`);
     }
-    const left = await waitForCard(
-      chromium,
-      'the card to come back after leaving',
-      (card) => card.startsWith('shown') && card.includes('Left the session.'),
+    // A leave the person chose is answered by the start card alone: it carries no sentence,
+    // because the card coming back is the whole of what happened.
+    const left = await waitForCard(chromium, 'the card to come back after leaving', (card) =>
+      card.startsWith('shown'),
     );
-    if (!left.includes('Paste a fresh invite link to join another session.')) {
-      throw new Error(`the card after leaving names no next step: ${JSON.stringify(left)}`);
+    if (left !== 'shown\u0000') {
+      throw new Error(`the card after leaving says something: ${JSON.stringify(left)}`);
     }
     const after = await chromium.evaluate(`(() => ({
       session: document.getElementById('session').hidden,
