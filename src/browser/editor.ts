@@ -713,7 +713,7 @@ export class MonacoBinding implements EditorHost {
           kind: 'status',
           topic: 'refusal',
           peerId,
-          text: `nothing to go to: ${this.displayLabel(peerId)} is not in a document`,
+          text: `${this.displayLabel(peerId)} is not in a file`,
         });
         return 'refused';
       }
@@ -756,7 +756,7 @@ export class MonacoBinding implements EditorHost {
           kind: 'status',
           topic: 'refusal',
           peerId,
-          text: `${this.displayLabel(peerId)}'s caret does not resolve here`,
+          text: `${this.displayLabel(peerId)}\u2019s cursor could not be found in this file`,
         });
       }
       return 'refused';
@@ -846,7 +846,7 @@ export class MonacoBinding implements EditorHost {
       this.onNotice({
         kind: 'status',
         topic: 'role',
-        text: 'you are a viewer in this room, so its documents are read-only.',
+        text: 'You are a viewer in this room, so its files are read-only.',
       });
     }
   }
@@ -1182,7 +1182,13 @@ export class MonacoBinding implements EditorHost {
         this.enterTerminal(report.reason);
         break;
       case 'sessionError':
-        this.onNotice({ kind: 'status', topic: 'error', text: `session error ${report.code}: ${report.message}` });
+        // The code stays for a bug report, except the generic one a local fault carries, which
+        // would only repeat the sentence's own word.
+        this.onNotice({
+          kind: 'status',
+          topic: 'error',
+          text: `The session reported an error: ${report.message}${report.code === 'error' ? '' : ` (${report.code})`}`,
+        });
         break;
       case 'saveFailed':
         this.onNotice({
@@ -1434,9 +1440,9 @@ function hostReadSentence(cause: GrantRefusal, path: string): string {
     case 'not-a-file':
       return `${path} is not a plain file in the folder, so there is nothing to open.`;
     case 'too-large':
-      return `${path} is larger than the text a session will carry, so it cannot be shared or opened here.`;
+      return `${path} is too large for a room to carry, so it cannot be shared or opened here.`;
     case 'binary':
-      return `${path} is not text, and a room carries text, so it cannot be opened here.`;
+      return `${path} is not a text file, and a room carries only text, so it cannot be opened here.`;
   }
 }
 

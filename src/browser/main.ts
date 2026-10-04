@@ -189,7 +189,7 @@ async function ensureMonaco(): Promise<typeof monacoApi> {
       // Joins only start once the page loads (the join gate holds earlier
       // submits), so a stack that never arrives is a failed load, not an
       // early one.
-      throw new Error('The editor code failed to load. Reload the page and retry.');
+      throw new Error('The editor failed to load. Reload the page and try again.');
     }
   }
   return monacoReady;
@@ -558,7 +558,7 @@ let saidFetchCosts = false;
 async function createEntry(path: string, entry: NewEntryKind): Promise<CreateResult> {
   const folder = hostFolder;
   if (folder === undefined || binding === undefined) {
-    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+    return { kind: 'refused', sentence: 'This window is no longer sharing a folder.' };
   }
   let outcome: CreateOutcome;
   try {
@@ -604,7 +604,7 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<CreateRes
 async function publishFolder(): Promise<string | undefined> {
   const folder = hostFolder;
   if (folder === undefined) {
-    return 'this window is not serving a folder any more';
+    return 'this window is no longer sharing a folder';
   }
   try {
     await republishGrant?.(await folder.list());
@@ -655,7 +655,7 @@ function forgetMadeFolder(path: string): void {
 async function removeEntry(path: string): Promise<RemoveResult> {
   const folder = hostFolder;
   if (folder === undefined || binding === undefined) {
-    return { kind: 'refused', sentence: 'This window is not serving a folder any more.' };
+    return { kind: 'refused', sentence: 'This window is no longer sharing a folder.' };
   }
   let outcome: FolderRemove;
   try {
@@ -702,7 +702,7 @@ async function moveEntry(path: string, into: string): Promise<MoveResult> {
   };
   const folder = hostFolder;
   if (folder === undefined || binding === undefined) {
-    return refuse('This window is not serving a folder any more.');
+    return refuse('This window is no longer sharing a folder.');
   }
   const under = `${path}/`;
   const moving = binding
@@ -1168,7 +1168,7 @@ async function host(folder: FolderWorkingCopy, displayName: string): Promise<voi
     // A page whose own address names no server at all. The card offers no start action there
     // (`hostAvailability`), so this is the guard for a call that reached the folder picker anyway:
     // a room minted against no server would be a room nobody could be seated on.
-    throw new Error('This page names no server of its own, so there is nothing to start a room on.');
+    throw new Error('This page has no server of its own, so a room cannot be started here.');
   }
   lastBase = base;
   const monaco = await prepareEditor();
@@ -2194,7 +2194,7 @@ function syncStrip(): void {
 }
 
 /** The desktop clients' own sentence for the read-only state, which the page announces. */
-const VIEWER_SENTENCE = 'you are a viewer in this room, so its documents are read-only.';
+const VIEWER_SENTENCE = 'You are a viewer in this room, so its files are read-only.';
 
 /** One sentence for a screen reader, in the one region that carries the changes that say nothing. */
 function announce(text: string): void {

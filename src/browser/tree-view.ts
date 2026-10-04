@@ -968,7 +968,7 @@ export class GrantTreeView {
     head.className = 'del-row';
     head.setAttribute('tabindex', '-1');
     head.setAttribute('aria-label', `Delete ${goes}?`);
-    head.setAttribute('aria-description', 'Enter on Delete confirms, Escape leaves it');
+    head.setAttribute('aria-description', 'Enter on Delete confirms, Escape keeps it');
     head.append(markSpan());
     head.append(struckSpan(`${child.name}/`, true));
     head.append(this.presenceChrome(child.path, presence));
@@ -1151,8 +1151,9 @@ export class GrantTreeView {
     const next = choices[Math.min(choices.length - 1, Math.max(0, (at === -1 ? 0 : at) + delta))] ?? '';
     held.into = next;
     this.render();
-    const where = next === '' ? 'at the top level' : `into ${next}`;
-    this.say(parentOf(held.path) === next ? `Already ${where}` : `Drops ${where}`);
+    const already = parentOf(held.path) === next;
+    const where = next === '' ? 'at the top level' : `${already ? 'in' : 'into'} ${next}`;
+    this.say(already ? `Already ${where}` : `Drops ${where}`);
   }
 
   /** Drops the held row where the choice is, and says what happened. */

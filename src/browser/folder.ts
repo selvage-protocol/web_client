@@ -82,11 +82,11 @@ export type FolderCut = ListingCut;
 export function listingCutSentence(cut: FolderCut): string {
   switch (cut) {
     case 'paths':
-      return 'This folder holds more files than one room listing carries, so the room has only the first part of it. Share a smaller folder to give the room all of it.';
+      return 'This folder has more files than a room can list, so the room has only some of them. Share a smaller folder to give the room all of it.';
     case 'bytes':
-      return 'This folder’s paths are longer in total than one room listing carries, so the room has only the first part of it. Share a folder with shorter paths to give the room all of it.';
+      return 'This folder’s file paths are too long in total for a room to list, so the room has only some of its files. Share a folder with shorter paths to give the room all of it.';
     case 'budget':
-      return 'Reading this folder took more work than one listing walk pays for, so the room may be missing some of its files. Share a smaller folder to give the room all of it.';
+      return 'This folder is too big to read in full, so the room may be missing some of its files. Share a smaller folder to give the room all of it.';
   }
 }
 
@@ -182,7 +182,7 @@ export const FOLDER_PICKER_OPTIONS = { mode: 'readwrite', id: PICKER_ID } as con
 export function folderPickSentence(cause: FolderPickRefusal, detail = ''): string {
   switch (cause) {
     case 'unsupported':
-      return 'This browser cannot hand a page a folder. Chrome and Edge can, but Firefox and Safari cannot. Joining a room here still works.';
+      return 'This browser cannot give a page access to a folder. Chrome and Edge can, but Firefox and Safari cannot. Joining a room here still works.';
     case 'refused':
       return `The browser would not hand over that folder${detail === '' ? '' : ` (${detail})`}. A system folder, or your home directory itself, cannot be shared.`;
   }
@@ -338,7 +338,7 @@ export function folderRemoveSentence(cause: FolderRemoveRefusal, path: string): 
     case 'missing':
       return `${path} is already gone from the folder.`;
     case 'not-permitted':
-      return `${path} could not be removed: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
+      return `${path} could not be removed: this page no longer has write access to the folder. Grant it again from the address bar, then retry.`;
   }
 }
 
@@ -366,13 +366,13 @@ export function folderMoveSentence(
     case 'binary':
       return `${from} is not text a room can carry, so nothing was moved.`;
     case 'exists':
-      return `${to} is already in the folder, so nothing was moved. This page replaces and renames nothing the folder holds.`;
+      return `${to} is already in the folder, so nothing was moved and nothing was replaced.`;
     case 'unread':
       return `${from} had not been read from the folder before this move, so it was left alone.`;
     case 'stale':
       return `${to} changed on disk while it was being moved, so it was left alone.`;
     case 'not-permitted':
-      return `${from} could not be moved: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
+      return `${from} could not be moved: this page no longer has write access to the folder. Grant it again from the address bar, then retry.`;
     case 'same':
       return `${from} is already there, so nothing was moved.`;
     case 'inside':
@@ -398,15 +398,15 @@ export function folderCreateSentence(cause: FolderCreateRefusal, path: string): 
     case 'not-granted':
       return `${path} is not a path this room shares, so it was not created.`;
     case 'binary':
-      return `${path} is a name that declares a format a room cannot carry, so it was not created. Name a text file instead.`;
+      return `${path} is not a text file, and a room carries only text, so it was not created.`;
     case 'exists':
-      return `${path} is already in the folder, so nothing was created. This page does not rename or replace what the folder holds. Name something else.`;
+      return `${path} is already in the folder, so nothing was created or replaced. Choose another name.`;
     case 'missing':
-      return `${path} is not in the folder: the directory it goes through has to exist before a name inside it can be created. Create that directory first.`;
+      return `${path} goes into a folder that does not exist, so it was not created. Create that folder first.`;
     case 'not-a-file':
-      return `${path} goes through something that is a file, not a directory, so nothing was created.`;
+      return `${path} goes through something that is a file, not a folder, so nothing was created.`;
     case 'not-permitted':
-      return `${path} could not be created: this page no longer has write access to the folder. Grant it again from the address bar and try again.`;
+      return `${path} could not be created: this page no longer has write access to the folder. Grant it again from the address bar, then retry.`;
   }
 }
 
@@ -1008,7 +1008,15 @@ export class FolderWorkingCopy implements FolderWork {
       return {
         kind: 'refused',
         cause,
-        sentence: `${from} was not moved: ${to} is already in that folder, and this page replaces and renames nothing the folder holds.`
+        sentence: `${from} was not moved: ${to} is already in that folder, and nothing in it was replaced.`
+      };
+    }
+    if (cause === 'missing') {
+      // The create's sentence ends in what was not created, and nothing was being created here.
+      return {
+        kind: 'refused',
+        cause,
+        sentence: `${from} was not moved: ${to} goes into a folder that does not exist. Create that folder first.`,
       };
     }
     return {

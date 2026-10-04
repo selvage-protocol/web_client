@@ -448,7 +448,7 @@ describe('MonacoBinding', () => {
     engine.fire({ type: 'peersChanged', peers: [] });
     assert.equal(editor.readOnly, true, "a viewer's document is not editable");
     assert.deepEqual(said(), [
-      { kind: 'status', topic: 'role', text: 'you are a viewer in this room, so its documents are read-only.' },
+      { kind: 'status', topic: 'role', text: 'You are a viewer in this room, so its files are read-only.' },
     ]);
 
     // Every state after it says nothing new, and the editor is not re-optioned either.

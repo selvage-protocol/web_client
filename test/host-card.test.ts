@@ -200,7 +200,7 @@ describe('whether the card offers to start a room', () => {
       !/not served by a Selvage server/.test(availability.note),
       'a read that did not answer still says the page was not served by a Selvage server',
     );
-    assert.match(availability.note, /has not answered \/meta/);
+    assert.match(availability.note, /has not answered yet/);
     // And it is that sentence alone: the cost of a room in a tab belonged to a card that offered
     // the action, and this one says what was not read and what the click does about it.
     assert.ok(
@@ -308,7 +308,7 @@ describe('what a reload leaves behind', () => {
     // that starts another. The page-hosted shape is what they just reloaded, and the guests'
     // countdown belongs to the room they are no longer in.
     assert.match(notice, /^Reloading ended the room this tab was hosting/);
-    assert.match(notice, /and its invite link/);
+    assert.match(notice, /stopped its invite link/);
     assert.match(notice, /everything you saved is in your folder/);
     assert.ok(!/nothing in it was saved|not saved/i.test(notice), `the card still denies the write-back: ${notice}`);
     assert.match(notice, /pick it again to start a new room/i);

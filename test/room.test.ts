@@ -420,7 +420,7 @@ describe('a person’s menu', () => {
   it('stands the refusal in the menu of the peer it is about, and in no other', () => {
     // Two lines, the design's shape: the headline, and the room's own reason for it beneath, which
     // is what tells the person whether the peer closed the file or their caret is somewhere else.
-    const detail = 'sam is not in a document';
+    const detail = 'sam is not in a file';
     const refused = renderMenu([SELF, SAM, MIRA], SAM, {
       goToRefusal: { peerId: 'peer-sam', detail },
     });
