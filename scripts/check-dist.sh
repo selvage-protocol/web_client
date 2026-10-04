@@ -17,8 +17,8 @@
 # renderer cannot change: the six names, at the six sizes. ImageMagick draws them at
 # build time and its version decides everything else about the result — the PNG
 # encoder's choices (compression level, chunk order) and, measurably, the resampler:
-# this job carries trixie's 7.1.1.x, the committed icons came from 7.1.2, and 7% of the
-# pixels of the 180px touch icon differ between the two while the picture is the same.
+# a differently versioned renderer can change the pixels of the 180px touch icon while
+# the picture stays the same, which is why the icon bytes are not compared.
 # `test/identity.test.ts` is where the icons' bytes are pinned, against a render by the
 # machine it runs on, and it needs the `site` checkout beside this one.
 #

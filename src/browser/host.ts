@@ -31,21 +31,6 @@ export const HOST_NEEDS_A_BROWSER =
   'This browser cannot hand a page a folder, so a room cannot be started from it. Chrome and Edge can, but Firefox and Safari cannot. Joining a room here still works.';
 
 /**
- * Why the host action is not offered, and what the card says instead: nothing.
- *
- * The page's rule is that the link's own origin is the server, and a host has no link, so a host
- * needs a page its server is behind. A page that answered with something else — a static host,
- * another JSON API, a page — has no room to start and no sentence worth standing where the action
- * would be: the card leads with the way in it does have, which is the invite path with `Join` as its
- * action. That this page is not a Selvage server's is not a fact the person can act on, and the join
- * attempt says what went wrong when they try.
- *
- * Two facts reach it, and neither of them is "`/meta` did not answer": an origin that answered with
- * something that is not a Selvage `/meta`, and a page whose own address names no server at all (a
- * `file://` open). A read that timed out is the third thing, and it keeps the offer with a note
- * saying what was not read (`HOST_UNREAD_NOTE`).
- */
-/**
  * The warning beside the action where `/meta` had not answered by the time the card was built.
  *
  * The read that decides the *offer* is not the read that decides the *mint*: `/meta` is advisory

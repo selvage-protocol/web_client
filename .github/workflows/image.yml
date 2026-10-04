@@ -100,7 +100,7 @@ jobs:
       #
       # `set -o pipefail` is not optional here: without it the pipeline's status is
       # `tee`'s, which succeeds, and this wrapper would report a green job over a smoke
-      # that failed (it did, once, until this line was added).
+      # that failed.
       - name: build the image, run it hardened, and assert the page it serves
         run: |
           set -o pipefail

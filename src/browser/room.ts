@@ -373,9 +373,9 @@ function focusedAnchor(host: HTMLElement): string | undefined {
 /**
  * Draws one person's menu over the dialog element the page keeps open.
  *
- * The acts are the ones the old roster row carried, in the same words: to go where someone
- * is, to follow them, to stop, and the own name's edit. A peer in no file is offered no
- * `Go to` — a verb that can only refuse is not offered — and says where they are instead.
+ * The acts are to go where someone is, to follow them, to stop, and the own name's edit. A peer
+ * in no file is offered no `Go to` — a verb that can only refuse is not offered — and says where
+ * they are instead.
  */
 export function renderPersonMenu(
   menu: HTMLElement,
@@ -454,8 +454,8 @@ function personActs(person: RoomPerson, view: PersonMenuView): HTMLDivElement {
     acts.appendChild(go);
   }
   acts.appendChild(followButton(person, view));
-  // Under the verbs of the person it is about, the way the roster row carried it: the headline, and
-  // the room's own reason for it on the line beneath.
+  // Under the verbs of the person it is about: the headline, and the room's own reason for it on
+  // the line beneath.
   if (view.goToRefusal?.peerId === person.peerId) {
     const refusal = document.createElement('div');
     refusal.className = 'refusal';

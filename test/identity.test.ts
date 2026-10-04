@@ -9,11 +9,9 @@
  * renderer. The site keeps its opaque mark as the OpenGraph image
  * (`app/`), which is the same file this page serves as `mark-opaque.png`.
  *
- * The site's `app/icon.svg` — the vector monogram this page used to copy as
- * `favicon.svg` — is gone: its `clipPath` pointed at a `<g>` and the whole
- * monogram was clipped away, so it rendered nothing but its background plate.
- * The site's icon set is its own pixels now, and this page's tab is the rasters
- * below.
+ * This page's tab is the rasters below, not a vector `favicon.svg`: the site's
+ * `app/icon.svg` is not copied, since its `clipPath` pointed at a `<g>` and the
+ * whole monogram was clipped away, leaving nothing but its background plate.
  *
  * The one test that reads the `site` checkout beside this one skips, with the
  * reason, where there is no such checkout — a single-repository CI job, or a
@@ -169,10 +167,9 @@ describe('identity', () => {
   });
 
   it('wears the owner\'s mark unlevelled, and measures it without a floor', () => {
-    // The mark is the owner's own artwork, and a logo is exempt from the contrast rule the old
-    // assertion applied: `1.4.11` excepts logotypes — "text that is part of a logo or brand name
-    // has no contrast requirement". The 3:1 measured here was therefore stricter than the standard
-    // it cited, and meeting it meant lifting somebody else's drawing to suit this page's ground.
+    // The mark is the owner's own artwork, and a logo is exempt from the contrast rule: `1.4.11`
+    // excepts logotypes — "text that is part of a logo or brand name has no contrast requirement" —
+    // so the mark is not lifted to meet a floor that does not apply to it.
     //
     // What is still measured is the mark itself, so a derivative that goes dark again is caught:
     // the ink the shell paints on the card is composited from the pixels in the document, and with

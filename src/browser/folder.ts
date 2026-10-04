@@ -326,11 +326,10 @@ export interface FileLayout {
 }
 
 /**
- * What a refused create says, per cause.
+ * What a refused removal says, per cause.
  *
  * The same kind of sentence a refused write gets: it names the path, says plainly that nothing was
- * made, and where a person can act it names the next step. `exists` is the one that has to be said
- * rather than implied, because the API's own `create` would have opened what is there instead.
+ * removed, and where a person can act it names the next step.
  */
 export function folderRemoveSentence(cause: FolderRemoveRefusal, path: string): string {
   switch (cause) {
@@ -390,7 +389,10 @@ export function folderMovePartialSentence(from: string, to: string, reason: stri
   return `${from} is now at ${to} as well, but the original was not removed: ${reason}`;
 }
 
-/** Why nothing was created. */
+/**
+ * Why nothing was created. `exists` has to be said rather than implied: the API's own
+ * `create` would have opened what is there instead.
+ */
 export function folderCreateSentence(cause: FolderCreateRefusal, path: string): string {
   switch (cause) {
     case 'not-granted':
@@ -988,19 +990,6 @@ export class FolderWorkingCopy implements FolderWork {
   }
 
   /**
-   * Moves a folder: every listed file inside it, one at a time, and then the folder itself.
-   *
-   * The order is what makes a move that stops halfway readable rather than destructive. Each file
-   * lands before the folder is taken out, and the folder goes only once its contents have: what has
-   * not moved is still where it was, and a refusal along the way is answered with the folder at both
-   * names rather than with a folder that half arrived.
-   *
-   * The folder is refused before anything is made when it holds a file the room's listing has no
-   * path for (`unsharedUnder`). The removal that ends the move is the recursive one, which takes
-   * with it everything in the folder and not only the files that were listed; the check is what
-   * makes that removal safe, and it is made before the first byte moves rather than after.
-   */
-  /**
    * A refusal about the destination, in a create's own words.
    *
    * What failed is making `to`, not finding `from`: the folder a path goes through is not there, or
@@ -1029,6 +1018,19 @@ export class FolderWorkingCopy implements FolderWork {
     };
   }
 
+  /**
+   * Moves a folder: every listed file inside it, one at a time, and then the folder itself.
+   *
+   * The order is what makes a move that stops halfway readable rather than destructive. Each file
+   * lands before the folder is taken out, and the folder goes only once its contents have: what has
+   * not moved is still where it was, and a refusal along the way is answered with the folder at both
+   * names rather than with a folder that half arrived.
+   *
+   * The folder is refused before anything is made when it holds a file the room's listing has no
+   * path for (`unsharedUnder`). The removal that ends the move is the recursive one, which takes
+   * with it everything in the folder and not only the files that were listed; the check is what
+   * makes that removal safe, and it is made before the first byte moves rather than after.
+   */
   private async moveFolder(
     from: string,
     to: string,

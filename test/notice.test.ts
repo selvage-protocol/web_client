@@ -261,9 +261,9 @@ describe('the session card', () => {
   });
 
   it('has no general-purpose news line', () => {
-    // Design §6.2: a `status` sentence went with the four that found other homes. What is left of
-    // the card is what changes what typing means — the countdown, the dropped socket — and the
-    // host's return, which is the reason the countdown vanishing has one.
+    // Design §6.2: the card carries no general-purpose news line. What is left of it is what
+    // changes what typing means — the countdown, the dropped socket — and the host's return, which
+    // is the reason the countdown vanishing has one.
     const source = readFileSync(new URL('../src/browser/notice.ts', import.meta.url), 'utf8');
     assert.ok(!/status\(text: string\)/.test(source), 'the card carries a status method again');
     assert.ok(!/TRANSIENT_STAND_MS\b/.test(source.slice(source.indexOf('wireSessionCard'))),

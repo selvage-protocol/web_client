@@ -10,10 +10,9 @@
  *
  * That is a real consequence for other people, and it is one click from the share bar, so a host's
  * Leave asks before it acts. The question stands **under the button that asks it**, in an anchored
- * panel, because the question and its answer have to be one glance apart: the earlier version put the
- * sentence at the far left of the bar and morphed the button at the far right, and a person reading
- * one could not see the other. The panel has the two answers and no timer — a question that answered
- * itself while somebody was still reading it is worse than one they had to dismiss.
+ * panel, because the question and its answer have to be one glance apart. The panel has the two
+ * answers and no timer — a question that answered itself while somebody was still reading it is
+ * worse than one they had to dismiss.
  *
  * The control is separated from the page so the suite drives it without a browser: the page's entry
  * module runs on import and cannot be one. The control's own name is set from the role as the seat

@@ -9,7 +9,7 @@
  * registers the language and a loader; the tokenizer body loads when a document
  * of that language opens, and the bundle splits on it (`lang-*.js`). JSON, TOML
  * and Nix get the same treatment from this repository's own Monarch sets, since
- * Monaco 0.52.2 ships none of the three (`tokenizers/`).
+ * Monaco ships none of the three (`tokenizers/`).
  */
 
 import { registerLanguage } from 'monaco-editor/esm/vs/basic-languages/_.contribution.js';

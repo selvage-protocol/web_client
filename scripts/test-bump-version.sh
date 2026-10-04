@@ -30,8 +30,8 @@
 #   - a run that fails after it has started writing leaves the tree as it found it.
 #
 # The six sized icons are outside that file set, and deliberately: ImageMagick renders
-# them at build time and its version decides their bytes, so a runner carrying trixie's
-# 7.1.1.x re-encodes what this checkout's 7.1.2 committed. `scripts/check-dist.sh`
+# them at build time and its version decides their bytes, so a runner re-encodes
+# what another checkout committed. `scripts/check-dist.sh`
 # excludes exactly those six from its byte comparison for the same reason, asserting
 # only their names and sizes, and this check makes the same exclusion — the file set
 # asserted here is then the same one on a runner and in a checkout. Everything the

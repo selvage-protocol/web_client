@@ -91,11 +91,8 @@ describe('the host action in the shell', () => {
     assert.match(html, /Share a folder\u2026/, 'the button does not say what it does');
     assert.match(main, /HOST_BUTTON_LABEL = 'Share a folder\u2026'/, 'the label the bundle puts back differs from the shell');
     assert.ok(!html.includes('Choose a folder'), 'the long label survives in the shell');
-    // The card carried a paragraph under the button saying what a guest gets — the names in the
-    // folder, and a file's text only when it is opened. The grant already defines the listing
-    // (`DESIGN.md` §4.2), so the paragraph was cut. Then two lines took its place, saying what the
-    // folder gives away and what a room in a tab costs; both are gone now, and the card offers the
-    // action and says nothing else.
+    // The card offers the action and says nothing else. What a guest gets is the grant's own
+    // definition (`DESIGN.md` §4.2), so no paragraph under the button has to say it.
     const wrap = sliceBetween(html, '<div id="host-wrap"', '</div>');
     assert.ok(!wrap.includes('id="host-share"'), 'the card carries a line of copy beside the action');
     assert.ok(!main.includes('HOST_GUESTS_NOTE'), 'the old guests note survives in the bundle');
@@ -112,10 +109,9 @@ describe('the host action in the shell', () => {
     assert.match(showing, /if \(cardIntent === 'join'\)/, 'the two intents are said the same way');
     assert.match(showing, /hostQuiet\.hidden = !offered/, 'the quiet line stands where hosting is not offered');
     assert.match(showing, /hostButton\.hidden = true/, 'the start button still stands on a guest card');
-    // And nothing is said about hosting a guest never asked for: the four-line refusal about a
-    // missing directory picker stood under Join on the card of somebody who came here to join, and
-    // the quiet line went with it — a press that could only lead to a card with no action on it is
-    // worse than no verb.
+    // And nothing is said about hosting a guest never asked for: a refusal about a missing
+    // directory picker does not belong under Join on the card of somebody who came here to join — a
+    // press that could only lead to a card with no action on it is worse than no verb.
     assert.match(showing, /hostWrap\.hidden = !offered/, 'a guest is read about hosting the card does not offer');
     assert.match(showing, /hostNote\.textContent = '';/, 'the guest card still explains a refusal it never asked for');
     // And the two intents are said the same way: the offered card writes no note at all — the
@@ -262,9 +258,9 @@ describe('the card reads its own origin, and keeps the offer for an answer it di
       'nothing tells a sentence from an action',
     );
     assert.match(main, /hostButton\.hidden = !offered/, 'a button is shown where only a sentence belongs');
-    // And the wrap around all of it takes no room where it holds nothing: measured on a static
-    // server — a page that is not a Selvage server's own — the hairline rule and its 34 px of
-    // margin and padding stood under Join with nothing beneath them.
+    // And the wrap around all of it takes no room where it holds nothing: on a page that is not a
+    // Selvage server's own, the hairline rule and its 34 px of margin and padding must not stand
+    // under Join with nothing beneath them.
     assert.match(
       main,
       /hostWrap\.hidden = !offered && hostNote\.textContent === ''/,

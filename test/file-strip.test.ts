@@ -2,11 +2,7 @@
  * The file strip, and the homes the page gives a message.
  *
  * The strip is the one line above the editor, and it is the open file and nothing else: the
- * directory muted, the leaf bold. It used to carry a chip per state — the text is in the room, the
- * document reads empty, this window is a viewer, the folder refused the write — and a segment for
- * the peer being followed; the design draws none of them, and each said what the reader could see
- * for themselves, what no longer has a surface of its own, or what belongs on the face it is about.
- * It is also the phone's own panel disclosure.
+ * directory muted, the leaf bold. It is also the phone's own panel disclosure.
  *
  * The notice policy is the other half: the homes, each with one job, and a short list of what earns
  * words at all. What is asserted here is the routing — a failure with no control on screen is the
@@ -39,12 +35,12 @@ describe('the strip is in the shell, above the editor', () => {
   it('carries the open file’s path and nothing else', () => {
     assert.ok(strip !== '', 'no file strip above the editor');
     assert.ok(strip.includes('id="file-strip-path"'), 'the strip carries no path');
-    // The line is the path: every chip and segment it used to hold is gone, and the element is the
-    // one thing a phone presses to open the panel.
+    // The line is the path and nothing else, and the element is the one thing a phone presses to
+    // open the panel.
     const others = [...strip.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
     assert.deepEqual(others, ['file-strip-path'], `the strip carries more than the path: ${others}`);
-    // The bar's download control moved to the tree, where a room's files are, and the strip's copy
-    // of it is gone: one control per act. It is about a file, not about the session.
+    // The tree is where a room's files are, so the download control lives there and not on the
+    // strip: one control per act. It is about a file, not about the session.
     const bar = html.slice(html.indexOf('<div id="session"'), html.indexOf('<div id="notices"'));
     assert.ok(!bar.includes('id="download"'), 'the download control is still in the session bar');
     assert.ok(!strip.includes('id="download"'), 'the strip still carries a second download control');
@@ -53,9 +49,8 @@ describe('the strip is in the shell, above the editor', () => {
   it('is the phone’s panel disclosure, and only on a phone', () => {
     // With the phone's panel shut — its state after every open — nothing else on screen says which
     // file is open, and the panel is the only way back to the tree. One control for one panel: the
-    // icon-only `☰` that stood beside the path was a second disclosure inside the strip's own
-    // `role="button"`, and it never painted — the shell's `[hidden] { display: none !important }`
-    // beat the phone query's `display: flex` — so it was a control nobody could press.
+    // strip is the whole row a fingertip has, and a second disclosure inside the strip's own
+    // `role="button"` would be a control within a control.
     assert.ok(!html.includes('panel-toggle'), 'the strip carries a second control for the panel');
     assert.match(main, /fileStrip\.addEventListener\('click'/, 'nothing on a phone opens the panel');
     assert.match(main, /applyStripRole\(\)/, 'the strip never takes the disclosure’s semantics');
@@ -92,8 +87,8 @@ describe('the strip is in the shell, above the editor', () => {
 
   it('offers no control of its own for saving the open file', () => {
     // The tree's per-row download is the page's one way to a file on disk, and it reaches every
-    // file the room holds — the open one included. The strip's button was the same act a second
-    // time, on the one line that is about *which file is open*.
+    // file the room holds — the open one included. A control on the strip would be the same act a
+    // second time, on the one line that is about *which file is open*.
     assert.ok(!html.includes('id="download"'), 'the strip carries a download control again');
     assert.ok(!main.includes('downloadButton'), 'the page still wires a download button');
     assert.ok(!main.includes('downloadOpen'), 'the page still saves the open file outside the tree');
@@ -103,10 +98,9 @@ describe('the strip is in the shell, above the editor', () => {
 
 describe('what the strip states', () => {
   it('states no state at all: the line is the open file', () => {
-    // The chips are gone — a file that reads empty, a viewer's read-only room, the write a folder
-    // refused — and so is the follow segment. The design draws none of them, and each said what the
-    // reader could see for themselves or what has a better home: the folder's own sentence goes to
-    // the page's transient line, and a follow is the followed face's dashed ring and eye.
+    // The strip states no chip and no follow segment. The design draws neither: the folder's own
+    // sentence goes to the page's transient line, and a follow is the followed face's dashed ring
+    // and eye.
     assert.ok(!main.includes('fileStripChips'), 'the strip still builds chips');
     assert.ok(!main.includes('fileStripFollow'), 'the strip still builds the follow segment');
     assert.ok(!style.includes('#file-strip-chips'), 'the stylesheet still paints a strip chip');
@@ -115,10 +109,9 @@ describe('what the strip states', () => {
   });
 
   it('says nothing about the room’s own knowledge of a row, on the strip or in the tree', () => {
-    // The tree's `●`, the `empty` and `not fetched yet` tags and the `⚠` a refused write put there
-    // are all gone: the row is a name in a list of names, and what the page knows about a document
-    // is the editor's own pane. What is left of that knowledge in the tree is the dimming a guest's
-    // rows wear while the host is away.
+    // The row is a name in a list of names, and what the page knows about a document is the
+    // editor's own pane. What the tree does carry is the dimming a guest's rows wear while the host
+    // is away.
     assert.ok(!/in the room'/.test(main), 'the strip still says the open file’s text is in the room');
     assert.ok(!/\.in-room/.test(style), 'the tree paints a dot for a file the room holds again');
     assert.ok(!/'●'/.test(treeView), 'a row draws the dot for a file the room holds again');
@@ -130,10 +123,9 @@ describe('what the strip states', () => {
   });
 
   it('gives an action no room and no hit area until its row is hovered', () => {
-    // The download control kept its 24.4 px while it was invisible, so a name ellipsized 24 px
-    // early: measured at 1280x900 on a row ending at x=284, the badge ended at x=245. The design
-    // collapses the control to nothing and lets the row grow into it, and the badges take the row's
-    // one auto margin either way.
+    // The control collapses to nothing until its row is hovered, so a name is not ellipsized early:
+    // the row grows into the space the control gives up, and the badges take the row's one auto
+    // margin either way.
     const control = rule('#tree .row-actions .icon-button');
     assert.match(control, /width:\s*0/, 'the invisible action still holds its slot');
     assert.match(control, /opacity:\s*0/, 'the action is not held back at rest');
@@ -159,9 +151,8 @@ describe('what the strip states', () => {
   });
 
   it('sends the folder’s own refusal to the page’s transient line', () => {
-    // A write the folder refused used to stand on the row it was about, and the row carries no mark
-    // for it any more. The sentence must not vanish with the mark: it is a failure with no other
-    // home, which is exactly what the alert is for.
+    // The row carries no mark for a refused write. The sentence must not vanish with it: it is a
+    // failure with no other home, which is exactly what the alert is for.
     const notices = main.slice(main.indexOf("case 'failure'"), main.indexOf("case 'saved'"));
     assert.ok(notices !== '', 'the failure notice has no case');
     assert.match(notices, /failureAlert\.show\(notice\.text\)/, 'a refused write reaches no line');

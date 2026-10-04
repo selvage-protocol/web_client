@@ -4,7 +4,7 @@
  * Every language named here is backed with a tokenizer the bundle carries and
  * loads lazily (`monaco.ts`): the ones Monaco ships under `basic-languages`,
  * plus the small Monarch sets this repository adds for JSON, TOML and Nix,
- * which Monaco 0.52.2 has none of. Anything else stays `plaintext`: an honest
+ * which Monaco has none of. Anything else stays `plaintext`: an honest
  * mode rather than highlighting that pretends.
  */
 

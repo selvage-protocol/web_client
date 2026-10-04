@@ -3,8 +3,7 @@
  * for their type; the link/check pair belongs to the share box's copy button.
  *
  * A typed file is a solid page in the type's colour with a bold short label on
- * it, so it still reads in a 14 px tree row — a two-letter label at the old
- * 4.6-unit size was under 4 px and invisible. The colours follow an editor icon
+ * it, so it still reads in a 14 px tree row. The colours follow an editor icon
  * theme (TS blue, JS yellow, Nix blue, …), but the three types the design names
  * — Rust, Markdown and TOML — wear Mocha's own accents; the generic and text
  * files stay the muted outline so an unbacked type is visibly a plain file.
@@ -140,7 +139,7 @@ const ICONS: Record<IconName, string> = {
   'file-ini': CONFIG_FILE,
   // The directory, as the design draws it: Phosphor's filled `folder`, with the open glyph that
   // replaces it when the row is expanded. A filled glyph reads as a folder at 14 px where an
-  // outline does not, and the swap is the disclosure the tree used to draw as a chevron.
+  // outline does not.
   folder:
     '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,72H131.31L104,44.69A15.86,15.86,0,0,0,92.69,40H40A16,16,0,0,0,24,56V200.62A15.4,15.4,0,0,0,39.38,216H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72ZM40,56H92.69l16,16H40ZM216,200H40V88H216Z"/></svg>',
   'folder-open':

@@ -292,7 +292,7 @@ describe('MonacoBinding', () => {
     });
     await binding.openDocument('notes.txt');
     timers.fire();
-    // A held arrow key is a selection event per step, and each one used to copy the whole
+    // A held arrow key is a selection event per step, and the steps must not copy the whole
     // buffer and put a frame on the wire.
     reads = 0;
     selections.length = 0;

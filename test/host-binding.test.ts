@@ -499,9 +499,9 @@ describe('the host writes its own edits back', () => {
   });
 
   it('writes both files when one settle covers two of them', async () => {
-    // The defect this pins: one timer for the whole binding, so "type in A, open B, type in B" inside
-    // the settle cancelled A's write and A was never written — nothing re-armed it, and the page has
-    // no save gesture and no mark, so the person believed it had landed.
+    // One timer per settle, not one for the whole binding: "type in A, open B, type in B" inside the
+    // settle must not cancel A's write — nothing re-arms it, and the page has no save gesture and no
+    // mark, so the person would believe it had landed.
     const { binding, timers, models, writes } = harness({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
     await binding.openDocument('a.txt');
     models[0]?.__setText('a EDITED\n');
@@ -546,8 +546,8 @@ describe('the host writes its own edits back', () => {
   it('keeps a CRLF file CRLF when the host edits a file a guest opened first', async () => {
     // The replica is LF whatever the file is (`toCrdt`), so a model built from it alone would put
     // every line back as LF on the host's first keystroke — an edit of one character that changes
-    // every line in version control. 0.4.3 did this for a guest's edit through the bridge's render;
-    // this is the host's own typing.
+    // every line in version control. The bridge's render does this for a guest's edit; this is the
+    // host's own typing.
     const engine = makeEngine('host', new Map([['notes.txt', 'one\ntwo\n']]));
     const { folder, writes } = makeFolder({ 'notes.txt': 'one\r\ntwo\r\n' });
     const timers = new ManualTimers();

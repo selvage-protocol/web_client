@@ -87,10 +87,10 @@ describe('share links', () => {
   });
 
   it('a second ? separates params instead of gluing into the token', () => {
-    // The owner failure: `?debug=1` appended to a link that already had a
-    // query glued `?debug=1` into the token (`tok%3Fdebug%3D1` on rebuild).
-    // A literal `?` past the first is a separator — values are
-    // percent-encoded, so it can never be legitimate token data.
+    // A literal `?` past the first is a separator rather than token data:
+    // `?debug=1` appended to a link that already had a query must not glue into
+    // the token (`tok%3Fdebug%3D1` on rebuild), and values are percent-encoded,
+    // so it can never be legitimate token data.
     assert.deepEqual(parsePageLink('https://edit.example/?room=r-1&token=tok?debug=1'), {
       room: 'r-1',
       token: 'tok',

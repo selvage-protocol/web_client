@@ -407,8 +407,8 @@ function longNames(count = 1500, bytes = 3000): string[] {
 
 describe('the listing ceiling', () => {
   it('lists a folder of six thousand shareable files whole', async () => {
-    // The bound this wave raised: five thousand was a number the protocol does not name, and a folder
-    // at six thousand is an ordinary project rather than a pathological one.
+    // The bound is six thousand: an ordinary project can hold that many, and the protocol names no
+    // smaller ceiling.
     const count = 6000;
     const folder = new FolderWorkingCopy(
       flatDir(Array.from({ length: count }, (_, index) => numbered(index, '.md'))),

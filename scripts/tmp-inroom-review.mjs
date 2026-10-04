@@ -1385,8 +1385,7 @@ async function reviewDesktop(page, server, written, failures) {
     log('wrote', await record(written, page, '20-following-a-pinned-face.png'));
 
     // One peer into the folder the run seeded, for the one thing a shot of the panel has to show: a
-    // shut folder wearing the badges of the peers inside it, which is what the design draws where
-    // this page used to draw nothing.
+    // shut folder wearing the badges of the peers inside it, which is what the design draws.
     await guests[0].open('src/main.ts');
     // The presence path is what the row is drawn from, and it is published with the caret: an open
     // alone takes the hold and says nothing about where the peer is.
@@ -1880,10 +1879,8 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
   // an empty file and the second says the wait is still running — and a run that recorded only the
   // words could not say which of the two it saw.
   //
-  // What is *not* read here is the `●` the row used to gain when the text landed, or the `not
-  // fetched yet` tag that replaced it. The row states nothing about the room now: the busy mark is
-  // the page's own statement that the fetch has not settled, and the line under the row says what
-  // became of it.
+  // The row states nothing about the room: the busy mark is the page's own statement that the
+  // fetch has not settled, and the line under the row says what became of it.
   // The path the driver clicked, and no other: a fetch of `notes.md` is not a fetch of `main.ts`.
   let sawBusy = false;
   const landed = async () => {
@@ -1975,8 +1972,7 @@ async function reviewTouch(page, server, invite, written, openedPath, failures) 
     );
   }
   // The panel is where the row's own line lives, so a shot of a row has to be a shot of the panel.
-  // Nothing opens a file here any more: the room's document set moving used to open the first
-  // document it named, which on a phone collapsed the panel over the very row the person acted on.
+  // Nothing opens a file here: a fetch must not move the editor or the panel the row is in.
   await page.evaluate(`(() => {
     if (document.getElementById('side').hidden) document.getElementById('file-strip').click();
     for (const details of document.querySelectorAll('#tree details')) {

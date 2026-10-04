@@ -1,5 +1,5 @@
 /**
- * S2 (2026-09-18): a join attempted before the page finishes loading never
+ * A join attempted before the page finishes loading never
  * fails — it queues until `load`, then lands exactly once. A second submit
  * while queued or running is a duplicate, never a second join.
  */

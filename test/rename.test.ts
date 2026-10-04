@@ -9,8 +9,7 @@
  *
  * The page cannot be driven here — `main.ts` is the entry module and runs on
  * import — so the action lives in `src/browser/rename.ts` and the page hands it
- * its rooms, its storage and its two message homes. Every check below failed
- * before this module existed: the page sent nothing at all.
+ * its rooms, its storage and its two message homes.
  */
 
 import { describe, it } from 'node:test';

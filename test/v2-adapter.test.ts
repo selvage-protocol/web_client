@@ -125,8 +125,8 @@ describe('the page the bundle built', () => {
     // The page keeps one for the life of a session and drops it with the teardown: the own row's
     // colour and role, a rename, the fallback read of a path this window has no model for, the
     // socket the leave closes and the one `beforeunload` closes are all reads of it, and every one
-    // of them is a no-op when nothing assigns it. `prove:v2` is where that showed: with the line
-    // gone the browser's socket stayed open and the room kept the seat of a guest that left.
+    // of them is a no-op when nothing assigns it. Dropping the assignment would leave the browser's
+    // socket open and the room holding the seat of a guest that left.
     const seat = /async function seatSession\(seat: Seat\)[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
     assert.ok(seat !== '', 'the page has no seatSession to read');
     assert.match(seat, /^\s*engine = /m, 'the page holds no engine: leaving it closes no socket');

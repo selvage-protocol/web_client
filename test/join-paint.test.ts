@@ -7,10 +7,9 @@
  * the action it leads with, and the remembered name) when it takes over. This
  * file runs both against the same inputs and holds them to the same answer.
  *
- * Owner defect (2026-09-18): on a bare open the first frame was a card with no
- * paste box and `Selvage mark` as the mark's alt text — the 60 KB PNG had not
- * arrived — and the layout then moved 40 px under the reader as the bundle
- * filled both in.
+ * On a bare open the first frame must be the final card: the paste box present
+ * and the mark already in the shell, so the layout does not move under the reader
+ * as the bundle takes over.
  */
 
 import { readFileSync } from 'node:fs';
@@ -340,12 +339,12 @@ describe('the card shell decides the first frame', () => {
   });
 
   it('a pre-bundle Enter in the name field is the card\'s own action, never the join', () => {
-    // M4: the shell's form *is* the invite path, so an Enter in the name field used to be held
-    // as a join and replayed as one once the bundle landed — on a page whose heading is "Start a
-    // shared session", answered with "Paste an invite link to join." The field belongs to the
-    // card, so the held act is the card's own; it is answered now (the start action needs a
-    // folder picker, which the browser answers only under a click of the person's own) and the
-    // card is live a moment later.
+    // The shell's form *is* the invite path, so an Enter in the name field must not be held as a
+    // join and replayed as one once the bundle lands — on a page whose heading is "Start a shared
+    // session", that is answered with "Paste an invite link to join." The field belongs to the
+    // card, so the held act is the card's own; it is answered with the start action's own line
+    // (which needs a folder picker the browser answers only under a click of the person's own) and
+    // the card is live a moment later.
     const bare = runShell({ search: '', stored: '' });
     const fired = bare.enter('name');
     assert.equal(fired.defaultPrevented, true, 'the implicit submission is left to find the join');
@@ -480,14 +479,12 @@ describe('the mark is painted by the shell, never fetched', () => {
 /**
  * The backdrop behind the card is a drawing of an editor, never content.
  *
- * Owner defect (2026-09-21): grey bars of arbitrary widths stood where text
- * should be, and read as a document that had failed to load rather than as
- * decoration. It is a file tree and a few lines of code now — and this block is
- * what keeps it a picture: nothing in it reachable, nothing in it a claim, no
- * element that is not a drawing, and no colour that is not one of the page's
- * own tokens. The state it guards is the first painted frame, which is why it
- * lives here beside the mark: a backdrop that silently became unstyled, or
- * became something a reader is asked to read, is the defect coming back.
+ * The drawing is a file tree and a few lines of code, and this block is what
+ * keeps it a picture: nothing in it reachable, nothing in it a claim, no element
+ * that is not a drawing, and no colour that is not one of the page's own tokens.
+ * The state it guards is the first painted frame, which is why it lives here
+ * beside the mark: a backdrop that silently became unstyled, or became something
+ * a reader is asked to read, is what this keeps out.
  */
 describe('the pre-join backdrop is a picture of an editor', () => {
   const preview = html.slice(html.indexOf('<div id="preview"'), html.indexOf('<div id="veil"'));
@@ -593,14 +590,12 @@ describe('the pre-join backdrop is a picture of an editor', () => {
  * The backdrop is drawn at the size an editor is read at, and the document
  * in it runs past the bottom of the window.
  *
- * Owner defect (2026-09-22, the public demo): behind the card stood an
- * editor at 0.85em whose code stopped after four lines, and under `#veil`'s
- * blur a shrunken drawing of nothing in particular reads as an artifact —
- * the second time this backdrop has been read as decoration that failed
- * rather than as an editor. Every property the block above pins held of the
- * four-line version too, so what a later edit has to answer for is here: the
- * size the panes are set at, the shape of the gutter, how far the document
- * runs, and whether the tree is a project or a stub.
+ * Behind the card an editor at the page's own type size, whose code runs past
+ * the bottom of the window and shows a real project tree — under `#veil`'s blur a
+ * shrunken drawing of nothing in particular reads as an artifact rather than as
+ * an editor. What a later edit has to answer for is here: the size the panes are
+ * set at, the shape of the gutter, how far the document runs, and whether the
+ * tree is a project or a stub.
  */
 describe('the pre-join backdrop is drawn at the size an editor is read at', () => {
   const preview = html.slice(html.indexOf('<div id="preview"'), html.indexOf('<div id="veil"'));

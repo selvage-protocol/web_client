@@ -2,9 +2,9 @@
  * Prints the shell's inlined mark: the mark the site owns, resampled to 104 px
  * (`scripts/mark-level.mjs`), as the `data:image/png;base64,…` URI
  * `public/index.html` carries in its `.mark` rule. It is the owner's artwork and
- * is worn as it was exported — the curve that used to lift it is the identity
- * now, and the module says why. 104 px is the card's 3.25rem at 2x, the largest
- * the mark is ever shown, so a refresh is one paste, never a redraw.
+ * is worn as it was exported — the curve is the identity, and
+ * `scripts/mark-level.mjs` says why. 104 px is the card's 3.25rem at 2x, the
+ * largest the mark is ever shown, so a refresh is one paste, never a redraw.
  *
  * Run it after the site's `public/mark-transparent.png` changes (the identity
  * test fails until the URI matches, and says so):

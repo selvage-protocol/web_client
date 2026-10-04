@@ -10,7 +10,7 @@
 # `docs/serving-the-page.md` owns the choice, what each shape costs, and what the
 # relay does not do that `PROTOCOL.md` §12 asks of a public front.
 #
-# `v0.1.0` published `ghcr.io/selvage-protocol/selvage-web`, so the page can be
+# The page is published as `ghcr.io/selvage-protocol/selvage-web`, so it can be
 # pulled from the registry; `build: .` still builds it from this checkout and
 # names it locally, and the `image:` line below can name a registry tag instead
 # (compose still builds from the checkout when it is absent).

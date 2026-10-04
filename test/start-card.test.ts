@@ -1,13 +1,6 @@
 /**
  * The card's two intents, and which one a person arrives at.
  *
- * Owner defect (2026-09-23): a page opened with no invite was titled *Join a
- * shared session*, asked for the name inside its join form, and put *Start a
- * session here* under a rule — so pressing that with the name empty produced
- * "Type the name other participants will see.", which read as the join form's
- * error and left the person unsure whether they needed a link, a name, or both.
- * The owner's own words: "it should just be insert name -> start a session".
- *
  * So the card is a start card on a bare open: its own heading, the name, and one
  * primary button that starts a room here, with the invite path a disclosure under
  * it. An invite in the address is the guest's card: the room is known, the name
@@ -85,8 +78,8 @@ describe('what the address bar makes the card', () => {
   it('each intent has its own sentence, and each sentence has one home', () => {
     assert.equal((html.match(/Start a Selvage session/g) ?? []).length, 1, 'the start heading is repeated');
     assert.equal((html.match(/Join a Selvage session/g) ?? []).length, 1, 'the join heading is repeated');
-    // The card's only other brand was the small `svp` mark, so a guest could not tell what they
-    // were joining; both headings name the product now.
+    // Both headings name the product: the small `svp` mark alone does not tell a
+    // guest what they are joining.
     assert.match(html, /<h1 id="start-heading">Start a Selvage session<\/h1>/);
     assert.match(html, /<h1 id="join-heading" hidden>Join a Selvage session<\/h1>/);
   });
@@ -225,9 +218,9 @@ describe('the join card: what a person who followed a link reads', () => {
 
 describe('the name error stands where the name was asked for', () => {
   it('the name refusal stands at the field, whichever action asked for it', () => {
-    // The reviewer read this line under the button that was pressed, with focus still on the button
-    // and the field unmarked, so it read as the button's own failure rather than the name's. Both
-    // actions send the refusal to the field now.
+    // The refusal is a sentence about the name, so it stands at the field: under the button that was
+    // pressed, with focus still on the button and the field unmarked, it would read as the button's
+    // own failure. Both actions send it to the field.
     assert.match(
       main,
       /showNameFailure\(nameField, describe\(error\)\)/,
@@ -342,8 +335,8 @@ describe('the name field refuses for itself', () => {
   }
 
   it('writes at the field, marks it invalid and puts focus there', () => {
-    // The three things the reviewer found missing when the sentence stood under the button:
-    // the words beside the box, `aria-invalid` on it, and focus where the person has to type.
+    // Three things go with a refusal at the field: the words beside the box, `aria-invalid` on it,
+    // and focus where the person has to type.
     const { field, attributes, error } = fieldDouble();
     showNameFailure({ field, error }, 'Type the name other participants will see.');
     assert.equal(error.textContent, 'Type the name other participants will see.');
@@ -362,13 +355,12 @@ describe('the name field refuses for itself', () => {
  */
 describe('Enter and a refusal where the start card cannot host', () => {
   it('Enter in the name field runs the card\'s own action wherever the card cannot start a room', () => {
-    // M3: on Firefox and Safari, on the page-only deploy and under `npm run serve`, this card
-    // cannot start a room and the invite path is a shut disclosure — and Enter in the name field
-    // did nothing at all: no line, no state change, no movement. The invite path is the only
-    // action the page has left, so Enter takes it and the join path asks for the link it needs,
-    // in its own line, under the button that asked. The reason hosting is not offered is already
-    // standing beside it, in the card's own words (`#host-note`), so the answer is the action
-    // and not a second copy of the sentence.
+    // Where the card cannot start a room — Firefox and Safari, the page-only deploy, `npm run
+    // serve` — the invite path is a shut disclosure and is the only action the page has left, so
+    // Enter in the name field takes it rather than doing nothing. The join path asks for the link it
+    // needs, in its own line, under the button that asked. The reason hosting is not offered already
+    // stands beside it, in the card's own words (`#host-note`), so the answer is the action and not
+    // a second copy of the sentence.
     assert.equal(primaryActionOf('start', false), 'join', 'Enter did nothing where the card cannot host');
     assert.equal(primaryActionOf('start', true), 'host', 'Enter stopped starting where the card can host');
     assert.equal(primaryActionOf('join', false), 'join', "Enter stopped joining a guest's page");

@@ -8,9 +8,9 @@
  * directory, so a worktree finds it too, and the one test that needs it *skips
  * with that reason* rather than the file being excluded by name. What is left of
  * that file needs this checkout alone, and it runs here: the icon determinism and
- * clock-chunk tests never ran in CI while the whole file was excluded.
+ * clock-chunk tests are among the tests that run here.
  *
- * `test/serve-types.test.ts` was expected to need a sibling too, and does not: it
+ * `test/serve-types.test.ts` needs no sibling: it
  * reads `dist/` alone and takes its extension table from
  * `scripts/check-content-types.mjs`. `npm test` runs the same files with the
  * sibling checkout in place, so every test runs somewhere.

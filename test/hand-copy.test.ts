@@ -6,11 +6,6 @@
  * and the failure path is the one that matters: an alert saying `Select the link
  * and copy it by hand.` over an abbreviated link is an instruction the field
  * cannot obey, and the invite it produces answers no room.
- *
- * Proven in Chromium 152 before the fix, with `navigator.clipboard.writeText`
- * refused and `document.execCommand` answering false: `#share` read
- * `/?room=r-edb2…f8f75&token=411853…55578`, the selection sat collapsed at its
- * end, and the alert stood under the bar.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

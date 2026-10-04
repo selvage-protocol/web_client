@@ -1,17 +1,17 @@
 /**
- * Two owner-reported defects, each pinned where its mechanism lives.
+ * Two behaviours, each pinned where its mechanism lives.
  *
- * A ghost document: a room that shares no document left the editor editable, so
- * the person typed into a buffer bound to no room document — text nobody saw and
- * nothing published. The binding locks the editor whenever no document is in
- * front of it, and unlocks it the moment one opens.
+ * A room that shares no document leaves the editor locked, so nobody types into a
+ * buffer bound to no room document — text nobody would see and nothing would
+ * publish. The binding locks the editor whenever no document is in front of it,
+ * and unlocks it the moment one opens.
  *
- * A ghost caret: a peer's zero-width caret decoration was tracked with Monaco's
- * default stickiness, which widens it over text the local person inserts at the
- * peer's own position — a bar across every line the newlines created, with its
- * glyph-margin badge repeated on each. `renderCursors` now mints the stickiness
- * the desktop client draws with, and the caret is applied to Monaco's own
- * tracked-range function so the pin is on the behaviour, not on the option name.
+ * A peer's zero-width caret decoration is minted with the desktop client's
+ * stickiness, so it stays a point when the local person inserts text at the peer's
+ * own position instead of widening into a bar across every line the newlines
+ * created. `renderCursors` mints that stickiness, and the caret is applied to
+ * Monaco's own tracked-range function so the pin is on the behaviour, not on the
+ * option name.
  */
 
 import { describe, it } from 'node:test';

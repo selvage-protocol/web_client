@@ -472,8 +472,8 @@ async function main() {
     log('the page reads itself as a guest:', role);
     await chromium.shot(resolve(IMAGES, 'prove-v2-both-directions.png'));
 
-    // Leaving from the page, which is the one thing a guest could previously only do by closing
-    // the tab. The control is pressed the way a person presses it, and what the page is left with
+    // Leaving from the page, which the guest does by its own control rather than by closing the
+    // tab. The control is pressed the way a person presses it, and what the page is left with
     // is read back: the chrome gone, the card back with the sentence and the next step, and — the
     // half a reload would otherwise undo — no room, token or key left in the address bar.
     const pressed = await chromium.evaluate(`(() => {
