@@ -59,7 +59,6 @@ import { GrantTreeView } from './tree-view.ts';
 import type { CreateResult, MoveResult, RemoveResult, RowFeedback } from './tree-view.ts';
 import {
   fetchAndSave,
-  fetchCostsSentence,
   fetchingSentence,
   fetchStandMs,
   stillAskingSentence,
@@ -104,6 +103,7 @@ import { describeJoinErrorForDisplay, joinFailureDetail } from './transport.ts';
 import {
   RECONNECTING_NOTE,
   SESSION_ENDED_MESSAGE,
+  downloadCostSentence,
   guestIdentity,
   hostBackSentence,
   hostingIdentity,
@@ -2239,12 +2239,12 @@ function startDownload(path: string, feedback: RowFeedback): void {
   // it without a fetch; a path it does not hold is a fetch.
   const holds = binding.hasText(path) === true;
   // The cost is said once a session, before the first fetch, and only when a fetch is what comes
-  // next: a path this window holds is answered out of its own document, so `Fetching opens …` would
+  // next: a path this window holds is answered out of its own document, so `Downloading … opens` would
   // be a sentence about an act that is not taken. It is not asked as a question — the room already
   // lists the name — it is said.
   if (!holds && !saidFetchCosts) {
     saidFetchCosts = true;
-    const costs = fetchCostsSentence(path);
+    const costs = downloadCostSentence(path);
     feedback.note(costs);
     announce(costs);
     // Cleared by its own words: a fetch that settles inside the stand has replaced this line with

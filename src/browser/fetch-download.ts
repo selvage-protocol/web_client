@@ -109,11 +109,6 @@ export function fetchingSentence(path: string): string {
   return `Asking the host for ${path}…`;
 }
 
-/** What opening a file costs the room, said once in a session, before the first fetch. */
-export function fetchCostsSentence(path: string): string {
-  return `Downloading ${path} opens it in the room, so everyone there gets its text.`;
-}
-
 /** What a fetch the room has not answered says: a wait, and not an emptiness it cannot know. */
 export function stillAskingSentence(path: string): string {
   return `Still asking the host for ${path}. No answer yet.`;

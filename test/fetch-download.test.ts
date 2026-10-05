@@ -17,7 +17,6 @@ import {
   FETCH_SETTLE_MS,
   FETCH_STAND_MS,
   fetchAndSave,
-  fetchCostsSentence,
   fetchFailedSentence,
   fetchingSentence,
   fetchStandMs,
@@ -25,6 +24,7 @@ import {
   stillEmptySentence,
 } from '../src/browser/fetch-download.ts';
 import type { FetchSavePorts } from '../src/browser/fetch-download.ts';
+import { downloadCostSentence } from '../src/bridge/index.ts';
 
 /** A room whose answer arrives after `after` polls, the way a real one does over a socket. */
 function room(
@@ -300,7 +300,7 @@ describe('what the row says', () => {
   it('names the file while it waits, and names what opening it costs the room, once', () => {
     assert.equal(fetchingSentence('src/main.rs'), 'Asking the host for src/main.rs…');
     assert.equal(
-      fetchCostsSentence('src/main.rs'),
+      downloadCostSentence('src/main.rs'),
       'Downloading src/main.rs opens it in the room, so everyone there gets its text.',
     );
   });
