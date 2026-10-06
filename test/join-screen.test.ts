@@ -451,15 +451,16 @@ describe('join failures in plain words', () => {
   });
 
   it('a close §11 does not register reads as a dropped socket, never as a session meaning', () => {
-    // §11: 4004–4999 is unregistered and a client **MUST NOT** read session meaning into one.
-    // `host_present` and close 4004 left the engine (`NOTES.md` §B.45), so the number the old
-    // table named a refusal for is the ordinary drop it always was.
+    // §11: 4004–4999 is unregistered and a client **MUST NOT** read session meaning into one,
+    // whatever reason a server puts beside it. Close 4004 named a refusal here until the
+    // vocabulary was removed (`NOTES.md` §B.45), so the reason below is that old refusal's own
+    // sentence: the number is what is read, and it is an ordinary drop of the socket.
     const output = describeJoinError(
-      new ProtocolError('closed', 'the socket closed before the session was seated: 4004 host_present'),
+      new ProtocolError('closed', 'the socket closed before the session was seated: 4004 the room already has a host'),
       BASE,
     );
     assert.equal(output, "Couldn\u2019t reach the session. Check your connection and retry.");
-    assert.doesNotMatch(output, /already has its host|host_present/);
+    assert.doesNotMatch(output, /4004|already has its host/);
   });
 
   it('refusals name the link, never an address', () => {
