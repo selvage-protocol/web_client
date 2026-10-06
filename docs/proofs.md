@@ -7,6 +7,7 @@ Monaco:
 SELVAGE_BASE=ws://127.0.0.1:8080 npm run prove      # the M1 page stack
 SELVAGE_BASE=ws://127.0.0.1:8080 npm run prove:fb2  # the owner-feedback pass
 npm run prove:flow2                                 # the flow-review fixes
+npm run prove:ghost                                 # the empty room, in a real headless Chromium
 npm run prove:tls                                   # the same page over TLS
 npm run prove:v2                                    # the wire, in a real headless Chromium
 ```
@@ -31,6 +32,12 @@ asserts an edit in both directions — with `SELVAGE_SELVAGED` and `SELVAGE_CHRO
 binary and a browser when the defaults are not the ones on the machine. It is the wire's own browser
 proof, and it is the only one that needs a browser: the browser-host flow it does not press is the
 folder picker's dialog, which no automation can answer.
+
+`prove:ghost` is the other browser proof, of the empty room: a host that shares a listing and opens
+nothing from it, a guest page seated on that room, and the two things it must do with a keystroke —
+not put it in the buffer, and not tell the room one was typed. The last check is the way out: the
+row of a listed file opens and takes text again. It needs the same two binaries as `prove:v2`, and
+nothing else.
 
 What none of them covers is Monaco itself: the adapter owns no protocol logic beyond offset mapping,
 which both sides count in UTF-16 code units.

@@ -96,8 +96,9 @@ The page's own modules:
 nav bar paints (`scripts/mark-level.mjs`).
 
 `scripts/` holds the proofs (`prove-m1.mjs`, the live M1 proof; `prove-v2.mjs`, the wire's proof in
-a real browser; `prove-fb2.mjs`, the owner-feedback proof; `prove-tls.mjs` and `prove-flow2.mjs`)
-and the live check (`check-content-types.mjs`). `test/` holds the suite.
+a real browser; `prove-ghost.mjs`, the empty room's, in a real browser too; `prove-fb2.mjs`, the
+owner-feedback proof; `prove-tls.mjs` and `prove-flow2.mjs`) and the live check
+(`check-content-types.mjs`). `test/` holds the suite.
 
 [`Dockerfile`](../Dockerfile), `.dockerignore` and `packaging/` are the page-only image: nginx's own
 configuration, with the media types, the cache policy and the page's policy the one-origin

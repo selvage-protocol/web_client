@@ -73,7 +73,7 @@ live, `check:types` (a deployed page) and the proofs (a `selvaged`), run locally
 - [Theme and identity](docs/theme-and-identity.md): the Mocha theme, and the mark the tests pin
 - [Checks](docs/checks.md): the live page check, and the workflow guard
 - [CI](docs/ci.md): the four workflows, and what each one proves
-- [Proofs](docs/proofs.md): the five `prove*` scripts, and the layer none of them covers
+- [Proofs](docs/proofs.md): the six `prove*` scripts, and the layer none of them covers
 - [What the page does not do](docs/what-the-page-does-not-do.md): the non-goals, and where the
   client's own notes went
 
