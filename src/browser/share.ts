@@ -44,10 +44,14 @@ function pageQueryText(search: string): string {
 /**
  * Reads a query string with real param semantics: `room`/`token` (and
  * `debug`) as independent params, everything else ignored, values decoded
- * once.
+ * once, the way the wire reader decodes them — a literal `+` is a `+` and not a
+ * space, which `URLSearchParams` would make of it. `§5.1`'s values are
+ * percent-encoded, and a page link's room has to be the room the same link
+ * names when it is pasted (`parsePageLink`) or read as a wire URL
+ * (`parseJoinQuery`), so the escape is what keeps the three agreeing.
  */
 export function pageQueryParams(search: string): URLSearchParams {
-  return new URLSearchParams(pageQueryText(search));
+  return new URLSearchParams(pageQueryText(search).replace(/\+/g, '%2B'));
 }
 
 /**

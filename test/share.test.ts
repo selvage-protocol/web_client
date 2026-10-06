@@ -134,6 +134,19 @@ describe('share links', () => {
     assert.equal(repeatedPageName('not a link'), undefined);
   });
 
+  it('a literal `+` is a plus on both readers, not a space', () => {
+    // `§5.1`'s values are percent-encoded, so a bare `+` is data: `URLSearchParams` is a form
+    // decoder and would make a space of it, which would have the address bar and a paste name
+    // different rooms for one link.
+    assert.equal(pageQueryParams('?room=r+1&token=t').get('room'), 'r+1');
+    assert.deepEqual(parsePageLink('https://edit.example/?room=r+1&token=t'), {
+      room: 'r+1',
+      token: 't',
+      origin: 'https://edit.example',
+      fragment: '',
+    });
+  });
+
   it('decodes values once', () => {
     assert.deepEqual(parsePageLink('https://edit.example/?room=r-1&token=a%26b'), {
       room: 'r-1',

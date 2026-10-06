@@ -106,6 +106,14 @@ describe('join targets', () => {
     );
   });
 
+  it('a literal + names one room, read from the bar or pasted', () => {
+    const link = 'https://edit.example/?room=r+1&token=tok';
+    const fromBar = resolveJoin(pageQueryParams(new URL(link).search), '', link);
+    const fromPaste = resolveJoin(new URLSearchParams(), link, PAGE);
+    assert.deepEqual(fromBar, fromPaste);
+    assert.equal(fromBar.room, 'r+1');
+  });
+
   it('a page link that repeats the room is refused by name, before any socket', () => {
     const bar = 'https://edit.example/?room=r-1&room=r-2&token=tok';
     // The address bar's own link — the page's own address is the link the bar names — and the
