@@ -88,8 +88,7 @@ function selvagedBinary() {
 }
 
 /**
- * The smallest CDP driver this proof needs: one page, evaluate, a real click, typing and a
- * screenshot.
+ * The smallest CDP driver this proof needs: one page, evaluate, typing and a screenshot.
  *
  * The debugging port is `0`, so the browser takes a free one of its own whatever else is running,
  * and the profile under `.tmp/` is what keeps runs apart.
@@ -115,89 +114,116 @@ async function launch(name, { width = 1280, height = 900 } = {}) {
     `--window-size=${width},${height}`,
     'about:blank',
   ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: tmp } });
-  const wsUrl = await new Promise((resolved, rejected) => {
-    const timer = setTimeout(() => rejected(new Error('timed out waiting for DevTools url')), 20_000);
-    let buf = '';
-    browser.stderr.on('data', (data) => {
-      buf += data.toString();
-      const match = buf.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (match) {
-        clearTimeout(timer);
-        resolved(match[1]);
-      }
-    });
-    browser.on('error', (error) => {
-      clearTimeout(timer);
-      rejected(new Error(`chromium could not be started: ${error.message}`));
-    });
-    browser.on('exit', (code) => {
-      clearTimeout(timer);
-      rejected(new Error(`browser exited ${code}: ${buf.slice(-500)}`));
-    });
-  });
-  const ws = new WebSocket(wsUrl, { maxPayload: 256 * 1024 * 1024 });
-  await new Promise((resolved, rejected) => {
-    ws.on('open', resolved);
-    ws.on('error', rejected);
-  });
-  let nextId = 1;
-  const pending = new Map();
-  const listeners = new Map();
-  const on = (method, fn) => {
-    if (!listeners.has(method)) listeners.set(method, []);
-    listeners.get(method).push(fn);
-  };
-  ws.on('message', (raw) => {
-    const msg = JSON.parse(raw.toString());
-    if (msg.id !== undefined) {
-      const waiting = pending.get(msg.id);
-      if (waiting) {
-        pending.delete(msg.id);
-        if (msg.error) waiting.reject(new Error(JSON.stringify(msg.error)));
-        else waiting.resolve(msg.result);
-      }
-    } else if (msg.method) {
-      for (const fn of listeners.get(msg.method) ?? []) fn(msg.params);
-    }
-  });
-  // Attach to the first page target: the browser was launched on `about:blank`.
-  const { targetInfos } = await new Promise((resolved, rejected) => {
-    const id = nextId++;
-    pending.set(id, { resolve: resolved, reject: rejected });
-    ws.send(JSON.stringify({ id, method: 'Target.getTargets', params: {} }));
-  });
-  const pageTarget = targetInfos.find((target) => target.type === 'page');
-  const { sessionId } = await new Promise((resolved, rejected) => {
-    const id = nextId++;
-    pending.set(id, { resolve: resolved, reject: rejected });
-    ws.send(JSON.stringify({
-      id,
-      method: 'Target.attachToTarget',
-      params: { targetId: pageTarget.targetId, flatten: true },
-    }));
-  });
-  const psend = (method, params = {}) => new Promise((resolved, rejected) => {
-    const id = nextId++;
-    pending.set(id, { resolve: resolved, reject: rejected });
-    ws.send(JSON.stringify({ id, method, params, sessionId }));
-  });
-  return {
-    on,
-    close: async () => {
-      try {
-        ws.close();
-      } catch {}
-      try {
-        browser.kill('SIGKILL');
-      } catch {}
-    },
-    evaluate: async (expression, { awaitPromise = true } = {}) => {
-      const result = await psend('Runtime.evaluate', {
-        expression,
-        awaitPromise,
-        returnByValue: true,
-        userGesture: true,
+  // Everything from the spawn to the returned handle is inside this guard: the caller gets no
+  // handle when a step here throws, and a Chromium left behind by a rejection is a proof that
+  // hangs — and one whose profile the next run cannot use.
+  let ws;
+  try {
+    const wsUrl = await new Promise((resolved, rejected) => {
+      const timer = setTimeout(() => rejected(new Error('timed out waiting for DevTools url')), 20_000);
+      let buf = '';
+      browser.stderr.on('data', (data) => {
+        buf += data.toString();
+        const match = buf.match(/DevTools listening on (ws:\/\/\S+)/);
+        if (match) {
+          clearTimeout(timer);
+          resolved(match[1]);
+        }
       });
+      browser.on('error', (error) => {
+        clearTimeout(timer);
+        rejected(new Error(`chromium could not be started: ${error.message}`));
+      });
+      browser.on('exit', (code) => {
+        clearTimeout(timer);
+        rejected(new Error(`browser exited ${code}: ${buf.slice(-500)}`));
+      });
+    });
+    ws = new WebSocket(wsUrl, { maxPayload: 256 * 1024 * 1024 });
+    await new Promise((resolved, rejected) => {
+      ws.on('open', resolved);
+      ws.on('error', rejected);
+    });
+    let nextId = 1;
+    const pending = new Map();
+    const listeners = new Map();
+    /**
+     * One CDP call, on a deadline. A request that is never answered — a browser that went away, a
+     * `Runtime.evaluate` a page never returns from — fails here rather than holding the proof at
+     * zero CPU, and the error names the call that stalled.
+     */
+    const request = (method, params = {}, session) => new Promise((resolved, rejected) => {
+      const id = nextId++;
+      const timer = setTimeout(() => {
+        if (pending.delete(id)) rejected(new Error(`no answer to CDP ${method} in 20s`));
+      }, 20_000);
+      pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolved(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          rejected(error);
+        },
+      });
+      try {
+        ws.send(JSON.stringify({ id, method, params, ...(session === undefined ? {} : { sessionId: session }) }));
+      } catch (error) {
+        clearTimeout(timer);
+        pending.delete(id);
+        rejected(error);
+      }
+    });
+    /** Whatever is still waiting when the socket goes is answered as that, without the deadline. */
+    const failWaiting = (error) => {
+      for (const waiting of [...pending.values()]) waiting.reject(error);
+      pending.clear();
+    };
+    ws.on('close', () => failWaiting(new Error('the CDP socket closed')));
+    ws.on('error', (error) => failWaiting(error));
+    const on = (method, fn) => {
+      if (!listeners.has(method)) listeners.set(method, []);
+      listeners.get(method).push(fn);
+    };
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.id !== undefined) {
+        const waiting = pending.get(msg.id);
+        if (waiting) {
+          pending.delete(msg.id);
+          if (msg.error) waiting.reject(new Error(JSON.stringify(msg.error)));
+          else waiting.resolve(msg.result);
+        }
+      } else if (msg.method) {
+        for (const fn of listeners.get(msg.method) ?? []) fn(msg.params);
+      }
+    });
+    // Attach to the first page target: the browser was launched on `about:blank`.
+    const { targetInfos } = await request('Target.getTargets');
+    const pageTarget = targetInfos.find((target) => target.type === 'page');
+    const { sessionId } = await request('Target.attachToTarget', {
+      targetId: pageTarget.targetId,
+      flatten: true,
+    });
+    const psend = (method, params = {}) => request(method, params, sessionId);
+    return {
+      on,
+      close: async () => {
+        try {
+          ws.close();
+        } catch {}
+        try {
+          browser.kill('SIGKILL');
+        } catch {}
+      },
+      evaluate: async (expression, { awaitPromise = true } = {}) => {
+        const result = await psend('Runtime.evaluate', {
+          expression,
+          awaitPromise,
+          returnByValue: true,
+          userGesture: true,
+        });
       if (result.exceptionDetails) {
         throw new Error(`eval threw: ${JSON.stringify(result.exceptionDetails).slice(0, 800)}`);
       }
@@ -219,16 +245,14 @@ async function launch(name, { width = 1280, height = 900 } = {}) {
     typeText: async (text) => {
       await psend('Input.insertText', { text });
     },
-    /** One key as a browser sends it: the raw press, the character it makes when it has one, the release. */
-    pressKey: async (key, { code = undefined, text = undefined, windowsVirtualKeyCode = undefined } = {}) => {
-      const press = { key, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode };
-      await psend('Input.dispatchKeyEvent', { ...press, type: 'rawKeyDown' });
-      if (text !== undefined) {
-        await psend('Input.dispatchKeyEvent', { ...press, type: 'char', text });
-      }
-      await psend('Input.dispatchKeyEvent', { ...press, type: 'keyUp' });
-    },
   };
+  } catch (error) {
+    try {
+      ws?.close();
+    } catch {}
+    browser.kill('SIGKILL');
+    throw error;
+  }
 }
 
 const lines = [];
@@ -266,40 +290,47 @@ async function serve() {
     { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env } },
   );
   child.stderr.on('data', (data) => process.stderr.write(`[selvaged] ${data}`));
-  const address = await new Promise((resolved, rejected) => {
-    let stdout = '';
-    const timer = setTimeout(() => rejected(new Error('selvaged did not report an address in 10s')), 10_000);
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-      const match = /ws:\/\/([0-9.]+:[0-9]+)\/session/.exec(stdout);
-      if (match !== null) {
+  // A server that never reports an address, or a page that never answers, is stopped before this
+  // function throws: the caller has no handle on it yet.
+  try {
+    const address = await new Promise((resolved, rejected) => {
+      let stdout = '';
+      const timer = setTimeout(() => rejected(new Error('selvaged did not report an address in 10s')), 10_000);
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+        const match = /ws:\/\/([0-9.]+:[0-9]+)\/session/.exec(stdout);
+        if (match !== null) {
+          clearTimeout(timer);
+          resolved(match[1]);
+        }
+      });
+      child.on('error', (error) => {
         clearTimeout(timer);
-        resolved(match[1]);
-      }
+        rejected(new Error(`selvaged could not be started: ${error.message}`));
+      });
+      child.on('exit', () => {
+        clearTimeout(timer);
+        rejected(new Error('selvaged exited before it was ready'));
+      });
     });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      rejected(new Error(`selvaged could not be started: ${error.message}`));
-    });
-    child.on('exit', () => {
-      clearTimeout(timer);
-      rejected(new Error('selvaged exited before it was ready'));
-    });
-  });
-  const origin = `http://${address}`;
-  await waitFor(
-    'the page to be served',
-    async () => {
-      try {
-        const response = await fetch(`${origin}/`);
-        return response.ok ? true : undefined;
-      } catch {
-        return undefined;
-      }
-    },
-    20_000,
-  );
-  return { origin, wsBase: `ws://${address}`, stop: () => child.kill('SIGKILL') };
+    const origin = `http://${address}`;
+    await waitFor(
+      'the page to be served',
+      async () => {
+        try {
+          const response = await fetch(`${origin}/`);
+          return response.ok ? true : undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      20_000,
+    );
+    return { origin, wsBase: `ws://${address}`, stop: () => child.kill('SIGKILL') };
+  } catch (error) {
+    child.kill('SIGKILL');
+    throw error;
+  }
 }
 
 /** The page URL for a room's invite, as a guest's link. The page is served from
@@ -393,10 +424,22 @@ async function ghostRooms(server) {
         state.tree,
       );
       await cdp.shot(`${SHOTS}/ghost-${label}-before-typing.png`);
-      // The person types into what looks like a file: it must not land.
-      await cdp.evaluate(DOM.focusEditor);
+      // The person types into what looks like a file: it must not land. The editor is asked for
+      // focus first, and a room that refuses it is reported as that — a keystroke into a page that
+      // never had focus would prove nothing about the keystroke.
+      //
+      // `Input.insertText` is the one input path this proof can drive. A dispatched Enter is not:
+      // measured on this page and Chromium 154, `char` with `text: '\r'`, `keyDown` with the same
+      // text, and a `rawKeyDown`/`keyUp` pair all leave the model as they found it, while
+      // `insertText` lands. The check on the opened file below is the positive control for the
+      // path this one uses.
+      const focused = await cdp.evaluate(DOM.focusEditor);
+      check(
+        `ghost/${label}: the editor takes focus`,
+        focused === true,
+        `focusEditor returned ${JSON.stringify(focused)}`,
+      );
       await cdp.typeText('ghost text nobody sees');
-      await cdp.pressKey('Enter', { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
       await sleep(600);
       const after = await cdp.evaluate(DOM.state);
       await cdp.shot(`${SHOTS}/ghost-${label}-after-typing.png`);
@@ -417,6 +460,8 @@ async function ghostRooms(server) {
           `[...document.querySelectorAll('#tree button.row')].find((row) => row.textContent.includes('todo.txt')).click()`,
         );
         await cdp.evaluate(DOM.focusEditor);
+        // The positive control for the input path the empty-room check uses: the same
+        // `insertText` that must not land there lands here.
         const opened = await waitFor(
           'the opened file to take text',
           async () => {
