@@ -28,10 +28,10 @@
     "serve": "python3 -m http.server 8081 --directory dist"
   },
   "dependencies": {
-    "lib0": "0.2.117",
+    "lib0": "0.2.119",
     "monaco-editor": "0.52.2",
     "y-protocols": "1.0.7",
-    "yjs": "13.6.32"
+    "yjs": "13.6.33"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
