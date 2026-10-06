@@ -1,8 +1,46 @@
 import type { WebSocketFactory, WebSocketLike } from '../engine/index.ts';
-import { code as errCode, isProtocolError } from '../engine/index.ts';
-// §11's close codes, from the module that owns them rather than from the engine's index: the index
-// re-exports what an editor adapter drives, and a socket's own close code is not one of those.
-import { close } from '../engine/envelope.ts';
+import { TRY_AGAIN_LATER, closeCode, code as errCode, isProtocolError } from '../engine/index.ts';
+
+/**
+ * The code the reference server names an over-cap room mint with (§11's reserved namespace). A
+ * mint is a request a server answers, so the refusal carries the code; at the connection cap
+ * there is no answer left, and the engine reads the `1013` close as `TRY_AGAIN_LATER`. Both are
+ * a capacity fault, and both read as one sentence.
+ */
+const SERVER_FULL_CODE = 'x.server_full';
+
+/**
+ * The reference server's own words for a capacity fault (`net/mod.rs`, "server full, try again
+ * later"), kept for a message that reaches this side with no code beside it. The number is what
+ * names the fault (§11), so the wording is read only where there is no number.
+ */
+const SERVER_FULL = /server full/i;
+
+/** The sentence a refusal code reads as, where this card has one. */
+function refusalSentence(codeName: string): string | undefined {
+  switch (codeName) {
+    case errCode.roomUnknown:
+      return 'Nothing answers at that link. Ask the host for a fresh link and retry.';
+    case errCode.tokenInvalid:
+      return 'That link was refused. Paste the whole link again and retry.';
+    case errCode.roomGone:
+      return 'The session already ended. Ask the host for a fresh link and retry.';
+    case SERVER_FULL_CODE:
+    case TRY_AGAIN_LATER:
+      return 'The server is full. Retry in a few minutes.';
+    case errCode.helloRequired:
+      return 'Got no answer. Check the link and retry.';
+    // The two codes the engine reads a bare close number as (`closeCode`): §11's own close is a
+    // refusal, and any number outside the vocabulary — the 4004 §11 removed among them, which a
+    // client MUST NOT read a session meaning into — is an ordinary drop of the socket.
+    case 'protocol_error':
+      return 'The join was refused. Check the link and retry.';
+    case 'closed':
+      return 'Couldn\u2019t reach the session. Check your connection and retry.';
+    default:
+      return undefined;
+  }
+}
 
 /**
  * The engine's socket, from the browser's own WebSocket.
@@ -29,10 +67,12 @@ export const nativeWebSocketFactory: WebSocketFactory = (url: string): WebSocket
  * among them) passes through untouched: they are already sentences written for this card,
  * and rewriting one would only lose what it says.
  *
- * - refusals the handshake named (`room_unknown`, `token_invalid`,
- *   `room_gone`, `host_present`) say what to check;
- * - a close code buried in a transport message maps the same way, because
- *   the refusal and the socket race and either may arrive first;
+ * - refusals the engine named (`room_unknown`, `token_invalid`, `room_gone`,
+ *   `hello_required`, and a capacity fault — `try_again_later` for a `1013` close,
+ *   `x.server_full` for an over-cap mint) say what to check;
+ * - a close number still written into a transport message maps the same way, because
+ *   the refusal and the socket race and either may arrive first, and the message a
+ *   socket writes before the handshake has nothing but its number;
  * - a transport that never came up, an abandoned attempt, or a hello with
  *   no answer reads as not reaching the session;
  * - a server address the socket cannot even use says the link can't be used;
@@ -45,38 +85,21 @@ export const nativeWebSocketFactory: WebSocketFactory = (url: string): WebSocket
 export function describeJoinError(error: unknown, _base?: string): string {
   const message = error instanceof Error ? error.message : String(error);
   if (isProtocolError(error)) {
-    switch (error.code) {
-      case errCode.roomUnknown:
-        return 'Nothing answers at that link. Ask the host for a fresh link and retry.';
-      case errCode.tokenInvalid:
-        return 'That link was refused. Paste the whole link again and retry.';
-      case errCode.roomGone:
-        return 'The session already ended. Ask the host for a fresh link and retry.';
-      case errCode.hostPresent:
-        return 'The session already has its host. Ask the host for a guest link and retry.';
-      case errCode.helloRequired:
-        return 'Got no answer. Check the link and retry.';
-      default:
-        break;
+    const named = refusalSentence(error.code);
+    if (named !== undefined) {
+      return named;
     }
   }
   const closed = /closed with (\d+)|closed before it opened:\s*(\d+)/i.exec(message);
-  const closeCode = closed?.[1] ?? closed?.[2];
-  if (closeCode !== undefined) {
-    switch (Number(closeCode)) {
-      case close.roomUnknown:
-        return 'Nothing answers at that link. Ask the host for a fresh link and retry.';
-      case close.tokenInvalid:
-        return 'That link was refused. Paste the whole link again and retry.';
-      case close.roomGone:
-        return 'The session already ended. Ask the host for a fresh link and retry.';
-      case close.hostPresent:
-        return 'The session already has its host. Ask the host for a guest link and retry.';
-      case close.protocolError:
-        return 'The join was refused. Check the link and retry.';
-      default:
-        return "Couldn\u2019t reach the session. Check your connection and retry.";
-    }
+  const number = closed?.[1] ?? closed?.[2];
+  if (number !== undefined) {
+    return (
+      refusalSentence(closeCode(Number(number))) ??
+      "Couldn\u2019t reach the session. Check your connection and retry."
+    );
+  }
+  if (SERVER_FULL.test(message)) {
+    return 'The server is full. Retry in a few minutes.';
   }
   if (
     /webSocket reported an error|socket closed before it opened|failed to connect|ECONNREFUSED|unreachable|abandoned|did not answer session\.hello/i.test(

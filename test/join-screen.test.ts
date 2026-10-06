@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { SHARED_SESSION_IDENTITY, guestIdentity, hostingIdentity } from '../src/bridge/index.ts';
 import {
   ProtocolError,
+  TRY_AGAIN_LATER,
   code as errCode,
   encodeKey,
   parseSessionUrl,
@@ -396,7 +397,20 @@ describe('join failures in plain words', () => {
     ['hello with no answer', new ProtocolError(errCode.helloRequired, 'the server did not answer session.hello in time')],
     ['abandoned attempt', new Error('the connection attempt was abandoned')],
     ['unusable server address', new TypeError("Failed to construct 'WebSocket': The URL 'junk' is invalid.")],
-    ['refused host present', new ProtocolError(errCode.hostPresent, 'host_present')],
+    [
+      'capacity close',
+      new ProtocolError(TRY_AGAIN_LATER, 'the socket closed before the session was seated: 1013 server full, try again later'),
+    ],
+    ['capacity mint', new ProtocolError('x.server_full', 'the server holds at most 1024 rooms')],
+    ['protocol close', new ProtocolError('protocol_error', 'the socket closed before the session was seated: 4000 ')],
+    [
+      'a close number §11 does not register',
+      new ProtocolError('closed', 'the socket closed before the session was seated: 4004 hold on'),
+    ],
+    [
+      'a capacity close that reached this side in words alone',
+      new Error('the socket closed before the session was seated: 1013 server full, try again later'),
+    ],
   ];
 
   for (const [name, error] of cases) {
@@ -407,12 +421,52 @@ describe('join failures in plain words', () => {
     });
   }
 
+  it('a capacity fault reads as the full server, read from the code and not the words beside it', () => {
+    const full = 'The server is full. Retry in a few minutes.';
+    // §2.1: at the connection cap the upgrade is answered and the socket closed 1013, whose
+    // reason a server need not write — the engine reads the number (`closeCode`), so the
+    // sentence holds whatever the server happened to say.
+    assert.equal(
+      describeJoinError(
+        new ProtocolError(TRY_AGAIN_LATER, 'the socket closed before the session was seated: 1013 hold on'),
+        BASE,
+      ),
+      full,
+    );
+    // §11's reserved namespace: a room mint is answered, so the refusal carries the code, and
+    // the reference server's own text for it never says "server full".
+    assert.equal(
+      describeJoinError(new ProtocolError('x.server_full', 'the server holds at most 1024 rooms'), BASE),
+      full,
+    );
+    // The wording is the fallback: the shape a bare `Error` took before the engine read the
+    // close number, which carries the number in words and no code at all.
+    assert.equal(
+      describeJoinError(
+        new Error('the socket closed before the session was seated: 1013 server full, try again later'),
+        BASE,
+      ),
+      full,
+    );
+  });
+
+  it('a close §11 does not register reads as a dropped socket, never as a session meaning', () => {
+    // §11: 4004–4999 is unregistered and a client **MUST NOT** read session meaning into one.
+    // `host_present` and close 4004 left the engine (`NOTES.md` §B.45), so the number the old
+    // table named a refusal for is the ordinary drop it always was.
+    const output = describeJoinError(
+      new ProtocolError('closed', 'the socket closed before the session was seated: 4004 host_present'),
+      BASE,
+    );
+    assert.equal(output, "Couldn\u2019t reach the session. Check your connection and retry.");
+    assert.doesNotMatch(output, /already has its host|host_present/);
+  });
+
   it('refusals name the link, never an address', () => {
     for (const error of [
       new ProtocolError(errCode.roomUnknown, 'x'),
       new ProtocolError(errCode.tokenInvalid, 'x'),
       new ProtocolError(errCode.roomGone, 'x'),
-      new ProtocolError(errCode.hostPresent, 'x'),
     ]) {
       const output = describeJoinError(error, BASE);
       assertNoPlumbing(output, 'refusal');
