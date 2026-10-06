@@ -106,6 +106,60 @@ describe('join targets', () => {
     );
   });
 
+  it('a literal + names one room, read from the bar or pasted', () => {
+    const link = 'https://edit.example/?room=r+1&token=tok';
+    const fromBar = resolveJoin(pageQueryParams(new URL(link).search), '', link);
+    const fromPaste = resolveJoin(new URLSearchParams(), link, PAGE);
+    assert.deepEqual(fromBar, fromPaste);
+    assert.equal(fromBar.room, 'r+1');
+  });
+
+  it('a page link that repeats the room is refused by name, before any socket', () => {
+    const bar = 'https://edit.example/?room=r-1&room=r-2&token=tok';
+    // The address bar's own link — the page's own address is the link the bar names — and the
+    // same link pasted on a bare page. `§5.1` refuses the repeat, and the room it names is not
+    // joined at the first of the two values.
+    for (const attempt of [
+      () => resolveJoin(pageQueryParams(new URL(bar).search), '', bar),
+      () => resolveJoin(new URLSearchParams(), bar, PAGE),
+    ]) {
+      let thrown: Error | undefined;
+      try {
+        attempt();
+      } catch (error: unknown) {
+        thrown = error as Error;
+      }
+      assert.ok(thrown !== undefined, 'a page link that repeats the room was joined');
+      // The refusal names the parameter, and that name is what the guest reads.
+      assert.equal(describeJoinError(thrown, BASE), 'the invite names `room` twice');
+    }
+  });
+
+  it('a page link that repeats the token is refused by name, before any socket', () => {
+    const bar = 'https://edit.example/?room=r-1&token=tok&token=tok-2';
+    assert.throws(
+      () => resolveJoin(pageQueryParams(new URL(bar).search), '', bar),
+      /the invite names `token` twice/,
+    );
+    assert.throws(() => resolveJoin(new URLSearchParams(), bar, PAGE), /the invite names `token` twice/);
+  });
+
+  it('the positive control: one room and one token still join from the bar and from a paste', () => {
+    const bar = 'https://edit.example/?room=r-1&token=tok&debug=1';
+    assert.deepEqual(resolveJoin(pageQueryParams(new URL(bar).search), '', bar), {
+      base: 'wss://edit.example',
+      room: 'r-1',
+      token: 'tok',
+      fragment: '',
+    });
+    assert.deepEqual(resolveJoin(new URLSearchParams(), bar, PAGE), {
+      base: 'wss://edit.example',
+      room: 'r-1',
+      token: 'tok',
+      fragment: '',
+    });
+  });
+
   it('a bare open joins from a pasted page link, at the link\'s own server', () => {
     assert.deepEqual(
       resolveJoin(new URLSearchParams(), 'https://edit.example/?room=r-1&token=tok', PAGE),

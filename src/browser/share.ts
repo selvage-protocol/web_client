@@ -5,6 +5,8 @@
  * in its query and a page cannot be linked at an address that dials another.
  */
 
+import { inviteQuery } from '../engine/index.ts';
+
 import { pageOriginOf } from './servers.ts';
 
 /**
@@ -28,15 +30,57 @@ export function buildShareLink(
 }
 
 /**
+ * A page's query as text, with the address bar's own param semantics: a
+ * literal `?` past the first is a separator, not data — share-link values are
+ * percent-encoded, so appending `?debug=1` to a link that already has a query
+ * must split params, never glue into the token. The `?` is dropped so the same
+ * text is what the engine's own query reader takes.
+ */
+function pageQueryText(search: string): string {
+  const query = search.startsWith('?') ? search.slice(1) : search;
+  return query.replace(/\?/g, '&');
+}
+
+/**
  * Reads a query string with real param semantics: `room`/`token` (and
  * `debug`) as independent params, everything else ignored, values decoded
- * once. A literal `?` past the first is a separator, not data — share-link
- * values are percent-encoded, so appending `?debug=1` to a link that already
- * has a query must split params, never glue into the token.
+ * once, the way the wire reader decodes them — a literal `+` is a `+` and not a
+ * space, which `URLSearchParams` would make of it. `§5.1`'s values are
+ * percent-encoded, and a page link's room has to be the room the same link
+ * names when it is pasted (`parsePageLink`) or read as a wire URL
+ * (`parseJoinQuery`), so the escape is what keeps the three agreeing.
  */
 export function pageQueryParams(search: string): URLSearchParams {
-  const query = search.startsWith('?') ? search.slice(1) : search;
-  return new URLSearchParams(query.replace(/\?/g, '&'));
+  return new URLSearchParams(pageQueryText(search).replace(/\+/g, '%2B'));
+}
+
+/**
+ * The name a page link's query repeats, in `§5.1`'s own words, or `undefined` when it repeats
+ * neither — a query naming one of the two is a page that starts a room rather than a repeat, and
+ * a text that is no page of either scheme names no page link at all.
+ *
+ * The query is read by the engine's own `inviteQuery`, so a repeat is found where the card would
+ * otherwise take the first value and join a room the link does not name, and the values are
+ * decoded the way the join decodes them; no second reader is written for it. The two names are
+ * looked for first because `inviteQuery`'s other refusals are about a link that names one of the
+ * two, which is the card's own decision rather than a malformed link.
+ */
+export function repeatedPageName(text: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(text.trim());
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return undefined;
+  }
+  const params = pageQueryParams(url.search);
+  if (!params.has('room') || !params.has('token')) {
+    return undefined;
+  }
+  const join = inviteQuery(pageQueryText(url.search));
+  return join.ok ? undefined : join.reason;
 }
 
 /**
@@ -44,7 +88,8 @@ export function pageQueryParams(search: string): URLSearchParams {
  * names. That page's address is the server — nothing in the query names one,
  * so a `server` parameter from a link written before this shape is an unknown
  * parameter and is ignored, exactly as `PROTOCOL.md` §5.1 says any unknown one
- * is.
+ * is. A link that repeats `room` or `token` is malformed, and `undefined` here
+ * rather than the first of the two values; `repeatedPageName` is what names it.
  */
 export function parsePageLink(
   text: string,
@@ -58,15 +103,16 @@ export function parsePageLink(
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return undefined;
   }
-  const params = pageQueryParams(url.search);
-  const room = params.get('room');
-  const token = params.get('token');
-  if (room === null || room === '' || token === null || token === '') {
+  // The query is read by the engine's own reader, so a link that repeats `room` or `token` is
+  // refused here rather than joined at the first of the two values (`§5.1` has each appear at
+  // most once, and a link that repeats either is malformed).
+  const join = inviteQuery(pageQueryText(url.search));
+  if (!join.ok || join.room === '' || join.token === '') {
     return undefined;
   }
   return {
-    room,
-    token,
+    room: join.room,
+    token: join.token,
     origin: `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}`,
     // `§5.1`'s fragment, as it arrived. It is not a parameter — `URL` keeps it apart from the
     // query, which is what makes a page link's two keys survive a copy and a paste.
