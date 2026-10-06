@@ -5,7 +5,7 @@
 # `src/bridge`): the engine speaks the wire and knows no editor, so this client drives
 # the same code rather than writing it a second time.
 #
-# Upstream SHA this copy matches: fc4d707 (vscode_client main).
+# Upstream SHA this copy matches: f0b4dc7 (vscode_client main).
 # After re-running this script, update the SHA above to the source checkout's HEAD.
 #
 #   scripts/sync-engine.sh [path-to-vscode_client-checkout]

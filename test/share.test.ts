@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildShareLink, pageQueryParams, parsePageLink } from '../src/browser/share.ts';
+import { buildShareLink, pageQueryParams, parsePageLink, repeatedPageName } from '../src/browser/share.ts';
 
 describe('share links', () => {
   it('offers the room\'s own page, with no server in the query', () => {
@@ -99,6 +99,39 @@ describe('share links', () => {
     });
     assert.deepEqual(pageQueryParams('?room=r-1&token=tok?debug=1').get('token'), 'tok');
     assert.deepEqual(pageQueryParams('?room=r-1&token=tok?debug=1').get('debug'), '1');
+  });
+
+  it('a link that repeats the room or the token is refused, not read at its first value', () => {
+    // `§5.1` has `room` and `token` appear at most once, so a link that repeats either is
+    // malformed: reading the first of two would join a room the link does not name.
+    assert.equal(parsePageLink('https://edit.example/?room=r-1&room=r-2&token=tok'), undefined);
+    assert.equal(parsePageLink('https://edit.example/?room=r-1&token=tok&token=tok-2'), undefined);
+  });
+
+  it('names the parameter a page link repeats, and no other link', () => {
+    assert.equal(
+      repeatedPageName('https://edit.example/?room=r-1&room=r-2&token=tok'),
+      'the invite names `room` twice',
+    );
+    assert.equal(
+      repeatedPageName('https://edit.example/?room=r-1&token=tok&token=tok-2'),
+      'the invite names `token` twice',
+    );
+    // The positive control: one of each is the ordinary link, whatever else the query carries.
+    for (const link of [
+      'https://edit.example/?room=r-1&token=tok',
+      'https://edit.example/?room=r-1&token=tok&debug=1&server=ws%3A%2F%2Fother%3A8080',
+      'https://edit.example/?token=tok&room=r-1#k=room-key&h=host-key',
+    ]) {
+      assert.equal(repeatedPageName(link), undefined, `${link} was refused`);
+    }
+    // A page that names one of the two starts a room: a bare page, and not this refusal.
+    assert.equal(repeatedPageName('https://edit.example/?room=r-1'), undefined);
+    assert.equal(repeatedPageName('https://edit.example/?room=&token='), undefined);
+    // A wire invite is not a page: its query is read where the link is taken apart, not by this
+    // reader, and a text that is no link at all names no page either.
+    assert.equal(repeatedPageName('ws://edit.example/session?room=r-1&room=r-2&token=tok'), undefined);
+    assert.equal(repeatedPageName('not a link'), undefined);
   });
 
   it('decodes values once', () => {

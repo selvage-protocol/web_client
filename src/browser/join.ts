@@ -13,7 +13,7 @@
 import { MAX_DISPLAY_NAME_UNITS, parseInvite, parseSessionUrl, sessionBase, sessionUrl } from '../engine/index.ts';
 import type { SessionBase } from '../engine/index.ts';
 
-import { parsePageLink } from './share.ts';
+import { parsePageLink, repeatedPageName } from './share.ts';
 import { linkServerBase, serverBaseOf } from './servers.ts';
 
 export { MAX_DISPLAY_NAME_UNITS };
@@ -149,12 +149,16 @@ export function resolveJoin(
   const room = (search.get('room') ?? '').trim();
   const token = (search.get('token') ?? '').trim();
   if (room !== '' && token !== '') {
-    // The address bar's own share link: the fragment is the part of it a version-2 room needs,
-    // and `pageQueryParams` never sees it because it is not a parameter.
+    // The address bar's own share link is the page's own address, so its query is read there —
+    // by name when it repeats `room` or `token`, rather than at the first of the two values the
+    // two reads above took (`§5.1`). The fragment is the part of it a version-2 room needs, and
+    // `pageQueryParams` never sees it because it is not a parameter.
+    refuseRepeatedPageName(pageAddress);
     return { base: serverOfPage(pageAddress), room, token, fragment: fragmentOf(pageAddress) };
   }
   const text = pasted.trim();
   if (text !== '') {
+    refuseRepeatedPageName(text);
     const page = parsePageLink(text);
     if (page !== undefined) {
       return {
@@ -182,6 +186,19 @@ export function resolveJoin(
     throw new Error('That invite link does not name a session. Paste the whole link.');
   }
   throw new Error('Paste an invite link to join.');
+}
+
+/**
+ * Refuses a page link that repeats `room` or `token`, in `§5.1`'s own words, before anything is
+ * dialled. A page link names no server, so the repeat is the page's to refuse: the engine would
+ * refuse the wire URL it is handed, and by then the room and the token have been read out of the
+ * link and the repeat is gone.
+ */
+function refuseRepeatedPageName(link: string): void {
+  const repeated = repeatedPageName(link);
+  if (repeated !== undefined) {
+    throw new Error(repeated);
+  }
 }
 
 /**
