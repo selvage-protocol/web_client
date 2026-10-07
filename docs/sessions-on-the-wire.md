@@ -41,7 +41,7 @@ The page's own modules:
 - `src/browser/monaco.ts`: the Monaco runtime, the editor core plus the languages the page backs, each
   with its tokenizer and, for TypeScript and JavaScript, the language worker that makes the mode
   understanding rather than colouring. JSON, TOML and Nix are this repository's own small Monarch
-  sets, because Monaco 0.52.2 ships none of the three. Every tokenizer loads lazily, when a document
+  sets, because Monaco 0.57.0 ships none of the three. Every tokenizer loads lazily, when a document
   of that language opens; anything unbacked is `plaintext` (see `languages.ts`).
 - `src/browser/workers/`: the two worker entries the backed modes need, the editor fallback and the
   TypeScript/JavaScript language worker.
