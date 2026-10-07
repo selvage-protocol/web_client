@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": ["../src/browser/node-shim.ts"],
+  "mappings": "0FAMA,IAAMA,EAAQ,WAKd,GAAI,OAAOA,EAAM,OAAW,KAAe,OAAOA,EAAM,YAAgB,IAAa,CACnF,IAAMC,EAAUD,EAAM,YACtBA,EAAM,OAAS,CACb,WAAaE,GAAyB,IAAID,EAAQ,EAAE,OAAOC,CAAI,EAAE,MACnE,CACF",
+  "names": ["scope", "Encoder", "text"]
+}
