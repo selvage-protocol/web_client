@@ -17,7 +17,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { IntervalNode, nodeAcceptEdit } from 'monaco-editor/esm/vs/editor/common/model/intervalTree.js';
+import { IntervalNode, nodeAcceptEdit } from 'monaco-editor/editor/common/model/intervalTree.js';
 
 import { CURSOR_STICKINESS, MonacoBinding } from '../src/browser/editor.ts';
 

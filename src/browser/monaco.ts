@@ -10,46 +10,54 @@
  * of that language opens, and the bundle splits on it (`lang-*.js`). JSON, TOML
  * and Nix get the same treatment from this repository's own Monarch sets, since
  * Monaco ships none of the three (`tokenizers/`).
+ *
+ * The paths are the ones 0.56 sorted into entry points: the editor's features, the
+ * API namespace, and one `register` per language and per language service, in place
+ * of the `esm/vs/...` tree this module used to walk directly.
  */
 
-import { registerLanguage } from 'monaco-editor/esm/vs/basic-languages/_.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/mdx/mdx.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/rust/rust.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/css/css.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/scss/scss.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/less/less.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/html/html.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/python/python.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/go/go.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/java/java.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/lua/lua.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/ini/ini.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/ruby/ruby.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/php/php.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/swift/swift.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/dart/dart.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/r/r.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/perl/perl.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/clojure/clojure.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/protobuf/protobuf.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/hcl/hcl.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/restructuredtext/restructuredtext.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/coffee/coffee.contribution.js';
-import 'monaco-editor/esm/vs/basic-languages/bat/bat.contribution.js';
-import 'monaco-editor/esm/vs/language/typescript/monaco.contribution.js';
+// Every editor feature: find, suggest, folding, the standalone extras. This is Monaco's own
+// "all features" entry, and what replaced the core entry that also registered them.
+import 'monaco-editor/features/register.all.js';
+
+import { registerLanguage } from 'monaco-editor/languages/definitions/_.contribution.js';
+import 'monaco-editor/languages/definitions/markdown/register.js';
+import 'monaco-editor/languages/definitions/mdx/register.js';
+import 'monaco-editor/languages/definitions/typescript/register.js';
+import 'monaco-editor/languages/definitions/javascript/register.js';
+import 'monaco-editor/languages/definitions/rust/register.js';
+import 'monaco-editor/languages/definitions/css/register.js';
+import 'monaco-editor/languages/definitions/scss/register.js';
+import 'monaco-editor/languages/definitions/less/register.js';
+import 'monaco-editor/languages/definitions/html/register.js';
+import 'monaco-editor/languages/definitions/xml/register.js';
+import 'monaco-editor/languages/definitions/yaml/register.js';
+import 'monaco-editor/languages/definitions/shell/register.js';
+import 'monaco-editor/languages/definitions/python/register.js';
+import 'monaco-editor/languages/definitions/go/register.js';
+import 'monaco-editor/languages/definitions/cpp/register.js';
+import 'monaco-editor/languages/definitions/java/register.js';
+import 'monaco-editor/languages/definitions/sql/register.js';
+import 'monaco-editor/languages/definitions/lua/register.js';
+import 'monaco-editor/languages/definitions/ini/register.js';
+import 'monaco-editor/languages/definitions/dockerfile/register.js';
+import 'monaco-editor/languages/definitions/powershell/register.js';
+import 'monaco-editor/languages/definitions/ruby/register.js';
+import 'monaco-editor/languages/definitions/php/register.js';
+import 'monaco-editor/languages/definitions/csharp/register.js';
+import 'monaco-editor/languages/definitions/kotlin/register.js';
+import 'monaco-editor/languages/definitions/swift/register.js';
+import 'monaco-editor/languages/definitions/dart/register.js';
+import 'monaco-editor/languages/definitions/r/register.js';
+import 'monaco-editor/languages/definitions/perl/register.js';
+import 'monaco-editor/languages/definitions/clojure/register.js';
+import 'monaco-editor/languages/definitions/graphql/register.js';
+import 'monaco-editor/languages/definitions/protobuf/register.js';
+import 'monaco-editor/languages/definitions/hcl/register.js';
+import 'monaco-editor/languages/definitions/restructuredtext/register.js';
+import 'monaco-editor/languages/definitions/coffee/register.js';
+import 'monaco-editor/languages/definitions/bat/register.js';
+import 'monaco-editor/languages/features/typescript/register.js';
 
 // The three the dependency has no basic language for. Same lazy shape: the id
 // and its loader register now, the Monarch set loads on first open.
@@ -73,9 +81,9 @@ registerLanguage({
   loader: () => import('./tokenizers/nix.ts'),
 });
 
-export * as monaco from 'monaco-editor/esm/vs/editor/edcore.main.js';
+export * as monaco from 'monaco-editor/editor.js';
 
 // The editor's opener service, for the shared-text link guard (`links.ts`).
 // These ride the same dynamic import as the runtime above, never the card.
-export { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js';
-export { IOpenerService } from 'monaco-editor/esm/vs/platform/opener/common/opener.js';
+export { StandaloneServices } from 'monaco-editor/editor/standalone/browser/standaloneServices.js';
+export { IOpenerService } from 'monaco-editor/platform/opener/common/opener.js';
