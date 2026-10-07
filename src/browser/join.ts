@@ -315,7 +315,6 @@ export function joinOnEnter(
 }
 
 /**
-/**
  * The DOM's own `hidden`, so the shapes below are the ones the elements handed here have: the
  * attribute is a boolean or the find-in-page state `"until-found"`, and only the boolean half is
  * ever written below.
