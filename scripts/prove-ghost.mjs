@@ -354,7 +354,10 @@ const DOM = {
     faces: [...document.querySelectorAll('#faces .av')].map((face) => face.getAttribute('aria-label')),
   })`,
   focusEditor: `(() => {
-    const area = document.querySelector('.monaco-editor textarea.inputarea');
+    // Monaco 0.57 types through the EditContext API where the engine has it, and through the
+    // older textarea.inputarea where it does not: the proof focuses whichever this page drew.
+    const area = document.querySelector('.monaco-editor .native-edit-context')
+      ?? document.querySelector('.monaco-editor textarea.inputarea');
     if (area) area.focus();
     return document.activeElement === area;
   })()`,

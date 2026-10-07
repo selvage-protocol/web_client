@@ -243,9 +243,12 @@ async function launchChromium(port) {
     },
     async type(text) {
       // A person types into the file they just opened, so the editor's own input is what is
-      // focused first: `Input.insertText` goes wherever the page's focus already is.
+      // focused first: `Input.insertText` goes wherever the page's focus already is. Monaco
+      // 0.57 types through the EditContext API where the engine has it, and through the older
+      // `textarea.inputarea` where it does not.
       await psend('Runtime.evaluate', {
-        expression: "document.querySelector('.monaco-editor textarea.inputarea')?.focus()",
+        expression:
+          "(document.querySelector('.monaco-editor .native-edit-context') ?? document.querySelector('.monaco-editor textarea.inputarea'))?.focus()",
         userGesture: true,
       });
       await psend('Input.insertText', { text });
