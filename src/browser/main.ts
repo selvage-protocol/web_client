@@ -306,6 +306,14 @@ function placeNotices(): void {
 }
 
 /**
+ * Whether an element is hidden. The DOM's `hidden` is a boolean or the find-in-page state
+ * `"until-found"`, which this page never writes, so anything but `false` is hidden.
+ */
+function isHidden(element: { hidden: HTMLElement['hidden'] }): boolean {
+  return element.hidden !== false;
+}
+
+/**
  * The panel is a disclosure on a phone and a resizable column on anything else.
  * Rotating out of the phone shape opens it rather than leaving the tree with no
  * way to be reached: the disclosure it was behind is gone at that width.
@@ -357,7 +365,7 @@ fileStrip.addEventListener('click', (event) => {
   if ((event.target as HTMLElement).closest('button') !== null) {
     return;
   }
-  showPanel(sidePane.hidden);
+  showPanel(isHidden(sidePane));
 });
 fileStrip.addEventListener('keydown', (event) => {
   // The strip is the disclosure only where it *is* the target: a key that bubbled up from a control
@@ -371,7 +379,7 @@ fileStrip.addEventListener('keydown', (event) => {
     return;
   }
   event.preventDefault();
-  showPanel(sidePane.hidden);
+  showPanel(isHidden(sidePane));
 });
 
 /** Shuts the panel after a navigation, so the file that opened gets the screen. */
@@ -1526,7 +1534,7 @@ function applyStripRole(): void {
   fileStrip.setAttribute('role', 'button');
   fileStrip.setAttribute('tabindex', '0');
   fileStrip.setAttribute('aria-controls', 'side');
-  fileStrip.setAttribute('aria-expanded', sidePane.hidden ? 'false' : 'true');
+  fileStrip.setAttribute('aria-expanded', isHidden(sidePane) ? 'false' : 'true');
   // The mark that says this line opens something. It is drawn here rather than in the shell so a
   // pointer device never carries a control it has no use for, and it is a span inside the strip's
   // own `role="button"`, never a button: a control within a control is one a finger cannot reach.
@@ -2106,7 +2114,7 @@ function syncEmptyEditor(): void {
           files: binding.grantListing().length,
           hostName: binding.participants().find((participant) => participant.role === 'host')?.displayName ?? '',
           phone: phoneLayout.matches,
-          panelOpen: !sidePane.hidden,
+          panelOpen: !isHidden(sidePane),
           peer: peerInAFile(binding.participants()),
           following: binding.following()?.peerId,
         }),

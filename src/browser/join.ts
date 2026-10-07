@@ -315,6 +315,14 @@ export function joinOnEnter(
 }
 
 /**
+/**
+ * The DOM's own `hidden`, so the shapes below are the ones the elements handed here have: the
+ * attribute is a boolean or the find-in-page state `"until-found"`, and only the boolean half is
+ * ever written below.
+ */
+type Hidden = HTMLElement['hidden'];
+
+/**
  * The card in one of its two intents, addressed structurally so the wiring stays
  * testable without a DOM. The card shell itself is inline HTML: it paints before
  * the bundle arrives, and this wiring only flips `hidden` and the browser's own
@@ -324,15 +332,15 @@ export interface CardIntentElements {
   /** The card itself, whose class tells the stylesheet which action leads. */
   pane: { className: string };
   /** `Start a Selvage session`: the heading read on a page that starts one. */
-  startHeading: { hidden: boolean };
+  startHeading: { hidden: Hidden };
   /** `Join a Selvage session`: the heading read on a page a link named. */
-  joinHeading: { hidden: boolean };
+  joinHeading: { hidden: Hidden };
   /** The invite path's disclosure: open is the paste box and Join being asked for. */
   invitePath: { open: boolean };
   /** The line that asks for a link, read only where there is no link to paste. */
-  inviteReveal: { hidden: boolean };
+  inviteReveal: { hidden: Hidden };
   /** The paste box, hidden while the room is already named by the address. */
-  inviteWrap: { hidden: boolean };
+  inviteWrap: { hidden: Hidden };
 }
 
 /** The pre-join card's live controls: its intent, and the two fields it asks in. */
@@ -484,10 +492,10 @@ export function showJoinFailure(target: JoinFailureTarget, message: string): voi
  */
 export interface StartAgainElements extends CardIntentElements {
   /** The card itself: it is shown again, and its class is what decides the leading action. */
-  pane: { className: string; hidden: boolean };
-  preview: { hidden: boolean };
-  veil: { hidden: boolean };
-  message: { hidden: boolean; textContent: string };
+  pane: { className: string; hidden: Hidden };
+  preview: { hidden: Hidden };
+  veil: { hidden: Hidden };
+  message: { hidden: Hidden; textContent: string };
   /** The join path's own failure line, under the button that asked for the link. */
   joinError: { textContent: string };
   /** The start action's, under the button that asked for the name. */
