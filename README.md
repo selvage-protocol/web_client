@@ -9,7 +9,7 @@ Firefox or Safari, and a page can only host where the server that serves it also
 
 ## Get it working
 
-You need Node 22.18 or newer, and a `selvaged` the page can reach.
+You need Node 22.18 or newer, and a running `selvaged` server the page can reach.
 
 ```sh
 npm ci        # install exactly what package-lock.json pins
