@@ -15,7 +15,7 @@ Seven things that shape it:
   and Edge; Firefox and Safari get a sentence where the button would be, and joining still works
   there. A page that is not served by a Selvage server (the page-only image with no `SELVAGE_SERVER`,
   a static dev server) says so instead of offering a control that could only refuse (see
-  [Sessions on the wire](sessions-on-the-wire.md)).
+  [Serving the page](serving-the-page.md)).
 - **Read and write.** The picker asks for both, because the room's settled text has to reach the
   folder or the room is a scratch pad rather than a working copy.
 - **The stale-file guard.** The page holds a replica and a directory handle and cannot see the file
@@ -54,9 +54,9 @@ Seven things that shape it:
   read either, and a `.gitignore` that is not UTF-8 text is no ignore file at all.
 - **A file the host opens is the host's own act.** The folder's ignore files are the folder's rules
   for what the room shares, not a lock on the disk: the page's window is driven by the listing, so a
-  person opens what the room shares, and the bridge's seed gate stays name-only — it re-checks the
-  shared excludes and the size and consults no ignore file, because a path the host itself brings to
-  the editor is not a peer's guess.
+  person opens what the room shares, and a file the host itself brings to the editor is checked
+  against the shared excludes and the size bound alone, because a path the host itself chooses is not
+  a peer's guess.
 
 **Download** takes a document out of the room and onto the person's disk — for a guest who has just
 edited a file and cannot keep it, and for a host whose folder refused the write. It is one control
