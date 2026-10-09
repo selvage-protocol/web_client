@@ -11,7 +11,7 @@
 # The two loopback addresses are the ones this repository's prose prints: the dev
 # server `http://localhost:8081/` the README tells a reader to open, the page
 # container `http://localhost/` in `docs/serving-the-page.md`, and
-# `http://127.0.0.1:8081` in `docs/checks.md`. Each answers on the reader's own
+# `http://127.0.0.1:8081`, the address a page check is pointed at. Each answers on the reader's own
 # machine while that reader is running something there and nowhere else, so a check
 # that could only pass with those servers up would fail every time. lychee reads no
 # URL out of an inline code span or a fenced block, which is where every one of them
