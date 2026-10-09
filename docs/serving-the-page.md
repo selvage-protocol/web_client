@@ -28,8 +28,8 @@ origin of its own. Two shapes, and [`compose.yaml`](../compose.yaml) documents b
 before it goes in: anything that is not a host with an optional port and an optional `http`/`https`
 scheme is refused with a sentence saying what is wrong, because the value is substituted into the
 configuration and nothing in it is escaped. An `https://` base is dialled with the upstream's name
-as SNI and its certificate verified against the base image's own CA bundle, a file the image build
-checks is there, so a certificate no public CA signs fails the connection. An `http://` base carries
+as SNI and its certificate verified against the base image's own CA bundle, so a certificate no
+public CA signs fails the connection. An `http://` base carries
 the room token over that hop in cleartext, which is the operator's call: it is the right shape for a
 loopback or a private network — the hop between the two containers in `compose.yaml` is one — and an
 `https://` base is the one to name wherever the hop is not trusted.
@@ -66,14 +66,13 @@ them: a relayed `/meta` is `no-cache` because of the name it is asked for, and i
 The service publishes `80:8080` by default: the host answers on port 80 while the container keeps
 listening on 8080, which it must, because `nginx-unprivileged` runs as uid 101 with every capability
 dropped and cannot bind a port below 1024. `compose.yaml` carries the same hardening as
-`reference_server`'s (`read_only`, `cap_drop: [ALL]`, `no-new-privileges`, no volumes) and
-`scripts/container-smoke.sh` asserts it. To evaluate on this machine only, rebind the published port
-to `127.0.0.1:8080:8080` there.
+`reference_server`'s (`read_only`, `cap_drop: [ALL]`, `no-new-privileges`, no volumes). To evaluate
+on this machine only, rebind the published port to `127.0.0.1:8080:8080` there.
 
-**The image is on the registry.** `v0.1.0` published `ghcr.io/selvage-protocol/selvage-web`, and
-every `v*` tag republishes it (`.github/workflows/image.yml`) with the tags `<version>-<sha>`,
-`<version>` and `latest`. `docker compose pull` fetches the published page; the compose file builds
-from this checkout when the registry name is absent. The hand run is the same page, and
+**The image is on the registry.** The page image is `ghcr.io/selvage-protocol/selvage-web`, published
+with the tags `<version>-<sha>`, `<version>` and `latest` for every release. `docker compose pull`
+fetches the published page; the compose file builds from this checkout when the registry name is
+absent. The hand run is the same page, and
 `--env SELVAGE_SERVER=<base>` makes it the room's server as well:
 
 ```sh
@@ -84,23 +83,12 @@ docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges:true
 On its own it serves the page and no endpoint: `/meta` and `/session` answer 404 with the page's own
 `404.html`.
 
-The image carries this repository's committed `dist/` (the checks job proves a build of `src/`
-reproduces it, so the image cannot fall behind its source). The runtime is `nginx-unprivileged` as
+The image carries this repository's committed `dist/`. The runtime is `nginx-unprivileged` as
 uid 101 on port 8080, and it answers the media types, the cache policy and the content-security
 policy that `selvaged`'s own page handler decides for the one-origin shape: a hashed chunk pinned
 for a year, everything else revalidating, `no-referrer`, `nosniff`. It holds nothing writable:
 nginx's pid file and temp directories are the runtime's own `/dev/shm`, and the relay's location
-blocks are written there at startup too, so the flags above run it with no mount at all, which
-`scripts/container-smoke.sh` reads back off the daemon's record of the container. That smoke is also
-where the relay is proved end to end: it runs the page with `SELVAGE_SERVER` naming
-`ghcr.io/selvage-protocol/selvaged:latest` — overridable with `SELVAGE_SERVER_IMAGE` — and
-`scripts/check-relay.mjs` reads `/meta`, upgrades `/session` and seats a room through the page's
-published port. A pull of that image that fails ends the smoke, and it ends the CI job in every
-case: the server behind the page is the half being proved, and a green run over a stand-in would
-claim a proof it did not make. The stand-in — `scripts/relay-stub.mjs` — is reachable only where
-`SELVAGE_ALLOW_RELAY_STUB=1` asks for it, which CI never sets, for a local host with no route to
-`ghcr.io`; the downgrade goes out as a `::warning::` and every line that names the counterpart, here
-and in the smoke's own banner, names the stub instead of the image.
+blocks are written there at startup too, so the flags above run it with no mount at all.
 
 **What running without an upstream costs.** The page is then an origin of its own, a second origin
 beside every server it fronts. The WebSocket is not CORS-bound, so the page dials whatever server a
