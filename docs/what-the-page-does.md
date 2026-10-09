@@ -54,8 +54,9 @@ first when this window has no text for it — is `Downloaded <leaf>`, two at a t
 counted. The column takes no click and moves nothing under it. When the room ends, because the host
 does not return before the grace expires, the page leaves the session: the socket closes, the
 binding and the editor are dropped, the chrome comes down, and the card returns over the blurred
-preview carrying
-`The room is gone (host did not return). Nothing is kept on this page; the folder the room was hosted from has the text it had settled on. Paste a fresh invite link to join another session.`
+preview carrying the reason in one sentence: `The host was away too long, so the session ended.` for
+the grace, `The host ended the session.` for a host's leave, and `The session ended (<reason>).` for
+anything else.
 A page has no disk to leave a copy on. Nothing of the dead room stays on screen, the name stays
 typed, and pasting a fresh link joins the next room from there. A guest never claims host and never
 rebuilds a room on its own: the only mint is the one behind the folder picker, and a test pins that
