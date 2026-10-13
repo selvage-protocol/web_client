@@ -1645,3 +1645,106 @@ describe('moving a folder, which goes with everything the room carries inside it
     );
   });
 });
+
+
+describe('tree ownership on a shared pane', () => {
+  for (const operation of ['create', 'remove']) {
+    it(`ignores retired ${operation} completion and row feedback`, async () => {
+      let finish;
+      let feedback;
+      const said = [];
+      const pinned = new Set();
+      const state = { listing: ['notes.txt'], inRoom: ['notes.txt'], participants: [], opened: [] };
+      const pane = makeElement('div');
+      const old = new GrantTreeView({
+        pane, source: makeSource(state), pinned, canCreate: () => true, open: () => {},
+        say: (text) => said.push(text),
+        download: (_path, row) => { feedback = row; },
+        [operation]: () => new Promise((resolve) => { finish = resolve; }),
+      });
+      old.render();
+      labelled(pane, 'Download notes.txt').fire('click');
+      if (operation === 'create') {
+        old.beginCreate('directory', '');
+        withClass(pane, 'new-name').value = 'new-folder';
+        withClass(pane, 'new-name').fire('keydown', { key: 'Enter', preventDefault: () => {} });
+      } else {
+        labelled(pane, 'Delete notes.txt').fire('click');
+        withClass(pane, 'del-yes').fire('click');
+      }
+      assert.equal(typeof finish, 'function', 'the operation never started');
+      old.dispose();
+      const replacement = new GrantTreeView({ pane, source: makeSource(state), pinned, open: () => {} });
+      replacement.render();
+      const children = [...pane.children];
+      const focus = doc.activeElement;
+      feedback.note('retired note');
+      feedback.busy('retired busy');
+      feedback.idle();
+      feedback.clear();
+      finish(operation === 'create'
+        ? { kind: 'made', path: 'new-folder', entry: 'directory' }
+        : { kind: 'removed', path: 'notes.txt', paths: ['notes.txt'] });
+      await Promise.resolve();
+      assert.deepEqual(pane.children, children);
+      assert.equal(doc.activeElement, focus, 'retired completion moved focus');
+      assert.deepEqual(said, []);
+      assert.deepEqual([...pinned], []);
+      replacement.dispose();
+    });
+  }
+
+  it('leaves only the replacement view listening after disposal', async () => {
+    const calls = [];
+    const state = { listing: ['src/main.ts', 'tests/check.ts'], participants: [], opened: [], canCreate: true };
+    const pane = makeElement('div');
+    const make = (session) => new GrantTreeView({
+      pane, source: makeSource(state), pinned: new Set(['src', 'tests']), canCreate: () => true,
+      open: () => {}, move: async (path, into) => {
+        calls.push([session, path, into]);
+        return { kind: 'moved', to: `${into}/main.ts` };
+      },
+    });
+    const old = make('A');
+    old.render();
+    old.dispose();
+    old.dispose();
+    const replacement = make('B');
+    replacement.render();
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: dataTransfer() });
+    pane.fire('drop', { target: summaryFor(pane, 'tests/') });
+    await Promise.resolve();
+    assert.deepEqual(calls, [['B', 'src/main.ts', 'tests']]);
+    for (const event of ['dragstart', 'dragover', 'drop', 'dragend', 'keydown']) {
+      assert.equal(pane.listeners[event].length, 1, `${event} retained a retired view`);
+    }
+    replacement.dispose();
+  });
+  it('ignores a retired move completion without repainting or pinning its destination', async () => {
+    let finish;
+    const said = [];
+    const pinned = new Set(['src', 'tests']);
+    const state = { listing: ['src/main.ts', 'tests/check.ts'], participants: [], opened: [] };
+    const pane = makeElement('div');
+    const old = new GrantTreeView({
+      pane, source: makeSource(state), pinned, canCreate: () => true, open: () => {},
+      say: (text) => said.push(text), move: () => new Promise((resolve) => { finish = resolve; }),
+    });
+    old.render();
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: dataTransfer() });
+    pane.fire('drop', { target: pane });
+    old.dispose();
+    pane.replaceChildren();
+    pinned.clear();
+    const replacement = new GrantTreeView({ pane, source: makeSource(state), pinned, open: () => {} });
+    replacement.render();
+    const children = [...pane.children];
+    const before = [...said];
+    finish({ kind: 'moved', to: 'main.ts' });
+    await Promise.resolve();
+    assert.deepEqual(pane.children, children);
+    assert.deepEqual(said, before, 'retired completion announced into the next session');
+    assert.deepEqual([...pinned], []);
+    replacement.dispose();
+  });
+});

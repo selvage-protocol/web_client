@@ -84,9 +84,10 @@ async function until(predicate: () => boolean, what: string): Promise<void> {
 function makeModel(text: string) {
   const listeners = new Set<() => void>();
   let current = text;
+  let disposed = false;
   return {
-    isDisposed: () => false,
-    dispose: () => {},
+    isDisposed: () => disposed,
+    dispose: () => { disposed = true; },
     getValue: () => current,
     // What Monaco does with a model built from this text: the document's own first ending decides,
     // and it is what the bridge renders a remote edit into.
@@ -238,6 +239,78 @@ function noticeKinds(notices: Array<{ kind: string; text?: string }>): string[] 
 }
 
 describe('the host half of the page', () => {
+  it('keeps the latest document in front when room opens complete out of order', async () => {
+    const engine = makeEngine('guest', new Map([['first.txt', 'first'], ['last.txt', 'last']]));
+    let finishFirst: () => void = () => {};
+    engine.open = (path) => path === 'first.txt'
+      ? new Promise<void>((resolve) => { finishFirst = resolve; }) : Promise.resolve();
+    const shown: unknown[] = [];
+    const binding = new MonacoBinding({
+      engine, editor: { ...makeEditor(), setModel: (model) => shown.push(model) },
+      onNotice: () => {}, createModel: makeModel,
+    });
+    const first = binding.openDocument('first.txt');
+    await binding.openDocument('last.txt');
+    const latest = shown.at(-1);
+    finishFirst();
+    await first;
+    assert.equal(binding.currentPath(), 'last.txt');
+    assert.equal(shown.at(-1), latest);
+    assert.equal(binding.text('first.txt'), undefined);
+    binding.dispose();
+  });
+
+  it('does not create or attach a model when a folder read completes after disposal', async () => {
+    const engine = makeEngine('host', new Map());
+    let finishRead;
+    let models = 0;
+    const notices = [];
+    const binding = new MonacoBinding({
+      engine, editor: makeEditor(),
+      folder: { read: () => new Promise((resolve) => { finishRead = resolve; }) },
+      onNotice: (notice) => notices.push(notice),
+      createModel: (text) => { models += 1; return makeModel(text); },
+    });
+    const open = binding.openDocument('notes.txt');
+    await Promise.resolve();
+    binding.dispose();
+    const before = [...notices];
+    finishRead({ kind: 'refused', cause: 'io' });
+    await open;
+    assert.equal(models, 0);
+    assert.equal(binding.currentPath(), undefined);
+    assert.deepEqual(engine.inserts, []);
+    assert.deepEqual(notices, before);
+  });
+
+  it('says nothing about a read failure for an open a newer one superseded', async () => {
+    const engine = makeEngine('host', new Map());
+    const notices: Array<{ kind: string; text?: string }> = [];
+    let finishFirst: (read: { kind: string; cause?: string }) => void = () => {};
+    let firstStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const binding = new MonacoBinding({
+      engine,
+      editor: makeEditor(),
+      folder: {
+        read: (path: string) =>
+          path === 'first.txt'
+            ? new Promise((resolve) => { firstStarted(); finishFirst = resolve; })
+            : Promise.resolve({ kind: 'text' as const, text: 'last' }),
+      },
+      onNotice: (notice) => notices.push(notice),
+      createModel: makeModel,
+    });
+    const first = binding.openDocument('first.txt');
+    await started;
+    await binding.openDocument('last.txt');
+    notices.length = 0;
+    finishFirst({ kind: 'refused', cause: 'io' });
+    await first;
+    assert.deepEqual(noticeKinds(notices), [], 'a superseded open said its read failure');
+    binding.dispose();
+  });
+
   it('opens a listed file out of the folder and seeds the room with it', async () => {
     const engine = makeEngine('host', new Map());
     const { folder, reads } = makeFolder({ 'notes.txt': 'from the folder\n' });
@@ -641,5 +714,147 @@ describe('the host writes its own edits back', () => {
     await until(() => notices.length > 0 || timers.armed() === 0, 'the flush to have run');
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual(notices, [], 'a disposed binding reported a write the page cannot show');
+  });
+});
+
+
+describe('active write lifecycle drain', { timeout: 5000 }, () => {
+  it('flushes the latest text after disposal even with an older write in flight', async () => {
+    const engine = makeEngine('host', new Map([['notes.txt', 'V0']]));
+    const timers = new ManualTimers();
+    const writes: string[] = [];
+    let release: () => void = () => {};
+    const first = new Promise<void>((resolve) => { release = resolve; });
+    const model = makeModel('V0');
+    const binding = new MonacoBinding({
+      engine, editor: makeEditor(), timers, createModel: () => model, onNotice: () => {},
+      folder: { layout: () => undefined, write: async (_path, text) => {
+        writes.push(text);
+        if (writes.length === 1) { await first; }
+        return { kind: 'written' };
+      } },
+    });
+    await binding.openDocument('notes.txt');
+    model.__setText('V1');
+    const active = binding.save('notes.txt');
+    assert.deepEqual(writes, ['V1']);
+    model.__setText('V2');
+    model.__fire();
+    binding.dispose();
+    assert.equal(model.isDisposed(), true);
+    release();
+    await active;
+    assert.deepEqual(writes, ['V1', 'V2']);
+  });
+
+  it('waits for a timer-free active write when explicitly settling the path', async () => {
+    const engine = makeEngine('host', new Map([['notes.txt', 'V0']]));
+    const timers = new ManualTimers();
+    let release: () => void = () => {};
+    const first = new Promise<void>((resolve) => { release = resolve; });
+    const model = makeModel('V0');
+    const binding = new MonacoBinding({
+      engine, editor: makeEditor(), timers, createModel: () => model, onNotice: () => {},
+      folder: { layout: () => undefined, write: async () => { await first; return { kind: 'written' }; } },
+    });
+    await binding.openDocument('notes.txt');
+    const active = binding.save('notes.txt');
+    let settled = false;
+    const settling = binding.settle('notes.txt').then(() => { settled = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, 'settle completed while the write was still blocked');
+    release();
+    await Promise.all([active, settling]);
+    assert.equal(settled, true);
+    binding.dispose();
+  });
+});
+
+describe('thrown folder writes', () => {
+  for (const refused of [false, true]) {
+    it(`coalesces latest text and settles every waiter on a follow-up ${refused ? 'refusal' : 'exception'}`, { timeout: 2000 }, async () => {
+      const engine = makeEngine('host', new Map([['notes.txt', 'initial']]));
+      const model = makeModel('initial');
+      const writes = [];
+      const passes = [];
+      let active = 0;
+      const failure = new Error('write failed');
+      let followUp;
+      const started = new Promise((resolve) => { followUp = resolve; });
+      const binding = new MonacoBinding({
+        engine, editor: makeEditor(), createModel: () => model, onNotice: () => {},
+        folder: { layout: () => ({ eol: '\n', bom: false }), write: (path, text) => {
+          assert.equal(active, 0, 'writes overlapped');
+          active += 1;
+          writes.push([path, text]);
+          const pass = new Promise((resolve, reject) => passes.push({
+            resolve: (outcome) => { active -= 1; resolve(outcome); },
+            reject: (error) => { active -= 1; reject(error); },
+          }));
+          if (writes.length === 2) { followUp(); }
+          return pass;
+        } },
+      });
+      await binding.openDocument('notes.txt');
+      const waiters = [binding.save('notes.txt')];
+      model.__setText('intermediate');
+      waiters.push(binding.save('notes.txt'));
+      model.__setText('latest');
+      waiters.push(binding.save('notes.txt'));
+      const settled = Promise.allSettled(waiters);
+      passes[0].resolve({ kind: 'written' });
+      await started;
+      assert.deepEqual(writes, [['notes.txt', 'initial'], ['notes.txt', 'latest']]);
+      if (refused) {
+        passes[1].resolve({ kind: 'refused', cause: 'stale', sentence: failure.message });
+      } else {
+        passes[1].reject(failure);
+      }
+      const outcomes = await settled;
+      assert.equal(outcomes.length, 3);
+      for (const outcome of outcomes) {
+        assert.equal(outcome.status, 'rejected');
+        assert.equal(outcome.reason.message, failure.message);
+        assert.equal(outcome.reason, outcomes[0].reason, 'waiters received different failures');
+      }
+      const retry = binding.save('notes.txt');
+      assert.equal(writes.length, 3, 'the failed slot was retained');
+      passes[2].resolve({ kind: 'written' });
+      assert.equal(await retry, true);
+      binding.dispose();
+    });
+  }
+
+  it('settles simultaneous save waiters on thrown I/O and permits a successful retry', { timeout: 2000 }, async () => {
+    const engine = makeEngine('host', new Map());
+    const base = makeFolder({ 'notes.txt': 'before\n' }).folder;
+    const folder = { read: (path) => base.read(path), layout: (path) => base.layout(path), write: undefined };
+    const models = [];
+    const binding = new MonacoBinding({
+      engine, folder, editor: makeEditor(), onNotice: () => {},
+      createModel: (text) => { const model = makeModel(text); models.push(model); return model; },
+    });
+    await binding.openDocument('notes.txt');
+    let rejectWrite;
+    const failure = new Error('I/O failed');
+    const written = [];
+    let attempts = 0;
+    folder.write = async (_path, text) => {
+      attempts += 1;
+      written.push(text);
+      if (attempts === 1) {
+        return await new Promise((_resolve, reject) => { rejectWrite = reject; });
+      }
+      return { kind: 'written' };
+    };
+    const waiters = [binding.save('notes.txt')];
+    models[0].__setText('latest\n');
+    waiters.push(binding.save('notes.txt'), binding.save('notes.txt'));
+    const settled = Promise.allSettled(waiters);
+    rejectWrite(failure);
+    assert.deepEqual(await settled, waiters.map(() => ({ status: 'rejected', reason: failure })));
+    await binding.save('notes.txt');
+    assert.deepEqual(written, ['before\n', 'latest\n']);
+    binding.dispose();
   });
 });

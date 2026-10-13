@@ -238,6 +238,13 @@ export class GrantTreeView {
   /** The action element each row's download is drawn in, so a rebuild can put its state back. */
   private readonly actionHosts = new Map<string, { wrap: HTMLElement; button: HTMLButtonElement }>();
 
+  private disposed = false;
+  private readonly dragStart = (event: DragEvent): void => this.onDragStart(event);
+  private readonly dragOver = (event: DragEvent): void => this.onDragOver(event);
+  private readonly drop = (event: DragEvent): void => this.onDrop(event);
+  private readonly dragEnd = (): void => this.endMove();
+  private readonly keyDown = (event: KeyboardEvent): void => this.onKeyDown(event);
+
   constructor(options: TreeViewOptions) {
     this.pane = options.pane;
     this.source = options.source;
@@ -245,11 +252,11 @@ export class GrantTreeView {
     this.options = options;
     // The pointer's move and the keyboard's are one act with two ways in, so the drag events and the
     // row keys are bound once here and read from the element they land on.
-    this.pane.addEventListener('dragstart', (event) => this.onDragStart(event));
-    this.pane.addEventListener('dragover', (event) => this.onDragOver(event));
-    this.pane.addEventListener('drop', (event) => this.onDrop(event));
-    this.pane.addEventListener('dragend', () => this.endMove());
-    this.pane.addEventListener('keydown', (event) => this.onKeyDown(event));
+    this.pane.addEventListener('dragstart', this.dragStart);
+    this.pane.addEventListener('dragover', this.dragOver);
+    this.pane.addEventListener('drop', this.drop);
+    this.pane.addEventListener('dragend', this.dragEnd);
+    this.pane.addEventListener('keydown', this.keyDown);
   }
 
   /**
@@ -257,6 +264,9 @@ export class GrantTreeView {
    * reads the same rebuilds nothing and repaints only the badges that moved.
    */
   render(): void {
+    if (this.disposed) {
+      return;
+    }
     const listing = this.source.grantListing();
     const current = this.source.currentPath();
     const keyed = this.listingKey(listing, current);
@@ -335,6 +345,15 @@ export class GrantTreeView {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.pane.removeEventListener('dragstart', this.dragStart);
+    this.pane.removeEventListener('dragover', this.dragOver);
+    this.pane.removeEventListener('drop', this.drop);
+    this.pane.removeEventListener('dragend', this.dragEnd);
+    this.pane.removeEventListener('keydown', this.keyDown);
     this.cancelPendingCheck();
   }
 
@@ -804,6 +823,7 @@ export class GrantTreeView {
     const label = `Download ${leafOf(path)}`;
     return {
       busy: (text) => {
+        if (this.disposed) { return; }
         this.busy.set(path, text);
         const host = this.actionHosts.get(path);
         if (host === undefined) {
@@ -814,6 +834,7 @@ export class GrantTreeView {
         host.button.title = text;
       },
       idle: () => {
+        if (this.disposed) { return; }
         this.busy.delete(path);
         const host = this.actionHosts.get(path);
         if (host === undefined) {
@@ -824,9 +845,11 @@ export class GrantTreeView {
         host.button.title = label;
       },
       note: (text, actions) => {
+        if (this.disposed) { return; }
         this.stand(path, text, actions);
       },
       clear: (text) => {
+        if (this.disposed) { return; }
         const note = this.notes.get(path);
         if (note === undefined || (text !== undefined && (note.textContent ?? '') !== text)) {
           return;
@@ -1035,6 +1058,9 @@ export class GrantTreeView {
     } finally {
       this.deleting = false;
     }
+    if (this.disposed) {
+      return;
+    }
     if (result.kind === 'refused') {
       this.stand(ask.path, result.sentence);
       return;
@@ -1173,6 +1199,9 @@ export class GrantTreeView {
       return;
     }
     const result = await move(held.path, into);
+    if (this.disposed) {
+      return;
+    }
     this.holding = undefined;
     if (result.kind === 'refused') {
       // The redraw is this view's own; the sentence is not said here. A move that is refused at the
@@ -1543,11 +1572,16 @@ export class GrantTreeView {
     try {
       result = await create(check.path, draft.kind);
     } finally {
-      this.draftBusy = false;
-      this.draftIcon?.classList.remove('busy');
-      if (this.draftInput !== undefined) {
-        this.draftInput.readOnly = false;
+      if (!this.disposed && this.draft === draft) {
+        this.draftBusy = false;
+        this.draftIcon?.classList.remove('busy');
+        if (this.draftInput !== undefined) {
+          this.draftInput.readOnly = false;
+        }
       }
+    }
+    if (this.disposed || this.draft !== draft) {
+      return;
     }
     if (result.kind === 'refused') {
       // The folder's own sentence, in the line the field has been reading: the name stays typed and

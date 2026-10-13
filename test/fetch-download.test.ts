@@ -246,7 +246,8 @@ describe('a path whose text has not been fetched', () => {
     // true while the text is still coming.
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
-    assert.match(download, /const holds = binding\.hasText\(path\) === true;/, 'the page no longer reads the room’s receipt');
+    assert.match(download, /const session = binding;/, 'the download lost its initiating session');
+    assert.match(download, /const holds = session\.hasText\(path\) === true;/, 'the page no longer reads the room’s receipt');
     assert.doesNotMatch(
       download,
       /currentPath\(\)/,
@@ -283,7 +284,7 @@ describe('what the fetch must not do', () => {
     // And the fetch itself still asks without opening: `requestText` is the engine's open, which is
     // what makes the room send the text, and it builds no model and touches no editor.
     const download = sliceBetween(main, 'function startDownload', '/** Where a download goes');
-    assert.match(download, /binding\?\.requestText\(candidate\)/, 'the fetch stopped asking the room');
+    assert.match(download, /session\.requestText\(candidate\)/, 'the fetch stopped asking the room');
   });
 });
 
