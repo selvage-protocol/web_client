@@ -185,6 +185,16 @@ export class MonacoBinding implements EditorHost {
   private readonly badgeStyle: HTMLStyleElement;
   private readonly stopEngine: () => void;
   private readonly timers: Timers;
+  /**
+   * The editor as the bridge sees it, which differs from this binding in one call: `save`.
+   *
+   * A bridge save is a document the *room* changed, written on the bridge's own settle. The binding
+   * records that debt (`remoteSaves`) and a strict settle consumes it, but the bridge's already-armed
+   * timer is not cancelled with it. Routing the bridge's `save` here lets that deadline be answered
+   * without I/O once the debt is gone — an already-settled callback is harmless — while the binding's
+   * own calls to `save` and every other host call are this binding's.
+   */
+  private readonly bridgeHost: EditorHost;
   private applying = 0;
   /**
    * The armed writes of the documents this window hosts, one entry per path.
@@ -266,7 +276,16 @@ export class MonacoBinding implements EditorHost {
     document.head.appendChild(this.style);
     this.badgeStyle = document.createElement('style');
     document.head.appendChild(this.badgeStyle);
-    this.bridge = new SessionBridge({ engine: this.engine, host: this, timers: this.timers });
+    this.bridgeHost = {
+      text: (path) => this.text(path),
+      lineEnding: (path) => this.lineEnding(path),
+      applyChange: (path, change) => this.applyChange(path, change),
+      save: (path) => this.saveOnDeadline(path),
+      readGrantedFile: (path) => this.readGrantedFile(path),
+      renderCursors: (cursors) => this.renderCursors(cursors),
+      report: (report) => this.report(report),
+    };
+    this.bridge = new SessionBridge({ engine: this.engine, host: this.bridgeHost, timers: this.timers });
     // The selection events this binding's own remote apply raises are that apply's echo, and
     // nothing else can fire while it runs — no input is processed inside a synchronous
     // `pushEditOperations` — so they are not what the room is told. An interval a local move
@@ -351,6 +370,21 @@ export class MonacoBinding implements EditorHost {
     if (this.disposed) { return false; }
     this.pendingGoTo = undefined;
     if (this.followingPeerId !== undefined) { this.clearFollow(); }
+    return this.showDocument(path);
+  }
+
+  /**
+   * Puts a path in front for a move this window made itself, leaving the person's own intent alone.
+   *
+   * The host's move knows the source and the destination, so this reopen is neither a guess nor a
+   * deliberate navigation: a pending go-to or a follow is the person asking to be somewhere, not to
+   * leave, so neither is cleared here. A tree click or a file open is deliberate and still clears both
+   * through `openDocument`.
+   */
+  async reopenMoved(path: string): Promise<boolean> {
+    if (this.disposed) {
+      return false;
+    }
     return this.showDocument(path);
   }
 
@@ -480,8 +514,10 @@ export class MonacoBinding implements EditorHost {
    * Ends the documents the host took out of the grant, in every window and not only the host's.
    *
    * A guest in a file the host moved or deleted would otherwise keep it listed and keep typing into
-   * a document no folder holds. A file in front that moved is reopened where it went, when the new
-   * grant holds exactly one new path with its name.
+   * a document no folder holds. The delta names what arrived and what went and nothing else: it does
+   * not name a destination, so this does not guess one. A host's own move knows its source-to-
+   * destination mapping and reopens the name it knows (`main.ts`, `moveEntry`); a guest's old
+   * document ends, and the next explicit open or the owner's move is what brings the new name back.
    */
   private followGrant(): void {
     const before = this.granted;
@@ -491,26 +527,7 @@ export class MonacoBinding implements EditorHost {
     if (gone.length === 0) {
       return;
     }
-    const current = this.path;
-    let movedTo: string | undefined;
-    if (current !== undefined && gone.includes(current)) {
-      const leaf = current.slice(current.lastIndexOf('/') + 1);
-      const arrived = [...after].filter(
-        (path) => !before.has(path) && path.slice(path.lastIndexOf('/') + 1) === leaf,
-      );
-      movedTo = arrived.length === 1 ? arrived[0] : undefined;
-    }
     this.dropDocuments(gone);
-    if (movedTo !== undefined) {
-      const to = movedTo;
-      void this.openDocument(to)
-        .then((landed) => {
-          if (landed && !this.disposed && this.path === to) {
-            this.say({ kind: 'landed', path: to });
-          }
-        })
-        .catch(() => undefined);
-    }
   }
 
   dispose(): void {
@@ -1021,6 +1038,23 @@ export class MonacoBinding implements EditorHost {
       this.applying -= 1;
     }
     return true;
+  }
+
+  /**
+   * The write a bridge deadline asks for, answered without I/O when the debt that armed it is gone.
+   *
+   * The bridge arms this for a document the room changed, and records no debt of its own that a
+   * strict settle consumes; the binding's `remoteSaves` is that record. Once `settle` has written
+   * the document, an already-armed deadline is asking for a write that already happened, so it is
+   * answered `true` — no old source is touched and no refusal is reported for a save that did not
+   * fail. A deadline that still owes work — a fresher room change, a local edit, an active write,
+   * or a failure that restored its debt — takes the ordinary path.
+   */
+  private async saveOnDeadline(path: string): Promise<boolean> {
+    if (!this.hasPendingWrites([path])) {
+      return true;
+    }
+    return this.save(path);
   }
 
   async save(path: string): Promise<boolean> {

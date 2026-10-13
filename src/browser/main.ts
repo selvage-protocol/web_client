@@ -784,7 +784,7 @@ async function moveEntry(path: string, into: string): Promise<MoveResult> {
   }
   syncGrant();
   if (showing && at !== undefined && outcome.kind !== 'partial') {
-    void openPath(`${to}${at.slice(path.length)}`);
+    void openPath(`${to}${at.slice(path.length)}`, { keepIntent: true });
   }
   if (outcome.kind === 'partial') {
     // The file is at both names, which is not a move that did not happen: the page says so and the
@@ -1447,7 +1447,7 @@ async function openFirst(session: SessionInfo): Promise<void> {
   }
 }
 
-async function openPath(path: string): Promise<void> {
+async function openPath(path: string, options: { keepIntent?: boolean } = {}): Promise<void> {
   const session = binding;
   if (session === undefined) {
     return;
@@ -1457,8 +1457,12 @@ async function openPath(path: string): Promise<void> {
   const current = (): boolean => binding === session && opening === request;
   try {
     // The hold taken by the open is what makes the room send the text: opening a
-    // listed path fetches it, the desktop guest's behaviour.
-    const landed = await session.openDocument(path);
+    // listed path fetches it, the desktop guest's behaviour. A move's own reopen keeps
+    // the person's pending go-to and follow: it is the page naming a file whose path
+    // changed, not the person asking to leave where they were.
+    const landed = options.keepIntent === true
+      ? await session.reopenMoved(path)
+      : await session.openDocument(path);
     if (!landed || !current()) { return; }
     syncGrant();
     renderedPath = path;

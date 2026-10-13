@@ -169,6 +169,70 @@ describe('deferred actions belong to their initiating session', { timeout: 5000 
     assert.deepEqual(app.effects, ['grant', 'collapse', 'announce']);
   });
 
+  it('does not let an older successful open supersede a newer one still pending', async () => {
+    const app = page();
+    const first = deferred();
+    const last = deferred();
+    app.context.binding = { openDocument: (path) => path === 'first.txt' ? first.promise : last.promise };
+    const pendingFirst = app.context.openPath('first.txt');
+    const pendingLast = app.context.openPath('last.txt');
+    const latest = app.context.opening;
+    // The older open succeeds, truthfully. Supersession, not failure, is what must stop it.
+    first.resolve(true);
+    await pendingFirst;
+    assert.equal(app.context.opening, latest, 'the older success cleared the newer request');
+    assert.equal(app.context.renderedPath, undefined, 'the superseded open painted the page');
+    assert.deepEqual(app.effects, []);
+    last.resolve(true);
+    await pendingLast;
+    assert.equal(app.context.renderedPath, 'last.txt');
+    assert.deepEqual(app.effects, ['grant', 'collapse', 'announce']);
+  });
+
+  it('keeps the page on the newest request through an A-B-A trace of successful opens', async () => {
+    const app = page();
+    const completions = [deferred(), deferred(), deferred()];
+    let next = 0;
+    app.context.binding = { openDocument: () => completions[next++].promise };
+    const first = app.context.openPath('notes.txt');
+    const middle = app.context.openPath('other.txt');
+    const last = app.context.openPath('notes.txt');
+    const latest = app.context.opening;
+    // The first landing succeeded truthfully, but its path is now owned by a newer request, so
+    // path equality would call it current and announce a file the person has since left.
+    completions[0].resolve(true);
+    await first;
+    assert.equal(app.context.opening, latest);
+    assert.equal(app.context.renderedPath, undefined, 'the superseded A landing painted the page');
+    assert.deepEqual(app.effects, []);
+    completions[1].resolve(true);
+    await middle;
+    assert.equal(app.context.opening, latest);
+    assert.equal(app.context.renderedPath, undefined, 'the superseded B landing painted the page');
+    assert.deepEqual(app.effects, []);
+    completions[2].resolve(true);
+    await last;
+    assert.equal(app.context.renderedPath, 'notes.txt');
+    assert.deepEqual(app.effects, ['grant', 'collapse', 'announce']);
+  });
+
+  it('lets no successful open from a replaced binding touch the successor page', async () => {
+    const app = page();
+    const open = deferred();
+    app.context.binding = { openDocument: () => open.promise };
+    const pending = app.context.openPath('notes.txt');
+    const opened = app.context.opening;
+    replacement(app.context);
+    // Guard isolation: the request identity is left untouched, so only the binding half can stop
+    // this. A normal teardown clears `opening`, which would hide a missing binding check.
+    assert.equal(app.context.opening, opened, 'test setup: the newer request identity changed');
+    open.resolve(true);
+    await pending;
+    assert.deepEqual(app.effects, []);
+    assert.equal(app.context.opening, opened, 'the retired open cleared the successor request');
+    assert.equal(app.context.renderedPath, undefined);
+  });
+
   it('does not download replacement-room text when an old fetch completes', async () => {
     const app = page();
     const fetch = deferred();
@@ -1038,4 +1102,98 @@ describe('assembled remote-save move drains', { timeout: 5000 }, () => {
       } finally { blocked.resolve({ kind: 'written' }); app.context.binding.dispose(); }
     });
   }
+});
+
+describe('assembled bridge deadline during a multi-file copy', { timeout: 5000 }, () => {
+  it('drops an already-settled remote save before a later sibling copy finishes', async () => {
+    const app = page();
+    const started = deferred();
+    const blocked = deferred();
+    const paths = ['src/a.txt', 'src/b.txt'];
+    const texts = new Map(paths.map((path) => [path, 'V0']));
+    const disk = workingFolder(texts);
+    const room = roomEngine(new Map(texts));
+    room.grantedPaths = () => paths;
+    await disk.folder.list();
+    for (const path of paths) { await disk.folder.read(path); }
+    // Hold the production folder's own copy of B open, so the old document's bridge deadline
+    // fires after A has been copied and removed and while B's copy is still in flight.
+    const copy = disk.folder.write.bind(disk.folder);
+    disk.folder.write = async (path, text) => {
+      if (path === 'other/src/b.txt') { started.resolve(); await blocked.promise; }
+      return copy(path, text);
+    };
+    const attempts = [];
+    const seated = await seatActual(app, room, {
+      layout: (path) => disk.folder.layout(path),
+      read: (path) => disk.folder.read(path),
+      write: async (path, text) => { attempts.push([path, text]); return disk.folder.write(path, text); },
+      move: (from, to) => disk.folder.move(from, to),
+      list: () => disk.folder.list(),
+    });
+    app.context.openPath = async () => {};
+    try {
+      for (const path of paths) { await seated.binding.openDocument(path); }
+      for (const path of paths) { room.remote(path, 'V1'); }
+      await until(() => paths.every((path) => seated.binding.text(path) === 'V1'), 'both V1 models');
+      const moving = app.context.moveEntry('src', 'other');
+      await started.promise;
+      // A's copy landed and its source is gone; B's copy is the one still in flight.
+      assert.equal(disk.files.has('src/a.txt'), false, 'A was not removed before its deadline');
+      assert.deepEqual(attempts, [['src/a.txt', 'V1'], ['src/b.txt', 'V1']]);
+      const attemptsAtFreeze = attempts.length;
+      const writesAtFreeze = disk.writes.length;
+      seated.timers.fire();
+      await turn();
+      await turn();
+      assert.equal(attempts.length, attemptsAtFreeze, 'a settled document wrote its old source again');
+      assert.deepEqual(disk.writes.slice(writesAtFreeze), [], 'the old source was written during the copy');
+      assert.equal(app.effects.includes('notice failure'), false, 'a successful move reported a failed save');
+      blocked.resolve();
+      assert.equal((await moving).kind, 'moved');
+      assert.equal(disk.files.get('other/src/a.txt').text, 'V1');
+      assert.equal(disk.files.get('other/src/b.txt').text, 'V1');
+      assert.ok(paths.every((path) => !disk.files.has(path)), 'the move left a source behind');
+    } finally {
+      blocked.resolve();
+      seated.binding.dispose();
+    }
+  });
+});
+
+describe('assembled automatic move reopen and participant intent', { timeout: 5000 }, () => {
+  it('keeps a waiting go-to across the host move that reopens the file in front', async () => {
+    const app = page();
+    const peer = { peer_id: 'p', display_name: 'Peer', role: 'guest' };
+    const texts = new Map([['notes.txt', 'V0'], ['b.txt', 'the peer file']]);
+    const disk = workingFolder(texts);
+    const room = roomEngine(new Map(texts));
+    room.grantedPaths = () => ['notes.txt'];
+    room.peers = () => [peer];
+    room.presence = () => [];
+    await disk.folder.list();
+    for (const path of ['notes.txt', 'b.txt']) { await disk.folder.read(path); }
+    const seated = await seatActual(app, room, {
+      layout: (path) => disk.folder.layout(path),
+      read: (path) => disk.folder.read(path),
+      write: (path, text) => disk.folder.write(path, text),
+      move: (from, to) => disk.folder.move(from, to),
+      list: () => disk.folder.list(),
+    });
+    try {
+      await seated.binding.openDocument('notes.txt');
+      // The room knows the peer is here but not yet which document: the go-to waits for a frame.
+      assert.equal(await seated.binding.goTo('p'), 'waiting');
+      const moved = await app.context.moveEntry('notes.txt', 'other');
+      assert.equal(moved.kind, 'moved');
+      // The reopen is the page's own fire-and-forget continuation.
+      await until(() => seated.binding.currentPath() === 'other/notes.txt', 'the moved file to reopen');
+      // The peer's next frame answers the go-to the person asked for before the move.
+      room.presence = () => [{ peer, state: { path: 'b.txt' } }];
+      room.emit({ type: 'presenceChanged' });
+      await until(() => seated.binding.currentPath() === 'b.txt', 'the waiting go-to to land');
+    } finally {
+      seated.binding.dispose();
+    }
+  });
 });

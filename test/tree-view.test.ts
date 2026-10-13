@@ -1747,4 +1747,33 @@ describe('tree ownership on a shared pane', () => {
     assert.deepEqual([...pinned], []);
     replacement.dispose();
   });
+  it('rejects a trusted folder toggle delivered to a retired view, add and delete alike', () => {
+    const pinned = new Set();
+    const state = { listing: ['src/main.ts', 'tests/check.ts'], participants: [], opened: [] };
+    const pane = makeElement('div');
+    const old = new GrantTreeView({ pane, source: makeSource(state), pinned, canCreate: () => true, open: () => {} });
+    old.render();
+    // The element a person toggled before the view was retired: the browser queues the event and
+    // delivers it after `dispose` and after the session that owned this view has gone.
+    const stale = summaryFor(pane, 'src/').parentElement;
+    old.dispose();
+    pinned.clear();
+    const replacement = new GrantTreeView({ pane, source: makeSource(state), pinned, open: () => {} });
+    replacement.render();
+    const children = [...pane.children];
+
+    // An open toggle must not re-pin the retired view's folder in the shared set.
+    stale.open = true;
+    stale.fire('toggle');
+    assert.deepEqual([...pinned], [], 'a retired view re-pinned a folder the replacement owns');
+    assert.deepEqual(pane.children, children, 'a retired view built rows into its old element');
+
+    // A shut toggle must not delete a pin the replacement now owns.
+    pinned.add('src');
+    stale.open = false;
+    stale.fire('toggle');
+    assert.deepEqual([...pinned], ['src'], 'a retired view unpinned a folder the replacement owns');
+    assert.deepEqual(pane.children, children, 'a retired view repainted through its old element');
+    replacement.dispose();
+  });
 });

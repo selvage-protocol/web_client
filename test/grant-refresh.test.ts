@@ -122,7 +122,7 @@ describe('tree refresh on listing changes', () => {
     binding.dispose();
   });
 
-  it('ends a file the host took out of the grant, and follows one that moved', async () => {
+  it('ends a file the host took out of the grant without guessing at a rename', async () => {
     const texts = new Map([['notes.txt', 'hi'], ['old.txt', 'x']]);
     const state = { grant: ['notes.txt', 'old.txt'] };
     const engine = makeEngine(texts, state);
@@ -135,14 +135,16 @@ describe('tree refresh on listing changes', () => {
     });
     await binding.openDocument('notes.txt');
 
-    // A move: the room may still hold the old document, and the listing must not.
+    // A move: the room may still hold the old document, and the listing must not. The grant names
+    // what arrived and what went; it does not name a destination, so no reopen is guessed. The
+    // host's own move reopens the name it knows, which is `main.ts`'s `moveEntry`.
     texts.set('docs/notes.txt', 'hi');
     state.grant = ['docs/notes.txt', 'old.txt'];
     engine.__emit({ type: 'grantChanged' });
     assert.deepEqual(binding.grantListing(), ['docs/notes.txt', 'old.txt']);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(binding.currentPath(), 'docs/notes.txt', 'the moved file was not followed');
-    assert.ok(notices.some((notice) => notice.kind === 'landed' && notice.path === 'docs/notes.txt'));
+    assert.equal(binding.currentPath(), undefined, 'a grant delta was read as a rename');
+    assert.equal(notices.some((notice) => notice.kind === 'landed'), false, 'a guessed reopen was announced');
 
     // A deletion of a file somebody else has open: gone from this listing too.
     state.grant = ['docs/notes.txt'];
