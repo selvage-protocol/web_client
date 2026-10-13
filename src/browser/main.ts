@@ -499,7 +499,8 @@ let engine: RoomEngine | undefined;
 let linkGuard: { dispose(): void } | undefined;
 /** What the editor was created with on this device, to return to under a pointer. */
 let desktopEditorOptions: monacoTypes.editor.IEditorOptions | undefined;
-let opening: string | undefined;
+/** The open this page last asked for, by identity: what makes an older completion stale. */
+let opening: object | undefined;
 /**
  * The full guest link. It reaches the clipboard whole and nothing else: not the readout's value at
  * rest, not a `title`, not any attribute. What the bar carries is `SHARE_MASK` — a fixed run of
@@ -565,17 +566,32 @@ let saidFetchCosts = false;
  */
 async function createEntry(path: string, entry: NewEntryKind): Promise<CreateResult> {
   const folder = hostFolder;
-  if (folder === undefined || binding === undefined) {
+  const session = binding;
+  const publish = republishGrant;
+  if (folder === undefined || session === undefined) {
     return { kind: 'refused', sentence: 'This window is no longer sharing a folder.' };
   }
   let outcome: CreateOutcome;
   try {
-    outcome = await createInFolder({ folder, publish: republishGrant, open: openPath }, path, entry);
+    outcome = await createInFolder({
+      folder,
+      publish: async (paths) => {
+        if (binding !== session) { throw new Error('The session ended.'); }
+        await publish?.(paths);
+      },
+      open: async (created) => {
+        if (binding !== session) { throw new Error('The session ended.'); }
+        await openPath(created);
+      },
+    }, path, entry);
   } catch (error: unknown) {
     // What reaches here is the folder layer's own unnamed failure, thrown before the entry was made:
     // the steps after it belong to the act and report themselves (`CreateOutcome`), so a file that
     // did land is never reported as one that did not.
     return { kind: 'refused', sentence: `${path} was not created: ${describe(error)}` };
+  }
+  if (binding !== session) {
+    return { kind: 'refused', sentence: 'The session ended.' };
   }
   // The create's own re-walk is where a folder past a bound shows up, and the cut is the page's to
   // say whether or not the rest of the act finished.
@@ -609,14 +625,16 @@ async function createEntry(path: string, entry: NewEntryKind): Promise<CreateRes
  * failure here is the caller's to word: the folder has already changed, and what is left unsaid is
  * that the room has not been told.
  */
-async function publishFolder(): Promise<string | undefined> {
-  const folder = hostFolder;
-  if (folder === undefined) {
-    return 'this window is no longer sharing a folder';
-  }
+async function publishFolder(
+  folder: FolderWorkingCopy,
+  publish: ((paths: readonly string[]) => Promise<void>) | undefined,
+  session: MonacoBinding,
+): Promise<string | undefined> {
   try {
-    await republishGrant?.(await folder.list());
-    sayListingCut(folder);
+    const paths = await folder.list();
+    if (binding !== session) { return 'the session ended'; }
+    await publish?.(paths);
+    if (binding === session) { sayListingCut(folder); }
     return undefined;
   } catch (error: unknown) {
     return describe(error);
@@ -662,7 +680,9 @@ function forgetMadeFolder(path: string): void {
  */
 async function removeEntry(path: string): Promise<RemoveResult> {
   const folder = hostFolder;
-  if (folder === undefined || binding === undefined) {
+  const session = binding;
+  const publish = republishGrant;
+  if (folder === undefined || session === undefined) {
     return { kind: 'refused', sentence: 'This window is no longer sharing a folder.' };
   }
   let outcome: FolderRemove;
@@ -670,6 +690,9 @@ async function removeEntry(path: string): Promise<RemoveResult> {
     outcome = await folder.remove(path);
   } catch (error: unknown) {
     return { kind: 'refused', sentence: `${path} was not deleted: ${describe(error)}` };
+  }
+  if (binding !== session) {
+    return { kind: 'refused', sentence: 'The session ended.' };
   }
   if (outcome.kind === 'refused') {
     return { kind: 'refused', sentence: outcome.sentence };
@@ -679,9 +702,12 @@ async function removeEntry(path: string): Promise<RemoveResult> {
   for (const gone of outcome.paths) {
     forgetMadeFolder(gone);
   }
-  const unpublished = await publishFolder();
+  const unpublished = await publishFolder(folder, publish, session);
+  if (binding !== session) {
+    return { kind: 'refused', sentence: 'The session ended.' };
+  }
   keepEmptiedFolder(outcome.path);
-  binding.dropDocuments(outcome.paths);
+  session.dropDocuments(outcome.paths);
   syncGrant();
   if (unpublished !== undefined) {
     failureAlert.show(listingNotPublishedSentence(path, unpublished));
@@ -704,35 +730,41 @@ async function moveEntry(path: string, into: string): Promise<MoveResult> {
   // leaves no control on screen — the row is under the pointer and nothing is pressed — so every
   // refusal this act makes is the page's own line. The tree does not say it: one sentence reaches a
   // reader once.
+  const session = binding;
+  const publish = republishGrant;
   const refuse = (sentence: string): MoveResult => {
-    failureAlert.show(sentence);
+    if (binding === session) { failureAlert.show(sentence); }
     return { kind: 'refused', sentence };
   };
   const folder = hostFolder;
-  if (folder === undefined || binding === undefined) {
+  if (folder === undefined || session === undefined) {
     return refuse('This window is no longer sharing a folder.');
   }
   const under = `${path}/`;
-  const moving = binding
+  const at = session.currentPath();
+  const moving = session
     .grantListing()
-    .filter((listed) => listed === path || listed.startsWith(under));
-  const at = binding.currentPath();
-  for (const live of moving) {
-    if (binding.isOpenInRoom(live) || at === live) {
-      await binding.settle(live);
-    }
-  }
+    .filter((listed) => listed === path || listed.startsWith(under))
+    .filter((live) => session.isOpenInRoom(live) || at === live);
   const to = into === '' ? leafOf(path) : `${into}/${leafOf(path)}`;
   let outcome: FolderMove;
   try {
+    do {
+      for (const live of moving) {
+        await session.settle(live);
+        if (binding !== session) { return { kind: 'refused', sentence: 'The session ended.' }; }
+      }
+    } while (session.hasPendingWrites(moving));
     outcome = await folder.move(path, to);
   } catch (error: unknown) {
     return refuse(`${path} was not moved: ${describe(error)}`);
   }
+  if (binding !== session) { return { kind: 'refused', sentence: 'The session ended.' }; }
   if (outcome.kind === 'refused') {
     return refuse(outcome.sentence);
   }
-  const unpublished = await publishFolder();
+  const unpublished = await publishFolder(folder, publish, session);
+  if (binding !== session) { return { kind: 'refused', sentence: 'The session ended.' }; }
   // What this session made and what just went. The path it left is not on disk any more, so it goes
   // with everything under it — a row left behind there is a folder nothing can be dropped into,
   // because the move that would land there finds no such folder (`folder.ts`). And a folder that
@@ -748,7 +780,7 @@ async function moveEntry(path: string, into: string): Promise<MoveResult> {
   // went to. A folder's own name is not a document, so only the paths under it are asked about.
   const showing = at !== undefined && (at === path || at.startsWith(under));
   if (outcome.kind !== 'partial') {
-    binding.dropDocuments(outcome.paths);
+    session.dropDocuments(outcome.paths);
   }
   syncGrant();
   if (showing && at !== undefined && outcome.kind !== 'partial') {
@@ -1077,13 +1109,16 @@ async function seatSession(seat: Seat): Promise<void> {
   }
   // Held so the whole session can be dropped, editor and all, when the room ends.
   editorApi = editor;
-  binding = new MonacoBinding({
+  const owner = new MonacoBinding({
     engine: seated,
     editor,
     folder: seat.folder,
-    onNotice: (notice: BindingNotice) => onNotice(notice),
+    onNotice: (notice: BindingNotice) => {
+      if (binding === owner) { onNotice(notice); }
+    },
     createModel: (text: string, language: string) => monaco.editor.createModel(text, language),
   });
+  binding = owner;
   // The tree reads the binding and the page decides what a row's click means: it is a
   // deliberate navigation, the same class as typing or going to someone, so the follow
   // ends instead of landing back over the file just opened.
@@ -1413,14 +1448,18 @@ async function openFirst(session: SessionInfo): Promise<void> {
 }
 
 async function openPath(path: string): Promise<void> {
-  if (binding === undefined || opening === path) {
+  const session = binding;
+  if (session === undefined) {
     return;
   }
-  opening = path;
+  const request = {};
+  opening = request;
+  const current = (): boolean => binding === session && opening === request;
   try {
     // The hold taken by the open is what makes the room send the text: opening a
     // listed path fetches it, the desktop guest's behaviour.
-    await binding.openDocument(path);
+    const landed = await session.openDocument(path);
+    if (!landed || !current()) { return; }
     syncGrant();
     renderedPath = path;
     // The file that just opened is what the guest asked for: on a phone the
@@ -1431,9 +1470,10 @@ async function openPath(path: string): Promise<void> {
     // reader user never heard either.
     announce(`Open ${path}`);
   } catch (error) {
+    if (!current()) { return; }
     failureAlert.show(`Could not open ${path}: ${describe(error)}`);
   } finally {
-    if (opening === path) {
+    if (current()) {
       opening = undefined;
     }
   }
@@ -1904,10 +1944,12 @@ window.addEventListener('resize', () => {
  * is what the person asked to see, and the design shuts the panel over it.
  */
 function goToParticipant(peerId: string): void {
-  const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
-  void binding
+  const session = binding;
+  const participant = session?.participants().find((candidate) => candidate.peerId === peerId);
+  void session
     ?.goTo(peerId)
     .then((outcome: GoToOutcome) => {
+      if (binding !== session) { return; }
       // Only a press that landed somewhere is the menu's own end. The other outcomes leave it
       // standing: `waiting` because the room has not answered yet (the next presence frame retries,
       // and the refusal it may raise belongs in the menu), `refused` because its sentence stands
@@ -1919,7 +1961,9 @@ function goToParticipant(peerId: string): void {
       }
     })
     .catch((error: unknown) => {
-      failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+      if (binding === session) {
+        failureAlert.show(`Could not go to ${participant?.displayName ?? peerId}: ${describe(error)}`);
+      }
     });
 }
 
@@ -1932,16 +1976,20 @@ function goToParticipant(peerId: string): void {
  * the peer's file is what a follow opens.
  */
 function followParticipant(peerId: string): void {
-  const participant = binding?.participants().find((candidate) => candidate.peerId === peerId);
-  void binding
+  const session = binding;
+  const participant = session?.participants().find((candidate) => candidate.peerId === peerId);
+  void session
     ?.follow(peerId)
-    .then(() => {
+    .then((current) => {
+      if (!current || binding !== session) { return; }
       closeMenu(false);
       anchorButton(peerId)?.focus();
       collapsePanel();
     })
     .catch((error: unknown) => {
-      failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+      if (binding === session) {
+        failureAlert.show(`Could not follow ${participant?.displayName ?? peerId}: ${describe(error)}`);
+      }
     });
 }
 
@@ -2064,22 +2112,30 @@ function endRename(): void {
  * reads.
  */
 async function commitRename(raw: string): Promise<void> {
+  const session = binding;
+  const seated = engine;
+  const nameBefore = selfName;
+  if (session === undefined || seated === undefined) { return; }
+  const active = (): boolean => binding === session && engine === seated;
   endRename();
   await renameSelf(raw, {
-    current: () => selfName,
-    rename: async (name) => {
-      await engine?.rename(name);
+    current: () => nameBefore,
+    rename: (name) => seated.rename(name),
+    remember: (name) => {
+      if (active()) { saveDisplayName(window.localStorage, name); }
     },
-    remember: (name) => saveDisplayName(window.localStorage, name),
     applied: (name) => {
-      selfName = name;
+      if (active()) { selfName = name; }
     },
-    refused: (sentence) => failureAlert.show(sentence),
+    refused: (sentence) => {
+      if (active()) { failureAlert.show(sentence); }
+    },
     // The face already wears the new name, which is the confirmation; a sentence repeating what the
     // person can see would be the same fact twice.
     said: () => undefined,
   });
-  drawRoom(binding?.participants() ?? []);
+  if (!active()) { return; }
+  drawRoom(session.participants());
   renderMenu('[data-act="rename"]');
 }
 
@@ -2234,18 +2290,21 @@ function awarenessRenewMs(): number | undefined {
  * a toast in the notices column, where a finished thing belongs.
  */
 function startDownload(path: string, feedback: RowFeedback): void {
-  if (binding === undefined) {
+  const session = binding;
+  const room = engine;
+  const active = (): boolean => binding === session;
+  if (session === undefined) {
     return;
   }
   const here = (candidate: string): string =>
-    binding?.text(candidate) ?? engine?.text(candidate) ?? '';
+    session.text(candidate) ?? room?.text(candidate) ?? '';
   // Whether the room's answer for the path is here, which is the whole of what decides this: a
   // document in front of the editor is not an answered one, and a guest that taps a row's ⤓ on the
   // file it has just opened holds an empty model until the room replies. Saving that model wrote a
   // 0-byte file over the one the person asked for. A path this window does hold is the person's own
   // copy of the file as it stands, the buffer they emptied included, and `fetch-download.ts` saves
   // it without a fetch; a path it does not hold is a fetch.
-  const holds = binding.hasText(path) === true;
+  const holds = session.hasText(path) === true;
   // The cost is said once a session, before the first fetch, and only when a fetch is what comes
   // next: a path this window holds is answered out of its own document, so `Downloading … opens` would
   // be a sentence about an act that is not taken. It is not asked as a question — the room already
@@ -2258,21 +2317,28 @@ function startDownload(path: string, feedback: RowFeedback): void {
     // Cleared by its own words: a fetch that settles inside the stand has replaced this line with
     // the outcome and its actions, and a timer that cleared whatever was there would take the only
     // thing the person can act on with it.
-    window.setTimeout(() => feedback.clear(costs), FETCH_COSTS_STAND_MS);
+    window.setTimeout(() => { if (active()) { feedback.clear(costs); } }, FETCH_COSTS_STAND_MS);
   }
   // The wait is the fetch's own line, and only a fetch has one: a save of what is here is the
   // browser's own download UI and nothing else.
   if (!holds) {
     feedback.busy(fetchingSentence(path));
   }
-  const again = { label: 'Try again', run: () => { feedback.clear(); startDownload(path, feedback); } };
+  const again = { label: 'Try again', run: () => {
+    if (!active()) { return; }
+    feedback.clear();
+    startDownload(path, feedback);
+  } };
   void fetchAndSave(path, {
-    has: (candidate) => binding?.hasText(candidate) ?? false,
+    has: (candidate) => session.hasText(candidate),
     text: here,
-    open: (candidate) => binding?.requestText(candidate) ?? Promise.resolve(),
-    save: (candidate, text) => downloadDocument(candidate, text, downloadSink),
+    open: (candidate) => session.requestText(candidate),
+    save: (candidate, text) => {
+      if (active()) { downloadDocument(candidate, text, downloadSink); }
+    },
   }, { standMs: fetchStandMs(awarenessRenewMs()) })
     .then((outcome) => {
+      if (!active()) { return; }
       feedback.idle();
       if (outcome.kind === 'saved') {
         // Opening it is what put its text in the room, so the row's own mark moves, and the save
@@ -2297,6 +2363,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
         {
           label: 'Save empty file',
           run: () => {
+            if (!active()) { return; }
             feedback.clear();
             downloadDocument(path, '', downloadSink);
             toasts.downloaded(path);
@@ -2307,6 +2374,7 @@ function startDownload(path: string, feedback: RowFeedback): void {
       ]);
     })
     .catch((error: unknown) => {
+      if (!active()) { return; }
       feedback.idle();
       feedback.note(`Could not download ${path}: ${describe(error)}`, [again]);
     });
@@ -2374,6 +2442,7 @@ function leaveSession(sentence: string): void {
     // has nothing to leave. The card is already the card.
     return;
   }
+  tree?.dispose();
   dropSession({ linkGuard, binding, editor: editorApi, engine });
   // The address bar named the room this tab is leaving, and the link it carries is the whole
   // permission to be in it: a page that left must not be one reload away from walking back in.

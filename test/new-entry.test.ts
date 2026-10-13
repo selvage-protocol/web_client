@@ -546,9 +546,11 @@ describe('the page the row is drawn in', () => {
   it('makes the entry in the order the room learns it in', () => {
     assert.match(
       MAIN,
-      /createInFolder\(\{ folder, publish: republishGrant, open: openPath \}, path, entry\)/,
+      /await createInFolder\(\{\s*folder,\s*publish:[\s\S]*?open:[\s\S]*?\}, path, entry\)/,
       'the create runs in another order',
     );
+    assert.match(MAIN, /await publish\?\.\(paths\)/, 'the create no longer publishes through the session it captured');
+    assert.match(MAIN, /await openPath\(created\)/, 'the create no longer opens through the session it captured');
     // The listing source the room was sealed from moves before the room is told, so a state sealed
     // from it later cannot carry a listing the folder no longer has.
     const replaced = MAIN.indexOf('listing.replace(paths)');

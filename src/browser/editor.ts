@@ -210,6 +210,14 @@ export class MonacoBinding implements EditorHost {
    * type together, so both writers come through `save` and this is where they are ordered.
    */
   private readonly writes = new Map<string, PendingWrite>();
+  /**
+   * Paths whose room changes or failed writes still owe a save.
+   *
+   * The bridge writes a document the room changed on its own settle, in its own map, which this
+   * binding's `writeTimers` never sees. Recording the path here lets the binding's disposal drain
+   * that save instead of dropping it with the bridge, and lets a move wait on it through `settle`.
+   */
+  private readonly remoteSaves = new Set<string>();
   /** A caret move whose position is waiting for the interval to pass. */
   private selectionDirty = false;
   private selectionTimer: (() => void) | undefined;
@@ -217,6 +225,7 @@ export class MonacoBinding implements EditorHost {
   private drawn: Cursor[] = [];
   private path: string | undefined;
   private disposed = false;
+  private openingCycle = 0;
   /** Paths handed to the bridge, whose hold and seed run once per showing. */
   private readonly fronted = new Set<string>();
   /** The peer this window follows, by id: a local view state, never advertised. */
@@ -335,30 +344,59 @@ export class MonacoBinding implements EditorHost {
    * open, builds the model from the replica, and hands it to the bridge.
    * Re-showing a path already held and fronted touches no wire: a landing that
    * re-opened on every frame would answer its own open with the room event
-   * that supersedes it, and follow could never land.
+   * that supersedes it, and follow could never land. Returns false if superseded or retired;
+   * explicit navigation also ends any pending participant landing.
    */
-  async openDocument(path: string): Promise<void> {
+  async openDocument(path: string): Promise<boolean> {
+    if (this.disposed) { return false; }
+    this.pendingGoTo = undefined;
+    if (this.followingPeerId !== undefined) { this.clearFollow(); }
+    return this.showDocument(path);
+  }
+
+  private async showDocument(path: string): Promise<boolean> {
     if (this.disposed) {
-      return;
+      return false;
     }
     if (this.terminalReason !== undefined) {
       this.onNotice({ kind: 'status', topic: 'terminal', text: roomGoneMessage(this.terminalReason) });
-      return;
+      return false;
     }
+    const cycle = (this.openingCycle += 1);
+    const current = (): boolean =>
+      !this.disposed && this.terminalReason === undefined && cycle === this.openingCycle;
     if (this.fronted.has(path) && this.models.get(path)?.isDisposed() === false) {
       this.path = path;
       this.editor.setModel(this.models.get(path) ?? null);
       this.applyEditability();
       this.scheduleSelection();
       this.renderCursors(this.bridge.cursors());
-      return;
+      return true;
     }
     if (!this.engine.openDocuments().includes(path)) {
-      await this.engine.open(path);
+      try {
+        await this.engine.open(path);
+      } catch (error: unknown) {
+        if (!current()) { return false; }
+        throw error;
+      }
+    }
+    if (!current()) {
+      return false;
     }
     let model = this.models.get(path);
     if (model === undefined || model.isDisposed()) {
-      model = this.createModel(await this.initialText(path), languageForPath(path));
+      let text: string;
+      try {
+        text = await this.initialText(path, current);
+      } catch (error: unknown) {
+        if (!current()) { return false; }
+        throw error;
+      }
+      if (!current()) {
+        return false;
+      }
+      model = this.createModel(text, languageForPath(path));
       this.models.set(path, model);
       const changed = model.onDidChangeContent(() => {
         if (this.applying === 0 && this.path === path) {
@@ -386,10 +424,12 @@ export class MonacoBinding implements EditorHost {
     this.fronted.add(path);
     this.scheduleSelection();
     this.renderCursors(this.bridge.cursors());
+    return true;
   }
 
   closeDocument(path: string): void {
     this.bridge.documentClosed(path);
+    this.remoteSaves.delete(path);
     this.fronted.delete(path);
     if (this.path === path) {
       this.path = undefined;
@@ -464,7 +504,11 @@ export class MonacoBinding implements EditorHost {
     if (movedTo !== undefined) {
       const to = movedTo;
       void this.openDocument(to)
-        .then(() => this.onNotice({ kind: 'landed', path: to }))
+        .then((landed) => {
+          if (landed && !this.disposed && this.path === to) {
+            this.say({ kind: 'landed', path: to });
+          }
+        })
         .catch(() => undefined);
     }
   }
@@ -664,7 +708,7 @@ export class MonacoBinding implements EditorHost {
     const cycle = (this.landingCycle += 1);
     const valid = (): boolean => cycle === this.landingCycle && this.pendingGoTo === peerId;
     const outcome = await this.landOn(peerId, 'go', valid);
-    if (outcome !== 'waiting' && this.pendingGoTo === peerId) {
+    if (outcome !== 'waiting' && valid()) {
       this.pendingGoTo = undefined;
     }
     return outcome;
@@ -673,21 +717,23 @@ export class MonacoBinding implements EditorHost {
   /**
    * Follow a participant: land where they are, and again on every frame. The
    * indicator goes up before the first landing — the target is known and a frame
-   * is incoming, so immediate feedback beats silence.
+   * is incoming, so immediate feedback beats silence. The result says whether this request
+   * still owns the landing when it settles, for the page's deferred focus and panel changes.
    */
-  async follow(peerId: string): Promise<void> {
+  async follow(peerId: string): Promise<boolean> {
     if (this.terminalReason !== undefined) {
       throw new Error(roomGoneMessage(this.terminalReason));
     }
-    if (this.followingPeerId === peerId) {
-      await this.followTick();
-      return;
+    if (this.followingPeerId !== peerId) {
+      this.followingPeerId = peerId;
+      this.followingName = this.displayLabel(peerId);
+      this.pendingGoTo = undefined;
+      this.onNotice({ kind: 'follow', following: this.following() });
     }
-    this.followingPeerId = peerId;
-    this.followingName = this.displayLabel(peerId);
-    this.pendingGoTo = undefined;
-    this.onNotice({ kind: 'follow', following: this.following() });
-    await this.followTick();
+    const landing = this.followTick();
+    const opening = this.openingCycle;
+    await landing;
+    return !this.disposed && this.followingPeerId === peerId && this.openingCycle === opening;
   }
 
   /** Stop following. The indicator going down is the whole announcement. */
@@ -728,14 +774,14 @@ export class MonacoBinding implements EditorHost {
     if (path === undefined) {
       return 'waiting';
     }
-    await this.openDocument(path);
+    const landed = await this.showDocument(path);
+    // A newer frame or navigation supersedes this landing, even if it returns to the same path.
+    if (!landed || this.disposed || this.path !== path || !valid()) {
+      return 'waiting';
+    }
     if (mode === 'follow') {
       // What the follow is showing, so a deletion of that file can end it (`dropDocuments`).
       this.followingPath = path;
-    }
-    // A newer frame supersedes this one: placing now would land where the peer was.
-    if (!valid()) {
-      return 'waiting';
     }
     const selection = record.state?.selection;
     // A path without a selection is a caret still unknown, as in an empty document, which
@@ -785,7 +831,7 @@ export class MonacoBinding implements EditorHost {
     const cycle = (this.landingCycle += 1);
     const valid = (): boolean => cycle === this.landingCycle && this.followingPeerId === peerId;
     const outcome = await this.landOn(peerId, 'follow', valid);
-    if (outcome === 'gone' && this.followingPeerId === peerId) {
+    if (outcome === 'gone' && valid()) {
       const name = this.followingName;
       this.clearFollow();
       this.onNotice({ kind: 'follow', following: undefined, ended: followEndedByLeaving(name) });
@@ -894,7 +940,7 @@ export class MonacoBinding implements EditorHost {
    * the bridge's ordinary `documentOpened` seed. A refusal is said out loud and the buffer
    * starts empty, which is what a listing the host cannot serve looks like.
    */
-  private async initialText(path: string): Promise<string> {
+  private async initialText(path: string, current: () => boolean): Promise<string> {
     if (this.folder === undefined || this.bridge.role() !== 'host') {
       return this.engine.text(path);
     }
@@ -909,7 +955,11 @@ export class MonacoBinding implements EditorHost {
     if (read.kind === 'text') {
       return read.text;
     }
-    this.onNotice({ kind: 'failure', text: hostReadSentence(read.cause, path) });
+    // A newer navigation won while this read was in the folder, so its refusal is not this
+    // window's to say: the document it was opening is no longer the one in front.
+    if (current()) {
+      this.say({ kind: 'failure', text: hostReadSentence(read.cause, path) });
+    }
     return this.engine.text(path);
   }
 
@@ -954,6 +1004,11 @@ export class MonacoBinding implements EditorHost {
     if (model === undefined || model.isDisposed()) {
       return false;
     }
+    // A room change lands here, and the bridge arms its own write for it; a host remembers the path
+    // so a disposal or a move does not outrun that write (`remoteSaves`).
+    if (this.folder !== undefined) {
+      this.remoteSaves.add(path);
+    }
     const range = toRange(model, change.start, change.end);
     this.applying += 1;
     try {
@@ -969,6 +1024,7 @@ export class MonacoBinding implements EditorHost {
   }
 
   async save(path: string): Promise<boolean> {
+    this.remoteSaves.delete(path);
     const model = this.models.get(path);
     if (this.folder === undefined || model === undefined || model.isDisposed()) {
       // A guest's save is a no-op: its document is virtual and there is no file to write. So is
@@ -979,6 +1035,7 @@ export class MonacoBinding implements EditorHost {
     if (running !== undefined) {
       // A write of this path is in the folder. Waiting for it and asking for one more pass if the
       // buffer moved is what keeps two writers of one file from overlapping; `writes` says why.
+      running.text = model.getValue();
       running.again = true;
       const refused = await running.done;
       if (refused !== undefined) {
@@ -990,28 +1047,34 @@ export class MonacoBinding implements EditorHost {
     const done = new Promise<Error | undefined>((resolve) => {
       settle = resolve;
     });
-    const slot: PendingWrite = { done, settle, again: false };
+    const slot: PendingWrite = { done, settle, again: false, text: model.getValue() };
     this.writes.set(path, slot);
-    let pass = await this.writeOnce(this.folder, path);
-    while (slot.again && pass.error === undefined) {
-      slot.again = false;
-      const current = this.models.get(path);
-      if (
-        current === undefined ||
-        current.isDisposed() ||
-        pass.text === undefined ||
-        current.getValue() === pass.text
-      ) {
-        // The buffer holds what the folder was just given: the second caller was the same settle
-        // asking twice, which is the ordinary shape of a peer's edit and a local keystroke together.
-        break;
+    let error: Error | undefined;
+    try {
+      let pass = await this.writeOnce(this.folder, path, slot.text);
+      while (slot.again && pass.error === undefined) {
+        slot.again = false;
+        const current = this.models.get(path);
+        const text = current !== undefined && !current.isDisposed() ? current.getValue() : slot.text;
+        if (text === pass.text) {
+          // The buffer holds what the folder was just given: the second caller was the same settle
+          // asking twice, which is the ordinary shape of a peer's edit and a local keystroke together.
+          break;
+        }
+        pass = await this.writeOnce(this.folder, path, text);
       }
-      pass = await this.writeOnce(this.folder, path);
+      error = pass.error;
+    } catch (failure: unknown) {
+      error = failure instanceof Error ? failure : new Error(String(failure));
+    } finally {
+      this.writes.delete(path);
+      if (error !== undefined) {
+        this.remoteSaves.add(path);
+      }
+      slot.settle(error);
     }
-    this.writes.delete(path);
-    settle(pass.error);
-    if (pass.error !== undefined) {
-      throw pass.error;
+    if (error !== undefined) {
+      throw error;
     }
     return true;
   }
@@ -1019,20 +1082,14 @@ export class MonacoBinding implements EditorHost {
   /**
    * One write of a path's settled text, with the outcome rather than an exception.
    *
-   * The text is read here, when the pass runs, and not when a caller asked: a peer's edit that lands
-   * inside the settle is already in the buffer by then, and the folder gets the room's text rather
-   * than a stale one. A refusal is returned rather than thrown so `save` can pass it to every caller
-   * that was waiting on this path; a path whose model has gone writes nothing.
+   * The caller retains a pending snapshot so disposal can drain a newer edit after destroying the
+   * model. A refusal is returned rather than thrown so `save` can pass it to every waiting caller.
    */
   private async writeOnce(
     folder: FolderWork,
     path: string,
-  ): Promise<{ error?: Error; text?: string }> {
-    const model = this.models.get(path);
-    if (model === undefined || model.isDisposed()) {
-      return {};
-    }
-    const text = model.getValue();
+    text: string,
+  ): Promise<{ error?: Error; text: string }> {
     const outcome = await folder.write(path, text);
     if (outcome.kind === 'refused') {
       return { error: new Error(outcome.sentence), text };
@@ -1157,6 +1214,9 @@ export class MonacoBinding implements EditorHost {
   }
 
   report(report: Report): void {
+    if (this.disposed) {
+      return;
+    }
     switch (report.kind) {
       case 'documents':
         this.onNotice({ kind: 'documents', documents: report.documents });
@@ -1269,19 +1329,26 @@ export class MonacoBinding implements EditorHost {
     }
   }
 
-  /** Writes one path's armed edits now, so what the folder holds is what the room holds. */
+  hasPendingWrites(paths: readonly string[]): boolean {
+    return paths.some((path) => this.writeTimers.has(path) || this.writes.has(path) || this.remoteSaves.has(path));
+  }
+
+  /** Drains edits arriving during the writes too; a failure rejects rather than authorizing a move. */
   async settle(path: string): Promise<void> {
-    if (!this.writeTimers.has(path)) {
-      return;
+    while (this.writeTimers.has(path) || this.writes.has(path) || this.remoteSaves.has(path)) {
+      this.cancelWrite(path);
+      await this.save(path);
     }
-    this.cancelWrite(path);
-    await this.writeSettled(path);
   }
 
   /** Writes every armed document now, in place of the settle nobody is left to wait for. */
   private flushWrites(): void {
-    for (const [path, cancel] of this.writeTimers) {
-      cancel();
+    for (const path of new Set([
+      ...this.writeTimers.keys(),
+      ...this.writes.keys(),
+      ...this.remoteSaves,
+    ])) {
+      this.writeTimers.get(path)?.();
       void this.writeSettled(path);
     }
     this.writeTimers.clear();
@@ -1299,7 +1366,7 @@ export class MonacoBinding implements EditorHost {
       await this.save(path);
     } catch (error: unknown) {
       // A refusal from the flush `dispose` runs is not said: the page's chrome is being taken down
-      // with the binding and there is no row left to mark. A refusal from the settle is said here,
+      // with the binding and there is no row left to mark. An automatic settle's refusal is said here,
       // which is the whole of what this guard does.
       if (!this.disposed) {
         this.report({
@@ -1422,6 +1489,7 @@ interface PendingWrite {
   readonly done: Promise<Error | undefined>;
   readonly settle: (error: Error | undefined) => void;
   again: boolean;
+  text: string;
 }
 
 /**
