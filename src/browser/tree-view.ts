@@ -574,8 +574,13 @@ export class GrantTreeView {
       home?.startsWith(`${child.path}/`) === true ||
       dirOpen(child.path, this.pinned, current);
     // Untrusted toggles are the render above, not the guest: only the guest's own opening and
-    // shutting pins a directory.
+    // shutting pins a directory. A trusted one can still be delivered after `dispose` — the event was
+    // queued while this view owned the pane — and the pins are the page's single shared set, so a
+    // retired view must not touch it or the source behind a row the next session now owns.
     details.addEventListener('toggle', (event) => {
+      if (this.disposed) {
+        return;
+      }
       if (!(event as Event).isTrusted) {
         return;
       }
