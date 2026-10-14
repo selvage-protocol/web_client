@@ -926,6 +926,181 @@ describe('the create row', () => {
     assert.equal(withClass(pane, 'new-commit').attributes['aria-label'], 'Create');
     assert.equal(withClass(pane, 'new-name').attributes['aria-label'], 'New file name');
   });
+
+  /** A create that answers when the test says so, and every call it was asked to make. */
+  function deferredCreate() {
+    const calls = [];
+    const pending = [];
+    const create = (path, entry) => {
+      calls.push([path, entry]);
+      return new Promise((resolve, reject) => {
+        pending.push({
+          resolve: (answer) => resolve(answer ?? { kind: 'made', path, entry }),
+          reject,
+        });
+      });
+    };
+    return { calls, pending, create };
+  }
+
+  /** Types `name` into the row's field and presses Enter, which is the commit. */
+  function commit(pane, name) {
+    const input = withClass(pane, 'new-name');
+    input.value = name;
+    input.fire('input');
+    input.fire('keydown', { key: 'Enter' });
+    return input;
+  }
+
+  /** The row's own commit: TypeScript-private, but an ordinary method on the instance. */
+  interface CommittingView {
+    commit(): Promise<void>;
+  }
+
+  /** Types `name` and drives commit directly, keeping the promise a failure would reject. */
+  function commitPromise(pane, view, name) {
+    const input = withClass(pane, 'new-name');
+    input.value = name;
+    input.fire('input');
+    return (view as unknown as CommittingView).commit();
+  }
+
+  it('does not leave another kind’s row busy under a create it never started', async () => {
+    // A create is in flight for one row and the person asks for the other kind. The row that opens
+    // has no create of its own, so it starts idle and can make its own entry. The old bytes replaced
+    // the draft object under the field, so the finished create's identity guard skipped the one
+    // place `draftBusy` was ever cleared and the second row could not commit at all.
+    const { calls, pending, create } = deferredCreate();
+    const { pane, view } = creating({ create });
+    view.beginCreate('file', '');
+    assert.equal(commit(pane, 'notes.md').readOnly, true, 'the running create did not take the field');
+
+    view.beginCreate('directory', '');
+    const input = withClass(pane, 'new-name');
+    commit(pane, 'docs');
+    assert.deepEqual(
+      calls,
+      [['notes.md', 'file'], ['docs', 'directory']],
+      'the replaced row could not make its own entry',
+    );
+
+    // The create that was running for the old row answers — and the row one screen later is none of
+    // its business: it must not close it, release its field, or take the name typed in it.
+    pending[0].resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(view.isCreating(), true, 'the old create closed the row it did not own');
+    assert.equal(input.value, 'docs', 'the old create touched the second row’s name');
+    assert.equal(input.readOnly, true, 'the old create released a field its own create holds');
+
+    pending[1].resolve();
+    await until(() => view.creatingIn() === 'docs', 'the folder’s own next row');
+    assert.equal(view.isCreating(), true, 'the replacement row did not settle as its own');
+  });
+
+  it('does not leave a row moved to another folder busy under a create it never started', async () => {
+    // The same kind, a different destination: the person moves the row with a directory row's own
+    // action while a create for the old destination is in flight. The row that opens there is a new
+    // row with no create of its own.
+    const { calls, pending, create } = deferredCreate();
+    const { pane, view } = creating({ create, listing: ['src/main.ts'] });
+    view.beginCreate('file', '');
+    commit(pane, 'notes.md');
+
+    view.beginCreate('file', 'src');
+    const input = commit(pane, 'lib.ts');
+    assert.deepEqual(
+      calls,
+      [['notes.md', 'file'], ['src/lib.ts', 'file']],
+      'the row moved to another folder could not make its own entry',
+    );
+
+    pending[0].resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(view.isCreating(), true, 'the old create closed the row moved elsewhere');
+    assert.equal(view.creatingIn(), 'src', 'the old create took the row back to its own folder');
+    assert.equal(input.value, 'lib.ts', 'the old create touched the moved row’s name');
+    assert.equal(input.readOnly, true, 'the old create released the moved row’s field');
+
+    pending[1].resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(view.isCreating(), false, 'the moved row outlived its own create');
+  });
+
+  it('keeps one running create’s row when the same destination is asked for again', async () => {
+    // The row is already open where the person asked for it, so a second ask is the same row: the
+    // field keeps what is typed, the create it already has in flight still owns it, and it is still
+    // focused. When that create lands the row is released and its own file closes it. The old bytes
+    // replaced the draft object under the retained element, so the release was skipped and the
+    // field stayed read-only, its `✓` dead, for good.
+    const { pending, create } = deferredCreate();
+    const { pane, view } = creating({ create });
+    view.beginCreate('file', '');
+    const input = commit(pane, 'notes.md');
+    const icon = allWithClass(withClass(pane, 'new-row'), 'icon')[0];
+    assert.equal(input.readOnly, true);
+
+    view.beginCreate('file', '');
+    assert.equal(withClass(pane, 'new-name'), input, 'the same row was rebuilt under the person');
+    assert.equal(input.value, 'notes.md', 'the reopened row lost the typed name');
+    assert.equal(doc.activeElement, input, 'the reopen dropped the cursor');
+    assert.ok(icon.classes.includes('busy'), 'the running create stopped showing as busy');
+    assert.equal(input.readOnly, true, 'a reopen dropped the create that was still running');
+
+    pending[0].resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(input.readOnly, false, 'the field stayed read-only under its own finished create');
+    assert.ok(!icon.classes.includes('busy'), 'the busy mark outlived its create');
+    assert.equal(view.isCreating(), false, 'the row outlived the create that made its file');
+  });
+
+  it('keeps an old refusal off the row that replaced it', async () => {
+    // A refusal belongs to the row that asked. The row that replaced it has its own create running,
+    // and neither the sentence nor a released field is its.
+    const { calls, pending, create } = deferredCreate();
+    const { pane, view } = creating({ create });
+    view.beginCreate('file', '');
+    commit(pane, 'notes.md');
+    view.beginCreate('directory', '');
+    const input = commit(pane, 'docs');
+    assert.equal(calls.length, 2);
+
+    pending[0].resolve({ kind: 'refused', sentence: 'notes.md was refused.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      withClass(pane, 'new-hint').textContent,
+      '',
+      'the replaced row read the old create’s sentence',
+    );
+    assert.equal(input.value, 'docs', 'the old create threw away the new row’s name');
+    assert.equal(input.readOnly, true, 'the old create released a field its own create holds');
+    assert.equal(view.isCreating(), true, 'the old refusal closed the new row');
+  });
+
+  it('keeps an old failure off the row that replaced it', async () => {
+    // A create can fail rather than answer. The page folds its own failures into a refusal, but the
+    // row cannot assume that: the rejection runs the release, and it is still not this row's.
+    const { calls, pending, create } = deferredCreate();
+    const { pane, view } = creating({ create });
+    view.beginCreate('file', '');
+    const failure = new Error('the folder handle went away');
+    const old = commitPromise(pane, view, 'notes.md');
+    // Expected before it happens, so the failure is the one this test made rather than an unhandled
+    // rejection the runner reports.
+    const rejected = assert.rejects(old, (error) => error === failure);
+    assert.equal(calls.length, 1);
+
+    view.beginCreate('directory', '');
+    const input = commit(pane, 'docs');
+    assert.equal(calls.length, 2);
+
+    pending[0].reject(failure);
+    await rejected;
+    assert.equal(input.readOnly, true, 'the failed create released the row that replaced it');
+    assert.equal(view.isCreating(), true, 'the failed create closed the row that replaced it');
+
+    pending[1].resolve();
+    await until(() => view.creatingIn() === 'docs', 'the folder’s own next row');
+  });
 });
 
 describe('a row’s own actions', () => {
