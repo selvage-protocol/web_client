@@ -1428,10 +1428,11 @@ export class GrantTreeView {
   private openDraft(kind: NewEntryKind, parent: string): void {
     const prefix = parent === '' ? '' : `${parent}/`;
     const same = this.draft !== undefined && this.draft.kind === kind && this.draft.prefix === prefix;
-    this.draft = { kind, prefix };
+    // An equal reopen stays the same row, so a create already running under it still owns it; a
+    // replacement is a fresh row and starts idle.
     if (!same) {
-      // A different kind carries a different icon and a different label on `✓`, so the row is
-      // rebuilt; the same kind and destination keeps the element (and whatever is typed in it).
+      this.draft = { kind, prefix };
+      this.draftBusy = false;
       this.discardDraftRow();
     }
     this.draftCheck = this.check();
