@@ -808,7 +808,8 @@ export class FolderWorkingCopy implements FolderWork {
     // is refused as stale rather than clobbering whatever arrived in between.
     try {
       this.stamps.set(path, (await handle.getFile()).lastModified);
-    } catch {
+    } catch (error: unknown) {
+      console.error('[selvage] restamping the written file failed', error);
       this.stamps.set(path, seen);
     }
     return { kind: 'written' };
@@ -1137,7 +1138,8 @@ export class FolderWorkingCopy implements FolderWork {
       let handle: FolderDirectoryHandle;
       try {
         handle = await dir.getDirectoryHandle(entry.name);
-      } catch {
+      } catch (error: unknown) {
+        console.error('[selvage] walking the unshared folder refused an entry', error);
         return child;
       }
       dirs.push(child);
@@ -1260,9 +1262,10 @@ export class FolderWorkingCopy implements FolderWork {
     if (handle !== undefined) {
       try {
         this.stamps.set(path, (await handle.getFile()).lastModified);
-      } catch {
+      } catch (error: unknown) {
         // The entry is made and the stamp is not: an unstamped path is one the write guard refuses
         // (`unread`), which is the safe side of failing to look at a file that is now there.
+        console.error('[selvage] stamping the created file failed', error);
       }
     }
     if (this.listed !== undefined) {
@@ -1338,7 +1341,8 @@ async function listingOf(dir: FolderDirectoryHandle): Promise<FolderEntry[] | un
     for await (const entry of dir.values()) {
       entries.push({ name: entry.name, kind: entry.kind });
     }
-  } catch {
+  } catch (error: unknown) {
+    console.error('[selvage] listing the folder refused', error);
     return undefined;
   }
   entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));

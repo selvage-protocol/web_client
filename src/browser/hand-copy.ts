@@ -55,7 +55,8 @@ export function handCopy(options: HandCopyOptions): boolean {
   let done = false;
   try {
     done = exec();
-  } catch {
+  } catch (error: unknown) {
+    console.error('[selvage] the copy command failed', error);
     done = false;
   }
   if (done) {

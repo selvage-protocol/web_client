@@ -98,6 +98,21 @@ describe('the server a wire invite may name', () => {
     }
   });
 
+  it('records an address the URL parser refused', () => {
+    // A swallow here would leave a wire invite that names nothing looking like
+    // one that names no reachable server, with nothing on the console saying why.
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => void errors.push(values);
+    try {
+      assert.equal(linkServerBase('not a link at all'), undefined);
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(errors.length, 1, 'the refusal reached no sink');
+    assert.match(String(errors[0]?.[0]), /^\[selvage\]/);
+  });
+
   it('reads the scheme in one case, whatever the link wrote', () => {
     // The base becomes the page's `https://` read and its `wss://` socket, and
     // both rules decide by the scheme's spelling, so a link that spells the

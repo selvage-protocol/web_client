@@ -41,7 +41,8 @@ export function readSidebar(raw: string | null): SidebarState | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
+  } catch (error: unknown) {
+    console.error('[selvage] the remembered panel state did not parse', error);
     return undefined;
   }
   if (typeof parsed !== 'object' || parsed === null) {
@@ -165,9 +166,10 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
     }
     try {
       options.storage.setItem(SIDEBAR_STORAGE_KEY, sidebarStorageValue({ width }));
-    } catch {
+    } catch (error: unknown) {
       // A browser that refuses the write (private mode, a full quota) keeps the width for this
       // visit and forgets it after; nothing a person asked for is lost either way.
+      console.error('[selvage] remembering the panel width failed', error);
     }
   };
 
@@ -284,7 +286,8 @@ export function wireSidebar(options: SidebarOptions): Sidebar {
 function safeRead(storage: Pick<Storage, 'getItem'>): string | null {
   try {
     return storage.getItem(SIDEBAR_STORAGE_KEY);
-  } catch {
+  } catch (error: unknown) {
+    console.error('[selvage] reading the remembered panel width failed', error);
     return null;
   }
 }

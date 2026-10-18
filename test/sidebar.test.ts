@@ -88,6 +88,21 @@ describe('what is remembered', () => {
       assert.equal(readSidebar(junk), undefined, `${junk} was read as a width`);
     }
   });
+
+  it('records a stored value the JSON parser refused', () => {
+    // A panel that reopens at a default width says nothing about why, so the
+    // console is the only place a corrupted store shows up.
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => void errors.push(values);
+    try {
+      assert.equal(readSidebar('nonsense'), undefined);
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(errors.length, 1, 'the unparseable store reached no sink');
+    assert.match(String(errors[0]?.[0]), /^\[selvage\]/);
+  });
 });
 
 describe('a device with no panel of its own width', () => {
