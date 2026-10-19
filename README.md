@@ -28,6 +28,11 @@ image listens on 8080 and `compose.yaml` publishes it on 80 — see
 
 When you change a dependency, `npm install --no-audit --no-fund` writes the lockfile.
 
+The checks a commit has to be green on run the same way: `npm run typecheck` reads the page's
+TypeScript, and `npm run test:ci` is the suite CI gates on — `node --test` over the
+`test/*.test.ts` files. The plain `npm test` hands `node --test` the directory instead, so run
+`test:ci` when what you want is what CI runs.
+
 ## Settings and identity
 
 There is no account: the name typed on the card is all the room knows a person by, and the page keeps
