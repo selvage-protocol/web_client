@@ -75,6 +75,22 @@ describe('copying the invite by hand', () => {
 
   it('treats a copy command that threw as a copy that failed', () => {
     const readout = makeReadout();
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => void errors.push(values);
+    try {
+      const done = handCopy({ readout, full: FULL, shown: SHOWN, exec: () => { throw new Error('not supported'); } });
+      assert.equal(done, false);
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(errors.length, 1, 'the throwing command reached no sink');
+    assert.match(String(errors[0]?.[0]), /^\[selvage\]/);
+    assert.equal(readout.value, FULL, 'a throwing copy command left the abbreviation behind');
+  });
+
+  it('treats a copy command that threw as a copy that failed', () => {
+    const readout = makeReadout();
     const done = handCopy({
       readout,
       full: FULL,

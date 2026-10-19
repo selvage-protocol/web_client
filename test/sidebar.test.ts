@@ -88,6 +88,21 @@ describe('what is remembered', () => {
       assert.equal(readSidebar(junk), undefined, `${junk} was read as a width`);
     }
   });
+
+  it('records a stored value the JSON parser refused', () => {
+    // A panel that reopens at a default width says nothing about why, so the
+    // console is the only place a corrupted store shows up.
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => void errors.push(values);
+    try {
+      assert.equal(readSidebar('nonsense'), undefined);
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(errors.length, 1, 'the unparseable store reached no sink');
+    assert.match(String(errors[0]?.[0]), /^\[selvage\]/);
+  });
 });
 
 describe('a device with no panel of its own width', () => {
@@ -160,7 +175,75 @@ describe('a device with no panel of its own width', () => {
     for (const run of separator.listeners.keydown) run({ key: 'Enter', preventDefault: () => {} });
     assert.equal(side.hidden, false, 'Enter shut the panel');
   });
-});
+
+  describe('a storage that refuses the write', () => {
+  /** A storage that throws for the next `refusals` writes, then remembers for real. */
+  function storage(refusals = 0) {
+    const state = { refusals, stored: null as string | null };
+    return {
+      state,
+      getItem() {
+        return state.stored;
+      },
+      setItem(_key: string, value: string) {
+        if (state.refusals > 0) {
+          state.refusals -= 1;
+          throw new Error('quota exhausted');
+        }
+        state.stored = value;
+      },
+    };
+  }
+
+  /** Drags the edge to `to`, so every intermediate move asks the storage to remember. */
+  function drag(separator: ReturnType<typeof element>, positions: number[]) {
+    for (const run of separator.listeners.pointerdown) {
+      run({ button: 0, clientX: 400, pointerId: 1, preventDefault: () => {} });
+    }
+    for (const x of positions) {
+      for (const run of separator.listeners.pointermove) run({ clientX: x });
+    }
+  }
+
+  it('records the first failure of a run, not every move inside it', () => {
+    globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
+    const side = element();
+    const separator = element({ setPointerCapture: () => {}, releasePointerCapture: () => {} });
+    const store = storage(Number.POSITIVE_INFINITY);
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => void errors.push(values);
+    try {
+      wireSidebar({
+        elements: { side, separator },
+        storage: store as unknown as Storage,
+        remPx: () => REM,
+        viewportWidth: () => WIDE,
+        relayout: () => {},
+        frame: (run) => run(),
+      });
+      // A fast drag writes once per pointer move; a flooded console is the flood this is not.
+      drag(separator, [300, 260, 220, 240]);
+      assert.equal(errors.length, 1, 'every refused write took its own line');
+      assert.match(String(errors[0]?.[0]), /^\[selvage\]/);
+      assert.match(String(errors[0]?.[1]), /quota exhausted/, 'the browser’s own reason is dropped');
+      // Still inside the run: the refusals go on, the console does not.
+      drag(separator, [230]);
+      assert.equal(errors.length, 1, 'a run that continues took another line');
+      assert.equal(store.state.stored, null, 'a quiet run started remembering');
+      // A refusal is a state, not a verdict: the storage recovers, and a later failure is news again.
+      store.state.refusals = 0;
+      drag(separator, [500]);
+      assert.equal(store.state.stored, sidebarStorageValue({ width: 324 }), 'the recovered write went nowhere');
+      store.state.refusals = 1;
+      drag(separator, [260]);
+      assert.equal(errors.length, 2, 'a failure on a recovered storage went unheard');
+    } finally {
+      console.error = originalError;
+    }
+  });
+  });
+})
 
 describe('the page’s own wiring', () => {
   it('reads the remembered width before the workspace paints', () => {
