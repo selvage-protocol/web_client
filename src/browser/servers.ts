@@ -55,7 +55,8 @@ export function serverBaseOf(page: string): string {
   let url: URL;
   try {
     url = new URL(page.trim());
-  } catch {
+  } catch (error: unknown) {
+    console.error('[selvage] the page address did not parse as a URL', error);
     return '';
   }
   const scheme = url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : '';
@@ -122,7 +123,8 @@ export function linkServerBase(raw: string): string | undefined {
   let url: URL;
   try {
     url = new URL(text);
-  } catch {
+  } catch (error: unknown) {
+    console.error('[selvage] the invite link did not parse as a URL', error);
     return undefined;
   }
   if (!LINK_SCHEMES.has(url.protocol) || url.hostname === '') {
