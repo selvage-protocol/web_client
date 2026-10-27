@@ -164,7 +164,7 @@ jobs:
       # about a peer that came up seconds ago: verify reachability, then poll the predicate
       # with a deadline rather than sleep and hope. The ephemeral node is logged out again in
       # the action's post step, so nothing is left joined between runs.
-      - uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+      - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
         if: ${{ !inputs.dry_run }}
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
