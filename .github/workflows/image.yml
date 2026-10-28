@@ -155,8 +155,8 @@ jobs:
         id: tags
         run: scripts/release-tags.sh >> "$GITHUB_OUTPUT"
 
-      # The same build the publish job runs, including the moving `<version>` and
-      # `latest` aliases, so a malformed tag name cannot reach a release.
+      # Rehearse the publish job's tags so a malformed tag cannot reach a release.
+      # Prereleases leave the stable `latest` alias unchanged.
       - name: build both architectures
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -166,7 +166,7 @@ jobs:
           tags: |
             localhost:5000/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}
             localhost:5000/selvage-protocol/selvage-web:${{ steps.tags.outputs.version }}
-            localhost:5000/selvage-protocol/selvage-web:latest
+            ${{ steps.tags.outputs.latest == 'true' && 'localhost:5000/selvage-protocol/selvage-web:latest' || '' }}
           build-args: |
             VERSION=${{ steps.tags.outputs.version }}
             REVISION=${{ github.sha }}
@@ -228,10 +228,11 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # Keep prereleases off the stable channel; a blank line adds no tag.
           tags: |
             ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }}
             ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.version }}
-            ghcr.io/selvage-protocol/selvage-web:latest
+            ${{ steps.tags.outputs.latest == 'true' && 'ghcr.io/selvage-protocol/selvage-web:latest' || '' }}
           build-args: |
             VERSION=${{ steps.tags.outputs.version }}
             REVISION=${{ github.sha }}
@@ -276,9 +277,9 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --title "selvage-web $GITHUB_REF_NAME" \
-              --notes "The browser client's page image: ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }} (also tagged ${{ steps.tags.outputs.version }} and latest), multi-arch linux/amd64+linux/arm64, read back on both."
+              --notes "The browser client's page image: ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }} (also tagged ${{ steps.tags.outputs.version }}), multi-arch linux/amd64+linux/arm64, read back on both."
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --title "selvage-web $GITHUB_REF_NAME" \
-              --notes "The browser client's page image: ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }} (also tagged ${{ steps.tags.outputs.version }} and latest), multi-arch linux/amd64+linux/arm64, read back on both."
+              --notes "The browser client's page image: ghcr.io/selvage-protocol/selvage-web:${{ steps.tags.outputs.name }} (also tagged ${{ steps.tags.outputs.version }}), multi-arch linux/amd64+linux/arm64, read back on both."
           fi
