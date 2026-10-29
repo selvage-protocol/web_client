@@ -13,6 +13,8 @@
 #     has no tag for is refused, which is the state a bump leaves behind when its tag was
 #     never created. A *neighbouring* tag does not satisfy it — `v0.5.10` beside `v0.5.1`
 #     is a different ref, and a guard that matched a prefix would release the wrong one;
+#   - nested refs returned by Git's tail-pattern matching never stand in for exact
+#     current or target tags, including mixed refs and annotated tags;
 #   - a target tag that is already on the remote is refused, naming it;
 #   - after a successful plan, the release job's pre-bump shell rechecks both remote
 #     tags, refuses query errors and a changed planned version, and accepts unchanged
@@ -60,7 +62,10 @@ local_tags() { git -C "$tree" tag -l | sort; }
 # Every tag here is made in the throwaway remote, and with signing off by hand: a global
 # `tag.gpgsign` would turn a lightweight tag into a signed one that wants a message, which
 # is an editor. Nothing in this test depends on the ambient git configuration.
-tag_remote() { git -C "$origin" -c tag.gpgsign=false tag "$@"; }
+tag_remote() {
+    git -C "$origin" -c tag.gpgsign=false \
+        -c user.name=DontBlameMe -c user.email=dontblameme@noreply.codeberg.org tag "$@"
+}
 
 # `stdout` and `stderr` are kept apart: the plan's stdout is what a workflow appends to
 # `$GITHUB_OUTPUT`, so a stray line there is a defect however useful it looks.
@@ -98,6 +103,7 @@ expect_refusal() {  # expect_refusal <label> <exit-wanted> <must-name|->
     [ "$code" -eq "$want" ] || fail "$label: exited $code, want $want; stderr was:
 $stderr"
     [ -n "$stderr" ] || fail "$label: refused with no message"
+    [ -z "$stdout" ] || fail "$label: refusal printed plan output: $stdout"
     if [ "$must" != "-" ]; then
         case "$stderr" in
             *"$must"*) ;;
@@ -278,6 +284,45 @@ say "a neighbouring tag is not the tag: v$neighbour does not stand in for v$curr
     expect_untouched "after refusing a prefix-only match"
 )
 
+say "Git tail-pattern matches are not exact tag identities"
+for state in nested-current-only nested-target-only mixed-current mixed-target annotated-current annotated-target; do
+    (
+        create_fixture "$(mktemp -d "$work/$state.XXXXXX")"
+        case "$state" in
+            nested-current-only) tag_remote "refs/tags/v$current" main ;;
+            annotated-current) tag_remote -a "v$current" -m "current release" main ;;
+            *) tag_remote "v$current" main ;;
+        esac
+        case "$state" in
+            nested-target-only) tag_remote "refs/tags/v$want_patch" main ;;
+            mixed-current)
+                tag_remote "refs/tags/v$current" main
+                tag_remote "refs/tags/v$want_patch" main
+                ;;
+            mixed-target)
+                tag_remote "refs/tags/v$want_patch" main
+                tag_remote "v$want_patch" main
+                ;;
+            annotated-target) tag_remote -a "v$want_patch" -m "target release" main ;;
+        esac
+        if [ "$state" = nested-current-only ]; then
+            # Prove the surprising Git behavior with the real remote, not a query stub.
+            matches="$(git ls-remote --exit-code --refs --tags "$origin" "refs/tags/v$current")"
+            [ "$matches" = "$(printf '%s\t%s' "$base_commit" "refs/tags/refs/tags/v$current")" ] ||
+                fail "Git did not return the nested-current alias: $matches"
+            printf 'real Git tail match: %s\n' "$matches"
+        fi
+        baseline
+        run patch
+        case "$state" in
+            nested-current-only) expect_refusal "$state" 1 "carries no tag v$current" ;;
+            mixed-target | annotated-target) expect_refusal "$state" 1 "tag v$want_patch already exists" ;;
+            *) expect_plan "$state" "$current" "$want_patch" ;;
+        esac
+        expect_untouched "after $state"
+    )
+done
+
 say "a target tag that is already on the remote is refused"
 (
     work="$(mktemp -d "$work/target-conflict.XXXXXX")"
@@ -292,7 +337,7 @@ say "a target tag that is already on the remote is refused"
 )
 
 say "a release-only retry rechecks remote state after a successful plan"
-for changed in target current remote mismatch neighbour unchanged; do
+for changed in target current nested-current nested-target mixed-target annotated-current annotated-target remote target-remote mismatch neighbour unchanged; do
     (
         create_fixture "$(mktemp -d "$work/retry-$changed.XXXXXX")"
         tag_remote "v$current" main
@@ -303,28 +348,60 @@ for changed in target current remote mismatch neighbour unchanged; do
         expect_untouched "after the successful plan: $changed"
         case "$changed" in
             target) tag_remote "v$want_patch" main ;;
+            nested-target) tag_remote "refs/tags/v$want_patch" main ;;
+            mixed-target)
+                tag_remote "refs/tags/v$want_patch" main
+                tag_remote "v$want_patch" main
+                ;;
+            annotated-target) tag_remote -a "v$want_patch" -m "target release" main ;;
             neighbour) tag_remote "v${want_patch}0" main ;;
-            current)
-                # Switch to an independently seeded remote with only a neighbouring tag.
+            current | nested-current | annotated-current)
+                # Switch to an independently seeded remote for the new current-tag state.
                 origin="$work/current-missing.git"
                 git init --bare --quiet --initial-branch=main "$origin"
                 git -C "$origin" config receive.shallowUpdate true
                 git -C "$tree" remote set-url origin "$origin"
                 git -C "$tree" push --quiet origin HEAD:refs/heads/main
-                tag_remote "v$neighbour" main
+                case "$changed" in
+                    current) tag_remote "v$neighbour" main ;;
+                    nested-current) tag_remote "refs/tags/v$current" main ;;
+                    annotated-current) tag_remote -a "v$current" -m "current release" main ;;
+                esac
                 ;;
             remote) git -C "$tree" remote set-url origin "$work/unreachable.git" ;;
+            target-remote)
+                # Let the current query succeed, then make real Git fail on the target read.
+                export REAL_GIT="$(command -v git)" FAIL_REF="refs/tags/v$want_patch"
+                export UNREACHABLE="$work/unreachable.git"
+                mkdir "$work/bin"
+                printf '#!%s\n' "$(command -v bash)" > "$work/bin/git"
+                cat >> "$work/bin/git" <<'SH'
+if [ "$1" = ls-remote ] && [ "${!#}" = "$FAIL_REF" ]; then
+    exec "$REAL_GIT" ls-remote "$UNREACHABLE"
+fi
+exec "$REAL_GIT" "$@"
+SH
+                chmod +x "$work/bin/git"
+                export PATH="$work/bin:$PATH"
+                run patch
+                expect_refusal "plan: target query failed" 1 "git ls-remote exited 128"
+                [[ "$stderr" = *"$UNREACHABLE"* ]] || fail "lost Git's target-read error: $stderr"
+                ;;
             mismatch) planned_version="$want_minor" ;;
         esac
         baseline
         release_attempt=true
         run patch
         case "$changed" in
-            target) expect_refusal "retry: target appeared" 1 "v$want_patch" ;;
-            current) expect_refusal "retry: exact current disappeared" 1 "v$current" ;;
+            target | mixed-target | annotated-target) expect_refusal "retry: $changed appeared" 1 "v$want_patch" ;;
+            current | nested-current) expect_refusal "retry: $changed exact current disappeared" 1 "carries no tag v$current" ;;
             remote) expect_refusal "retry: remote query failed" 1 "could not read the tags" ;;
+            target-remote)
+                expect_refusal "retry: target query failed" 1 "git ls-remote exited 128"
+                [[ "$stderr" = *"$UNREACHABLE"* ]] || fail "lost Git's retry target-read error: $stderr"
+                ;;
             mismatch) expect_refusal "retry: planned version changed" 1 "$planned_version" ;;
-            neighbour | unchanged)
+            neighbour | unchanged | nested-target | annotated-current)
                 [ "$code" -eq 0 ] || fail "retry: $changed plan refused: $stderr"
                 printf 'accepted retry: %s plan\n' "$changed"
                 ;;
