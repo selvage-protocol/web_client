@@ -14,6 +14,9 @@
 #     never created. A *neighbouring* tag does not satisfy it — `v0.5.10` beside `v0.5.1`
 #     is a different ref, and a guard that matched a prefix would release the wrong one;
 #   - a target tag that is already on the remote is refused, naming it;
+#   - after a successful plan, the release job's pre-bump shell rechecks both remote
+#     tags, refuses query errors and a changed planned version, and accepts unchanged
+#     state or a neighbouring target tag; workflow ordering and normal CI wiring are pinned;
 #   - the bump word's grammar is `bump-version.sh`'s: nothing at all, a version, a
 #     misspelling, `--dry-run`, a second argument and a third are refused with exit 2 and
 #     a message naming what was refused;
@@ -65,7 +68,14 @@ stdout=""
 stderr=""
 code=0
 run() {  # run <args...>
-    stdout="$("$tree/scripts/release-plan.sh" "$@" 2> "$work/stderr")" && code=0 || code=$?
+    stdout="$(
+        cd "$tree"
+        if [ "${release_attempt:-false}" = true ]; then
+            BUMP="${1:-}" VERSION="$planned_version" bash "$preflight"
+        else
+            scripts/release-plan.sh "$@"
+        fi 2> "$work/stderr"
+    )" && code=0 || code=$?
     stderr="$(cat "$work/stderr")"
 }
 
@@ -165,6 +175,38 @@ create_fixture() {  # create_fixture <empty-directory>
     fi
 }
 
+say "every release attempt revalidates the planned version before the first mutation"
+preflight="$work/release-preflight.sh"
+node --input-type=module - "$preflight" <<'NODE'
+import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+const release = workflow.split('\n  release:\n')[1];
+assert.ok(release, 'release job exists');
+const safe = release.indexOf('run: git config --global --add safe.directory');
+const step = release.indexOf('- name: bump the version, and rebuild the bundle the commit carries');
+assert.ok(safe >= 0 && safe < step, 'safe-directory setup precedes the bump step');
+const bumpStep = release.slice(step).split('\n      - name:')[0];
+assert.ok(bumpStep.includes('VERSION: ${{ needs.plan.outputs.version }}'), 'compare with the original plan output');
+assert.ok(bumpStep.includes('BUMP: ${{ inputs.bump }}'), 'recompute the dispatched bump');
+const body = bumpStep.split('        run: |\n')[1].split('\n')
+    .filter(line => line.startsWith('          ')).map(line => line.slice(10)).join('\n');
+const guard = body.indexOf('plan="$(scripts/release-plan.sh "$BUMP")"');
+const comparison = body.indexOf('if [ "$planned" != "$VERSION" ]; then');
+const bump = body.indexOf('scripts/bump-version.sh "$BUMP"');
+assert.ok(guard >= 0 && guard < comparison && comparison < bump,
+    'release retry guard and planned-version comparison precede the first bump');
+assert.ok(body.slice(guard, comparison).includes("planned=\"$(printf '%s\\n' \"$plan\" | sed -n 's/^version=//p')\""),
+    'compare the recomputed version, not a cached value');
+assert.match(body.slice(comparison, bump), /exit 1\nfi/, 'a changed plan fails before bumping');
+assert.ok(step < release.indexOf('commit -a -m') && step < release.indexOf('git push origin HEAD:main'),
+    'revalidation precedes commit and push');
+for (const file of ['.github/workflows/ci.yml', 'scripts/ci-local.sh']) {
+    assert.ok(readFileSync(file, 'utf8').includes('scripts/test-release-plan.sh'), `${file} runs this regression`);
+}
+writeFileSync(process.argv[2], `${body.slice(0, bump)}\n`);
+NODE
+
 say "a throwaway remote and a clone, so this checkout's own tags are not reachable"
 create_fixture "$work"
 
@@ -248,6 +290,48 @@ say "a target tag that is already on the remote is refused"
     expect_refusal "target v$want_patch already exists" 1 "v$want_patch"
     expect_untouched "after refusing an existing target tag"
 )
+
+say "a release-only retry rechecks remote state after a successful plan"
+for changed in target current remote mismatch neighbour unchanged; do
+    (
+        create_fixture "$(mktemp -d "$work/retry-$changed.XXXXXX")"
+        tag_remote "v$current" main
+        baseline
+        run patch
+        expect_plan "before retry: $changed" "$current" "$want_patch"
+        planned_version="$want_patch"
+        expect_untouched "after the successful plan: $changed"
+        case "$changed" in
+            target) tag_remote "v$want_patch" main ;;
+            neighbour) tag_remote "v${want_patch}0" main ;;
+            current)
+                # Switch to an independently seeded remote with only a neighbouring tag.
+                origin="$work/current-missing.git"
+                git init --bare --quiet --initial-branch=main "$origin"
+                git -C "$origin" config receive.shallowUpdate true
+                git -C "$tree" remote set-url origin "$origin"
+                git -C "$tree" push --quiet origin HEAD:refs/heads/main
+                tag_remote "v$neighbour" main
+                ;;
+            remote) git -C "$tree" remote set-url origin "$work/unreachable.git" ;;
+            mismatch) planned_version="$want_minor" ;;
+        esac
+        baseline
+        release_attempt=true
+        run patch
+        case "$changed" in
+            target) expect_refusal "retry: target appeared" 1 "v$want_patch" ;;
+            current) expect_refusal "retry: exact current disappeared" 1 "v$current" ;;
+            remote) expect_refusal "retry: remote query failed" 1 "could not read the tags" ;;
+            mismatch) expect_refusal "retry: planned version changed" 1 "$planned_version" ;;
+            neighbour | unchanged)
+                [ "$code" -eq 0 ] || fail "retry: $changed plan refused: $stderr"
+                printf 'accepted retry: %s plan\n' "$changed"
+                ;;
+        esac
+        expect_untouched "after retry: $changed"
+    )
+done
 
 say "the bump word's grammar is bump-version.sh's, and it exits 2"
 for bad in "" "$current" "v$current" "PATCH" "latest" "--dry-run" "1.2.3.4"; do

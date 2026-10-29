@@ -224,14 +224,20 @@ jobs:
       - name: let git read the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # The script recomputes the bump from the manifest, so the version it resolves to is
-      # compared with the one the plan read rather than assumed to be the same.
+      # A release-only retry reuses the successful plan job. Recheck both remote tags and
+      # compare the recomputed version before the first write, not just after the bump.
       - name: bump the version, and rebuild the bundle the commit carries
         env:
           BUMP: ${{ inputs.bump }}
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
+          plan="$(scripts/release-plan.sh "$BUMP")"
+          planned="$(printf '%s\n' "$plan" | sed -n 's/^version=//p')"
+          if [ "$planned" != "$VERSION" ]; then
+            echo "::error::the release attempt computed $planned, and the plan computed $VERSION" >&2
+            exit 1
+          fi
           scripts/bump-version.sh "$BUMP" | tee "$RUNNER_TEMP/bump.log"
           bumped="$(tail -n 1 "$RUNNER_TEMP/bump.log")"
           if [ "$bumped" != "$VERSION" ]; then
