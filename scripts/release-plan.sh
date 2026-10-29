@@ -51,11 +51,19 @@ refuse() {  # refuse <message> [exit-status]
 }
 
 remote_has_tag() {  # remote_has_tag <tag>: 0 when the remote carries it, 1 when it does not
-    local out status=0
-    out="$(git ls-remote --exit-code --tags "$remote" "refs/tags/$1" 2>&1)" || status=$?
+    local out oid ref wanted="refs/tags/$1" status=0
+    out="$(git ls-remote --exit-code --refs --tags "$remote" "$wanted" 2>&1)" || status=$?
     case "$status" in
-        0) return 0 ;;
-        # `--exit-code` answers 2 for "no refs matched", which is the whole question.
+        0)
+            # ls-remote patterns also match ref tails, even with refs/tags/ in the query.
+            while read -r oid ref; do
+                if [ "$ref" = "$wanted" ]; then
+                    return 0
+                fi
+            done <<< "$out"
+            return 1
+            ;;
+        # No pattern matched, so the exact ref is absent too.
         2) return 1 ;;
         *) refuse "could not read the tags of $remote (git ls-remote exited $status, saying: ${out:-nothing})" ;;
     esac
