@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# Covers `scripts/bump-version.sh`. Everything runs in a throwaway clone under
-# `.tmp/`, so nothing here can reach this checkout.
+# Covers `scripts/bump-version.sh`, and the `latest=` half of `scripts/release-tags.sh`.
+# Everything runs in a throwaway clone under `.tmp/`, so nothing here can reach this
+# checkout.
 #
 #   scripts/test-bump-version.sh
 #
-# Eight properties:
+# Nine properties:
 #
 #   - anything that is not one of `major`, `minor`, `patch` — nothing at all, a
 #     version such as `0.5.1` or `1.2.3.4`, a misspelling, `--dry-run` in the bump's
@@ -27,7 +28,10 @@
 #   - a file that has fallen behind is repaired and named, never skipped, and a build
 #     still reproduces the committed `dist/` afterwards (`scripts/check-dist.sh`),
 #     which is the property the release workflow depends on;
-#   - a run that fails after it has started writing leaves the tree as it found it.
+#   - a run that fails after it has started writing leaves the tree as it found it;
+#   - the image identity `scripts/release-tags.sh` prints moves `latest` only for a release
+#     (`MAJOR.MINOR.PATCH`), leaves it off for a prerelease, refuses a `v*` ref that disagrees
+#     with the manifest, and both `latest` aliases in `image.yml` are gated on that line.
 #
 # The six sized icons are outside that file set, and deliberately: ImageMagick renders
 # them at build time and its version decides their bytes, so a runner re-encodes
@@ -44,7 +48,8 @@ set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-work="$repo_root/.tmp/bump-version-test"
+mkdir -p "$repo_root/.tmp"
+work="$(mktemp -d "$repo_root/.tmp/bump-version-test.XXXXXX")"
 tree="$work/tree"
 
 # The exact tree a write-mode bump leaves: those four files, modified, and nothing else
@@ -134,8 +139,6 @@ seed_manifest() {  # seed_manifest <version>
 }
 
 say "a throwaway clone, so a failure here cannot reach this checkout"
-rm -rf "$work"
-mkdir -p "$work"
 git clone --quiet --no-hardlinks "$repo_root" "$tree" ||
     fail "could not clone $repo_root into $tree"
 
@@ -146,17 +149,19 @@ git clone --quiet --no-hardlinks "$repo_root" "$tree" ||
 cp -al "$repo_root/node_modules" "$tree/node_modules" ||
     fail "could not give the clone a node_modules to build with"
 
-# The script under test is the working tree's, and a clone carries commits: until this
-# change lands, the script is not one. Committing it into the clone is what makes the
-# `git status` above — and so every assertion below — the bump's own doing and nothing
-# else. Only the script is taken from the working tree.
-cp "$repo_root/scripts/bump-version.sh" "$tree/scripts/bump-version.sh"
-git -C "$tree" add -- scripts/bump-version.sh
+# The scripts under test are the working tree's, and a clone carries commits: until this
+# change lands, they are not. Committing them into the clone is what makes the `git status`
+# above — and so every assertion below — the scripts' own doing and nothing else. Only these
+# two scripts are taken from the working tree; everything else is the clone's.
+for script in bump-version.sh release-tags.sh; do
+    cp "$repo_root/scripts/$script" "$tree/scripts/$script"
+done
+git -C "$tree" add -- scripts/bump-version.sh scripts/release-tags.sh
 if ! git -C "$tree" diff --cached --quiet; then
     GIT_EDITOR=true git -C "$tree" \
         -c user.name=DontBlameMe -c user.email=dontblameme@noreply.codeberg.org \
-        commit --quiet -m "the script under test" ||
-        fail "could not commit the script under test into the clone"
+        commit --quiet -m "the scripts under test" ||
+        fail "could not commit the scripts under test into the clone"
 fi
 expect_clean "before any call"
 head_before="$(git -C "$tree" rev-parse HEAD)"
@@ -300,14 +305,15 @@ esac
 
 say "the repository's own reproduction check passes on the bumped tree"
 check_reproduces() {  # check_reproduces <label>
-    rm -rf "$work/committed"
-    cp -r "$tree/dist" "$work/committed"
+    local committed
+    committed="$(mktemp -d "$work/committed.XXXXXX")"
+    cp -r "$tree/dist" "$committed/dist"
     mkdir -p "$work/tmp"
     if ! (cd "$tree" && TMPDIR="$work/tmp" npm run build) > "$work/build.log" 2>&1; then
         cat "$work/build.log" >&2
         fail "$1: a build of the tree failed"
     fi
-    TMPDIR="$work/tmp" "$tree/scripts/check-dist.sh" "$work/committed" "$tree/dist" ||
+    TMPDIR="$work/tmp" "$tree/scripts/check-dist.sh" "$committed/dist" "$tree/dist" ||
         fail "$1: a build does not reproduce the committed dist/"
     expect_status "$1" "$expected_bump"
 }
@@ -377,10 +383,62 @@ cp "$work/main.ts" "$tree/src/browser/main.ts"
 expect_status "after putting the entry point back" "$expected_bump"
 printf 'the tree is as it was, and the version files still name %s\n' "$want_repair"
 
+say "the image's release identity: only a release moves latest"
+# `scripts/release-tags.sh` is what `image.yml` reads to compute the three image tags, so
+# its `latest=` line is asserted here against literal expectations rather than derived from
+# the workflow: a stable version moves `latest`, a prerelease does not, and a tag that
+# disagrees with the manifest is refused. The manifest is seeded because the version is what
+# the script reads; the clone is throwaway and nothing below reads it again.
+expect_latest() {  # expect_latest <version> <true|false>
+    local out latest
+    seed_manifest "$1"
+    if ! out="$("$tree/scripts/release-tags.sh")"; then
+        fail "scripts/release-tags.sh refused $1: $out"
+    fi
+    latest="$(printf '%s\n' "$out" | sed -n 's/^latest=//p')"
+    [ "$latest" = "$2" ] || fail "release-tags.sh on $1 reported latest='$latest', want '$2'; it printed:
+$out"
+    case "$out" in
+        "version=$1"*) ;;
+        *) fail "release-tags.sh on $1 did not put version= first: $out" ;;
+    esac
+    printf '%-20s latest=%s\n' "$1" "$latest"
+}
+stable="$cur_major.$cur_minor.$cur_patch"
+expect_latest "$stable" true
+expect_latest "$cur_major.$cur_minor.$cur_patch-alpha.1" false
+expect_latest "$cur_major.$cur_minor.$cur_patch-beta.2" false
+expect_latest "$cur_major.$cur_minor.$cur_patch-rc.1" false
+
+# A tag that disagrees with the manifest is refused rather than publishing a version the
+# tree does not name.
+seed_manifest "$stable"
+if out="$("$tree/scripts/release-tags.sh" "v9.9.9" 2>&1)"; then
+    fail "release-tags.sh accepted v9.9.9 against a manifest of $stable"
+fi
+case "$out" in
+    *"does not match"*) ;;
+    *) fail "release-tags.sh's refusal of a mismatched tag did not say so: $out" ;;
+esac
+printf 'refused v9.9.9 against %s\n' "$stable"
+
+# Both `latest` aliases in `image.yml` are gated on that line, so a prerelease cannot
+# reach the moving tag. This reads the workflow in this checkout — the one this change edits
+# — and holds each line to the literal expression, so an unconditional `:latest` beside one
+# is red here without re-deriving the workflow's shape.
+workflow="$repo_root/.github/workflows/image.yml"
+grep -qF "steps.tags.outputs.latest == 'true' && 'localhost:5000/selvage-protocol/selvage-web:latest' || ''" "$workflow" ||
+    fail "image.yml's rehearsal no longer gates its latest tag on steps.tags.outputs.latest"
+grep -qF "steps.tags.outputs.latest == 'true' && 'ghcr.io/selvage-protocol/selvage-web:latest' || ''" "$workflow" ||
+    fail "image.yml's publish no longer gates its latest tag on steps.tags.outputs.latest"
+[ "$(grep -cE '(localhost:5000|ghcr\.io)/selvage-protocol/selvage-web:latest' "$workflow")" = 2 ] ||
+    fail "image.yml names selvage-web:latest somewhere other than the two gated lines"
+printf 'image.yml: both latest aliases are gated on steps.tags.outputs.latest\n'
+
 say "nothing was committed and no tag was made or moved, on any of those runs"
 [ "$(git -C "$tree" rev-parse HEAD)" = "$head_before" ] ||
     fail "a run moved HEAD; the caller commits, not this script"
 [ "$(git -C "$tree" tag -l --format='%(refname:short) %(objectname)')" = "$tags_before" ] ||
     fail "a run created or moved a tag; the caller tags, and v0.5.1 is published and immutable"
 
-printf '\nbump-version.sh: every property holds\n'
+printf '\nbump-version.sh and release-tags.sh: every property holds\n'

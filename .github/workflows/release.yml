@@ -31,6 +31,12 @@ name: release
 #      moved is not left standing beside a deploy that failed. The server's line is not named
 #      and so is not touched.
 #
+# **Two jobs, so the plan runs with a read-only token.** Steps 1–3 above are the `plan` job:
+# it holds `contents: read` and checks out with `persist-credentials: false`, so a rehearsal
+# touches nothing with a write credential. Steps 4–8 are the `release` job, which names
+# `contents: write` and `actions: write` and is gated whole on `inputs.dry_run != true`, so a
+# dry run never reaches a job that holds the token that pushes, tags and dispatches.
+#
 # **Why the bump is pushed straight to `main` rather than through a pull request.** An event
 # created with a workflow's own `GITHUB_TOKEN` starts no workflow run — GitHub's
 # loop-prevention rule — so a bump pull request opened by this job would carry **no checks at
@@ -56,7 +62,9 @@ name: release
 # `scripts/page-image.sh`. `python3` and Debian's `python3-yaml` are here for the gate in step 5:
 # `scripts/ci-local.sh checks` runs the `dry_run` guard, which is Python and needs the parser, and
 # the `checks` job in `ci.yml` installs the same pair for the same two files — so the part of the
-# two install steps that the gate needs has to be edited in both.
+# two install steps that the gate needs has to be edited in both. All of that is the `release`
+# job's; the `plan` job runs on the hosted runner, where git is already there and none of the
+# image, the gate or the lychee binary is reached.
 #
 # Two things a container job needs and a runner job does not, both found by running it:
 #
@@ -88,12 +96,70 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  actions: write
+# Nothing by default; each job names what it needs. `plan` reads, and only `release`
+# below holds the token that pushes the bump and the tag.
+permissions: {}
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    # The plan is a read: the main-only refusal and `scripts/release-plan.sh`'s two refusals
+    # and three output lines, and the printed plan. Nothing here writes, commits, tags,
+    # publishes or deploys, so the job holds a read-only token and the checkout leaves no
+    # credential on disk. It runs on the hosted runner rather than the release job's container
+    # because neither git nor anything else it reaches has to be installed there.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - name: refuse a run that is not on main
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::release.yml cuts a release from main only, and this run is at $GITHUB_REF: the bump is pushed to main, and the deploy it dispatches joins the tailnet with a credential pinned to refs/heads/main." >&2
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The plan only reads; the release job below checks out again with the token that
+          # pushes the bump and the tag.
+          persist-credentials: false
+
+      # The plan is a read: it refuses, or it prints `current=`, `version=` and `tag=` for the
+      # release job below. Its three lines are appended to `$GITHUB_OUTPUT` as they are printed.
+      - name: plan the release
+        id: plan
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -o pipefail
+          scripts/release-plan.sh "$BUMP" | tee -a "$GITHUB_OUTPUT"
+
+      - name: plan only (dry run)
+        if: ${{ inputs.dry_run }}
+        env:
+          CURRENT: ${{ steps.plan.outputs.current }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          printf 'dry run: nothing was written, committed, tagged, published or deployed.\n'
+          printf '  package.json is at %s, and its tag is on the remote\n' "$CURRENT"
+          printf '  would bump to %s with scripts/bump-version.sh, rebuilding the committed dist/\n' "$VERSION"
+          printf '  would commit "chore(bump): release %s" as the owner and push it to main\n' "$VERSION"
+          printf '  would run scripts/ci-local.sh checks before that push\n'
+          printf '  would create and push v%s\n' "$VERSION"
+          printf '  would dispatch image.yml at v%s\n' "$VERSION"
+          printf '  would wait for ghcr.io/selvage-protocol/selvage-web:%s to exist\n' "$VERSION"
+          printf '  would dispatch deploy-prod.yml with web_version=%s, then wait for that run and\n' "$VERSION"
+          printf '    fail the release unless it concludes success\n'
+
   release:
+    needs: plan
+    # A dry run ends with the plan: nothing below it runs, and nothing holding a write token
+    # runs for a dry run. The release job is the one that pushes the bump, tags it and
+    # dispatches the image and the deploy, so it is the only job that names a write permission.
+    if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-24.04
     container: node:22-trixie-slim
     defaults:
@@ -104,6 +170,9 @@ jobs:
     # finish — `scripts/dispatch-and-wait.sh`'s deadlines, the deploy's own 20-minute bound
     # plus queue time — besides the gate and the bump. 120 minutes covers them.
     timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: write
     env:
       # The pinned lychee release, and the checksum published beside its archive. The gate in
       # step 5 now includes the link check, and this container has no nix for
@@ -112,12 +181,6 @@ jobs:
       LYCHEE_VERSION: "0.24.2"
       LYCHEE_SHA256: "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a"
     steps:
-      - name: refuse a run that is not on main
-        if: ${{ github.ref != 'refs/heads/main' }}
-        run: |
-          echo "::error::release.yml cuts a release from main only, and this run is at $GITHUB_REF: the bump is pushed to main, and the deploy it dispatches joins the tailnet with a credential pinned to refs/heads/main." >&2
-          exit 1
-
       # Before the checkout: the slim image carries no git and no `/etc/ssl` at all, because
       # the official node images install `ca-certificates` and purge it as auto-removable in
       # the same layer — node carries its own trusted roots and git does not. ImageMagick 7's
@@ -161,41 +224,12 @@ jobs:
       - name: let git read the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # The plan is a read: it refuses, or it prints `current=`, `version=` and `tag=` for the
-      # steps below. Its three lines are appended to `$GITHUB_OUTPUT` as they are printed.
-      - name: plan the release
-        id: plan
-        env:
-          BUMP: ${{ inputs.bump }}
-        run: |
-          set -o pipefail
-          scripts/release-plan.sh "$BUMP" | tee -a "$GITHUB_OUTPUT"
-
-      - name: plan only (dry run)
-        if: ${{ inputs.dry_run }}
-        env:
-          CURRENT: ${{ steps.plan.outputs.current }}
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: |
-          set -euo pipefail
-          printf 'dry run: nothing was written, committed, tagged, published or deployed.\n'
-          printf '  package.json is at %s, and its tag is on the remote\n' "$CURRENT"
-          printf '  would bump to %s with scripts/bump-version.sh, rebuilding the committed dist/\n' "$VERSION"
-          printf '  would commit "chore(bump): release %s" as the owner and push it to main\n' "$VERSION"
-          printf '  would run scripts/ci-local.sh checks before that push\n'
-          printf '  would create and push v%s\n' "$VERSION"
-          printf '  would dispatch image.yml at v%s\n' "$VERSION"
-          printf '  would wait for ghcr.io/selvage-protocol/selvage-web:%s to exist\n' "$VERSION"
-          printf '  would dispatch deploy-prod.yml with web_version=%s, then wait for that run and\n' "$VERSION"
-          printf '    fail the release unless it concludes success\n'
-
       # The script recomputes the bump from the manifest, so the version it resolves to is
       # compared with the one the plan read rather than assumed to be the same.
       - name: bump the version, and rebuild the bundle the commit carries
-        if: ${{ !inputs.dry_run }}
         env:
           BUMP: ${{ inputs.bump }}
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           scripts/bump-version.sh "$BUMP" | tee "$RUNNER_TEMP/bump.log"
@@ -208,13 +242,11 @@ jobs:
       # The commit that reaches `main` is validated here, because it reaches `main` without a
       # pull request (see the note at the top): this is the same gate, run the way CI runs it.
       - name: this repository's own gate, as CI runs it
-        if: ${{ !inputs.dry_run }}
         run: scripts/ci-local.sh checks
 
       - name: commit the bump and push it to main
-        if: ${{ !inputs.dry_run }}
         env:
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           git -c user.name=DontBlameMe -c user.email=dontblameme@noreply.codeberg.org \
@@ -222,9 +254,8 @@ jobs:
           git push origin HEAD:main
 
       - name: create and push the tag
-        if: ${{ !inputs.dry_run }}
         env:
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           tag="v$VERSION"
@@ -232,19 +263,17 @@ jobs:
           git push origin "$tag"
 
       - name: run image.yml at the new tag
-        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: gh workflow run image.yml --ref "v$VERSION" -R "$GITHUB_REPOSITORY"
 
       # The image is built by another workflow, so this waits on the registry rather than on a
       # run: the tag appearing among the image's tags is the effect being waited for, polled
       # with a deadline that reports the last read rather than sleeping and hoping.
       - name: wait for the page image to exist
-        if: ${{ !inputs.dry_run }}
         env:
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           deadline=$((SECONDS + 1800))
@@ -269,11 +298,10 @@ jobs:
       # and waits for the run it created: this step fails unless that run concludes `success`,
       # which is what keeps a green release from standing beside a red deploy.
       - name: put the demo's page container onto the new tag, and wait for the deploy
-        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           scripts/dispatch-and-wait.sh --dispatch --workflow deploy-prod.yml --ref main \

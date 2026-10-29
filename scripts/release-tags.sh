@@ -6,13 +6,16 @@
 #
 #   scripts/release-tags.sh [REF_NAME]
 #
-# Prints `version=`, `sha=` and `name=` lines, the shape `$GITHUB_OUTPUT` wants.
+# Prints `version=`, `sha=`, `name=` and `latest=` lines, the shape `$GITHUB_OUTPUT` wants.
 # The version comes from package.json and the sha from git, so the tag and the
 # bundle inside it name the same revision. A `REF_NAME` that is a version tag must
 # agree with package.json: a tag cut from the wrong commit would otherwise publish
 # a mismatched version. A ref that is not one (a pull request's branch) has no
 # version to agree with, so nothing is checked there — the tag run is where that
 # rule is enforced.
+#
+# A prerelease must not move the stable `latest` alias. Keep this output last
+# so the version line remains first for existing callers.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -45,4 +48,9 @@ case "$ref" in
         ;;
 esac
 
-printf 'version=%s\nsha=%s\nname=%s-%s\n' "$version" "$sha" "$version" "$sha"
+case "$version" in
+    *-*) latest=false ;;
+    *) latest=true ;;
+esac
+
+printf 'version=%s\nsha=%s\nname=%s-%s\nlatest=%s\n' "$version" "$sha" "$version" "$sha" "$latest"

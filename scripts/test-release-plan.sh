@@ -36,9 +36,8 @@ set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-work="$repo_root/.tmp/release-plan-test"
-origin="$work/origin.git"
-tree="$work/tree"
+mkdir -p "$repo_root/.tmp"
+work="$(mktemp -d "$repo_root/.tmp/release-plan-test.XXXXXX")"
 
 say() { printf '\n=== %s ===\n' "$*"; }
 fail() {
@@ -59,7 +58,6 @@ local_tags() { git -C "$tree" tag -l | sort; }
 # `tag.gpgsign` would turn a lightweight tag into a signed one that wants a message, which
 # is an editor. Nothing in this test depends on the ambient git configuration.
 tag_remote() { git -C "$origin" -c tag.gpgsign=false tag "$@"; }
-untag_remote() { git -C "$origin" -c tag.gpgsign=false tag -d "$@" > /dev/null; }
 
 # `stdout` and `stderr` are kept apart: the plan's stdout is what a workflow appends to
 # `$GITHUB_OUTPUT`, so a stray line there is a defect however useful it looks.
@@ -130,40 +128,45 @@ expect_manifest() {  # expect_manifest <label> <version>
     [ "$have" = "$2" ] || fail "$1: the manifest names '$have', want '$2'"
 }
 
-say "a throwaway remote and a clone, so this checkout's own tags are not reachable"
-rm -rf "$work"
-mkdir -p "$work"
-# `--no-tags`: the clone starts with no local tags at all, so the tag list below is a
-# check on the plan rather than on what the clone happened to carry.
-git clone --quiet --no-hardlinks --no-tags "$repo_root" "$tree" ||
-    fail "could not clone $repo_root into $tree"
-git init --bare --quiet --initial-branch=main "$origin" ||
-    fail "could not create the throwaway remote at $origin"
-# A CI checkout is shallow, and a shallow history is refused by a repository that is not
-# (`receive.shallowUpdate`, off by default). The remote is built from the checkout rather
-# than inherited from it, so a full checkout and a shallow one start from the same state.
-git -C "$origin" config receive.shallowUpdate true
-git -C "$tree" remote set-url origin "$origin"
-git -C "$tree" push --quiet origin "HEAD:refs/heads/main" ||
-    fail "could not push the clone's commit to $origin"
-# The commit the remote was given, before the script under test is committed on top of it
-# below: a tag made on the clone's later commit would name an object the remote never got.
-base_commit="$(git -C "$tree" rev-parse HEAD)"
-[ "$(git -C "$tree" remote get-url origin)" = "$origin" ] ||
-    fail "the clone's origin is not the throwaway remote, which is the whole point of it"
+create_fixture() {  # create_fixture <empty-directory>
+    work="$1"
+    origin="$work/origin.git"
+    tree="$work/tree"
+    # `--no-tags`: the clone starts with no local tags at all, so the tag list below is a
+    # check on the plan rather than on what the clone happened to carry.
+    git clone --quiet --no-hardlinks --no-tags "$repo_root" "$tree" ||
+        fail "could not clone $repo_root into $tree"
+    git init --bare --quiet --initial-branch=main "$origin" ||
+        fail "could not create the throwaway remote at $origin"
+    # A CI checkout is shallow, and a shallow history is refused by a repository that is not
+    # (`receive.shallowUpdate`, off by default). The remote is built from the checkout rather
+    # than inherited from it, so a full checkout and a shallow one start from the same state.
+    git -C "$origin" config receive.shallowUpdate true
+    git -C "$tree" remote set-url origin "$origin"
+    git -C "$tree" push --quiet origin "HEAD:refs/heads/main" ||
+        fail "could not push the clone's commit to $origin"
+    # The commit the remote was given, before the script under test is committed on top of it
+    # below: a tag made on the clone's later commit would name an object the remote never got.
+    base_commit="$(git -C "$tree" rev-parse HEAD)"
+    [ "$(git -C "$tree" remote get-url origin)" = "$origin" ] ||
+        fail "the clone's origin is not the throwaway remote, which is the whole point of it"
 
-# The script under test is the working tree's, and a clone carries commits: until this
-# change lands, the script is not one. Committing it into the clone is what makes every
-# `git status` below the plan's doing and nothing else. Only the script is taken from the
-# working tree.
-cp "$repo_root/scripts/release-plan.sh" "$tree/scripts/release-plan.sh"
-git -C "$tree" add -- scripts/release-plan.sh
-if ! git -C "$tree" diff --cached --quiet; then
-    GIT_EDITOR=true git -C "$tree" -c commit.gpgsign=false \
-        -c user.name=DontBlameMe -c user.email=dontblameme@noreply.codeberg.org \
-        commit --quiet -m "the script under test" ||
-        fail "could not commit the script under test into the clone"
-fi
+    # The script under test is the working tree's, and a clone carries commits: until this
+    # change lands, the script is not one. Committing it into the clone is what makes every
+    # `git status` below the plan's doing and nothing else. Only the script is taken from the
+    # working tree.
+    cp "$repo_root/scripts/release-plan.sh" "$tree/scripts/release-plan.sh"
+    git -C "$tree" add -- scripts/release-plan.sh
+    if ! git -C "$tree" diff --cached --quiet; then
+        GIT_EDITOR=true git -C "$tree" -c commit.gpgsign=false \
+            -c user.name=DontBlameMe -c user.email=dontblameme@noreply.codeberg.org \
+            commit --quiet -m "the script under test" ||
+            fail "could not commit the script under test into the clone"
+    fi
+}
+
+say "a throwaway remote and a clone, so this checkout's own tags are not reachable"
+create_fixture "$work"
 
 current="$(manifest_version "$tree")"
 [[ "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
@@ -222,26 +225,29 @@ expect_manifest "after putting the manifest back" "$current"
 expect_untouched "after putting the manifest back"
 
 say "a neighbouring tag is not the tag: v$neighbour does not stand in for v$current"
-tag_remote "v$neighbour" main
-untag_remote "v$current"
-expect_remote "v$neighbour"
-baseline
-run patch
-expect_refusal "only v$neighbour is on the remote" 1 "v$current"
-expect_untouched "after refusing a prefix-only match"
-untag_remote "v$neighbour"
-tag_remote "v$current" main
-baseline
+(
+    work="$(mktemp -d "$work/prefix-only.XXXXXX")"
+    create_fixture "$work"
+    tag_remote "v$neighbour" main
+    expect_remote "v$neighbour"
+    baseline
+    run patch
+    expect_refusal "only v$neighbour is on the remote" 1 "v$current"
+    expect_untouched "after refusing a prefix-only match"
+)
 
 say "a target tag that is already on the remote is refused"
-tag_remote "v$want_patch" main
-expect_remote "v$current" "v$want_patch"
-baseline
-run patch
-expect_refusal "target v$want_patch already exists" 1 "v$want_patch"
-expect_untouched "after refusing an existing target tag"
-untag_remote "v$want_patch"
-baseline
+(
+    work="$(mktemp -d "$work/target-conflict.XXXXXX")"
+    create_fixture "$work"
+    tag_remote "v$current" main
+    tag_remote "v$want_patch" main
+    expect_remote "v$current" "v$want_patch"
+    baseline
+    run patch
+    expect_refusal "target v$want_patch already exists" 1 "v$want_patch"
+    expect_untouched "after refusing an existing target tag"
+)
 
 say "the bump word's grammar is bump-version.sh's, and it exits 2"
 for bad in "" "$current" "v$current" "PATCH" "latest" "--dry-run" "1.2.3.4"; do
