@@ -320,6 +320,7 @@ async function serve() {
       async () => {
         try {
           const response = await fetch(`${origin}/`);
+          await response.arrayBuffer();
           return response.ok ? true : undefined;
         } catch {
           return undefined;
