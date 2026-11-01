@@ -35,7 +35,9 @@ TypeScript, and `npm run test:ci` is the suite CI gates on — `node --test` ove
 
 The [public contract workflow](.github/workflows/public-contracts.yml) compares this candidate's
 engine, bridge, CRDT pins, and release guard with their public canonical sources. It records the
-exact Git revisions. Its scheduled/manual integration job builds a fresh public server, requires
+exact Git revisions. The checker code is pinned independently of the canonical specification and
+VS Code data, which follow public `main` and are resolved once per run. Its scheduled/manual
+integration job builds a fresh public server, requires
 the sibling site's mark comparison, and runs the live adapter and rendered-page proofs on loopback.
 These are automated tests, not evidence of human acceptance. Reproduce the live proofs with:
 
@@ -49,7 +51,8 @@ repeat run, confirm the prior run has ended and rename that directory to a new, 
 name under `.tmp/` (for example, `live-proofs-20261101T120000Z`). Retain the archive; do not delete
 or overwrite earlier evidence. The harness refuses an existing evidence directory rather than
 mixing runs. Missing tools, failed readiness, timeouts, and cleanup errors other than an already
-removed browser profile fail the job. Copy comparisons use the specification's public
+removed browser profile fail the job. Catchable termination ends the owned process groups, records
+the interruption with `completed: false`, and exits nonzero. Copy comparisons use the specification's public
 [workspace checker](https://github.com/selvage-protocol/specification/blob/main/docs/workspace-contracts.md),
 which also has an explicit-revision local invocation. Publish canonical updates before synchronized
 consumers, following its

@@ -32,18 +32,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: selvage-protocol/specification
-          ref: 12795c817566897d0af4c13877d229f4555581f8
+          ref: main
           path: specification
           persist-credentials: false
-      - name: record resolved revisions, including the candidate's own HEAD
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/specification
+          ref: 12795c817566897d0af4c13877d229f4555581f8
+          path: .contract-checker
+          persist-credentials: false
+      - name: record canonical data and pinned checker code revisions separately
         run: |
-          for repo in web_client vscode_client specification; do
-            printf '%s=' "$repo"
-            git -C "$repo" rev-parse HEAD
-          done | tee copy-contract-revisions.txt
+          {
+            for repo in web_client vscode_client specification; do
+              printf '%s=' "$repo"
+              git -C "$repo" rev-parse HEAD
+            done
+            printf 'checker-code='
+            git -C .contract-checker rev-parse HEAD
+          } | tee copy-contract-revisions.txt
       - name: compare the candidate copies with the public contract
         run: |
-          python3 specification/scripts/check-workspace.py --workspace "$GITHUB_WORKSPACE" \
+          python3 .contract-checker/scripts/check-workspace.py --workspace "$GITHUB_WORKSPACE" \
             --consumer web_client --revision web_client=HEAD --revision vscode_client=HEAD \
             --revision specification=HEAD
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

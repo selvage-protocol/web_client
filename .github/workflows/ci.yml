@@ -113,6 +113,7 @@ jobs:
         run: |
           python3 -B scripts/test_check_dry_run_gating.py
           python3 -B scripts/check_dry_run_gating.py .github/workflows
+          python3 -B scripts/test_public_contracts.py
 
       - run: npm ci --no-audit --no-fund
 

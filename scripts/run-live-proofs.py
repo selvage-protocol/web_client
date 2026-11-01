@@ -18,23 +18,35 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class ProofInterrupted(BaseException):
+    def __init__(self, signum):
+        self.signum = signum
+        super().__init__(f"interrupted by {signal.Signals(signum).name}")
+
+
 @contextmanager
 def managed_process(command, evidence, env=None, cwd=ROOT):
     """Own a process group even if its leader exits before its children."""
     with evidence.with_suffix(".stdout.log").open("wb") as stdout, \
             evidence.with_suffix(".stderr.log").open("wb") as stderr:
-        process = subprocess.Popen(
-            command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
-            start_new_session=True,
-        )
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
         try:
-            yield process
-        finally:
+            process = subprocess.Popen(
+                command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
+                start_new_session=True,
+                preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask),
+            )
             try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait(timeout=5)
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+                yield process
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 def run_bounded(command, evidence, env=None, timeout=180, cwd=ROOT):
@@ -47,7 +59,7 @@ def run_bounded(command, evidence, env=None, timeout=180, cwd=ROOT):
                 raise RuntimeError(f"{command} exceeded {timeout}s") from None
             if result["returncode"] != 0:
                 raise RuntimeError(f"{command} exited {result['returncode']}")
-    except Exception as error:
+    except BaseException as error:
         result["error"] = str(error)
         raise
     finally:
@@ -89,6 +101,20 @@ def main():
     evidence.mkdir(parents=True, exist_ok=False)
     failures = []
     completed = False
+    interruption = None
+    termination_signals = (signal.SIGTERM, signal.SIGINT)
+    previous_handlers = {signum: signal.getsignal(signum) for signum in termination_signals}
+
+    def interrupt(signum, frame):
+        nonlocal interruption
+        interruption = {"signal": signum, "name": signal.Signals(signum).name}
+        # A second termination request must not interrupt bounded cleanup of the first.
+        for termination_signal in termination_signals:
+            signal.signal(termination_signal, signal.SIG_IGN)
+        raise ProofInterrupted(signum)
+
+    for signum in termination_signals:
+        signal.signal(signum, interrupt)
     try:
         for proof in ["prove", "prove:fb2", "prove:flow2", "prove:v2", "prove:ghost"]:
             name = proof.replace(":", "-")
@@ -121,12 +147,20 @@ def main():
                 except Exception as error:
                     failures.append({"proof": proof, "cleanup_error": str(error)})
                     print(f"FAILED {proof} cleanup: {error}", file=sys.stderr, flush=True)
-        completed = True
+            if interruption is not None:
+                break
+        completed = interruption is None
+    except ProofInterrupted as error:
+        print(str(error), file=sys.stderr, flush=True)
     finally:
-        (evidence / "result.json").write_text(json.dumps({
-            "completed": completed, "failures": failures,
-        }, indent=2) + "\n")
-    return int(bool(failures))
+        try:
+            (evidence / "result.json").write_text(json.dumps({
+                "completed": completed, "failures": failures, "interruption": interruption,
+            }, indent=2) + "\n")
+        finally:
+            for signum, handler in previous_handlers.items():
+                signal.signal(signum, handler)
+    return 128 + interruption["signal"] if interruption is not None else int(bool(failures))
 
 
 if __name__ == "__main__":

@@ -83,6 +83,8 @@ job_checks() {
   say "checks: the dry_run gating of the workflows that declare it, on $guard_python"
   "$guard_python" -B scripts/test_check_dry_run_gating.py
   "$guard_python" -B scripts/check_dry_run_gating.py .github/workflows
+  say "checks: pinned checker code and current canonical data"
+  "$guard_python" -B scripts/test_public_contracts.py
   say "checks: live-proof process supervision"
   python3 -B scripts/test_live_proofs.py
   say "checks: install"

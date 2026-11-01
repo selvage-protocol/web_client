@@ -3,7 +3,10 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -83,6 +86,79 @@ class LiveProofSupervisorTests(unittest.TestCase):
             with self.subTest(error=error), patch.object(live.shutil, "rmtree", fail_cleanup):
                 with self.assertRaises(type(error)):
                     live.remove_profile(self.root / "profile")
+
+    def test_sigterm_records_interruption_and_kills_both_groups(self):
+        server = self.root / "server"
+        server_pid = self.root / "server.pid"
+        proof_pids = self.root / "proof.json"
+        server.write_text(f"#!{sys.executable}\n" + f"""
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+import os
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+server = HTTPServer(('127.0.0.1', 0), Handler)
+Path({str(server_pid)!r}).write_text(str(os.getpid()))
+print(f'ws://127.0.0.1:{{server.server_port}}/session', flush=True)
+server.serve_forever()
+""")
+        server.chmod(0o755)
+        npm = self.root / "npm"
+        npm.write_text(f"#!{sys.executable}\n" + f"""
+from pathlib import Path
+import json, os, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+Path({str(proof_pids)!r}).write_text(json.dumps([os.getpid(), child.pid]))
+time.sleep(60)
+""")
+        npm.chmod(0o755)
+        wrapper = f"""
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location('live', {str(Path(live.__file__).resolve())!r})
+live = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(live)
+live.ROOT = pathlib.Path({str(self.root)!r})
+sys.exit(live.main())
+"""
+        env = {**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
+               "SELVAGE_SELVAGED": str(server), "SELVAGE_CHROMIUM": sys.executable}
+        pids = []
+        with (self.root / "supervisor.log").open("wb") as output:
+            supervisor = subprocess.Popen(self.command(wrapper), env=env, stdout=output, stderr=output)
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if proof_pids.exists():
+                        try:
+                            pids = json.loads(proof_pids.read_text())
+                            break
+                        except json.JSONDecodeError:
+                            pass
+                    self.assertIsNone(supervisor.poll(), (self.root / "supervisor.log").read_text())
+                    time.sleep(0.02)
+                self.assertEqual(len(pids), 2, "proof and descendant never started")
+                pids.insert(0, int(server_pid.read_text()))
+                supervisor.send_signal(signal.SIGTERM)
+                self.assertEqual(supervisor.wait(timeout=10), 128 + signal.SIGTERM)
+                for pid in pids:
+                    self.assert_process_stopped(pid)
+                result = json.loads((self.root / ".tmp/live-proofs/result.json").read_text())
+                self.assertFalse(result["completed"])
+                self.assertEqual(result["interruption"], {"signal": signal.SIGTERM, "name": "SIGTERM"})
+                proof = json.loads((self.root / ".tmp/live-proofs/prove.json").read_text())
+                self.assertIn("SIGTERM", proof["error"])
+                self.assertFalse(list((self.root / ".tmp").glob("live-profile-*")))
+            finally:
+                if supervisor.poll() is None:
+                    supervisor.kill()
+                supervisor.wait(timeout=5)
+                for pid in pids:
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
     def test_server_startup_is_bounded_and_reaped(self):
         with live.managed_process(self.command("import time; time.sleep(60)"), self.evidence) as process:
