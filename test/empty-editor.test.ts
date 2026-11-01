@@ -1,5 +1,5 @@
 /**
- * The editor pane with no document in front of it (design §7).
+ * The editor pane with no document in front of it.
  *
  * Each empty state names the one next act and puts the control for it where the
  * step is: a host whose folder is empty is told what sharing a file means and

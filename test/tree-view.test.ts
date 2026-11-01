@@ -1298,7 +1298,7 @@ describe('an empty listing', () => {
     assert.equal(withClass(guest.pane, 'empty').textContent, 'The host has not shared any files yet.');
 
     // The host's own line is the short one: the explanation and the two acts are the editor pane's
-    // beside it (design §7.2), and this panel's header carries only its own verbs.
+    // beside it, and this panel's header carries only its own verbs.
     const host = makeView({ ...state, canCreate: true });
     host.view.render();
     const line = withClass(host.pane, 'empty').textContent;

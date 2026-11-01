@@ -3,8 +3,8 @@
  *
  * A room with nothing open is the room's first screen, and the pane is the
  * largest thing on it: it carries the one fact the person needs and the act that
- * follows from it, in that pane rather than in a sentence somewhere else
- * (design §7). Three states, and each names the next step where it stands:
+ * follows from it, in that pane rather than in a sentence somewhere else.
+ * Three states, and each names the next step where it stands:
  *
  * - a host whose folder is empty, told what sharing a file means, with `New
  *   file` inserting the row that creates one and the invite beside it;

@@ -7,6 +7,7 @@
 #                                 # that declare it, install, typecheck, build, the build reproduces dist/, the suite CI can run, the version bump leaves a tree this repository accepts, the release plan refuses what it must, the origin relay's config against SELVAGE_SERVER, every shell script parses, the links in README.md and docs/
 #   scripts/ci-local.sh links      # the link check alone: lychee over README.md and docs/, to run it while editing prose
 #   scripts/ci-local.sh container  # the `image` workflow's `container` job: docker build, a hardened run, the page asserted (needs Docker)
+#   scripts/ci-local.sh integration # public live proofs; explicit SELVAGE_SELVAGED and SELVAGE_CHROMIUM required
 #   scripts/ci-local.sh all        # `checks`, which is what a push has to be green on
 #
 # There is no nix flake here: the checks are node's and lychee's, and the image is Docker's, so the
@@ -82,6 +83,10 @@ job_checks() {
   say "checks: the dry_run gating of the workflows that declare it, on $guard_python"
   "$guard_python" -B scripts/test_check_dry_run_gating.py
   "$guard_python" -B scripts/check_dry_run_gating.py .github/workflows
+  say "checks: pinned checker code and current canonical data"
+  "$guard_python" -B scripts/test_public_contracts.py
+  say "checks: live-proof process supervision"
+  python3 -B scripts/test_live_proofs.py
   say "checks: install"
   npm ci --no-audit --no-fund
   say "checks: typecheck"
@@ -144,9 +149,10 @@ case "${1:-all}" in
   checks) job_checks ;;
   links) job_links ;;
   container) job_container ;;
+  integration) python3 -B scripts/run-live-proofs.py ;;
   all) job_checks ;;
   *)
-    printf 'usage: %s [checks|links|container|all]\n' "$0" >&2
+    printf 'usage: %s [checks|links|container|integration|all]\n' "$0" >&2
     exit 2
     ;;
 esac

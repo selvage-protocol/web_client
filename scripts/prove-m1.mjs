@@ -396,28 +396,26 @@ await waitFor(
 );
 check('follow re-lands on a remote caret move', true);
 
-// The binding's open primitive does not end the follow — landings are opens,
-// so this programmatic switch keeps it; only editing, leaving, or stopping
-// does. On the page, opening a file from the tree is a deliberate navigation
-// and stops the follow first, the same class as going to someone.
+// Explicit navigation ends a follow; internal participant landings use a separate path.
 await binding.openDocument(NOTES);
 await waitFor(
   'guest to hold the notes seed',
   () => (guestEngine.text(NOTES) === SEED_NOTES ? true : undefined),
   10_000,
 );
-check('follow survives switching documents', binding.following()?.peerId === hostPeerId);
+check('switching documents ends the follow', binding.following() === undefined);
 
-// A local edit ends the follow, and the keystroke still reaches the room. The
-// keystroke goes into the front document: that is what typing while following is.
-await binding.openDocument(MAIN);
+// A local edit ends a new follow, and the keystroke still reaches the room.
+await binding.follow(hostPeerId);
+check('follow is active again before editing', binding.following()?.peerId === hostPeerId);
 check('guest is where the follow put it', binding.currentPath() === MAIN);
+const beforeEditNotices = notices.length;
 const mainModel = guestModels[0];
 if (mainModel === undefined) throw new Error('guest never built the main model');
 mainModel.pushEditOperations([], [{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: '// guest\n', forceMoveMarkers: true }], () => null);
 mainModel.__fire();
 check('a local edit ends the follow', binding.following() === undefined);
-check('the stop is announced', notices.some((notice) => notice.kind === 'follow' && notice.following === undefined));
+check('the stop is announced', notices.slice(beforeEditNotices).some((notice) => notice.kind === 'follow' && notice.following === undefined));
 await waitFor(
   'host to converge on the guest edit',
   () => (hostEngine.text(MAIN).includes('// guest') ? true : undefined),

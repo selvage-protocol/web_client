@@ -1,0 +1,136 @@
+name: public contracts
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  copy-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: web_client
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/vscode_client
+          ref: main
+          path: vscode_client
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/specification
+          ref: main
+          path: specification
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/specification
+          ref: 12795c817566897d0af4c13877d229f4555581f8
+          path: .contract-checker
+          persist-credentials: false
+      - name: record canonical data and pinned checker code revisions separately
+        run: |
+          {
+            for repo in web_client vscode_client specification; do
+              printf '%s=' "$repo"
+              git -C "$repo" rev-parse HEAD
+            done
+            printf 'checker-code='
+            git -C .contract-checker rev-parse HEAD
+          } | tee copy-contract-revisions.txt
+      - name: compare the candidate copies with the public contract
+        run: |
+          python3 .contract-checker/scripts/check-workspace.py --workspace "$GITHUB_WORKSPACE" \
+            --consumer web_client --revision web_client=HEAD --revision vscode_client=HEAD \
+            --revision specification=HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: copy-contract-revisions
+          path: copy-contract-revisions.txt
+          if-no-files-found: error
+
+  integration:
+    # Current public source, not a deployed demo. Keep the Rust and browser work off PRs.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    container: node:22-trixie-slim
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: web_client
+    steps:
+      - name: install public build and browser dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git python3 build-essential pkg-config imagemagick chromium
+          curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs -o "$RUNNER_TEMP/rustup.sh"
+          sh "$RUNNER_TEMP/rustup.sh" -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: web_client
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/reference_server
+          ref: main
+          path: reference_server
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/site
+          ref: main
+          path: site
+          persist-credentials: false
+      - name: record all source revisions and tools before building
+        run: |
+          mkdir -p .tmp
+          for repo in web_client reference_server site; do
+            git config --global --add safe.directory "$GITHUB_WORKSPACE/$repo"
+            printf '%s=' "$repo"
+            git -C "$GITHUB_WORKSPACE/$repo" rev-parse HEAD
+          done | tee .tmp/integration-revisions.txt
+          { node --version; rustc --version; cargo --version; chromium --version; magick --version; } \
+            > .tmp/integration-tools.txt
+      - name: build the public server source with its lockfile
+        run: cargo build --locked --manifest-path ../reference_server/Cargo.toml -p selvaged
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - name: run the suite with the site identity comparison required
+        env:
+          REQUIRE_SITE_IDENTITY: "1"
+        run: npm run test:ci
+      - name: live adapter and rendered-page integration proofs
+        env:
+          SELVAGE_SELVAGED: ${{ github.workspace }}/reference_server/target/debug/selvaged
+          SELVAGE_CHROMIUM: /usr/bin/chromium
+        run: python3 -B scripts/run-live-proofs.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: live-integration-evidence
+          include-hidden-files: true
+          path: |
+            web_client/.tmp/integration-*.txt
+            web_client/.tmp/live-proofs/
+            web_client/.tmp/prove-v2/*.png
+            web_client/.tmp/prove-ghost/*.png
+            web_client/.tmp/prove-ghost/*.txt
+          if-no-files-found: error

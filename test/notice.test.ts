@@ -261,7 +261,7 @@ describe('the session card', () => {
   });
 
   it('has no general-purpose news line', () => {
-    // Design §6.2: the card carries no general-purpose news line. What is left of it is what
+    // The card carries no general-purpose news line. What is left of it is what
     // changes what typing means — the countdown, the dropped socket — and the host's return, which
     // is the reason the countdown vanishing has one.
     const source = readFileSync(new URL('../src/browser/notice.ts', import.meta.url), 'utf8');

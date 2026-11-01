@@ -27,6 +27,9 @@ jobs:
     # to be installed first; see the step below.
     runs-on: ubuntu-24.04
     container: node:22-trixie-slim
+    defaults:
+      run:
+        working-directory: web_client
     timeout-minutes: 20
     env:
       # The pinned lychee release, and the checksum published beside its archive. The version
@@ -55,6 +58,7 @@ jobs:
       # container has no init to start a service with, and the package's own postinst would
       # otherwise leave an nginx running on the default configuration beside the test.
       - name: install git, ca-certificates, curl, ImageMagick 7, python3 and nginx
+        working-directory: ${{ github.workspace }}
         run: |
           apt-get update
           printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
@@ -63,7 +67,24 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: web_client
           persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: selvage-protocol/site
+          ref: main
+          path: site
+          persist-credentials: false
+
+      - name: record the candidate and site revisions
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/web_client"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/site"
+          for repo in web_client site; do
+            printf '%s=' "$repo"
+            git -C "$GITHUB_WORKSPACE/$repo" rev-parse HEAD
+          done | tee "$RUNNER_TEMP/checks-revisions.txt"
 
       # The link check's binary, from the pinned release rather than a package manager, because
       # `scripts/ci-local.sh` takes `lychee` from PATH and falls back to `nix shell`, which this
@@ -92,6 +113,7 @@ jobs:
         run: |
           python3 -B scripts/test_check_dry_run_gating.py
           python3 -B scripts/check_dry_run_gating.py .github/workflows
+          python3 -B scripts/test_public_contracts.py
 
       - run: npm ci --no-audit --no-fund
 
@@ -118,16 +140,13 @@ jobs:
       - name: the build reproduces the committed dist/
         run: scripts/check-dist.sh "$RUNNER_TEMP/dist-committed"
 
-      # `test/identity.test.ts` compares the page's mark with the `site` checkout
-      # beside this one, which a single-checkout job does not have: that one test
-      # skips, with that reason, and the rest of the file — the icons' determinism
-      # and the clock chunks a fresh clone would render differently — runs here.
-      # `test/serve-types.test.ts` needs no sibling and runs. The checks that do need
-      # something live — `npm run check:types` (a deployed page) and `npm run prove*`
-      # (a `selvaged`) — run locally; the image workflow's smoke is the served-page
-      # assertion CI has.
-      - name: the suite CI can run
+      - name: the suite, including byte-for-byte site mark comparison
+        env:
+          REQUIRE_SITE_IDENTITY: "1"
         run: npm run test:ci
+
+      - name: the live-proof supervisor's timeout and cleanup tests
+        run: python3 -B scripts/test_live_proofs.py
 
       # `scripts/test-bump-version.sh` covers the version bump the release coordinator
       # calls, in a clone under `.tmp/` of its own so a red run here leaves the tree
@@ -179,3 +198,10 @@ jobs:
       # this job opens either file.
       - name: links over the README and docs
         run: scripts/ci-local.sh links
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: checks-revisions
+          path: ${{ runner.temp }}/checks-revisions.txt
+          if-no-files-found: error

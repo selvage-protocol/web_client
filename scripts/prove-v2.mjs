@@ -264,8 +264,12 @@ async function launchChromium(port) {
       } catch {
         // Already gone.
       }
-      browser.kill('SIGKILL');
-      rmSync(resolve(ROOT, tmp), { recursive: true, force: true });
+      if (browser.exitCode === null && browser.signalCode === null) {
+        const closed = new Promise((resolve_) => browser.once('close', resolve_));
+        browser.kill('SIGKILL');
+        await closed;
+      }
+      rmSync(resolve(ROOT, tmp), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }
@@ -530,9 +534,15 @@ async function main() {
     // not carry both keys, the page timing out. The server's pipes and the host's socket hold
     // the event loop open, so a script that reported a failure and then hung would be the one
     // thing this proof must not do.
-    await chromium?.stop();
-    host?.disconnect();
-    server.stop();
+    try {
+      await chromium?.stop();
+    } finally {
+      try {
+        await host?.disconnect();
+      } finally {
+        server.stop();
+      }
+    }
   }
 }
 
