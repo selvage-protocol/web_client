@@ -91,8 +91,7 @@ describe('the host action in the shell', () => {
     assert.match(html, /Share a folder\u2026/, 'the button does not say what it does');
     assert.match(main, /HOST_BUTTON_LABEL = 'Share a folder\u2026'/, 'the label the bundle puts back differs from the shell');
     assert.ok(!html.includes('Choose a folder'), 'the long label survives in the shell');
-    // The card offers the action and says nothing else. What a guest gets is the grant's own
-    // definition (`DESIGN.md` §4.2), so no paragraph under the button has to say it.
+    // The chosen folder defines the grant; the card need not repeat that beside the picker.
     const wrap = sliceBetween(html, '<div id="host-wrap"', '</div>');
     assert.ok(!wrap.includes('id="host-share"'), 'the card carries a line of copy beside the action');
     assert.ok(!main.includes('HOST_GUESTS_NOTE'), 'the old guests note survives in the bundle');
@@ -100,7 +99,7 @@ describe('the host action in the shell', () => {
   });
 
   it("says hosting in one quiet line on a guest's card, and nothing else on the start card", () => {
-    // Design §7.1: a guest arrived for the join, so hosting is one quiet line — pressing it is
+    // A guest arrived for the join, so hosting is one quiet line — pressing it is
     // what puts the start card and the picker in front of them — and the decision to host is made
     // there, on a card that offers the action and nothing else.
     assert.match(html, /<button id="host-quiet" type="button" hidden>Or start your own session<\/button>/,

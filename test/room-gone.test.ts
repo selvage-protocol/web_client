@@ -200,7 +200,7 @@ describe('binding past room-gone', () => {
  * The page has two ways in and they are not the same act. Joining opens somebody else's room
  * from a link and never claims a role: the engine's own default is `guest`, and nothing here
  * overrides it. Starting a room mints one, and the mint is behind the folder picker — a folder
- * a person chose at the moment the room was made (`DESIGN.md` §4.2), which is what makes the
+ * a person chose at the moment the room was made, which is what makes the
  * room's working copy a real directory and what makes the mint impossible without a gesture:
  * `showDirectoryPicker` needs transient user activation, so no load, timer or replay can reach
  * the mint at all.

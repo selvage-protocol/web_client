@@ -1346,7 +1346,7 @@ async function offerHosting(): Promise<void> {
  * Puts one read of the page's own origin on the card: the note beside the action, and whether
  * there is an action at all.
  *
- * The two intents say it differently, and that is the whole of the collapse (design §7.1). On the
+ * The two intents need different emphasis. On the
  * start card the action is the card's own — the button that says what happens next — and on a
  * guest's card hosting is the alternative to the thing the person came for, so it is one quiet
  * line and nothing else: pressing it is what puts the start card in front of them
@@ -2009,7 +2009,7 @@ function stopFollowing(peerId: string): void {
 
 /**
  * A go-to the room could not answer: in the menu of the person it was asked for, or on the page's
- * transient line when no such menu is standing (design §5.1).
+ * transient line when no such menu is standing.
  *
  * The refusal is a race — the peer closed the file, or its caret does not resolve here — and the
  * answer belongs where the press was. It is not a state: where a menu carries it, it stands
@@ -2155,7 +2155,7 @@ function syncGrant(): void {
 }
 
 /**
- * The pane with no document in front of it (`§6.3`, design §7).
+ * The pane with no document in front of it.
  *
  * The state is a read of the room as it stands — who is hosting, how many files the listing carries,
  * which peer is in a file — so it is drawn wherever the listing or the presence lands (`syncGrant`),
@@ -2534,7 +2534,7 @@ function leaveSession(sentence: string): void {
  * - `refusal` is a go-to the room could not answer: the menu of the face that asked when one stands
  *   for it, and the alert otherwise (`showGoToRefusal`).
  * - `error` is the room's own word about the session, and nothing on screen is about it: it is the
- *   alert's, the one home for a failure with no control to sit beside (design §6.1).
+ *   alert's, the one home for a failure with no control to sit beside.
  */
 function statusRoute(topic: StatusTopic): 'role' | 'refusal' | 'error' | undefined {
   switch (topic) {

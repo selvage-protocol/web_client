@@ -383,7 +383,7 @@ check('the drop raises the reconnecting notice', reconnecting);
 // page with no DOM cannot be driven here.
 check(
   'the page shows the reconnecting sentence for that notice',
-  /case 'reconnecting':[\s\S]{0,200}sessionNote\.dropped\(RECONNECTING_NOTE\)/.test(
+  /case 'reconnecting':[\s\S]{0,300}sessionCard\.dropped\(RECONNECTING_NOTE\)/.test(
     readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8'),
   ),
 );

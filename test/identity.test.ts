@@ -14,9 +14,9 @@
  * whole monogram was clipped away, leaving nothing but its background plate.
  *
  * The one test that reads the `site` checkout beside this one skips, with the
- * reason, where there is no such checkout — a single-repository CI job, or a
- * copy of this repository standing on its own. Everything else here needs this
- * checkout alone and runs everywhere.
+ * reason, where there is no such checkout. Public CI checks out both repositories
+ * and sets REQUIRE_SITE_IDENTITY=1 so a missing sibling fails instead of skipping.
+ * Everything else here needs this checkout alone and runs everywhere.
  */
 
 import { describe, it } from 'node:test';
@@ -60,6 +60,9 @@ function siblingSite(): string | undefined {
 }
 
 const site = siblingSite();
+if (process.env.REQUIRE_SITE_IDENTITY === '1' && site === undefined) {
+  throw new Error('REQUIRE_SITE_IDENTITY=1 needs a site checkout beside web_client');
+}
 /** Why the byte-for-byte comparison cannot run here, or `false` where it can. */
 const noSibling =
   site === undefined &&
@@ -120,7 +123,7 @@ describe('identity', () => {
     // (see test/join-paint.test.ts for the first-frame side).
     const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
     // The mark carries the brand and the words beside it carry the one fact the bar has about
-    // *which* session this is: whose room, or whose folder is exposed (design §3.1). A `Selvage`
+    // *which* session this is: whose room, or whose folder is exposed. A `Selvage`
     // wordmark in this span would be the brand twice and the fact never.
     assert.match(
       html,

@@ -94,8 +94,8 @@ export type MoveResult =
  * What a row's own work can say while it runs and when it fails.
  *
  * The row is where the person's finger is, so it is where the answer belongs: a progress state in
- * the action's own place, and a line under the row for a sentence that has to stand (design: "a
- * failed action beside its own control"). A toast is for failures with no control on screen.
+ * the action's own place, and a line under the row for a persistent failure beside its control.
+ * A toast is for failures with no control on screen.
  */
 export interface RowFeedback {
   /** Puts the row's action into its busy state, with the tooltip it wears. */
@@ -443,7 +443,7 @@ export class GrantTreeView {
       empty.className = 'empty';
       // An empty room reads differently to the two people looking at it: a guest is waiting on the
       // host, and a host is the one who can fill it. The host's line is the short one now — the
-      // editor pane beside it carries the explanation and the two acts (design §7.2), and the two
+      // editor pane beside it carries the explanation and the two acts, and the two
       // verbs in this panel's own footer bar are the act the line would otherwise describe.
       empty.textContent = this.canCreate()
         ? 'Nothing here yet.'

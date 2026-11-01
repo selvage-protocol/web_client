@@ -944,7 +944,7 @@ describe('asking for the folder', () => {
 
   it('tells a dismissed prompt apart from a refused one', async () => {
     // A dismissed prompt is not a refusal: the person changed their mind, and the card is simply
-    // as it was — there is no sentence for it to show (design §7.1).
+    // as it was — there is no failure to report when the person cancels.
     const cancelled = await pickFolder(async () => {
       throw domError('AbortError');
     });

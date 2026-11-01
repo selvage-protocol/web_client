@@ -164,7 +164,7 @@ export type FolderPick =
   /**
    * The person dismissed the prompt. It is its own outcome rather than a refusal with a sentence:
    * choosing not to share a folder is not a mistake to be told about, and a card that wrote a red
-   * line for it made a decision look like a failure (design §7.1). The card is simply as it was.
+   * line for it would make a decision look like a failure. The card is simply as it was.
    */
   | { kind: 'cancelled' }
   | { kind: 'refused'; cause: FolderPickRefusal; sentence: string };

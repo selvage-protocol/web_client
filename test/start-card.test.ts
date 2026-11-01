@@ -187,7 +187,7 @@ describe('the join card: what a person who followed a link reads', () => {
   it('offers hosting as one quiet line, and the start card it opens is where the decision is made', () => {
     // Both intents are offered it: the read `/meta` answers is not skipped because the address
     // carried a link, so a guest holding one can still start a room. On that card it is one quiet
-    // line — design §7.1 — and the start card the line opens is where the decision to host is
+    // line, and the start card the line opens is where the decision to host is
     // actually made. The card says nothing there beyond the action itself.
     const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
     assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');

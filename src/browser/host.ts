@@ -9,10 +9,9 @@
  * in `sessionStorage` (the tab's own memory, gone with the tab) so the next load of this page
  * can say what happened rather than quietly offering a card.
  *
- * Reclaiming is the other honest option and it is not built: it needs the handle kept in
- * IndexedDB, a *Resume hosting* click inside the grace, and a permission re-prompt, which is
- * the first thing the study would cut (`ai_notes/docs/studies/browser-hosted-rooms.md` §9). What
- * is left is honest instead of silent: the load after a reload says what the reload cost.
+ * Hosting cannot resume after reload: the folder handle is not persisted, and restoring it
+ * would require another user gesture and a permission check before the reconnect grace expires.
+ * The next load reports that hosting ended rather than silently joining as a guest.
  *
  * Reading a room's *version* is not part of this: there is one wire, every client speaks it, and
  * a page that can mint does.

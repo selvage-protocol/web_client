@@ -94,7 +94,8 @@ function selvagedBinary() {
  * and the profile under `.tmp/` is what keeps runs apart.
  */
 async function launch(name, { width = 1280, height = 900 } = {}) {
-  const profile = `${relative(ROOT, resolve(SHOTS, 'profiles', name))}-${Date.now()}`;
+  const profileBase = process.env['SELVAGE_CHROMIUM_PROFILE'] ?? relative(ROOT, resolve(SHOTS, 'profiles', name));
+  const profile = `${profileBase}-${name}-${Date.now()}`;
   mkdirSync(resolve(ROOT, profile), { recursive: true });
   // Chromium puts its process-singleton socket under `TMPDIR`, and the path it hands the kernel is
   // bounded at about 108 bytes: the browser's `TMPDIR` is relative and it is spawned with the

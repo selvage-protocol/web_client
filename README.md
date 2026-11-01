@@ -33,6 +33,26 @@ TypeScript, and `npm run test:ci` is the suite CI gates on — `node --test` ove
 `test/*.test.ts` files. The plain `npm test` hands `node --test` the directory instead, so run
 `test:ci` when what you want is what CI runs.
 
+The [public contract workflow](.github/workflows/public-contracts.yml) compares this candidate's
+engine, bridge, CRDT pins, and release guard with their public canonical sources. It records the
+exact Git revisions. Its scheduled/manual integration job builds a fresh public server, requires
+the sibling site's mark comparison, and runs the live adapter and rendered-page proofs on loopback.
+These are automated tests, not evidence of human acceptance. Reproduce the live proofs with:
+
+```sh
+SELVAGE_SELVAGED=/absolute/path/to/selvaged SELVAGE_CHROMIUM=/absolute/path/to/chromium \
+  scripts/ci-local.sh integration
+```
+
+Run `npm ci` and `npm run build` first. Evidence is written to `.tmp/live-proofs/`; remove that
+closed-out directory before another run. Missing tools, failed readiness, and timeouts fail the
+job. Copy comparisons use the specification's public
+[workspace checker](https://github.com/selvage-protocol/specification/blob/main/docs/workspace-contracts.md),
+which also has an explicit-revision local invocation. Publish canonical updates before synchronized
+consumers, following its
+[publication order](https://github.com/selvage-protocol/specification/blob/main/docs/workspace-contracts.md#publication-order);
+a workflow file alone does not establish that the replacement public jobs ran.
+
 ## Settings and identity
 
 There is no account: the name typed on the card is all the room knows a person by, and the page keeps
