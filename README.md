@@ -44,9 +44,12 @@ SELVAGE_SELVAGED=/absolute/path/to/selvaged SELVAGE_CHROMIUM=/absolute/path/to/c
   scripts/ci-local.sh integration
 ```
 
-Run `npm ci` and `npm run build` first. Evidence is written to `.tmp/live-proofs/`; remove that
-closed-out directory before another run. Missing tools, failed readiness, and timeouts fail the
-job. Copy comparisons use the specification's public
+Run `npm ci` and `npm run build` first. Evidence is written to `.tmp/live-proofs/`. Before a
+repeat run, confirm the prior run has ended and rename that directory to a new, unused archive
+name under `.tmp/` (for example, `live-proofs-20261101T120000Z`). Retain the archive; do not delete
+or overwrite earlier evidence. The harness refuses an existing evidence directory rather than
+mixing runs. Missing tools, failed readiness, timeouts, and cleanup errors other than an already
+removed browser profile fail the job. Copy comparisons use the specification's public
 [workspace checker](https://github.com/selvage-protocol/specification/blob/main/docs/workspace-contracts.md),
 which also has an explicit-revision local invocation. Publish canonical updates before synchronized
 consumers, following its

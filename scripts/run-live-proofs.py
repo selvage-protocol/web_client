@@ -73,12 +73,22 @@ def wait_for_server(process, evidence, timeout=15):
     raise RuntimeError(f"selvaged did not become ready on loopback in {timeout}s")
 
 
+def remove_profile(profile):
+    def onerror(function, path, error):
+        if not isinstance(error[1], FileNotFoundError):
+            raise error[1]
+
+    # Some browser proofs remove their own TMPDIR before the supervisor does.
+    shutil.rmtree(profile, onerror=onerror)
+
+
 def main():
     binary = Path(os.environ["SELVAGE_SELVAGED"]).resolve(strict=True)
     browser = Path(os.environ["SELVAGE_CHROMIUM"]).resolve(strict=True)
     evidence = ROOT / ".tmp" / "live-proofs"
     evidence.mkdir(parents=True, exist_ok=False)
     failures = []
+    completed = False
     try:
         for proof in ["prove", "prove:fb2", "prove:flow2", "prove:v2", "prove:ghost"]:
             name = proof.replace(":", "-")
@@ -106,9 +116,16 @@ def main():
                 failures.append({"proof": proof, "error": str(error)})
                 print(f"FAILED {proof}: {error}", file=sys.stderr, flush=True)
             finally:
-                shutil.rmtree(profile)
+                try:
+                    remove_profile(profile)
+                except Exception as error:
+                    failures.append({"proof": proof, "cleanup_error": str(error)})
+                    print(f"FAILED {proof} cleanup: {error}", file=sys.stderr, flush=True)
+        completed = True
     finally:
-        (evidence / "result.json").write_text(json.dumps({"failures": failures}, indent=2) + "\n")
+        (evidence / "result.json").write_text(json.dumps({
+            "completed": completed, "failures": failures,
+        }, indent=2) + "\n")
     return int(bool(failures))
 
 

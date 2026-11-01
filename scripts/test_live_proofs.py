@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "live_proofs", Path(__file__).with_name("run-live-proofs.py"),
@@ -37,10 +38,18 @@ class LiveProofSupervisorTests(unittest.TestCase):
             live.run_bounded(self.command("raise SystemExit(7)"), self.evidence)
         self.assertIn("error", json.loads(self.evidence.with_suffix(".json").read_text()))
 
-    def test_timeout_kills_the_leader(self):
+    def test_timeout_kills_the_leader_and_descendant(self):
+        pid_file = self.root / "descendant.pid"
+        source = (
+            "import pathlib, subprocess, sys, time; "
+            "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+            f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid)); "
+            "time.sleep(60)"
+        )
         with self.assertRaisesRegex(RuntimeError, "exceeded"):
-            live.run_bounded(self.command("import time; time.sleep(60)"), self.evidence, timeout=0.1)
+            live.run_bounded(self.command(source), self.evidence, timeout=1)
         self.assertIn("exceeded", self.evidence.with_suffix(".json").read_text())
+        self.assert_process_stopped(int(pid_file.read_text()))
 
     def test_children_are_killed_even_after_leader_exits(self):
         source = (
@@ -49,7 +58,9 @@ class LiveProofSupervisorTests(unittest.TestCase):
             "print(p.pid)"
         )
         live.run_bounded(self.command(source), self.evidence)
-        pid = int(self.evidence.with_suffix(".stdout.log").read_text())
+        self.assert_process_stopped(int(self.evidence.with_suffix(".stdout.log").read_text()))
+
+    def assert_process_stopped(self, pid):
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
             path = Path(f"/proc/{pid}/stat")
@@ -57,6 +68,21 @@ class LiveProofSupervisorTests(unittest.TestCase):
                 return
             time.sleep(0.02)
         self.fail(f"child {pid} survived cleanup")
+
+    def test_profile_cleanup_accepts_prior_removal(self):
+        profile = self.root / "profile"
+        profile.mkdir()
+        live.remove_profile(profile)
+        live.remove_profile(profile)
+        self.assertFalse(profile.exists())
+
+    def test_profile_cleanup_refuses_permission_and_other_errors(self):
+        for error in (PermissionError("denied"), OSError("broken filesystem")):
+            def fail_cleanup(path, onerror):
+                onerror(None, path, (type(error), error, None))
+            with self.subTest(error=error), patch.object(live.shutil, "rmtree", fail_cleanup):
+                with self.assertRaises(type(error)):
+                    live.remove_profile(self.root / "profile")
 
     def test_server_startup_is_bounded_and_reaped(self):
         with live.managed_process(self.command("import time; time.sleep(60)"), self.evidence) as process:
