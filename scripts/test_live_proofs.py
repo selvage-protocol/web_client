@@ -88,6 +88,15 @@ class LiveProofSupervisorTests(unittest.TestCase):
                     live.remove_profile(self.root / "profile")
 
     def test_sigterm_records_interruption_and_kills_both_groups(self):
+        self.check_supervisor_termination("midproof")
+
+    def test_first_sigterm_before_cleanup_still_kills_descendant(self):
+        self.check_supervisor_termination("cleanup")
+
+    def test_first_sigterm_during_receipt_write_publishes_incomplete_receipt(self):
+        self.check_supervisor_termination("receipt")
+
+    def check_supervisor_termination(self, injection):
         server = self.root / "server"
         server_pid = self.root / "server.pid"
         proof_pids = self.root / "proof.json"
@@ -106,12 +115,13 @@ server.serve_forever()
 """)
         server.chmod(0o755)
         npm = self.root / "npm"
+        sleep_seconds = 60 if injection == "midproof" else 0
         npm.write_text(f"#!{sys.executable}\n" + f"""
 from pathlib import Path
 import json, os, subprocess, sys, time
 child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
 Path({str(proof_pids)!r}).write_text(json.dumps([os.getpid(), child.pid]))
-time.sleep(60)
+time.sleep({sleep_seconds})
 """)
         npm.chmod(0o755)
         wrapper = f"""
@@ -120,6 +130,27 @@ spec = importlib.util.spec_from_file_location('live', {str(Path(live.__file__).r
 live = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(live)
 live.ROOT = pathlib.Path({str(self.root)!r})
+injection = {injection!r}
+if injection == 'cleanup':
+    killpg = live.os.killpg
+    injected = False
+    def interrupt_cleanup(pid, signum):
+        global injected
+        if not injected:
+            injected = True
+            live.os.kill(live.os.getpid(), live.signal.SIGTERM)
+        return killpg(pid, signum)
+    live.os.killpg = interrupt_cleanup
+elif injection == 'receipt':
+    write_text = pathlib.Path.write_text
+    injected = False
+    def interrupt_write(path, *args, **kwargs):
+        global injected
+        if not injected and path.name in ('.result.json.tmp', 'result.json'):
+            injected = True
+            live.os.kill(live.os.getpid(), live.signal.SIGTERM)
+        return write_text(path, *args, **kwargs)
+    pathlib.Path.write_text = interrupt_write
 sys.exit(live.main())
 """
         env = {**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
@@ -140,7 +171,8 @@ sys.exit(live.main())
                     time.sleep(0.02)
                 self.assertEqual(len(pids), 2, "proof and descendant never started")
                 pids.insert(0, int(server_pid.read_text()))
-                supervisor.send_signal(signal.SIGTERM)
+                if injection == "midproof":
+                    supervisor.send_signal(signal.SIGTERM)
                 self.assertEqual(supervisor.wait(timeout=10), 128 + signal.SIGTERM)
                 for pid in pids:
                     self.assert_process_stopped(pid)
@@ -148,7 +180,8 @@ sys.exit(live.main())
                 self.assertFalse(result["completed"])
                 self.assertEqual(result["interruption"], {"signal": signal.SIGTERM, "name": "SIGTERM"})
                 proof = json.loads((self.root / ".tmp/live-proofs/prove.json").read_text())
-                self.assertIn("SIGTERM", proof["error"])
+                if injection != "receipt":
+                    self.assertIn("SIGTERM", proof["error"])
                 self.assertFalse(list((self.root / ".tmp").glob("live-profile-*")))
             finally:
                 if supervisor.poll() is None:

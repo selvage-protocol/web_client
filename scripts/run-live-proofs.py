@@ -16,6 +16,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parent.parent
+_interrupted_signal = None
 
 
 class ProofInterrupted(BaseException):
@@ -24,41 +25,48 @@ class ProofInterrupted(BaseException):
         super().__init__(f"interrupted by {signal.Signals(signum).name}")
 
 
+def check_interruption():
+    if _interrupted_signal is not None:
+        raise ProofInterrupted(_interrupted_signal)
+
+
 @contextmanager
 def managed_process(command, evidence, env=None, cwd=ROOT):
     """Own a process group even if its leader exits before its children."""
     with evidence.with_suffix(".stdout.log").open("wb") as stdout, \
             evidence.with_suffix(".stderr.log").open("wb") as stderr:
-        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+        process = subprocess.Popen(
+            command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
+            start_new_session=True,
+        )
         try:
-            process = subprocess.Popen(
-                command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
-                start_new_session=True,
-                preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask),
-            )
-            try:
-                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-                yield process
-            finally:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait(timeout=5)
+            check_interruption()
+            yield process
         finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=5)
 
 
 def run_bounded(command, evidence, env=None, timeout=180, cwd=ROOT):
     result = {"command": command, "timeout_seconds": timeout}
     try:
         with managed_process(command, evidence, env, cwd) as process:
-            try:
-                result["returncode"] = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                raise RuntimeError(f"{command} exceeded {timeout}s") from None
+            deadline = time.monotonic() + timeout
+            while True:
+                check_interruption()
+                try:
+                    result["returncode"] = process.wait(timeout=min(0.1, max(0, deadline - time.monotonic())))
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(f"{command} exceeded {timeout}s") from None
+            check_interruption()
             if result["returncode"] != 0:
                 raise RuntimeError(f"{command} exited {result['returncode']}")
+        check_interruption()
     except BaseException as error:
         result["error"] = str(error)
         raise
@@ -69,6 +77,7 @@ def run_bounded(command, evidence, env=None, timeout=180, cwd=ROOT):
 def wait_for_server(process, evidence, timeout=15):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        check_interruption()
         if process.poll() is not None:
             raise RuntimeError(f"selvaged exited {process.returncode} before readiness")
         output = evidence.with_suffix(".stdout.log").read_text(errors="replace")
@@ -94,7 +103,26 @@ def remove_profile(profile):
     shutil.rmtree(profile, onerror=onerror)
 
 
+def publish_result(evidence, completed, failures):
+    # Re-stage if termination arrives during I/O; publish only a whole, current receipt.
+    staged = evidence / ".result.json.tmp"
+    while True:
+        signum = _interrupted_signal
+        interruption = None if signum is None else {"signal": signum, "name": signal.Signals(signum).name}
+        staged.write_text(json.dumps({
+            "completed": completed and interruption is None,
+            "failures": failures, "interruption": interruption,
+        }, indent=2) + "\n")
+        if signum != _interrupted_signal:
+            continue
+        staged.replace(evidence / "result.json")
+        if signum == _interrupted_signal:
+            return interruption
+
+
 def main():
+    global _interrupted_signal
+    _interrupted_signal = None
     binary = Path(os.environ["SELVAGE_SELVAGED"]).resolve(strict=True)
     browser = Path(os.environ["SELVAGE_CHROMIUM"]).resolve(strict=True)
     evidence = ROOT / ".tmp" / "live-proofs"
@@ -105,18 +133,17 @@ def main():
     termination_signals = (signal.SIGTERM, signal.SIGINT)
     previous_handlers = {signum: signal.getsignal(signum) for signum in termination_signals}
 
+    # Raising in a signal handler could bypass cleanup or interrupt the receipt itself.
     def interrupt(signum, frame):
-        nonlocal interruption
-        interruption = {"signal": signum, "name": signal.Signals(signum).name}
-        # A second termination request must not interrupt bounded cleanup of the first.
-        for termination_signal in termination_signals:
-            signal.signal(termination_signal, signal.SIG_IGN)
-        raise ProofInterrupted(signum)
+        global _interrupted_signal
+        if _interrupted_signal is None:
+            _interrupted_signal = signum
 
     for signum in termination_signals:
         signal.signal(signum, interrupt)
     try:
         for proof in ["prove", "prove:fb2", "prove:flow2", "prove:v2", "prove:ghost"]:
+            check_interruption()
             name = proof.replace(":", "-")
             profile = Path(tempfile.mkdtemp(prefix="live-profile-", dir=ROOT / ".tmp"))
             env = {
@@ -147,16 +174,13 @@ def main():
                 except Exception as error:
                     failures.append({"proof": proof, "cleanup_error": str(error)})
                     print(f"FAILED {proof} cleanup: {error}", file=sys.stderr, flush=True)
-            if interruption is not None:
-                break
-        completed = interruption is None
+            check_interruption()
+        completed = True
     except ProofInterrupted as error:
         print(str(error), file=sys.stderr, flush=True)
     finally:
         try:
-            (evidence / "result.json").write_text(json.dumps({
-                "completed": completed, "failures": failures, "interruption": interruption,
-            }, indent=2) + "\n")
+            interruption = publish_result(evidence, completed, failures)
         finally:
             for signum, handler in previous_handlers.items():
                 signal.signal(signum, handler)
