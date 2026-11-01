@@ -9,11 +9,6 @@ Firefox or Safari, and a page can only host where the server that serves it also
 
 The page is feature-frozen at what works: joining, hosting from a folder, the mirror and the
 participants view.
-[The recording](docs/images/selvage-demo.mp4) is one run of the demo:
-`reference_server/scripts/demo/demo.sh` starts a server, this client, a second client, a browser
-page and an agent in one room. It is one command, and `reference_server/docs/demo.md` says
-what it starts.
-
 
 ## Get it working
 
