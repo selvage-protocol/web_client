@@ -7,9 +7,6 @@ shares, with the host's working copy staying the source of truth. Joining is one
 browser; hosting from the page needs the File System Access API, so it is Chrome and Edge and not
 Firefox or Safari, and a page can only host where the server that serves it also answers `/meta`.
 
-The page is feature-frozen at what works: joining, hosting from a folder, the mirror and the
-participants view.
-
 ## Get it working
 
 You need Node 22.18 or newer, and a running `selvaged` server the page can reach.
