@@ -28,7 +28,7 @@
     "serve": "python3 -m http.server 8081 --directory dist"
   },
   "dependencies": {
-    "lib0": "0.2.119",
+    "lib0": "0.2.120",
     "monaco-editor": "0.57.0",
     "y-protocols": "1.0.7",
     "yjs": "13.6.33"
