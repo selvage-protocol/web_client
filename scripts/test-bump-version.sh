@@ -304,7 +304,7 @@ case "$out" in
 esac
 
 say "the repository's own reproduction check passes on the bumped tree"
-check_reproduces() {  # check_reproduces <label>
+check_reproduces() {  # check_reproduces <label> [status]
     local committed
     committed="$(mktemp -d "$work/committed.XXXXXX")"
     cp -r "$tree/dist" "$committed/dist"
@@ -315,7 +315,7 @@ check_reproduces() {  # check_reproduces <label>
     fi
     TMPDIR="$work/tmp" "$tree/scripts/check-dist.sh" "$committed/dist" "$tree/dist" ||
         fail "$1: a build does not reproduce the committed dist/"
-    expect_status "$1" "$expected_bump"
+    expect_status "$1" "${2:-$expected_bump}"
 }
 check_reproduces "after the patch bump"
 
@@ -337,6 +337,20 @@ grep -qE "web_client/$want_patch([^0-9.]|\$)" "$tree/src/browser/client-id.ts" |
 grep -qE "web_client/$want_patch([^0-9.]|\$)" "$tree/dist/app.js" ||
     fail "the seed did not put the bundle behind, so this case proves nothing"
 
+# The bundle's map is generated beside it from the same build, and a mapping names a
+# source column: a repair that makes the identity a character longer than the one the
+# clone carries (0.6.7 -> 0.6.10) shifts the literal and moves the map with the bundle,
+# while a repair of the same length leaves it where it was. The map is asserted here
+# rather than dropped from the file set, so a run that moved it for any other reason
+# still fails.
+repair_status=" M dist/app.js"
+[ "${#want_repair}" -eq "${#current}" ] || repair_status="$repair_status
+ M dist/app.js.map"
+repair_status="$repair_status
+ M package-lock.json
+ M package.json
+ M src/browser/client-id.ts"
+
 run patch --dry-run
 expect_last "the dry run over the files that are behind" "$want_repair"
 grep -qE "web_client/$want_patch([^0-9.]|\$)" "$tree/src/browser/client-id.ts" ||
@@ -344,7 +358,7 @@ grep -qE "web_client/$want_patch([^0-9.]|\$)" "$tree/src/browser/client-id.ts" |
 
 run patch
 expect_last "the repair" "$want_repair"
-expect_status "after the repair" "$expected_bump"
+expect_status "after the repair" "$repair_status"
 for file in src/browser/client-id.ts dist/app.js; do
     expect_named "the repair" "$file"
 done
@@ -352,7 +366,7 @@ grep -qE "web_client/${want_repair//./\\.}([^0-9.]|\$)" "$tree/src/browser/clien
     fail "the identity source was not repaired"
 grep -qE "web_client/${want_repair//./\\.}([^0-9.]|\$)" "$tree/dist/app.js" ||
     fail "the bundle was not repaired"
-check_reproduces "after the repair"
+check_reproduces "after the repair" "$repair_status"
 
 say "a run that fails once it has written leaves the tree as it found it"
 # The failure is a build that cannot run at all: `npm run build` empties `dist/` and
@@ -376,11 +390,11 @@ grep -qE "web_client/${want_repair//./\\.}([^0-9.]|\$)" "$tree/src/browser/clien
     fail "a failed run left the identity source at the version it was moving to"
 cmp "$work/app.before-the-failure.js" "$tree/dist/app.js" ||
     fail "a failed run did not put the bundle back: it is not the bundle the tree started with"
-expect_status "after a run that failed mid-build" "$expected_bump
+expect_status "after a run that failed mid-build" "$repair_status
  M src/browser/main.ts"
 
 cp "$work/main.ts" "$tree/src/browser/main.ts"
-expect_status "after putting the entry point back" "$expected_bump"
+expect_status "after putting the entry point back" "$repair_status"
 printf 'the tree is as it was, and the version files still name %s\n' "$want_repair"
 
 say "the image's release identity: only a release moves latest"
