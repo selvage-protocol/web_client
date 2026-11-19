@@ -88,10 +88,9 @@ describe('a link', () => {
 });
 
 describe('the page the bundle built', () => {
-  it('joins with the link it was handed, and hosts only after walking the folder', () => {
-    // One wire, so no path chooses an engine: the join hands the engine its link, and the host
-    // walks the folder first because `§7.1` seals the room state from the listing — a host that
-    // minted first would put an empty tree in front of its first guest.
+  it('joins with the link it was handed, and mints nothing of its own', () => {
+    // One wire, so no path chooses an engine: the join hands the engine its link, and the page
+    // never runs a relay of its own — a room is started in the host's client (`host-run-relay.md`).
     const join = /async function join\(held: HeldJoin\)[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
     assert.ok(join !== '', 'the page has no join to read');
     assert.match(
@@ -103,22 +102,14 @@ describe('the page the bundle built', () => {
       !/SelvageEngine|CLIENT_OPTIONS|wireVersionOf|hostDecision/.test(main),
       'the page still decides a wire version somewhere',
     );
-
-    const hosting = /async function host\(folder: FolderWorkingCopy[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
-    assert.ok(hosting !== '', 'the page has no host to read');
-    assert.match(
-      hosting,
-      /listingSource\(await folder\.list\(\)\)[\s\S]*?await hostRoom\(base, displayName, listing\)/,
-      'the mint no longer follows the folder walk',
-    );
+    assert.ok(!/hostRoom\s*\(/.test(main), 'the page mints a room of its own');
   });
 
-  it('asks the folder picker before anything that could await', () => {
-    // `showDirectoryPicker` is answered only under the click's own transient activation, which a
-    // round trip can spend: the picker comes first in the one place the host path begins.
-    const attempt = /async function attemptHost\(\)[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
-    assert.ok(attempt.includes('await pickFolder(folderPicker)'), 'the picker is not asked at all');
-    assert.ok(!attempt.includes('readMeta'), 'a /meta read stands before the picker');
+  it('never asks for a folder', () => {
+    // `showDirectoryPicker` was the one way into a room started here, and the relay is not the
+    // page's: no picker, no `/meta` read and no mint are left in the entry.
+    assert.ok(!/pickFolder|folderPickerOf|readServerMeta/.test(main), 'the page still asks for a folder');
+    assert.match(main, /^showHosting\(\);$/m, 'the card is never told what it offers');
   });
 
   it('holds the engine a session was seated on, instead of only passing it around', () => {

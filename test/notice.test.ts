@@ -433,10 +433,10 @@ describe('the host’s own listing cut', () => {
   it('is said from every walk this page makes, and nowhere the wire can read it', () => {
     // A listing short of its folder is a fact about the host's disk, and the host is the one who can
     // act on it: the guest is told nothing new, because a short listing is a listing like any other
-    // and no frame carries a cut. So the words live in the page's own module, and the three walks
-    // this page makes its own — the mint, a removal or a move, and a create — each say them.
+    // and no frame carries a cut. So the words live in the page's own module, and the two walks
+    // this page makes its own — a removal or a move, and a create — each say them.
     const said = main.match(/sayListingCut\(folder\)/g) ?? [];
-    assert.equal(said.length, 3, 'a walk this page makes does not say its cut');
+    assert.equal(said.length, 2, 'a walk this page makes does not say its cut');
     assert.match(main, /wireListingCutNotice\(failureAlert\)/, 'the cut has no line to stand on');
     assert.match(
       main,

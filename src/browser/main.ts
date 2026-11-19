@@ -1,7 +1,7 @@
 import { sessionBase, sessionUrl } from '../engine/index.ts';
 import type { SessionBase } from '../engine/index.ts';
 import type { RoomEngine } from './relay.ts';
-import { hostRoom, joinRoom, listingSource } from './relay.ts';
+import { joinRoom } from './relay.ts';
 import type { SessionInfo } from '../engine/index.ts';
 import type * as monacoTypes from 'monaco-editor';
 import { MonacoBinding } from './editor.ts';
@@ -15,7 +15,7 @@ import {
   pageQueryParams,
   persistJoinUrl,
 } from './share.ts';
-import { MAX_DISPLAY_NAME_UNITS, INCOMPLETE_INVITE_SENTENCE, fragmentOf, inviteShortfall } from './join.ts';
+import { MAX_DISPLAY_NAME_UNITS, INCOMPLETE_INVITE_SENTENCE, inviteShortfall } from './join.ts';
 import type { monaco as monacoApi } from './monaco.ts';
 import {
   cardIntentOf,
@@ -29,7 +29,6 @@ import {
   saveDisplayName,
   showJoinFailure,
   showNameFailure,
-  showCardIntent,
   showStartAgain,
   validateDisplayName,
 } from './join.ts';
@@ -37,22 +36,11 @@ import type { CardIntent, JoinCardElements, JoinTarget } from './join.ts';
 import type { GuardableOpenerService } from './links.ts';
 import { registerLinkGuard } from './links.ts';
 import { iconSpan, labelSpan } from './icons.ts';
-import {
-  FolderWorkingCopy,
-  folderPickerOf,
-  pickFolder,
-} from './folder.ts';
+import type { FolderWorkingCopy } from './folder.ts';
 import type { FolderMove, FolderRemove, NewEntryKind } from './folder.ts';
 import { createInFolder, listingNotPublishedSentence } from './new-entry.ts';
 import type { CreateOutcome } from './new-entry.ts';
-import {
-  clearHostingMark,
-  hostAvailability,
-  markHosting,
-  takeHostingNotice,
-} from './host.ts';
-import { META_REREAD_TIMEOUT_MS, readServerMeta } from './meta-read.ts';
-import type { ServerRead } from './meta-read.ts';
+import { hostAvailability, HOST_RUNS_IN_A_CLIENT } from './host.ts';
 import { downloadDocument } from './download.ts';
 import type { DownloadSink } from './download.ts';
 import { GrantTreeView } from './tree-view.ts';
@@ -226,7 +214,6 @@ const leaveCancel = document.getElementById('leave-cancel') as HTMLButtonElement
 const leaveAnyway = document.getElementById('leave-anyway') as HTMLButtonElement;
 const hostWrap = document.getElementById('host-wrap') as HTMLElement;
 const hostButton = document.getElementById('host-button') as HTMLButtonElement;
-const hostQuiet = document.getElementById('host-quiet') as HTMLButtonElement;
 const hostNote = document.getElementById('host-note') as HTMLElement;
 const workspacePane = document.getElementById('workspace') as HTMLElement;
 const editorHost = document.getElementById('editor') as HTMLElement;
@@ -414,9 +401,6 @@ const params = pageQueryParams(window.location.search);
 // only if they turn out to have a link. A room the address bar named that is now gone
 // leaves the card in the join shape anyway (`leaveSession`): a fresh link is the way in.
 let cardIntent: CardIntent = cardIntentOf(params);
-/** The `/meta` read the card's host action was offered on, so the swap repaints from it rather than
- * asking the page's own origin a second time (`showHosting`). */
-let lastServerRead: ServerRead | undefined;
 // The address bar's invite is the way in until the room it names is over.
 let linkIsTheInvite = cardIntent === 'join';
 // The card shell is inline HTML, so it paints before this bundle arrives: wire only the intent
@@ -430,17 +414,10 @@ initJoinCard(
 );
 reportIncompleteInvite();
 settleFocusWhenReady(nameInput);
-/** This browser's directory picker, if it has one: what a browser host needs and what a
- * Firefox or Safari page does not have. Read once, because it cannot change under a load. */
-const folderPicker = folderPickerOf(window);
-// A reload of a host tab is a room that ended. The mark is the tab's own memory, taken here
-// once so the card says what the reload cost instead of looking like the page before it.
-const hostingNotice = takeHostingNotice(window.sessionStorage);
-if (hostingNotice !== undefined) {
-  joinMessage.textContent = hostingNotice;
-  joinMessage.hidden = false;
-}
-void offerHosting();
+// The card is told what it offers: nothing, and the sentence that says where the relay runs
+// instead (`host.ts`). A guest's card is not told: it came to join, and the sentence is about an
+// action it was never offered.
+showHosting();
 
 /**
  * A damaged invite is reported when the page loads, not after a name is typed and Join pressed.
@@ -517,8 +494,6 @@ const openDirs = new Set<string>();
 let renderedPath: string | undefined;
 /** The room's listing as a tree, built on the first notice after a join. */
 let tree: GrantTreeView | undefined;
-/** Whether a host start is running: the picker is a single flight, whatever the button says. */
-let hosting = false;
 /** The folder this tab's room is drawn from, when this tab is the host: what a create writes to. */
 let hostFolder: FolderWorkingCopy | undefined;
 /**
@@ -885,13 +860,13 @@ interface HeldJoin {
 // A submit that landed before this bundle armed the card (the inline guard
 // held it) still joins, once.
 window.__selvageJoinArmed = true;
-// The shell's own line goes with the load it described: the card is this bundle's now, and what
-// belongs there is what the bundle knows — the notice a reload left, or nothing. A submit held
-// before the shell's script ran is settled by that script, which always runs before this one.
+// The shell's own line goes with the load it described: the card is this bundle's now, and there
+// is nothing a load leaves that belongs there. A submit held before the shell's script ran is
+// settled by that script, which always runs before this one.
 if (window.__selvageWaiting === true) {
   window.__selvageWaiting = false;
-  joinMessage.textContent = hostingNotice ?? '';
-  joinMessage.hidden = hostingNotice === undefined;
+  joinMessage.textContent = '';
+  joinMessage.hidden = true;
 }
 if (window.__selvagePendingJoin === true) {
   window.__selvagePendingJoin = false;
@@ -993,13 +968,6 @@ async function runJoin(held: HeldJoin): Promise<void> {
   }
 }
 
-/** What the host button says, before and after an attempt.
- *
- * The trailing ellipsis is the platform's own convention for a control that opens a system dialog
- * (the folder picker) rather than a trailing thought, and the shell carries the same words for the
- * frame before the bundle lands.
- */
-const HOST_BUTTON_LABEL = 'Share a folder…';
 
 /**
  * The editor stack and the shared-text opener guard, both of which a join and a host need
@@ -1195,226 +1163,35 @@ async function join(held: HeldJoin): Promise<void> {
 }
 
 /**
- * Starts a room in this tab, with the folder the person just picked as the working copy.
- *
- * The order matters twice. The listing goes out before anything is seated, so the first guest
- * to arrive finds the room's own listing rather than an empty room that fills in a moment
- * later. And the invite link does *not* go into the address bar: the page persists the link for
- * a guest so a reload rejoins, and for a host that would reload into its own room as a guest
- * with no folder and nothing to serve, while the dead socket's grace ran out underneath it. The
- * link lives in the session bar alone, and the mark in `sessionStorage` is what tells the next
- * load what the reload cost (`host.ts`).
+ * The host action, refused: a browser tab cannot open a listening socket, so the relay runs in the
+ * host's own client (`docs/host-run-relay.md`). The card never offers the control, and this is the
+ * guard for a call that reaches the page anyway — it says the sentence the card says.
  */
-async function host(folder: FolderWorkingCopy, displayName: string): Promise<void> {
-  const base = fallbackBase();
-  if (base === '') {
-    // A page whose own address names no server at all. The card offers no start action there
-    // (`hostAvailability`), so this is the guard for a call that reached the folder picker anyway:
-    // a room minted against no server would be a room nobody could be seated on.
-    throw new Error('This page has no server of its own, so a room cannot be started here.');
-  }
-  lastBase = base;
-  const monaco = await prepareEditor();
-  // A host's listing is what the room's state is sealed from (`§7.1`), so the walk has to come
-  // before the mint: a host that minted first would put an empty room in front of its first guest.
-  const listing = listingSource(await folder.list());
-  sayListingCut(folder);
-  const engine = await hostRoom(base, displayName, listing);
-  const session = engine.session();
-  await seatSession({
-    monaco,
-    engine,
-    session,
-    displayName,
-    shareLink: buildShareLink(
-      base,
-      session.roomId,
-      session.token ?? '',
-      fragmentOf(engine.inviteUrl() ?? ''),
-    ),
-    folder,
-    republish: async (paths) => {
-      listing.replace(paths);
-      await engine.grant(paths);
-    },
-  });
-  markHosting(window.sessionStorage, session.roomId);
-  saveDisplayName(window.localStorage, displayName);
+function attemptHost(): void {
+  hostError.textContent = HOST_RUNS_IN_A_CLIENT;
 }
 
 /**
- * The host action: the name, then the folder, then the room.
+ * Puts the card's one fact about hosting on it: the action is not offered, and the sentence that
+ * says why stands where it would have been.
  *
- * The picker is asked before anything that could await, because it needs the click's own
- * transient user activation: a call made from a timer, a load handler or a promise already in
- * flight is refused rather than prompted.
+ * A guest is told nothing: they came to join, and a refusal is about an action this card never
+ * offered them. On the start card the sentence stands where the action would have been, and the
+ * way in the card does have leads — the invite path opens and Join takes the card's own action.
  */
-async function attemptHost(): Promise<void> {
-  if (hosting) {
-    return;
-  }
-  // One failure stands on the card at a time: the line the other action left goes with this
-  // attempt, and a refusal lands where the thing that is wrong stands — the name at the field,
-  // the folder under the button that asked for it.
-  hostError.textContent = '';
-  joinError.textContent = '';
-  clearNameFailure(nameField);
-  let displayName: string;
-  try {
-    displayName = validateDisplayName(nameInput.value);
-  } catch (error) {
-    // The name is asked for above the button, so the refusal about it stands at the field: under
-    // the button was a line the reader had to find, and it marked nothing.
-    showNameFailure(nameField, describe(error));
-    return;
-  }
-  hosting = true;
-  hostButton.disabled = true;
-  hostButton.textContent = 'Opening…';
-  try {
-    const picked = await pickFolder(folderPicker);
-    if (picked.kind === 'cancelled') {
-      // A dismissed prompt is not a failure: the person changed their mind, and the card is simply
-      // as it was. It is the one refusal the person already knows the answer to, so nothing is said.
-      return;
-    }
-    if (picked.kind === 'refused') {
-      hostError.textContent = picked.sentence;
-      return;
-    }
-    await host(picked.folder, displayName);
-  } catch (error) {
-    // The same plain copy the join path shows (`transport.ts`): a socket that would not come up,
-    // or a handshake that refused, is one situation whichever action opened it — and the
-    // engine's own wording for it ("the WebSocket reported an error") names a mechanism rather
-    // than a next step. The card's own refusals — the name and the folder — pass through it
-    // untouched, because they are already sentences written for this card.
-    const base = lastBase === '' ? fallbackBase() : lastBase;
-    console.error(`[selvage] hosting failed (${joinFailureDetail(error, base)})`);
-    hostError.textContent = describeJoinErrorForDisplay(error, base, params.get('debug') === '1');
-  } finally {
-    hosting = false;
-    hostButton.disabled = false;
-    hostButton.textContent = HOST_BUTTON_LABEL;
-  }
-}
-
-/**
- * Reveals the host action, or the sentence that stands where it would.
- *
- * Two facts decide it, and both are settled before any control is offered: this browser can hand a
- * page a folder, and this page's own origin is a Selvage server. A page that is not the server's
- * own page — the page-only image in front of other servers, a bare `file://` open, a static dev
- * server — gets the sentence instead, because a room started there would have no server to be
- * seated on and its invite would point at an address the room does not live at.
- *
- * A read that did not answer is not the second of those facts. `/meta` is advisory (§2), a deadline
- * that passed says nothing about the origin, and the offer stands with a note saying what was not
- * read; one more ask, given longer, replaces that note with the truth if the server answers after
- * all. Nothing here can take the offer back once a click is being answered.
- *
- * Both intents are offered it. On a bare page starting a room is the card's own action, and on
- * a page an invite named it is the quiet one under the join: a person holding a link is still a
- * person who might want a room of their own, and the action is no more a promise there than it
- * is here.
- */
-async function offerHosting(): Promise<void> {
-  const picker = folderPicker !== undefined;
-  // The card's `/meta` read, and it is not made where no control could use its answer.
-  const base = picker ? pageBase() : undefined;
-  if (base === undefined) {
-    // A page whose own address names no server at all (a `file://` open) has no origin to ask, and
-    // it is not a server's own page either way: no offer, and no sentence about it.
-    showHosting(picker, { kind: 'not-a-server' });
-    return;
-  }
-  const read = await readServerMeta(base);
-  showHosting(picker, read);
-  if (read.kind !== 'no-answer') {
-    return;
-  }
-  // One more ask, with a longer deadline: a server that was cold, a link that stalled or a proxy
-  // that hiccupped has not yet said anything about itself, and the card keeps the offer meanwhile
-  // rather than writing the server off. Only an answer can change the card.
-  const again = await readServerMeta(base, { timeoutMs: META_REREAD_TIMEOUT_MS });
-  if (again.kind !== 'no-answer' && !hosting) {
-    showHosting(picker, again);
-  }
-}
-
-/**
- * Puts one read of the page's own origin on the card: the note beside the action, and whether
- * there is an action at all.
- *
- * The two intents need different emphasis. On the
- * start card the action is the card's own — the button that says what happens next — and on a
- * guest's card hosting is the alternative to the thing the person came for, so it is one quiet
- * line and nothing else: pressing it is what puts the start card in front of them
- * (`swapCardToStart`). A page where hosting is not on offer says why, in one line, wherever the
- * action would have stood — except the page that is not a Selvage server's own, which says nothing
- * and leads with the way in it has (`host.ts`).
- */
-function showHosting(picker: boolean, read: ServerRead): void {
-  lastServerRead = read;
-  const availability = hostAvailability({ picker, read });
-  const offered = availability.kind === 'offered' || availability.kind === 'unchecked';
-  // A guest asked to join, and a page that cannot host has nothing to say to them: a refusal
-  // there would be about an action this card is not offering, on the card of somebody who never
-  // asked for it. The quiet verb goes with it — a press that could only lead to a card with no
-  // action on it is worse than no verb — and what is left is the way in.
+function showHosting(): void {
+  const { note } = hostAvailability();
+  hostButton.hidden = true;
   if (cardIntent === 'join') {
-    hostWrap.hidden = !offered;
-    hostQuiet.hidden = !offered;
-    hostButton.hidden = true;
+    hostWrap.hidden = true;
     hostNote.textContent = '';
     return;
   }
-  hostQuiet.hidden = true;
-  // The offered card says nothing: the action is the whole of it. A state that cannot act stands its
-  // sentence where the action would have been, and the page that is not a Selvage server's own
-  // stands none: the way in it does have is the whole of what it can say.
-  hostNote.textContent =
-    availability.kind === 'offered' || availability.kind === 'silent' ? '' : availability.note;
-  // A state with neither an action nor a sentence takes no room either: the wrap is a hairline and
-  // 34 px of space around whatever it holds, and holding nothing it drew an empty rule under Join.
-  hostWrap.hidden = !offered && hostNote.textContent === '';
-  hostButton.hidden = !offered;
-  // A page that cannot start a room leads with the way in it does have. The invite path opens, and
-  // Join takes the card's own action, because the one thing this card can do is the one thing it
-  // should offer.
-  joinPane.classList.toggle('no-host', !offered);
-  if (!offered) {
-    invitePath.open = true;
-  }
+  hostNote.textContent = note;
+  hostWrap.hidden = false;
+  joinPane.classList.add('no-host');
+  invitePath.open = true;
 }
-
-/**
- * The guest card's one quiet line: the start card, in front of the person.
- *
- * The card the address bar made is a guest's, and this is the other intent it can be — the name is
- * the same field either way, so nothing typed is lost. The invite path is shut as it goes: the join
- * intent opened it itself, the person never did, and the way back is the disclosure it leaves behind
- * (`Have an invite link?`) with the link still in the address bar.
- */
-function swapCardToStart(): void {
-  if (cardIntent === 'start') {
-    return;
-  }
-  cardIntent = 'start';
-  showCardIntent(cardElements(), 'start');
-  invitePath.open = false;
-  if (lastServerRead !== undefined) {
-    showHosting(folderPicker !== undefined, lastServerRead);
-  }
-  // The press hid the control it was made with, so the keyboard goes where the press led: the
-  // start action when this page can offer one, and the name — the one thing the card still asks
-  // for — when the sentence about this page's own origin stands in its place.
-  (hostButton.hidden ? nameInput : hostButton).focus();
-}
-
-hostQuiet.addEventListener('click', () => {
-  swapCardToStart();
-});
 
 /** This page's own origin, read as the session base a room started here would be seated on. */
 function pageBase(): SessionBase | undefined {
@@ -2491,8 +2268,6 @@ function leaveSession(sentence: string): void {
   workspacePane.hidden = true;
   linkIsTheInvite = false;
   cardIntent = 'start';
-  // The room this tab was hosting is over cleanly, so the next load has nothing to explain.
-  clearHostingMark(window.sessionStorage);
   syncStrip();
   showStartAgain(
     {
@@ -2512,9 +2287,7 @@ function leaveSession(sentence: string): void {
     },
     sentence,
   );
-  if (lastServerRead !== undefined) {
-    showHosting(folderPicker !== undefined, lastServerRead);
-  }
+  showHosting();
   // The join gate was left settled by the join that just ended: another join
   // from this card has to start clean.
   joinGate.release();

@@ -411,7 +411,7 @@ describe('the card shell decides the first frame', () => {
     const main = readFileSync(new URL('../src/browser/main.ts', import.meta.url), 'utf8');
     assert.match(
       main,
-      /__selvageWaiting === true[\s\S]{0,200}joinMessage\.hidden = hostingNotice === undefined/,
+      /__selvageWaiting === true[\s\S]{0,200}joinMessage\.hidden = true/,
       "the shell's loading line is never taken off the card",
     );
     assert.match(

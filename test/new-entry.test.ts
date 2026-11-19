@@ -551,12 +551,6 @@ describe('the page the row is drawn in', () => {
     );
     assert.match(MAIN, /await publish\?\.\(paths\)/, 'the create no longer publishes through the session it captured');
     assert.match(MAIN, /await openPath\(created\)/, 'the create no longer opens through the session it captured');
-    // The listing source the room was sealed from moves before the room is told, so a state sealed
-    // from it later cannot carry a listing the folder no longer has.
-    const replaced = MAIN.indexOf('listing.replace(paths)');
-    const granted = MAIN.indexOf('await engine.grant(paths)');
-    assert.ok(replaced > 0 && granted > 0, 'nothing republishes the listing');
-    assert.ok(replaced < granted, 'the room was told before the source the state is sealed from');
   });
 
   it('remembers the empty folders it made, as this session’s own rows', () => {

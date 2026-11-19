@@ -8,7 +8,9 @@ server a browser opens a page on and the server a socket dials are two readings 
 
 The page derives the server from its own address for a link it was opened with, and from the link's
 address for one pasted into a bare open. So a page served from one origin, given an invite naming
-another, talks to the room's server and never to its own. With no link there is no server: the card
+another, talks to the room's server and never to its own. The page never hosts a room, so it never
+has a server of its own to start one on: the invite names it, and the relay is the host's own client
+(see [Host-run relay](host-run-relay.md)). With no link there is no server: the card
 asks for one, and a page served from no server at all (a `file://` open) is told so. An https page
 must never emit a `ws://` or `http://` subrequest, so a link's `ws://` base is dialled as `wss://`
 there. The other shape the page takes is a whole wire invite

@@ -59,9 +59,6 @@ the grace, `The host ended the session.` for a host's leave, and `The session en
 anything else.
 A page has no disk to leave a copy on. Nothing of the dead room stays on screen, the name stays
 typed, and pasting a fresh link joins the next room from there. A guest never claims host and never
-rebuilds a room on its own: the only mint is the one behind the folder picker, and a test pins that
-the guest path never asks for the host role.
-
-A page-hosted room has one more thing to say. The room lives in its tab, so a reload ends it, and
-the load after one says `Reloading ended the room this tab was hosting…` rather than offering a card
-that looks like the last one.
+rebuilds a room on its own: a browser tab cannot open a listening socket, so the card does not offer
+to start a room and says where the relay runs instead (`host.ts`, [Host-run
+relay](host-run-relay.md)). A test pins that the guest path never asks for the host role.

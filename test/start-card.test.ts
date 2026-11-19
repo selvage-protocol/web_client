@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { HOST_NEEDS_A_BROWSER } from '../src/browser/host.ts';
+import { HOST_RUNS_IN_A_CLIENT } from '../src/browser/host.ts';
 import {
   CARD_JOIN_CLASS,
   CARD_START_CLASS,
@@ -119,16 +119,19 @@ describe('the start card: what a person with no invite reads first', () => {
     assert.match(button, /type="button"/, `the start action is a submit button: ${button}`);
   });
 
-  it('gives the start action the primary look, and the join under it the quiet one', () => {
-    assert.match(
-      rule(`#join.${CARD_START_CLASS} #host-button`),
-      /background:\s*var\(--primary\)/,
-      'the start action does not lead the start card',
-    );
+  it('mutes Join for the shell’s first frame, and lets `no-host` make it the action', () => {
+    // The bundle is what settles the card: before it lands, the start variant paints Join as the
+    // quiet way in, and `no-host` — which `showHosting` always sets, because hosting is never on
+    // offer — makes it the card's own action.
     assert.match(
       rule(`#join.${CARD_START_CLASS} #join-button`),
       /background:\s*var\(--muted\)/,
-      'the join still leads the start card',
+      'the join leads the frame the bundle has not settled yet',
+    );
+    assert.match(
+      rule(`#join.no-host #join-button`),
+      /background:\s*var\(--primary\)/,
+      'a card that cannot host does not lead with the way in it has',
     );
   });
 });
@@ -184,21 +187,11 @@ describe('the join card: what a person who followed a link reads', () => {
     assert.equal(wired.inviteWrap.hidden, true, 'the guest is asked to paste the link they followed');
   });
 
-  it('offers hosting as one quiet line, and the start card it opens is where the decision is made', () => {
-    // Both intents are offered it: the read `/meta` answers is not skipped because the address
-    // carried a link, so a guest holding one can still start a room. On that card it is one quiet
-    // line, and the start card the line opens is where the decision to host is
-    // actually made. The card says nothing there beyond the action itself.
-    const offering = sliceBetween(main, 'async function offerHosting', 'function pageBase');
-    assert.ok(!/if \(linkIsTheInvite\)/.test(offering), 'the join card is offered no start action');
-    assert.match(
-      offering,
-      /hostWrap\.hidden = !offered/,
-      'the start action is never revealed on the card that is offered it',
-    );
-    assert.ok(!/scope/.test(offering), 'the offer is worded for a card it is not on');
-    // The line is the guest's; the button keeps the join card's own leading rule.
-    assert.match(html, /id="host-quiet"/, 'the guest card carries no quiet line');
+  it('offers no start action on either intent', () => {
+    // A guest arrived for the join, and hosting is not the page's to offer: the quiet line that
+    // swapped to a start card is gone with the start card it swapped to (`main.ts`, `showHosting`).
+    assert.ok(!html.includes('host-quiet'), 'the guest card carries a quiet offer');
+    assert.ok(!main.includes('swapCardToStart'), 'the bundle still swaps to a start card');
     assert.match(rule('#join-button'), /margin-top/, 'the join button lost its own rule');
     assert.match(
       html,
@@ -209,10 +202,6 @@ describe('the join card: what a person who followed a link reads', () => {
       !new RegExp(`#join\\.${CARD_JOIN_CLASS} #host-button`).test(style),
       'the join card dresses the start action like its own',
     );
-    assert.ok(
-      !new RegExp(`#join\\.${CARD_JOIN_CLASS} #host-quiet`).test(style),
-      'the quiet line is dressed like the join card’s own action',
-    );
   });
 });
 
@@ -220,7 +209,7 @@ describe('the name error stands where the name was asked for', () => {
   it('the name refusal stands at the field, whichever action asked for it', () => {
     // The refusal is a sentence about the name, so it stands at the field: under the button that was
     // pressed, with focus still on the button and the field unmarked, it would read as the button's
-    // own failure. Both actions send it to the field.
+    // own failure. The join is the card's action, and it sends the refusal to the field.
     assert.match(
       main,
       /showNameFailure\(nameField, describe\(error\)\)/,
@@ -228,25 +217,8 @@ describe('the name error stands where the name was asked for', () => {
     );
     assert.equal(
       (main.match(/showNameFailure\(nameField/g) ?? []).length,
-      2,
-      'one of the card\u2019s two actions still reports the name somewhere else',
-    );
-    // It clears the other line \u2014 one failure stands on the card at a time \u2014 and it writes no
-    // failure of its own into either of them.
-    const attempt = sliceBetween(main, 'async function attemptHost', 'async function offerHosting');
-    assert.ok(
-      !/joinError\.textContent = (?!'')/.test(attempt),
-      'the start action still writes its failure into the join path\u2019s error line',
-    );
-    assert.match(
-      attempt,
-      /joinError\.textContent = ''/,
-      'a stale failure under the invite path survives an attempt to start a room',
-    );
-    assert.match(
-      attempt,
-      /clearNameFailure\(nameField\)/,
-      'a stale refusal of the name survives an attempt to start a room',
+      1,
+      'a refused name is reported somewhere other than the field',
     );
     // The field's line is the field's: beside the box it is about, above the invite path, and
     // hidden while it is empty.
@@ -270,13 +242,14 @@ describe('the name error stands where the name was asked for', () => {
     );
   });
 
-  it('the field and the two buttons keep their own lines under their own controls', () => {
-    // The folder and the socket failures have no field to stand at: they keep the button that asked.
-    const attempt = sliceBetween(main, 'async function attemptHost', 'async function offerHosting');
+  it('the field and the host refusal keep their own lines under their own controls', () => {
+    // A call that reaches the host action has no field to stand at: it keeps the line under the
+    // button that would have asked.
+    const attempt = sliceBetween(main, 'function attemptHost', 'function showHosting');
     assert.match(
       attempt,
-      /hostError\.textContent = picked\.sentence/,
-      'a refused folder reaches no line under the button',
+      /hostError\.textContent = HOST_RUNS_IN_A_CLIENT/,
+      'a refused host reaches no line under the button',
     );
     const wrap = sliceBetween(card, '<div id="host-wrap"', '</div>');
     const button = wrap.indexOf('id="host-button"');
@@ -377,16 +350,14 @@ describe('Enter and a refusal where the start card cannot host', () => {
     assert.match(primary, /attemptJoin\(\)[\s\S]*$/, 'the join is not what Enter runs');
   });
 
-  it('the standing sentence that explains it is on the card, and a page with nothing to say stands none', () => {
-    // The action Enter takes is the join; why starting a room is not offered stands in
-    // `#host-note`, above the button that would be there, and it is visible in every state that has
-    // no action — except the page that is not a Selvage server's own, where there is no sentence
-    // worth reading and the way in the card does have is the whole of what it says.
-    const offering = sliceBetween(main, 'async function offerHosting', 'function showHosting');
-    assert.ok(offering.includes('showHosting('), 'the card is never told what to say about hosting');
+  it('the standing sentence that explains it is on the card, above the action that would be there', () => {
+    // The action Enter takes is the join, and why starting a room is not offered stands in
+    // `#host-note`, where the start action would have been: the card is told once, at load.
+    const showing = sliceBetween(main, 'function showHosting', 'function pageBase');
+    assert.match(main, /^showHosting\(\);$/m, 'the card is never told what to say about hosting');
     assert.match(
-      main,
-      /hostNote\.textContent =\n\s*availability\.kind === 'offered' \|\| availability\.kind === 'silent' \? '' : availability\.note;/,
+      showing,
+      /hostNote\.textContent = note/,
       'the note standing where the button would be is not written',
     );
     // And the element takes no room when it is empty: a card with nothing to say left 0.75rem of
@@ -397,9 +368,9 @@ describe('Enter and a refusal where the start card cannot host', () => {
       'an empty note still takes room under the action',
     );
     assert.match(
-      HOST_NEEDS_A_BROWSER,
-      /Joining a room here still works/,
-      'the sentence for a browser that cannot host does not name the action that works',
+      HOST_RUNS_IN_A_CLIENT,
+      /open the invite here/,
+      'the sentence for a tab that cannot host does not name the next step',
     );
   });
 
@@ -415,7 +386,7 @@ describe('Enter and a refusal where the start card cannot host', () => {
 
   it('both join refusals go through it, rather than writing the line straight in', () => {
     const preflight = sliceBetween(main, 'function attemptJoin', 'async function runJoin');
-    const refused = sliceBetween(main, 'async function runJoin', '/** What the host button says');
+    const refused = sliceBetween(main, 'async function runJoin', '/**\n * The host action, refused');
     for (const [where, body] of [['the pre-flight', preflight], ['a refused join', refused]]) {
       assert.match(body, /showJoinFailure\(/, `${where} writes its refusal without opening the path`);
       assert.ok(
