@@ -11,11 +11,12 @@ the link exactly as it does today.
 ## Reaching the host over Tailscale
 
 Install Tailscale on the host and on every guest and join the machines to the same tailnet.
-The host reads `tailscale ip -4` and puts that address in the invite. A guest page dials the
-invite over the tailnet, so no router port forward and no public address are needed. The
-listener stays off the public internet, but it is still reachable by someone else, so it needs a
-TLS terminator. `tailscale serve` supplies one and hands out the `wss://` form of the address;
-an https page cannot dial plain `ws://`.
+Run `tailscale serve` in front of the relay and advertise the device's fully qualified tailnet
+DNS name and Serve's TLS port in the invite. A guest page dials the `wss://` URL over the
+tailnet, so no router port forward and no public address are needed. The listener stays off the
+public internet, but it is still reachable by someone else, so it needs the terminator. The
+certificate is for the DNS name, not for a numeric `tailscale ip -4` address, and an https page
+cannot dial plain `ws://`.
 
 A host on the same LAN as its guests can advertise its LAN address instead. A host with a
 public address can advertise that directly, with whatever port forward and firewall rules
