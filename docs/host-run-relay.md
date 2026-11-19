@@ -24,6 +24,17 @@ A host on the same LAN as its guests can advertise its LAN address instead. A ho
 public address can advertise that directly, with whatever port forward and firewall rules
 it chooses. Either address needs the same terminator and rate limit.
 
+## Tailcat without a tailnet
+
+[Tailcat](https://github.com/tailscale/tailcat) gives the same reachability without a Tailscale
+account or control plane. The host binds the relay to `127.0.0.1` and runs
+`tailcat serve <port>`. Tailcat prints a `tc...` address. Treat that address as another secret
+invite component. Anyone who holds it can reach the relay.
+
+An editor or agent guest runs `tailcat forward <tc-addr> 18080:<port>` and joins the room at
+`ws://127.0.0.1:18080/` with the room, token and fragment from the host's invite. A browser
+cannot use a `tc...` address as a hostname, so use Tailscale Serve when the guest is this page.
+
 The invite is still a secret. It now carries the host's reachable address as well as the
 room key and the host public key.
 

@@ -101,10 +101,10 @@ jobs:
           lychee --version
 
       # The guard around a workflow's `dry_run` input (`scripts/check_dry_run_gating.py`):
-      # `release.yml` and `deploy-prod.yml` both declare one, its plan step prints what the run
-      # would have done, and every step after each plan step carries `!inputs.dry_run` — which is
-      # the whole of what keeps a rehearsal from cutting a release or moving the public demo's
-      # image. `actionlint` cannot see a condition that is *missing* from a step, so nothing else
+      # `release.yml` declares one, its plan step prints what the run would have done, and every
+      # step after that plan step carries `!inputs.dry_run` — which is the whole of what keeps a
+      # rehearsal from cutting a release.
+      # `actionlint` cannot see a condition that is *missing* from a step, so nothing else
       # reads that. This job's container is `node:22-trixie-slim` and its steps run under `sh`, so
       # the step above installs python3 and python3-yaml; `scripts/ci-local.sh checks` runs the
       # same two files, on the host's own `python3` where it already imports PyYAML and through a
@@ -173,10 +173,9 @@ jobs:
 
       # Every shell script this repository has is under `scripts/`, and the release workflow is
       # the only thing that reaches some of them: its plan runs before the push, while
-      # `page-image.sh` and `verify-page-deploy.sh` run after it, once `main` carries the bump
-      # and the tag exists. So this parse is the last cheap place before a release that they are
-      # read at all. What it catches is a script that does not parse; how each behaves is the
-      # two script suites' business.
+      # `page-image.sh` runs after it, once `main` carries the bump and the tag exists. So this
+      # parse is the last cheap place before a release that they are read at all. What it
+      # catches is a script that does not parse; how each behaves is its suite's business.
       #
       # A glob rather than `git ls-files`, and not only because this job's container cannot read
       # the workspace with git: a glob reaches a script that is not committed yet, too.

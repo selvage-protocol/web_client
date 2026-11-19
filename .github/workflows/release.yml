@@ -1,6 +1,6 @@
 name: release
 
-# The one-click release: a bump word in, a published page image and a demo running it out.
+# The one-click release: a bump word in, a published page image out.
 #
 # A dispatch names which part of the version to move — `patch`, `minor` or `major` — and the
 # run, in this order:
@@ -24,12 +24,7 @@ name: release
 #      interpreter and PyYAML it needs, exactly as `ci.yml`'s install step does.
 #   6. commits it as the owner and pushes it **straight to `main`**, then
 #   7. creates and pushes `v<version>` and asks the API to run `image.yml` at that ref.
-#   8. waits for the page image to exist on `ghcr.io` and dispatches this repository's own
-#      `deploy-prod.yml` with `web_version=<version>`, which is how the public demo's page
-#      container lands on the release. It then waits for the run that dispatch created and
-#      fails with it unless that run concludes `success`, so a release that says the demo
-#      moved is not left standing beside a deploy that failed. The server's line is not named
-#      and so is not touched.
+#   8. waits for the page image to exist on `ghcr.io`.
 #
 # **Two jobs, so the plan runs with a read-only token.** Steps 1–3 above are the `plan` job:
 # it holds `contents: read` and checks out with `persist-credentials: false`, so a rehearsal
@@ -51,10 +46,8 @@ name: release
 # `v*` tag that agrees with `package.json` rather than on the triggering event, so a dispatch
 # at a ref that is not a matching tag still cannot publish.
 #
-# **`main` only.** The bump is pushed to `main`, and this repository's Tailscale federated
-# credential — which the deploy job in step 8 joins the tailnet with — is pinned to the ref
-# subject for `refs/heads/main`, so a dispatch at any other ref is refused by the first step
-# rather than half-run.
+# **`main` only.** The bump is pushed to `main`, so a dispatch at any other ref is refused by the
+# first step rather than half-run.
 #
 # `node:22-trixie-slim` for the same reason `ci.yml` uses it: `npm run build` shells out to
 # ImageMagick 7's `magick` for the sized icons and the GitHub runner image ships ImageMagick 6.
@@ -87,7 +80,7 @@ on:
           - minor
           - major
       dry_run:
-        description: 'Plan only: nothing bumped, committed, tagged, published or deployed'
+        description: 'Plan only: nothing bumped, committed, tagged or published'
         type: boolean
         default: false
 
@@ -105,7 +98,7 @@ jobs:
     runs-on: ubuntu-24.04
     # The plan is a read: the main-only refusal and `scripts/release-plan.sh`'s two refusals
     # and three output lines, and the printed plan. Nothing here writes, commits, tags,
-    # publishes or deploys, so the job holds a read-only token and the checkout leaves no
+    # publishes, so the job holds a read-only token and the checkout leaves no
     # credential on disk. It runs on the hosted runner rather than the release job's container
     # because neither git nor anything else it reaches has to be installed there.
     timeout-minutes: 15
@@ -117,7 +110,7 @@ jobs:
       - name: refuse a run that is not on main
         if: ${{ github.ref != 'refs/heads/main' }}
         run: |
-          echo "::error::release.yml cuts a release from main only, and this run is at $GITHUB_REF: the bump is pushed to main, and the deploy it dispatches joins the tailnet with a credential pinned to refs/heads/main." >&2
+          echo "::error::release.yml cuts a release from main only, and this run is at $GITHUB_REF: the bump is pushed to main." >&2
           exit 1
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,7 +136,7 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
           set -euo pipefail
-          printf 'dry run: nothing was written, committed, tagged, published or deployed.\n'
+          printf 'dry run: nothing was written, committed, tagged or published.\n'
           printf '  package.json is at %s, and its tag is on the remote\n' "$CURRENT"
           printf '  would bump to %s with scripts/bump-version.sh, rebuilding the committed dist/\n' "$VERSION"
           printf '  would commit "chore(bump): release %s" as the owner and push it to main\n' "$VERSION"
@@ -151,24 +144,20 @@ jobs:
           printf '  would create and push v%s\n' "$VERSION"
           printf '  would dispatch image.yml at v%s\n' "$VERSION"
           printf '  would wait for ghcr.io/selvage-protocol/selvage-web:%s to exist\n' "$VERSION"
-          printf '  would dispatch deploy-prod.yml with web_version=%s, then wait for that run and\n' "$VERSION"
-          printf '    fail the release unless it concludes success\n'
 
   release:
     needs: plan
     # A dry run ends with the plan: nothing below it runs, and nothing holding a write token
     # runs for a dry run. The release job is the one that pushes the bump, tags it and
-    # dispatches the image and the deploy, so it is the only job that names a write permission.
+    # dispatches the image, so it is the only job that names a write permission.
     if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-24.04
     container: node:22-trixie-slim
     defaults:
       run:
         shell: bash
-    # The two waits below are the worst case: the page image's tag may take 30 minutes to
-    # appear, and the deploy may take five more to show up in the run list and then 30 to
-    # finish — `scripts/dispatch-and-wait.sh`'s deadlines, the deploy's own 20-minute bound
-    # plus queue time — besides the gate and the bump. 120 minutes covers them.
+    # The page image's tag may take 30 minutes to appear besides the gate and the bump, so
+    # 120 minutes covers the release.
     timeout-minutes: 120
     permissions:
       contents: write
@@ -297,18 +286,3 @@ jobs:
             sleep 20
           done
 
-      # This repository's half of the demo's deploy. It names `web_version` and nothing else,
-      # and the box leaves every line a request does not name exactly as it is, so the server's
-      # container is not touched by anything here. `gh workflow run` prints no run id, so
-      # `scripts/dispatch-and-wait.sh` reads the workflow's runs on both sides of the dispatch
-      # and waits for the run it created: this step fails unless that run concludes `success`,
-      # which is what keeps a green release from standing beside a red deploy.
-      - name: put the demo's page container onto the new tag, and wait for the deploy
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          set -euo pipefail
-          scripts/dispatch-and-wait.sh --dispatch --workflow deploy-prod.yml --ref main \
-            -f "web_version=$VERSION"
