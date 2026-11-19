@@ -195,20 +195,14 @@ describe('binding past room-gone', () => {
 });
 
 /**
- * A room is only ever minted from a folder a person picked.
+ * The page never mints a room.
  *
- * The page has two ways in and they are not the same act. Joining opens somebody else's room
- * from a link and never claims a role: the engine's own default is `guest`, and nothing here
- * overrides it. Starting a room mints one, and the mint is behind the folder picker — a folder
- * a person chose at the moment the room was made, which is what makes the
- * room's working copy a real directory and what makes the mint impossible without a gesture:
- * `showDirectoryPicker` needs transient user activation, so no load, timer or replay can reach
- * the mint at all.
- *
- * This pins the shape rather than the outcome: the browser run of the host flow is what shows
- * the room appearing, and this is what shows there is no second door to it.
+ * The page has one way in. Joining opens somebody else's room from a link and never claims a role:
+ * the engine's own default is `guest`, and nothing here overrides it. A room is started in the
+ * host's own client, which owns the relay and the folder, so no path in this page picks a folder,
+ * asks for a host role or reaches the mint (`host.ts`, `docs/host-run-relay.md`).
  */
-describe('a room is minted only from a folder a person picked', () => {
+describe('the page never mints a room', () => {
   const dir = new URL('../src/browser/', import.meta.url);
   const sources = readdirSync(dir)
     .filter((file) => file.endsWith('.ts'))
@@ -228,24 +222,14 @@ describe('a room is minted only from a folder a person picked', () => {
     assert.ok(sources.some(({ file }) => file === 'main.ts'), 'the scan missed the page entry');
   });
 
-  it('mints in exactly one place, and that place takes the picked folder', () => {
-    // A room is minted by the relay module, so the scan reaches two files: the page entry, which
-    // calls the relay's `hostRoom` and is the one that holds the picked folder, and `relay.ts`,
-    // which mints nothing by itself — it is handed a listing — so the room's own tree still comes
-    // from the picker.
+  it('leaves the mint to the relay module, and never reaches it', () => {
+    // A room is minted in `relay.ts`, which is handed a listing and can be driven by a client that
+    // owns a folder. The page entry is not that client: it imports no mint and asks for no folder.
     const mints = sources.filter(({ text }) => /\bhostRoom\s*\(|PeerEngine\.host\s*\(/.test(text));
     assert.deepEqual(
       mints.map(({ file }) => file).sort(),
-      ['main.ts', 'relay.ts'],
-      'the mint is somewhere other than the page entry and its relay',
-    );
-    const main = sources.find(({ file }) => file === 'main.ts')?.text ?? '';
-    const occurrences = main.match(/\bhostRoom\s*\(/g) ?? [];
-    assert.equal(occurrences.length, 1, `the page mints from ${occurrences.length} places`);
-    assert.match(
-      main,
-      /async function host\(folder: FolderWorkingCopy, displayName: string\)/,
-      'the mint is not a function that requires the picked folder',
+      ['relay.ts'],
+      'the page mints a room of its own',
     );
     const relay = sources.find(({ file }) => file === 'relay.ts')?.text ?? '';
     assert.match(
@@ -253,17 +237,24 @@ describe('a room is minted only from a folder a person picked', () => {
       /export async function hostRoom\([\s\S]*?listing: ListingSource/,
       'the mint does not take the listing the folder walk produced',
     );
+    const main = sources.find(({ file }) => file === 'main.ts')?.text ?? '';
+    assert.ok(!/\bhostRoom\b|pickFolder|folderPickerOf/.test(main), 'the page still reaches for a folder');
   });
 
-  it('a refused or abandoned pick returns before the mint', () => {
+  it('refuses the host action with the sentence that says where the relay runs', () => {
     const main = sources.find(({ file }) => file === 'main.ts')?.text ?? '';
-    const picked = main.indexOf('const picked = await pickFolder(folderPicker)');
-    const refused = main.indexOf("picked.kind === 'refused'");
-    const mint = main.indexOf('await host(picked.folder, displayName)');
-    assert.ok(picked !== -1, 'the host path never asks for a folder');
-    assert.ok(refused !== -1, 'the host path does not read the answer the picker gave');
-    assert.ok(mint !== -1, 'the host path does not start a room');
-    assert.ok(picked < refused, 'the picker\'s answer is read before it is asked for');
-    assert.ok(refused < mint, 'a refused pick still reaches the mint');
+    assert.match(
+      main,
+      /function attemptHost\(\): void \{\n\s*hostError\.textContent = HOST_RUNS_IN_A_CLIENT;/,
+      'a call to host answers with something other than the sentence',
+    );
+    // The control itself is never revealed, and the click listener is what answers a call that
+    // reaches it anyway.
+    assert.match(main, /hostButton\.hidden = true/, 'the host action is still revealed');
+    assert.match(
+      main,
+      /hostButton\.addEventListener\('click', \(\) => \{\n\s*void attemptHost\(\);/,
+      'a press on the host action answers with nothing',
+    );
   });
 });

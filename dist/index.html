@@ -645,48 +645,34 @@
         transition: background-color 0.15s ease,
         border-color 0.15s ease, transform 0.08s ease; }
       #join-button:active:not(:disabled) { transform: translateY(1px); }
-      /* One action leads each intent and the address bar picks it: a bare page is where a room
-         starts, so the start button is the card's own and the join above it is the quiet way
-         in; a page an invite named leads with Join and keeps the start action under it. Either
-         way both actions are on the card — the one that is not leading is muted, never hidden. */
+      /* The card's action is the join on both intents: a bare page is where a room's invite is
+         pasted, so the start variant mutes Join for the frame before the bundle lands and
+         `no-host` then makes it the card's own. */
       #host-wrap { margin-top: 1.3rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
       #host-button { display: flex; width: 100%; justify-content: center; margin: 0;
         padding: 0.8em 1.1em; font-size: 1em;
         transition: background-color 0.15s ease,
         border-color 0.15s ease, transform 0.08s ease; }
       #host-button:active:not(:disabled) { transform: translateY(1px); }
-      /* The guest card's other intent, as the one line it is worth there: hosting is not what
-         the person came for, so it is a quiet verb with no button's chrome, and pressing it is
-         what puts the start card — this paragraph's home — in front of them. */
-      #host-quiet { display: flex; width: 100%; justify-content: center; margin: 0; padding: 0.3em 0;
-        background: none; border-color: transparent; color: var(--muted-foreground);
-        font-size: 0.9em; }
-      #host-quiet:hover:not(:disabled) { background: none; border-color: transparent;
-        color: var(--foreground); }
+      /* Hosting is not on offer: the relay runs in the host's own client, so the start action and
+         the guest's quiet line to it are both gone (`host.ts`). */
       #join.card-start #join-button { background: var(--muted); border-color: var(--border);
         color: var(--foreground); font-weight: 500; }
       #join.card-start #join-button:hover:not(:disabled) { background: var(--muted-hover);
         border-color: var(--primary); }
-      #join.card-start #host-button { background: var(--primary); border-color: var(--primary);
-        color: var(--primary-foreground); font-weight: 600; }
       #join.card-start #host-button:hover:not(:disabled) { background: var(--primary-hover);
         border-color: var(--primary-hover); }
-      /* A page that cannot start a room leads with the way in it does have. Measured at 390x844 in
-         a browser with no directory picker: the card led with a four-line refusal, joining was
-         behind a 11.9 px `Have an invite link?` summary, and the one action the card could take was
-         styled as the muted one. `no-host` is set by `showHosting` where the start action cannot be
-         offered at all — no picker, or a page that is not the server's own — and it makes Join the
-         card's action. */
+      /* A page where hosting is not offered leads with the way in it does have: `no-host` is set
+         by `showHosting`, and it makes Join the card's action rather than the muted one. */
       #join.no-host #join-button { background: var(--primary); border-color: var(--primary);
         color: var(--primary-foreground); font-weight: 600; }
       #join.no-host #join-button:hover:not(:disabled) { background: var(--primary-hover);
         border-color: var(--primary-hover); }
-      /* The start action's own failure, under the button that asked for the name. */
+      /* The refusal a call to the host action that is not offered gets. */
       #host-error { margin: 0.6rem 0 0; color: var(--danger); font-size: 0.9em; }
       #host-error:empty { display: none; }
-      /* The line the card stands where it has no action: a browser without a directory picker, a
-         page that is not a Selvage server's, or a `/meta` read that had not answered. Written by
-         the bundle (it is copy with one home, `host.ts`). */
+      /* The line the card stands where it has no action: why a tab cannot host a room, and where
+         the relay does run instead. Written by the bundle (it is copy with one home, `host.ts`). */
       #host-note { margin: 0.75rem 0 0; color: var(--muted-foreground); font-size: 0.85em;
         line-height: 1.5; }
       /* A card with nothing to say leaves no room for a sentence either: the empty note was 0.75rem
@@ -1080,22 +1066,15 @@
             <p id="join-error" role="alert"></p>
           </details>
         </form>
-        <!-- Starting a room from this page. Hidden in the markup and revealed by the bundle
-             only once this page's own origin has answered `/meta` and this browser has been
-             found to have a directory picker: a control that could only refuse is worse than a
-             sentence, and the sentence is what stands here when either is missing. `type`
-             `button` keeps it out of the join form's submission, so the pre-bundle hold on that
-             form has nothing to do with it.
-
-             The card has two intents and each says hosting its own way: on the bare page this
-             is the card's own action, and on a guest's it is one quiet line — pressing it is
-             what puts the start card in front of the person (`main.ts`, `swapCardToStart`).
-
-             The card offers the action and says nothing else: `#host-note` carries a sentence only
-             where there is no action to offer. -->
+        <!-- Starting a room from this page: never offered. The relay runs in the host's own client
+             and a tab cannot open a listening socket, so the bundle hides this action and stands
+             the sentence in `#host-note` where it would have been (`host.ts`,
+             `docs/host-run-relay.md`). The button stays, hidden, so a call that reaches it anyway
+             is answered with that sentence rather than doing nothing, and `type` `button` keeps it
+             out of the join form's submission, so the pre-bundle hold on that form has nothing to
+             do with it. -->
         <div id="host-wrap" hidden>
           <button id="host-button" type="button" hidden>Share a folder…</button>
-          <button id="host-quiet" type="button" hidden>Or start your own session</button>
           <p id="host-error" role="alert"></p>
           <p id="host-note"></p>
         </div>
@@ -1170,7 +1149,7 @@
         // invite path — and with it shut there is nothing in it to click or
         // paste, which leaves the name field's Enter arriving as the implicit
         // submission this form would make of it. That one is the card's own
-        // action, not a join: the bundle decides it from `/meta` once it is here
+        // action, not a join: the bundle decides it once the card is live
         // (`runPrimary`).
         //
         // `held` is what the markup recorded when it caught the submit, and it
@@ -1190,10 +1169,8 @@
           return !!(path && path.open === true);
         }
         // The card's own answer to an action it cannot take yet: it says so. The
-        // start action needs a folder picker, which the browser answers only
-        // under a click of the person's own — a replay a load later is refused,
-        // and worded as a refusal of their folder — so a held Enter is answered
-        // with the load and dropped, and the card is live a moment later.
+        // bundle is what settles the card, so a held Enter is answered with the
+        // load and dropped, and the card is live a moment later.
         function sayStillLoading() {
           var line = document.getElementById('join-message');
           if (line) {

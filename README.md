@@ -2,10 +2,10 @@
 
 The browser client for the Selvage session protocol, over the engine and the bridge the editor
 clients share. A share link opens the page, a guest edits in Monaco and converges with the room, and
-a Chromium browser can also start a room here: pick a folder and the folder itself is what the room
-shares, with the host's working copy staying the source of truth. Joining is one click, in every
-browser; hosting from the page needs the File System Access API, so it is Chrome and Edge and not
-Firefox or Safari, and a page can only host where the server that serves it also answers `/meta`.
+the host's own client runs the relay, so this page joins the rooms an editor client or the MCP
+server hosts: a browser tab cannot open a listening socket. A guest edits in Monaco and converges
+with the room, and the folder itself is what the room shares, with the host's working copy staying
+the source of truth.
 
 ## Get it working
 
@@ -17,9 +17,8 @@ npm run build # write dist/
 npm run serve # serve dist/ at http://localhost:8081/
 ```
 
-Open `http://localhost:8081/`, paste an invite link, type a name and join. With no link the card is
-the one that can start a room, where the page is served by a Selvage server and the browser has a
-folder picker.
+Open `http://localhost:8081/`, paste an invite link, type a name and join. With no link the card
+asks for one: a room is started in the host's own client, and this page cannot start one.
 
 `npm run serve` is `python3 -m http.server 8081 --directory dist`. That port is the development
 server's alone, chosen to avoid `selvaged`'s default 8080; it is not the deployed page's port. The
@@ -63,8 +62,7 @@ a workflow file alone does not establish that the replacement public jobs ran.
 
 There is no account: the name typed on the card is all the room knows a person by, and the page keeps
 it in the browser so the next card is prefilled. The file panel's width is remembered the same way.
-Nothing else is written down, and the mark a hosting tab leaves itself is gone with the tab: a room
-lives in memory and ends when its host leaves.
+Nothing else is written down: a room's text lives in memory and ends when its host leaves.
 
 ## More
 
@@ -74,10 +72,12 @@ lives in memory and ends when its host leaves.
   relay `SELVAGE_SERVER` gives it
 - [Join a room](docs/join-a-room.md): the page-link shape, the copy-invite commands, and the join
   card
-- [Hosting from the page](docs/hosting-from-the-page.md): `showDirectoryPicker`, the stale-file
-  guard, and what the folder shares
+- [Hosting from the page](docs/hosting-from-the-page.md): why the card offers no start action, and
+  where the relay runs instead
 - [What the page does](docs/what-the-page-does.md): the card, the session bar, follow, and the
   notices column
+- [Host-run relay](docs/host-run-relay.md): why a page joins a host-run relay, and how the host
+  reaches guests over Tailscale
 - [Languages and peer markers](docs/languages-and-peer-markers.md): the mode list, and how a peer is
   drawn
 

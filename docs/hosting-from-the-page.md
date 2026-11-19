@@ -1,63 +1,26 @@
 # Hosting from the page
 
-A page with no invite can start one: type the name, press **Share a folder…**, and the browser asks
-for a folder. The folder is the room's working copy — the page walks it, honoring the folder's own
-ignore files, for the listing a guest's tree draws, reads a file out when a guest asks for it, and
-writes the text the room settles on back through it, within half a second of the room settling and
-whoever typed it. Nothing is uploaded, and no file outside the folder the person picked can be named
-through the handle. The invite link is
-then the one the session bar carries, and it is the same link an editor host would have produced:
-whoever opens it joins as a guest and edits the folder with them.
+The page does not host a room. A browser tab cannot open a listening socket, so the relay runs in
+the host's own client — an editor client, or the MCP server on the machine that holds the folder
+(see [Host-run relay](host-run-relay.md)). The card offers one action, the join, and where the
+start action would have been it says why:
 
-Seven things that shape it:
+> A browser tab cannot run a room’s relay. Start the room in an editor client or the MCP server on
+> the machine with the folder, then open the invite here.
 
-- **Chromium only, and only where the page's origin is the server.** `showDirectoryPicker` is Chrome
-  and Edge; Firefox and Safari get a sentence where the button would be, and joining still works
-  there. A page that is not served by a Selvage server (the page-only image with no `SELVAGE_SERVER`,
-  a static dev server) says so instead of offering a control that could only refuse (see
-  [Serving the page](serving-the-page.md)).
-- **Read and write.** The picker asks for both, because the room's settled text has to reach the
-  folder or the room is a scratch pad rather than a working copy.
-- **The stale-file guard.** The page holds a replica and a directory handle and cannot see the file
-  change under it, so before writing it compares the file's `lastModified` with the stamp its last
-  read or write saw. If something else wrote the file — a formatter, a build, a `git checkout`,
-  another editor — the write is **refused** and reported instead of overwriting it, which is what VS
-  Code and Neovim do on save and what a page has no watcher to do any other way. A path the page never
-  read is refused the same way.
-- **The tab is the host, and a reload ends the room.** A host's invite link is not written into the
-  address bar: reloading would rejoin its own room as a guest with no folder while the room's grace
-  ran out underneath it. The card offers the action and says nothing else, and the load after a reload
-  says what the reload cost — the room, its invite link and the keystrokes still inside the settle,
-  and everything else is already in the folder. Reclaiming inside the grace is not built.
-- **Not every file in the folder is shared.** Anyone with the invite link can open and edit the files
-  the page shares, and their edits — and yours — are written back to those files on disk. `.env`,
-  `.git/**` and the key names are excluded from the listing, a binary-named path is left out, and a
-  file past the size bound is refused. The folder's own ignore files narrow the listing the way they
-  narrow a `git status`: `<folder>/.git/info/exclude` at the lowest precedence, then every
-  `.gitignore` at or below the folder, the last matching pattern deciding, and an ignored directory
-  is never walked into. Their patterns follow `gitignore(5)`, with one divergence — a `?` and a
-  bracket class count characters, as `fnmatch(3)` documents, where git counts UTF-8 bytes. They bind
-  the file a guest asks for as well as the listing: a path that is there and ignored is refused the
-  same silent `not-granted` an excluded name gets, and a path that is not there is refused `missing`
-  like any other absent path, which says nothing about the ignore rule either.
-  One room listing carries a bounded number of paths and a bounded number of path bytes. A folder
-  past either is shared in part, the walk stopping at the first path that would cross the bound, and
-  that is said **to the host** — once for the cut, on the page's transient line — because the host is
-  the one who can share a smaller folder. A guest sees a listing and never a cut.
-- **The folder is the bound on what the page reads.** A `.gitignore` above the picked folder is not
-  read, so a folder shared from inside a repository does not honor the rules above it, and neither
-  git's user-wide ignore (`core.excludesFile`) nor any other rule outside the folder is read. What
-  this cannot pin: the File System Access API has no `lstat`, so a link is read only as the API
-  presents it — Chromium neither lists a symbolic link nor answers for one by name, and a linked
-  `.gitignore` or `.git` therefore supplies no rules, but an implementation that listed a link as an
-  ordinary file would be read as one. An ignore file larger than the files a room carries is not
-  read either, and a `.gitignore` that is not UTF-8 text is no ignore file at all.
-- **A file the host opens is the host's own act.** The folder's ignore files are the folder's rules
-  for what the room shares, not a lock on the disk: the page's window is driven by the listing, so a
-  person opens what the room shares, and a file the host itself brings to the editor is checked
-  against the shared excludes and the size bound alone, because a path the host itself chooses is not
-  a peer's guess.
+The invite still names the host's reachable address. This page reads the socket endpoint from the
+link exactly as it always has, so a guest joins a host-run room from here with nothing else to know
+(see [Where the server comes from](where-the-server-comes-from.md)).
 
-**Download** takes a document out of the room and onto the person's disk — for a guest who has just
-edited a file and cannot keep it, and for a host whose folder refused the write. It is one control
-per file row, where the room's files are, and it is there for every file the room holds.
+Nothing on the wire changes. Signatures, counters, roles, holds, awareness and CRDT sync are
+peer-side facts and behave as they did with a deployed relay. The host's client is what reads the
+folder, seals the listing the room's state is drawn from, and writes the settled text back to disk,
+and it stays online for as long as the room does.
+
+Two things a page can do are not what a room needs. `showDirectoryPicker` and the File System Access
+API let a page read and write a folder the person chose, but no browser API lets a tab listen for a
+connection. A room's host is the peer that answers the socket, so the host has to be a process that
+can listen.
+
+The page still asks for a name and a link, and a held submit is replayed once the bundle arrives,
+whether the link came from the address bar or the paste box. Joining is unchanged.
