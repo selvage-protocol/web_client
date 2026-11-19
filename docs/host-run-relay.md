@@ -27,19 +27,21 @@ it chooses. Either address needs the same terminator and rate limit.
 ## Tailcat without a tailnet
 
 [Tailcat](https://github.com/tailscale/tailcat) gives the same reachability without a Tailscale
-account or control plane. Put the TLS terminator and rate limit in front of the relay and run
-`tailcat serve <port>` against that protected port. Tailcat prints a `tc...` address. Send the
-guest that address, the protected port, and the complete invite URL the host's client copied.
+account or control plane. It carries WireGuard-encrypted traffic through DERP and NAT traversal.
+Put rate limiting in front of the relay. If a TLS terminator is also used, its certificate must
+name the host that appears in the invite. Run `tailcat serve <protected-port>` against the
+protected endpoint. Tailcat prints a `tc...` address. Send the guest that address, the protected
+port, and the complete invite URL the host's client copied.
 
 An invite is one URL. Its `?room=…&token=…` query names the room and carries the join token. The
 text after `#` is the fragment: `#k=<room-key>&h=<host-key>`. The client needs both parts. Copy
-them exactly. A host invite looks like this with real values in place of the angle brackets:
+them exactly. A wire invite looks like this with real values in place of the angle brackets:
 
 ```
-ws://<host-address>:<relay-port>/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
+ws://<host-address>:<protected-port>/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
 ```
 
-The guest runs the forward with the protected port:
+The guest forwards the protected port to a local port. If the protected port is `8080`:
 
 ```sh
 tailcat forward <tc-addr> 18080:8080
@@ -51,9 +53,11 @@ Then the guest changes only the invite's host and port:
 ws://127.0.0.1:18080/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
 ```
 
-Keep `/session`, the full query and the full fragment. Change nothing else. A browser cannot use
-a `tc...` address as a hostname, so use Tailscale Serve when the guest is this page. Treat the
-tailcat address and the invite as one secret.
+Keep the invite's path, the whole query and the whole fragment. Change nothing else. A page-link
+invite keeps its `/page/` path. For a `wss://` invite, keep the hostname in the certificate and
+route it to `127.0.0.1` locally. Browsers cannot use a `tc...` address as a hostname, so use
+Tailscale Serve when the guest is this page. Treat the tailcat address and the invite as one
+secret.
 
 The invite is still a secret. It now carries the host's reachable address as well as the
 room key and the host public key.
