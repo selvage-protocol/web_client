@@ -24,6 +24,38 @@ A host on the same LAN as its guests can advertise its LAN address instead. A ho
 public address can advertise that directly, with whatever port forward and firewall rules
 it chooses. Either address needs the same terminator and rate limit.
 
+## Tailcat without a tailnet
+
+[Tailcat](https://github.com/tailscale/tailcat) carries the relay over WireGuard through DERP and
+NAT traversal. Put a TLS terminator in front of the relay. These steps are for an editor or agent
+guest. A browser guest needs Tailscale Serve.
+
+Host:
+
+1. Start the room in the host client. Copy the invite URL.
+2. Read the port from the invite. In `wss://relay.example.com:8080/session?…` it is `8080`.
+3. Run `tailcat serve 8080` with that port.
+4. Send the guest the printed `tc...` address, the port `8080`, the certificate hostname
+   `relay.example.com`, and the full invite URL.
+
+The invite ends with a fragment such as `#k=<room-key>&h=<host-key>`. It is part of the URL. The
+guest must copy it unchanged.
+
+Guest:
+
+1. Add `127.0.0.1 relay.example.com` to the local hosts file.
+2. Run `tailcat forward <tc-addr> 18080:8080`.
+3. Insert `wss://relay.example.com:18080` in place of the invite's scheme, host and port. Keep
+   `/session`, the `?room=…&token=…` query and the `#k=…&h=…` fragment.
+4. Open the new URL in the client:
+
+```
+wss://relay.example.com:18080/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
+```
+
+Treat the `tc...` address and the invite as one secret. Rate-limit the relay. Restrict inbound
+access to the host with a firewall.
+
 The invite is still a secret. It now carries the host's reachable address as well as the
 room key and the host public key.
 
