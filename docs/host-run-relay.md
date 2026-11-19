@@ -27,27 +27,30 @@ it chooses. Either address needs the same terminator and rate limit.
 ## Tailcat without a tailnet
 
 [Tailcat](https://github.com/tailscale/tailcat) carries the relay over WireGuard through DERP and
-NAT traversal. These steps are for an editor or agent guest. A browser guest needs Tailscale Serve.
+NAT traversal. Put a TLS terminator in front of the relay. These steps are for an editor or agent
+guest. A browser guest needs Tailscale Serve.
 
 Host:
 
 1. Start the room in the host client. Copy the invite URL.
-2. Read the port from the invite. In `ws://host:8080/session?…` it is `8080`.
+2. Read the port from the invite. In `wss://relay.example.com:8080/session?…` it is `8080`.
 3. Run `tailcat serve 8080` with that port.
-4. Send the guest the printed `tc...` address, the port `8080`, and the full invite URL.
+4. Send the guest the printed `tc...` address, the port `8080`, the certificate hostname
+   `relay.example.com`, and the full invite URL.
 
 The invite ends with a fragment such as `#k=<room-key>&h=<host-key>`. It is part of the URL. The
 guest must copy it unchanged.
 
 Guest:
 
-1. Run `tailcat forward <tc-addr> 18080:8080`.
-2. Insert `127.0.0.1:18080` in place of the invite's `host:port`. Keep `/session`, the `?room=…&token=…`
-   query and the `#k=…&h=…` fragment.
-3. Open the new URL in the client:
+1. Add `127.0.0.1 relay.example.com` to the local hosts file.
+2. Run `tailcat forward <tc-addr> 18080:8080`.
+3. Insert `wss://relay.example.com:18080` in place of the invite's scheme, host and port. Keep
+   `/session`, the `?room=…&token=…` query and the `#k=…&h=…` fragment.
+4. Open the new URL in the client:
 
 ```
-ws://127.0.0.1:18080/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
+wss://relay.example.com:18080/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
 ```
 
 Treat the `tc...` address and the invite as one secret. Rate-limit the relay. Restrict inbound
