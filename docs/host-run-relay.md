@@ -28,14 +28,32 @@ it chooses. Either address needs the same terminator and rate limit.
 
 [Tailcat](https://github.com/tailscale/tailcat) gives the same reachability without a Tailscale
 account or control plane. Put the TLS terminator and rate limit in front of the relay and run
-`tailcat serve <port>` against that protected port. Tailcat prints a `tc...` address. Share that
-address and the port with the guest. Treat both as secrets. Anyone who holds them can reach the
-relay.
+`tailcat serve <port>` against that protected port. Tailcat prints a `tc...` address. Send the
+guest that address, the protected port, and the complete invite URL the host's client copied.
 
-An editor or agent guest runs `tailcat forward <tc-addr> 18080:<port>`, then replaces only the
-invite's host and port with `127.0.0.1:18080`. The `/session` path, query and fragment stay as the
-host sent them. A browser cannot use a `tc...` address as a hostname, so use Tailscale Serve when
-the guest is this page.
+An invite is one URL. Its `?room=…&token=…` query names the room and carries the join token. The
+text after `#` is the fragment: `#k=<room-key>&h=<host-key>`. The client needs both parts. Copy
+them exactly. A host invite looks like this with real values in place of the angle brackets:
+
+```
+ws://<host-address>:<relay-port>/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
+```
+
+The guest runs the forward with the protected port:
+
+```sh
+tailcat forward <tc-addr> 18080:8080
+```
+
+Then the guest changes only the invite's host and port:
+
+```
+ws://127.0.0.1:18080/session?room=<room-id>&token=<token>#k=<room-key>&h=<host-key>
+```
+
+Keep `/session`, the full query and the full fragment. Change nothing else. A browser cannot use
+a `tc...` address as a hostname, so use Tailscale Serve when the guest is this page. Treat the
+tailcat address and the invite as one secret.
 
 The invite is still a secret. It now carries the host's reachable address as well as the
 room key and the host public key.
