@@ -27,13 +27,15 @@ it chooses. Either address needs the same terminator and rate limit.
 ## Tailcat without a tailnet
 
 [Tailcat](https://github.com/tailscale/tailcat) gives the same reachability without a Tailscale
-account or control plane. The host binds the relay to `127.0.0.1` and runs
-`tailcat serve <port>`. Tailcat prints a `tc...` address. Treat that address as another secret
-invite component. Anyone who holds it can reach the relay.
+account or control plane. Put the TLS terminator and rate limit in front of the relay and run
+`tailcat serve <port>` against that protected port. Tailcat prints a `tc...` address. Share that
+address and the port with the guest. Treat both as secrets. Anyone who holds them can reach the
+relay.
 
-An editor or agent guest runs `tailcat forward <tc-addr> 18080:<port>` and joins the room at
-`ws://127.0.0.1:18080/` with the room, token and fragment from the host's invite. A browser
-cannot use a `tc...` address as a hostname, so use Tailscale Serve when the guest is this page.
+An editor or agent guest runs `tailcat forward <tc-addr> 18080:<port>`, then replaces only the
+invite's host and port with `127.0.0.1:18080`. The `/session` path, query and fragment stay as the
+host sent them. A browser cannot use a `tc...` address as a hostname, so use Tailscale Serve when
+the guest is this page.
 
 The invite is still a secret. It now carries the host's reachable address as well as the
 room key and the host public key.
