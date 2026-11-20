@@ -1598,6 +1598,17 @@ describe('moving a file', () => {
     assert.equal(said.at(-1), 'Moved main.ts into tests');
   });
 
+  it('ends a cancelled pointer drag without leaving the row dimmed', () => {
+    const { pane, view, calls } = movable();
+    view.render();
+    pane.fire('dragstart', { target: rowFor(pane, 'main.ts'), dataTransfer: dataTransfer() });
+    assert.ok(rowFor(pane, 'main.ts').parentElement.classes.includes('dragging'), 'the row was not picked up');
+
+    pane.fire('dragend', {});
+    assert.deepEqual(calls, [], 'a drag that ended over nothing moved the file');
+    assert.equal(allWithClass(pane, 'dragging').length, 0, 'the row is still dimmed after the drag ended');
+  });
+
   it('walks the folders from the keyboard and drops the file where the choice is', async () => {
     const { pane, view, calls, said } = movable();
     view.render();

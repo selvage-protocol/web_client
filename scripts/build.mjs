@@ -8,7 +8,7 @@
  */
 
 import { build } from 'esbuild';
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,8 +77,21 @@ if (!inputs.some((input) => input.includes('monaco-editor'))) {
   process.exit(1);
 }
 
+/**
+ * The served shell drops what only a reader of the source needs. Both pages keep their comments in
+ * `public/`, where the page tests read them; a browser downloads and parses the generated copy.
+ * CSS comments are stripped only inside `<style>`, so comment-shaped text in a script stays data.
+ */
+function servedShell(page) {
+  return readFileSync(resolve(root, 'public', page), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/g, (_all, open, css, close) =>
+      open + css.replace(/\/\*[\s\S]*?\*\//g, '') + close,
+    );
+}
+
 for (const page of ['index.html', '404.html']) {
-  cpSync(resolve(root, 'public', page), resolve(root, 'dist', page));
+  writeFileSync(resolve(root, 'dist', page), servedShell(page));
 }
 // Identity: the owner's mark, byte-identical from the site. Sized icons are
 // rendered here, at build time, from the 800px opaque mark — no hand-scaled

@@ -33,8 +33,7 @@ export interface GrantChild {
  * is read.
  */
 export function grantLevels(paths: Iterable<string>): Map<string, GrantChild[]> {
-  const root: Level = { name: '', path: '', directory: true, children: [] };
-  const byName = new Map<string, Map<string, Level>>([['', new Map()]]);
+  const root = directory('', '');
   for (const path of paths) {
     // A listing that reached this client passed receipt validation, and one the host
     // wrote passed the publish rule; neither is trusted here, because a tree row — and
@@ -46,39 +45,41 @@ export function grantLevels(paths: Iterable<string>): Map<string, GrantChild[]> 
     let parent = root;
     for (let index = 0; index < segments.length; index += 1) {
       const name = segments[index] ?? '';
-      let level = byName.get(parent.path);
-      if (level === undefined) {
-        level = new Map();
-        byName.set(parent.path, level);
-      }
-      const known = level.get(name);
+      const last = index === segments.length - 1;
+      const known = parent.byName.get(name);
       if (known !== undefined) {
-        if (index < segments.length - 1) {
+        if (!last && !known.directory) {
           // A path that is both a directory and a file is a tree entry either way; the
-          // directory is the one that can be gone into.
-          known.directory = true;
+          // directory is the one that can be gone into. Promote the file in place so its
+          // position among its siblings does not move.
+          const into = directory(known.name, known.path);
+          parent.byName.set(name, into);
+          parent.children[parent.children.indexOf(known)] = into;
+          parent = into;
+        } else if (known.directory) {
+          parent = known as Directory;
         }
-        parent = known;
         continue;
       }
-      const node: Level = {
-        name,
-        path: parent.path === '' ? name : `${parent.path}/${name}`,
-        directory: index < segments.length - 1,
-        children: [],
-      };
-      level.set(name, node);
-      parent.children.push(node);
-      parent = node;
+      if (last) {
+        const file: GrantChild = { name, path, directory: false };
+        parent.byName.set(name, file);
+        parent.children.push(file);
+      } else {
+        const into = directory(name, parent.path === '' ? name : `${parent.path}/${name}`);
+        parent.byName.set(name, into);
+        parent.children.push(into);
+        parent = into;
+      }
     }
   }
 
   const levels = new Map<string, GrantChild[]>();
-  const walk = (node: Level): void => {
+  const walk = (node: Directory): void => {
     levels.set(node.path, order(node.children));
     for (const child of node.children) {
       if (child.directory) {
-        walk(child);
+        walk(child as Directory);
       }
     }
   };
@@ -86,13 +87,19 @@ export function grantLevels(paths: Iterable<string>): Map<string, GrantChild[]> 
   return levels;
 }
 
-/** One level being derived: a tree entry plus the children hung under it. */
-interface Level extends GrantChild {
-  children: Level[];
+interface Directory extends GrantChild {
+  directory: true;
+  children: GrantChild[];
+  byName: Map<string, GrantChild>;
 }
 
-/** One level's children in the order a tree reads them, without the derivation's own field. */
-function order(nodes: Level[]): GrantChild[] {
+/** A directory carries the children and the names already seen under it; a file is a bare child. */
+function directory(name: string, path: string): Directory {
+  return { name, path, directory: true, children: [], byName: new Map() };
+}
+
+/** One level's children in the order a tree reads them. */
+function order(nodes: readonly GrantChild[]): GrantChild[] {
   return [...nodes]
     .sort((left, right) => {
       if (left.directory !== right.directory) {
@@ -100,5 +107,6 @@ function order(nodes: Level[]): GrantChild[] {
       }
       return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
     })
-    .map((node) => ({ name: node.name, path: node.path, directory: node.directory }));
+    // A directory is the derivation's own object; the level hands back the plain child.
+    .map((node) => (node.directory ? { name: node.name, path: node.path, directory: true } : node));
 }
