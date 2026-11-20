@@ -186,6 +186,13 @@ export class GrantTreeView {
    * event rebuilds it.
    */
   private listingKeys: ListingKeys | undefined;
+  /**
+   * The row chrome without the listing-derived halves, and the listing key it was drawn with.
+   * Both are cheap to compare, so a presence frame need not join the whole listing into the key
+   * again just to learn that it drew the same rows.
+   */
+  private drawnChrome = '';
+  private drawnKeyed: ListingKeys | undefined;
   /** Each file row's badge container, so a badge repaint has somewhere to land. */
   private readonly hosts = new Map<string, HTMLElement>();
   /** What each row's badges were last drawn with. */
@@ -270,7 +277,7 @@ export class GrantTreeView {
     const listing = this.source.grantListing();
     const current = this.source.currentPath();
     const keyed = this.listingKey(listing, current);
-    const rows = rowsKey({
+    const chrome = {
       current,
       touch: this.touch(),
       draft: this.draft === undefined ? '' : `${this.draft.kind}:${this.draftHome()}`,
@@ -281,20 +288,29 @@ export class GrantTreeView {
         this.holding === undefined || this.holding.pointer
           ? ''
           : `${this.holding.path}\u0000${this.holding.into}`,
-      paths: keyed.paths,
-      marks: keyed.marks,
-    });
-    if (rows === this.drawnRows) {
+    };
+    const chromeKey = rowsKey({ ...chrome, paths: '', marks: '' });
+    if (this.drawnRows !== '' && keyed === this.drawnKeyed && chromeKey === this.drawnChrome) {
       this.refreshBadges();
       return;
     }
+    const rows = rowsKey({ ...chrome, paths: keyed.paths, marks: keyed.marks });
+    const changed = rows !== this.drawnRows;
     this.drawnRows = rows;
+    this.drawnKeyed = keyed;
+    this.drawnChrome = chromeKey;
+    if (!changed) {
+      this.refreshBadges();
+      return;
+    }
     this.rebuild(listing, current);
   }
 
   /** Empties the pane and forgets the tree, for the end of a session. */
   reset(): void {
     this.drawnRows = '';
+    this.drawnChrome = '';
+    this.drawnKeyed = undefined;
     this.listingKeys = undefined;
     this.hosts.clear();
     this.badges.clear();
